@@ -266,6 +266,16 @@ td:last-child { border-right: 1px solid var(--line); border-radius: 0 9px 9px 0;
   background: var(--soft);
 }
 .device-card strong { display: block; margin-bottom: 4px; }
+.client-card span {
+  display: block;
+  margin-top: 6px;
+  color: var(--ink);
+}
+.client-card small {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
 .key-panel { max-width: 760px; }
 .form-grid {
   display: grid;

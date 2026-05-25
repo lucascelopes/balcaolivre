@@ -67,7 +67,7 @@ function setView(view) {
   const titles = {
     dashboard: ["Dashboard", "Metricas de uso, chaves e clientes ativos."],
     licenses: ["Licencas", "Chaves criadas, status, maquina vinculada e vencimento."],
-    devices: ["Clientes", "Dados enviados pelos PDVs instalados."],
+    devices: ["Clientes", "Dados cadastrais sincronizados pelo Balcao Livre PDV."],
     keys: ["Criar chave", "Gere uma licenca unica por periodo."]
   };
   qs("#viewTitle").textContent = titles[view][0];
@@ -140,20 +140,21 @@ function renderLicenses() {
 function renderDevices() {
   const devices = state.dashboard.recentDevices || [];
   qs("#devicesList").innerHTML = devices.length
-    ? devices.map((item) => `
-      <article class="device-card">
-        <strong>${escapeHtml(item.profile.businessName || item.profile.ownerName || item.machineCode || "Cliente")}</strong>
-        <span>${escapeHtml([item.profile.cnpj, item.profile.phone].filter(Boolean).join(" | "))}</span>
-        <small>Responsavel: ${escapeHtml(item.profile.ownerName || "-")}</small>
-        <small>Cidade/UF: ${escapeHtml([item.profile.city, item.profile.state].filter(Boolean).join(" / ") || "-")}</small>
-        <small>PC ${escapeHtml(item.machineCode || "-")} - versao ${escapeHtml(item.appVersion || "-")}</small>
-        <small>Mesas abertas: ${item.metrics.openBoardsCount || 0} - Produtos: ${item.metrics.productsCount || 0}</small>
-        <small>Caixa: ${money(item.metrics.cashTotal || 0)} - Vendas hoje: ${money(item.metrics.salesToday || 0)}</small>
-        <small>Impressora: ${escapeHtml(item.settings.preferredPrinterName || "padrao do Windows")}</small>
-        <small>Comprovante: ${escapeHtml(item.settings.printLayout || "-")} - QR: ${item.settings.receiptQrEnabled ? escapeHtml(item.settings.receiptQrKind || "ativo") : "desligado"}</small>
-        <small>Ultimo check-in: ${dateTime(item.lastSeenAt)}</small>
-      </article>
-    `).join("")
+    ? devices.map((item) => {
+      const profile = item.profile || {};
+      const name = profile.businessName || profile.legalName || profile.ownerName || "Cliente";
+      const addressParts = [profile.address, profile.city, profile.state].filter(Boolean);
+      return `
+        <article class="device-card client-card">
+          <strong>${escapeHtml(name)}</strong>
+          <span>CNPJ: ${escapeHtml(profile.cnpj || "-")}</span>
+          <span>Telefone: ${escapeHtml(profile.phone || "-")}</span>
+          <span>Endereco: ${escapeHtml(addressParts.join(" - ") || "-")}</span>
+          <span>Responsavel: ${escapeHtml(profile.ownerName || "-")}</span>
+          <small>Ultima vez mexido: ${dateTime(item.lastSeenAt)}</small>
+        </article>
+      `;
+    }).join("")
     : `<div class="device-card">Nenhum app sincronizou ainda.</div>`;
 }
 
