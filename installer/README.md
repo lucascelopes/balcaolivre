@@ -1,6 +1,6 @@
 # Balcao Livre PDV - instalador e atualizacao
 
-Este projeto publica o PDV como instalador independente `.exe`. O app consulta um `version.json`; se a versao publicada for maior que a instalada, ele baixa e abre o instalador.
+Este projeto publica o PDV como instalador independente `.exe`. O app consulta um `version.json`; se a versao publicada for maior que a instalada, ele baixa o instalador, instala em modo silencioso e reabre o PDV atualizado.
 
 ## Fluxo recomendado
 

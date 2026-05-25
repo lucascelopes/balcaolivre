@@ -164,7 +164,8 @@ public partial class MainWindow : Window
             _licenseTimer.Start();
             if (_appSettings.AutoCheckUpdates)
             {
-                _ = Dispatcher.BeginInvoke(async () => await CheckForUpdatesAsync(showIfCurrent: false));
+                _ = Dispatcher.BeginInvoke(async () =>
+                    await CheckForUpdatesAsync(showIfCurrent: false, autoInstall: true));
             }
             QueueAdminCheckIn("startup");
         };
@@ -1329,7 +1330,7 @@ public partial class MainWindow : Window
         system.Children.Add(qrContentBox);
         system.Children.Add(qrHint);
         system.Children.Add(SectionTitle("Atualizacoes"));
-        system.Children.Add(ToggleCard("Verificar atualizacoes ao abrir", "Consulta o servidor e baixa o instalador quando houver uma nova versao.", () => _appSettings.AutoCheckUpdates, value => _appSettings.AutoCheckUpdates = value));
+        system.Children.Add(ToggleCard("Atualizar automaticamente ao abrir", "Consulta o servidor ao entrar no PDV. Se houver versao nova, baixa, instala e reabre o sistema.", () => _appSettings.AutoCheckUpdates, value => _appSettings.AutoCheckUpdates = value));
         system.Children.Add(checkUpdate);
 
         root.Children.Add(company);
@@ -7315,7 +7316,7 @@ public partial class MainWindow : Window
             ?? "1.2.2026";
     }
 
-    private async Task CheckForUpdatesAsync(bool showIfCurrent)
+    private async Task<bool> CheckForUpdatesAsync(bool showIfCurrent, bool autoInstall = false)
     {
         var manifestUrl = (_appSettings.UpdateManifestUrl ?? "").Trim();
         if (string.IsNullOrWhiteSpace(manifestUrl))
@@ -7343,7 +7344,7 @@ public partial class MainWindow : Window
                     SetStatus("Manifesto de atualizacao invalido. Verifique o version.json.");
                 }
 
-                return;
+                return false;
             }
 
             if (!IsVersionNewer(manifest.Version, GetAppVersion()))
@@ -7354,10 +7355,18 @@ public partial class MainWindow : Window
                     SetStatus("Nenhuma atualizacao disponivel.");
                 }
 
-                return;
+                return false;
+            }
+
+            if (autoInstall)
+            {
+                ShowToast("Atualizacao encontrada", $"Baixando versao {manifest.Version}.", "AT", "#0F766E", "#E8F7F4");
+                SetStatus($"Atualizacao {manifest.Version} encontrada. Baixando instalador automaticamente...");
+                return await DownloadAndOpenInstallerAsync(manifest, status: null, silentInstall: true);
             }
 
             ShowUpdateDialog(manifest);
+            return false;
         }
         catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or JsonException or IOException or UnauthorizedAccessException)
         {
@@ -7367,6 +7376,8 @@ public partial class MainWindow : Window
                 SetStatus("Nao foi possivel verificar atualizacoes agora.");
                 ShowToast("Atualizacao indisponivel", "Confira a URL ou a internet e tente novamente.", "AT", "#99620D", "#FFF2CB");
             }
+
+            return false;
         }
     }
 
@@ -7419,8 +7430,10 @@ public partial class MainWindow : Window
             status.Text = "Baixando instalador...";
             try
             {
-                await DownloadAndOpenInstallerAsync(manifest, status);
-                dialog.Close();
+                if (await DownloadAndOpenInstallerAsync(manifest, status, silentInstall: false))
+                {
+                    dialog.Close();
+                }
             }
             finally
             {
@@ -7457,15 +7470,22 @@ public partial class MainWindow : Window
         dialog.ShowDialog();
     }
 
-    private async Task DownloadAndOpenInstallerAsync(UpdateManifest manifest, TextBlock status)
+    private async Task<bool> DownloadAndOpenInstallerAsync(UpdateManifest manifest, TextBlock? status, bool silentInstall)
     {
         if (!Uri.TryCreate(manifest.InstallerUrl.Trim(), UriKind.Absolute, out var uri))
         {
-            status.Text = "URL do instalador invalida.";
-            return;
+            if (status is not null)
+            {
+                status.Text = "URL do instalador invalida.";
+            }
+
+            SetStatus("URL do instalador invalida.");
+            return false;
         }
 
-        var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        var downloads = silentInstall
+            ? Path.Combine(_dataRoot, "updates")
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
         Directory.CreateDirectory(downloads);
         var fileName = Path.GetFileName(Uri.UnescapeDataString(uri.LocalPath));
         if (string.IsNullOrWhiteSpace(fileName) || !fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
@@ -7483,10 +7503,54 @@ public partial class MainWindow : Window
             await input.CopyToAsync(output);
         }
 
-        status.Text = $"Instalador salvo em {destination}.";
-        SetStatus("Instalador baixado. Execute para atualizar o PDV.");
-        ShowToast("Instalador baixado", "O instalador sera aberto agora.", "AT", "#0F766E", "#E8F7F4");
-        Process.Start(new ProcessStartInfo(destination) { UseShellExecute = true });
+        if (status is not null)
+        {
+            status.Text = $"Instalador salvo em {destination}.";
+        }
+
+        var arguments = silentInstall
+            ? "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
+            : "";
+
+        SetStatus(silentInstall
+            ? "Instalador baixado. Atualizando e reabrindo o PDV..."
+            : "Instalador baixado. Execute para atualizar o PDV.");
+        ShowToast("Instalador baixado", silentInstall
+            ? "O PDV sera fechado e reaberto atualizado."
+            : "O instalador sera aberto agora.", "AT", "#0F766E", "#E8F7F4");
+        try
+        {
+            Process.Start(new ProcessStartInfo(destination)
+            {
+                UseShellExecute = true,
+                Arguments = arguments
+            });
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            Debug.WriteLine($"Installer start failed: {ex.Message}");
+            if (status is not null)
+            {
+                status.Text = "Instalador baixado, mas nao foi possivel abrir automaticamente.";
+            }
+
+            SetStatus("Instalador baixado, mas nao foi possivel abrir automaticamente.");
+            ShowToast("Atualizacao pendente", "Abra o instalador baixado para concluir.", "AT", "#99620D", "#FFF2CB");
+            return false;
+        }
+
+        if (silentInstall)
+        {
+            await Task.Delay(700);
+            _exitRequested = true;
+            SaveActiveTicketToCurrentBoard();
+            SaveStore();
+            _trayIcon?.Dispose();
+            _trayIcon = null;
+            Application.Current.Shutdown();
+        }
+
+        return true;
     }
 
     private static bool IsVersionNewer(string candidate, string installed)
