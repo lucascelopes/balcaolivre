@@ -54,7 +54,7 @@ public partial class MainWindow : Window
     private const string AppDisplayName = "Balcão Livre PDV";
     private const string AppReceiptName = "BALCAO LIVRE PDV";
     private const string DefaultUpdateManifestUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/version.json";
-    private const string DefaultAdminApiUrl = "http://localhost:5188";
+    private const string DefaultAdminApiUrl = "https://balcaolivrepdv.onrender.com";
     private static readonly CultureInfo Brazil = CultureInfo.GetCultureInfo("pt-BR");
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
     private static readonly Brush GreenTile = Solid("#9CE083");
@@ -7158,7 +7158,8 @@ public partial class MainWindow : Window
             shouldSaveSettings = true;
         }
 
-        if (string.IsNullOrWhiteSpace(_appSettings.AdminApiUrl))
+        if (string.IsNullOrWhiteSpace(_appSettings.AdminApiUrl) ||
+            string.Equals(_appSettings.AdminApiUrl.Trim().TrimEnd('/'), "http://localhost:5188", StringComparison.OrdinalIgnoreCase))
         {
             _appSettings.AdminApiUrl = DefaultAdminApiUrl;
             shouldSaveSettings = true;
@@ -7311,7 +7312,7 @@ public partial class MainWindow : Window
         return Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
             .InformationalVersion
-            ?? "1.1.0";
+            ?? "1.2.2026";
     }
 
     private async Task CheckForUpdatesAsync(bool showIfCurrent)
@@ -7521,7 +7522,7 @@ public partial class MainWindow : Window
             builder.Append(invalid.Contains(ch) ? '-' : ch);
         }
 
-        return builder.Length == 0 ? "1.1.0" : builder.ToString();
+        return builder.Length == 0 ? "1.2.2026" : builder.ToString();
     }
 
     private static string CopyLogoToAppIdentityFolder(string sourcePath)

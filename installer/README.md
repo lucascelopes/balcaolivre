@@ -22,7 +22,7 @@ winget install --id JRSoftware.InnoSetup -e --silent --accept-package-agreements
 ```text
 bucket: balcao-livre-updates
 path: windows/version.json
-path: windows/BalcaoLivrePDV-Setup-1.1.0.exe
+path: windows/BalcaoLivrePDV-Setup-1.2.2026.exe
 ```
 
 Ou publicar direto pelo script, usando a service role apenas no seu terminal:

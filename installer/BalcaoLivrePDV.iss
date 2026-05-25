@@ -1,5 +1,5 @@
 #define MyAppName "Balcao Livre PDV"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.2.2026"
 #define MyAppPublisher "Balcao Livre"
 #define MyAppExeName "BalcaoLivrePDV.exe"
 #define ProjectRoot AddBackslash(SourcePath) + ".."

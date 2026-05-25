@@ -29,7 +29,7 @@ var app = builder.Build();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-app.MapGet("/api/health", (AdminStoreService store) => Results.Ok(new { ok = true, app = "Balcao Livre PDV Admin", version = "1.1.0", storage = store.StorageMode }));
+app.MapGet("/api/health", (AdminStoreService store) => Results.Ok(new { ok = true, app = "Balcao Livre PDV Admin", version = "1.2.2026", storage = store.StorageMode }));
 
 app.MapPost("/api/login", async (HttpContext context, AdminSessionService sessions) =>
 {
@@ -461,7 +461,7 @@ sealed class AdminStoreService
             ?? "balcao-livre-admin").Trim();
         _supabaseObjectPath = (Environment.GetEnvironmentVariable("BVPDV_SUPABASE_OBJECT")
             ?? "admin-store.json").Trim().TrimStart('/');
-        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("BalcaoLivrePDVAdmin/1.1.0");
+        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("BalcaoLivrePDVAdmin/1.2.2026");
     }
 
     public AdminStore Read()
