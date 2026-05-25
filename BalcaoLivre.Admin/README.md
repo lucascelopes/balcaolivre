@@ -44,12 +44,14 @@ $env:BVPDV_ADMIN_DATA = "C:\BalcaoLivreAdminData"
 
 ## Supabase
 
-Para producao, use Supabase como banco central do admin. Rode o SQL de `supabase-schema.sql` no SQL Editor do projeto e configure no servidor do admin:
+Para producao, use Supabase Storage como armazenamento central do admin. Configure no servidor do admin:
 
 ```powershell
 $env:BVPDV_SUPABASE_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co"
 $env:BVPDV_SUPABASE_SECRET_KEY = "sua-secret-key-ou-service-role"
 ```
+
+O admin cria automaticamente um bucket privado chamado `balcao-livre-admin` e salva `admin-store.json` nele.
 
 Nao coloque `secret key`/`service_role` dentro do app Windows do cliente. Essa chave fica somente no servidor/admin.
 

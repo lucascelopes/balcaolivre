@@ -434,6 +434,8 @@ sealed class AdminStoreService
     private readonly string _filePath;
     private readonly string _supabaseUrl;
     private readonly string _supabaseKey;
+    private readonly string _supabaseBucket;
+    private readonly string _supabaseObjectPath;
     private readonly HttpClient _httpClient = new();
     private readonly object _gate = new();
     private bool _lastSupabaseOk;
@@ -455,6 +457,10 @@ sealed class AdminStoreService
             ?? Environment.GetEnvironmentVariable("SUPABASE_SERVICE_ROLE_KEY")
             ?? Environment.GetEnvironmentVariable("SUPABASE_SECRET_KEY")
             ?? "").Trim();
+        _supabaseBucket = (Environment.GetEnvironmentVariable("BVPDV_SUPABASE_BUCKET")
+            ?? "balcao-livre-admin").Trim();
+        _supabaseObjectPath = (Environment.GetEnvironmentVariable("BVPDV_SUPABASE_OBJECT")
+            ?? "admin-store.json").Trim().TrimStart('/');
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("BalcaoLivrePDVAdmin/1.1.0");
     }
 
@@ -538,31 +544,23 @@ sealed class AdminStoreService
     {
         try
         {
-            using var request = CreateSupabaseRequest(
-                HttpMethod.Get,
-                "/rest/v1/bvpdv_admin_store?id=eq.main&select=data");
+            EnsureSupabaseBucketUnsafe();
+            using var request = CreateSupabaseRequest(HttpMethod.Get, SupabaseObjectPath());
             using var response = _httpClient.Send(request);
-            if (!response.IsSuccessStatusCode)
-            {
-                return null;
-            }
-
-            var json = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-            using var document = JsonDocument.Parse(json);
-            if (document.RootElement.ValueKind != JsonValueKind.Array ||
-                document.RootElement.GetArrayLength() == 0)
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
                 var empty = new AdminStore();
                 SaveToSupabaseUnsafe(empty);
                 return empty;
             }
 
-            if (!document.RootElement[0].TryGetProperty("data", out var dataElement))
+            if (!response.IsSuccessStatusCode)
             {
-                return new AdminStore();
+                return null;
             }
 
-            return JsonSerializer.Deserialize<AdminStore>(dataElement.GetRawText(), AdminJson.Options) ?? new AdminStore();
+            var json = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            return JsonSerializer.Deserialize<AdminStore>(json, AdminJson.Options) ?? new AdminStore();
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException or TaskCanceledException or InvalidOperationException)
         {
@@ -574,23 +572,48 @@ sealed class AdminStoreService
     {
         try
         {
-            var row = new SupabaseAdminStoreRow
-            {
-                Id = "main",
-                Data = store,
-                UpdatedAt = DateTimeOffset.UtcNow
-            };
-            using var request = CreateSupabaseRequest(
-                HttpMethod.Post,
-                "/rest/v1/bvpdv_admin_store?on_conflict=id");
-            request.Headers.TryAddWithoutValidation("Prefer", "resolution=merge-duplicates,return=minimal");
-            request.Content = new StringContent(JsonSerializer.Serialize(row, AdminJson.Options), Encoding.UTF8, "application/json");
+            EnsureSupabaseBucketUnsafe();
+            using var request = CreateSupabaseRequest(HttpMethod.Post, SupabaseObjectPath());
+            request.Headers.TryAddWithoutValidation("x-upsert", "true");
+            request.Content = new StringContent(JsonSerializer.Serialize(store, AdminJson.Options), Encoding.UTF8, "application/json");
             using var response = _httpClient.Send(request);
             _lastSupabaseOk = response.IsSuccessStatusCode;
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException or InvalidOperationException)
         {
         }
+    }
+
+    private void EnsureSupabaseBucketUnsafe()
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            id = _supabaseBucket,
+            name = _supabaseBucket,
+            @public = false
+        });
+        using var request = CreateSupabaseRequest(HttpMethod.Post, "/storage/v1/bucket");
+        request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+        using var response = _httpClient.Send(request);
+        if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            return;
+        }
+
+        if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
+        {
+            var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            if (body.Contains("already", StringComparison.OrdinalIgnoreCase) ||
+                body.Contains("exists", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+    }
+
+    private string SupabaseObjectPath()
+    {
+        return $"/storage/v1/object/{Uri.EscapeDataString(_supabaseBucket)}/{_supabaseObjectPath}";
     }
 
     private HttpRequestMessage CreateSupabaseRequest(HttpMethod method, string pathAndQuery)
@@ -617,14 +640,6 @@ sealed class AdminStoreService
             .OrderBy(item => item.When)
             .ToList();
     }
-}
-
-sealed class SupabaseAdminStoreRow
-{
-    public string Id { get; set; } = "main";
-    public AdminStore Data { get; set; } = new();
-    [JsonPropertyName("updated_at")]
-    public DateTimeOffset UpdatedAt { get; set; }
 }
 
 sealed class AdminStore
