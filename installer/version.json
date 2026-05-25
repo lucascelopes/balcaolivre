@@ -1,0 +1,7 @@
+{
+  "version": "1.1.0",
+  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.1.0.exe",
+  "notes": "Admin web interno com login, dashboard de clientes/licencas, geracao de chaves por periodo, vinculo por PC e check-in de configuracoes/metricas do PDV.",
+  "required": false,
+  "publishedAt": "2026-05-24T00:00:00-03:00"
+}

@@ -1,0 +1,32 @@
+# Build output
+bin/
+obj/
+dist/
+publish/
+*.user
+*.suo
+*.pdb
+
+# Local runtime data
+App_Data/
+reset-backups/
+*.log
+
+# Local secrets and machine-specific config
+supabase-key.txt
+.env
+.env.*
+!.env.example
+
+# Codex/local research artifacts
+.agents/
+yt_lechef/
+youtube_polyvan_videos.json
+lechef_filtered.json
+skills-lock.json
+
+# OS/editor noise
+.vs/
+.vscode/
+Thumbs.db
+Desktop.ini
