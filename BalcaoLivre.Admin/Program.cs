@@ -14,12 +14,13 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 var adminUrls = Environment.GetEnvironmentVariable("BVPDV_ADMIN_URLS");
 if (string.IsNullOrWhiteSpace(adminUrls))
 {
-    builder.WebHost.UseUrls("http://localhost:5188");
+    var renderPort = Environment.GetEnvironmentVariable("PORT");
+    adminUrls = string.IsNullOrWhiteSpace(renderPort)
+        ? "http://localhost:5188"
+        : $"http://0.0.0.0:{renderPort}";
 }
-else
-{
-    builder.WebHost.UseUrls(adminUrls);
-}
+
+builder.WebHost.UseUrls(adminUrls);
 
 builder.Services.AddSingleton<AdminStoreService>();
 builder.Services.AddSingleton<AdminSessionService>();

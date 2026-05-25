@@ -26,6 +26,8 @@ URL padrao:
 http://localhost:5188
 ```
 
+No Render, crie como Docker Web Service. O admin usa automaticamente a variavel `PORT` do Render.
+
 ## Dados
 
 Sem Supabase configurado, o painel salva em:
