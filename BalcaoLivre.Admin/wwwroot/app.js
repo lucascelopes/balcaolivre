@@ -6,11 +6,21 @@ const state = {
 };
 
 const qs = (selector) => document.querySelector(selector);
-const money = (value) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
 const dateTime = (value) => value ? new Date(value).toLocaleString("pt-BR") : "-";
+const adminApiBase = (() => {
+  const configured = window.BALCAO_ADMIN_API_BASE || "";
+  if (configured) return configured.replace(/\/$/, "");
+  return location.pathname.startsWith("/admin") ? "/admin-api" : "";
+})();
+
+function adminApiPath(path) {
+  if (!adminApiBase) return path;
+  const normalized = path.startsWith("/api/") ? path.slice(4) : path;
+  return `${adminApiBase}${normalized}`;
+}
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
+  const response = await fetch(adminApiPath(path), {
     credentials: "same-origin",
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options
@@ -65,7 +75,7 @@ function setView(view) {
   qs(`#${view}View`).classList.remove("hidden");
   document.querySelectorAll(".nav").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
   const titles = {
-    dashboard: ["Dashboard", "Metricas de uso, chaves e clientes ativos."],
+    dashboard: ["Dashboard", "Uso do programa, chaves e clientes ativos."],
     licenses: ["Licencas", "Chaves criadas, status, maquina vinculada e vencimento."],
     devices: ["Clientes", "Dados cadastrais sincronizados pelo Balcao Livre PDV."],
     keys: ["Criar chave", "Gere uma licenca unica por periodo."]
@@ -93,7 +103,8 @@ function renderDashboard() {
   qs("#mActive").textContent = metrics.activeLicenses;
   qs("#mAvailable").textContent = metrics.availableLicenses;
   qs("#mOnline").textContent = metrics.online24h;
-  qs("#mSales").textContent = money(metrics.salesToday);
+  qs("#mUsers").textContent = metrics.registeredUsers;
+  qs("#mDevices").textContent = metrics.devices;
   qs("#storageMode").textContent = state.health?.storage === "supabase"
     ? "Supabase ativo"
     : state.health?.storage === "supabase-pendente"
@@ -142,15 +153,19 @@ function renderDevices() {
   qs("#devicesList").innerHTML = devices.length
     ? devices.map((item) => {
       const profile = item.profile || {};
+      const metrics = item.metrics || {};
       const name = profile.businessName || profile.legalName || profile.ownerName || "Cliente";
       const addressParts = [profile.address, profile.city, profile.state].filter(Boolean);
       return `
         <article class="device-card client-card">
           <strong>${escapeHtml(name)}</strong>
+          <span>Maquina: ${escapeHtml(item.machineCode || "-")}</span>
+          <span>Usuarios do app: ${Number(metrics.usersCount || 0)}</span>
           <span>CNPJ: ${escapeHtml(profile.cnpj || "-")}</span>
           <span>Telefone: ${escapeHtml(profile.phone || "-")}</span>
           <span>Endereco: ${escapeHtml(addressParts.join(" - ") || "-")}</span>
           <span>Responsavel: ${escapeHtml(profile.ownerName || "-")}</span>
+          <span>Versao: ${escapeHtml(item.appVersion || "-")}</span>
           <small>Ultima vez mexido: ${dateTime(item.lastSeenAt)}</small>
         </article>
       `;

@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#245b91">
+  <title>Balcao Livre PDV Web</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./assets/balcao-livre-icon.png">
+  <link rel="stylesheet" href="./styles.css?v=9">
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <header class="titlebar">
+      <div class="brand">
+        <div class="brand-token">RP</div>
+        <div>
+          <strong id="brandNameText">COXITRUCK</strong>
+          <span><span id="brandDocText">CNPJ 50.597.666/0001-47</span>&nbsp;&nbsp;|&nbsp;&nbsp;<span id="brandPhoneText">(27) 98347-3241</span>&nbsp;&nbsp;|&nbsp;&nbsp;<b id="connectionText">Online</b></span>
+        </div>
+      </div>
+      <button id="topConfigButton" class="config-button" type="button">Config</button>
+      <div class="statusline">
+        <span id="onlineBadge" class="badge">offline</span>
+        <span id="syncBadge" class="badge neutral">0 pendente</span>
+        <span>Setas navegam</span>
+        <span>Enter confirma</span>
+        <span>F2 incluir</span>
+      </div>
+    </header>
+
+    <nav class="ribbon" aria-label="Atalhos principais">
+      <button class="ribbon-nav" type="button" aria-label="Voltar atalhos">&lt;</button>
+      <button class="ribbon-btn" data-action="search"><b>PS</b><span>Pesquisa</span><small>Produtos</small></button>
+      <button class="ribbon-btn" data-action="transfer"><b>F6</b><span>Transferir</span><small>Comanda</small></button>
+      <button class="ribbon-btn" data-action="discount"><b>DS</b><span>Desconto</span><small>Venda</small></button>
+      <button class="ribbon-btn" data-action="customer"><b>CL</b><span>Cadastro</span><small>Clientes</small></button>
+      <button class="ribbon-btn" data-action="reopen"><b>RC</b><span>Reabrir</span><small>Comanda</small></button>
+      <button class="ribbon-btn" data-action="team"><b>EQ</b><span>Equipe</span><small>Garcom/Caixa</small></button>
+      <button class="ribbon-btn" data-action="products"><b>CP</b><span>Cadastro</span><small>Produtos</small></button>
+      <button class="ribbon-btn" data-action="cash"><b>CX</b><span>Caixa</span><small>Movimentos</small></button>
+      <button class="ribbon-btn" data-action="cash-toggle"><b>F10</b><span>Abrir/Fechar</span><small>Caixa</small></button>
+      <button class="ribbon-btn" data-action="delivery"><b>DL</b><span>Novo</span><small>Delivery</small></button>
+      <button class="ribbon-btn" data-action="stock"><b>ES</b><span>Estoque</span><small>Receitas</small></button>
+    </nav>
+
+    <main class="workspace">
+      <section class="mode-tabs" aria-label="Modos do PDV">
+        <button class="active" data-mode="tables">Comandas</button>
+        <button data-mode="counter">Balcao</button>
+        <button data-mode="delivery">Delivery</button>
+        <button data-mode="kitchen">Monitor Cozinha</button>
+      </section>
+
+      <section class="panels">
+        <aside class="panel ticket-panel">
+          <h1 id="ticketTitle">Comanda</h1>
+          <div class="form-grid">
+            <label>Mesa / cliente<input id="boardNumber" readonly value="000001"></label>
+            <label>Oper/Garcom<input id="operatorNumber" value="1" inputmode="numeric"></label>
+            <label>Codigo<input id="productCode" inputmode="numeric" autocomplete="off"></label>
+            <label>Qtd<input id="productQty" value="1" inputmode="numeric"></label>
+            <label>Couvert<input id="coverValue" value="0,00" inputmode="decimal"></label>
+            <label class="wide">% Garcom<input id="servicePercent" value="10" inputmode="numeric"></label>
+          </div>
+          <div class="ticket-actions">
+            <button id="addLineButton" class="primary">Ativar</button>
+            <button id="clearSaleButton" class="ghost">Limpar</button>
+          </div>
+          <div class="table-head">
+            <span>Codigo</span><span>Produto</span><span>Qtd</span><span>Total</span>
+          </div>
+          <div id="ticketRows" class="ticket-rows"></div>
+          <section class="payments-box">
+            <header><strong>Pagamentos antecipados / saldo</strong></header>
+            <div id="paymentRows"></div>
+          </section>
+        </aside>
+
+        <section class="panel boards-panel">
+          <header class="section-header">Comandas / Mesas</header>
+          <div id="boardsGrid" class="boards-grid"></div>
+          <section class="local-state">
+            <strong>Banco local</strong>
+            <span>IndexedDB salva vendas, produtos, caixa e fila mesmo sem internet.</span>
+            <div class="state-grid">
+              <div><span>Vendas locais</span><b id="localSalesCount">0</b></div>
+              <div><span>Fila sync</span><b id="localQueueCount">0</b></div>
+              <div><span>Caixa</span><b id="cashState">Aberto</b></div>
+            </div>
+          </section>
+        </section>
+
+        <section class="panel products-panel">
+          <header class="section-header">Touch / Categorias / Produtos</header>
+          <div id="categoryGrid" class="category-grid"></div>
+          <div class="product-title">Lista de Produtos / Pesquisa</div>
+          <div id="productGrid" class="product-grid"></div>
+        </section>
+
+        <aside class="panel pay-panel">
+          <header>
+            <span>Total</span>
+            <strong id="saleTotal">R$ 0,00</strong>
+          </header>
+          <label>Forma de pagamento</label>
+          <div id="paymentMethods" class="pay-methods"></div>
+          <label>Valor recebido</label>
+          <input id="amountReceived" inputmode="decimal" value="0,00">
+          <div class="change-row">
+            <span>Troco</span>
+            <b id="changeValue">R$ 0,00</b>
+          </div>
+          <button id="finishSaleButton" class="finish">Finalizar venda</button>
+          <button id="syncNowButton" class="secondary">Sincronizar agora</button>
+          <button id="settingsButton" class="ghost">Config</button>
+          <div class="receipt-preview">
+            <strong>Comprovante</strong>
+            <span>NAO E DOCUMENTO FISCAL</span>
+            <div id="lastReceipt">Nenhuma venda finalizada nesta sessao.</div>
+          </div>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <div id="loginOverlay" class="modal-overlay">
+    <section class="login-modal" role="dialog" aria-modal="true" aria-label="Entrada no PDV">
+      <header>
+        <div class="modal-title">
+          <span>PDV</span>
+          <strong>Entrada no PDV</strong>
+        </div>
+        <button id="closeLoginButton" class="icon-button" type="button">X</button>
+      </header>
+      <div class="login-body">
+        <p id="loginHelp">Entre com o usuario Supabase para iniciar o sistema.</p>
+        <label>Email Supabase<input id="loginEmail" type="email" autocomplete="username" placeholder="usuario@empresa.com"></label>
+        <label>Operador local<input id="loginOperator" autocomplete="username"></label>
+        <label>Senha<input id="loginPassword" type="password" autocomplete="current-password"></label>
+        <button id="enterPdvButton" class="primary" type="button">Entrar</button>
+        <div id="loginMessage" class="message"></div>
+      </div>
+    </section>
+  </div>
+
+  <dialog id="settingsDialog" class="settings-dialog">
+    <form method="dialog">
+      <header>
+        <div>
+          <strong>Configuracoes do sistema</strong>
+          <span>Empresa, notificacoes, impressao, comprovante, atualizacoes e admin.</span>
+        </div>
+        <button value="cancel" class="icon-button">X</button>
+      </header>
+      <div class="settings-grid">
+        <section>
+          <h2>Empresa</h2>
+          <div class="dialog-grid two">
+            <label>Responsavel<input id="ownerNameInput"></label>
+            <label>Nome fantasia<input id="businessNameInput"></label>
+            <label>Razao social<input id="legalNameInput"></label>
+            <label>CNPJ<input id="cnpjInput"></label>
+            <label>Telefone<input id="phoneInput"></label>
+            <label>Cidade<input id="cityInput"></label>
+            <label>UF<input id="stateInput"></label>
+            <label>Endereco<input id="addressInput"></label>
+          </div>
+          <div class="settings-card">
+            <strong>Foto/logo</strong>
+            <span>Nenhuma imagem selecionada</span>
+            <button type="button" class="secondary">Trocar foto/logo</button>
+          </div>
+          <h2>Comprovantes</h2>
+          <p>Dados usados somente nos comprovantes, recibos e impressoes locais.</p>
+          <strong id="appVersionText" class="version-text">Versao do app: Web 1.0</strong>
+        </section>
+        <section>
+          <h2>Notificacoes</h2>
+          <label class="toggle-card"><input id="visualToastInput" type="checkbox"> <span><b>Toast visual no app</b><small>Mostra aviso dentro do PDV quando uma acao importante acontecer.</small></span></label>
+          <label class="toggle-card"><input id="notificationSoundInput" type="checkbox"> <span><b>Som de notificacao</b><small>Toca som quando o app confirmar uma acao.</small></span></label>
+          <label class="toggle-card"><input id="inAppVibrationInput" type="checkbox"> <span><b>Vibracao no app</b><small>Faz uma vibracao visual curta na janela/toast.</small></span></label>
+          <label>Som
+            <select id="notificationSoundKindInput">
+              <option value="PADRAO">Padrao</option>
+              <option value="AVISO">Aviso</option>
+              <option value="ERRO">Erro</option>
+              <option value="NENHUM">Nenhum</option>
+            </select>
+          </label>
+          <button id="testNotificationButton" type="button" class="secondary">Testar notificacao</button>
+          <h2>Impressao</h2>
+          <label class="toggle-card"><input id="autoPrintDeliveryInput" type="checkbox"> <span><b>Imprimir delivery automaticamente</b><small>Pedidos novos saem na impressora configurada.</small></span></label>
+          <label class="toggle-card"><input id="autoPrintKitchenInput" type="checkbox"> <span><b>Imprimir cozinha automaticamente</b><small>F4 envia a ordem para a impressora configurada.</small></span></label>
+          <label>Modelo padrao
+            <select id="printLayoutInput">
+              <option value="PEQUENO">PEQUENO</option>
+              <option value="GRANDE">GRANDE</option>
+            </select>
+          </label>
+          <label>Impressora preferida<input id="preferredPrinterInput" placeholder="Usar padrao do navegador/sistema"></label>
+          <label class="toggle-card"><input id="receiptQrEnabledInput" type="checkbox"> <span><b>QR no comprovante</b><small>Quando ligado, imprime um QR Code no final do comprovante.</small></span></label>
+          <label>Tipo do QR
+            <select id="receiptQrKindInput">
+              <option value="PIX">PIX</option>
+              <option value="INSTAGRAM">INSTAGRAM</option>
+              <option value="GOOGLE MAPS">GOOGLE MAPS</option>
+              <option value="LINK">LINK</option>
+            </select>
+          </label>
+          <label>Conteudo do QR<input id="receiptQrContentInput" placeholder="chave Pix, @instagram ou URL"></label>
+          <h2>Atualizacoes</h2>
+          <label class="toggle-card"><input id="autoCheckUpdatesInput" type="checkbox"> <span><b>Atualizar automaticamente ao abrir</b><small>Consulta o servidor ao entrar no PDV.</small></span></label>
+          <button id="checkUpdateButton" type="button" class="secondary">Verificar atualizacao agora</button>
+          <h2>Admin</h2>
+          <label class="toggle-card"><input id="adminSyncEnabledInput" type="checkbox"> <span><b>Sincronizacao admin</b><small>Envia lotes pendentes quando houver conexao.</small></span></label>
+          <label>URL do admin<input id="syncEndpointInput" placeholder="https://balcaolivrepdv.onrender.com"></label>
+          <h2>Login Supabase</h2>
+          <label class="toggle-card"><input id="supabaseAuthEnabledInput" type="checkbox"> <span><b>Login Supabase</b><small>Usa o mesmo usuario no PDV Web e no app Windows.</small></span></label>
+          <label>Supabase URL<input id="supabaseUrlInput" placeholder="https://projeto.supabase.co"></label>
+          <label>Supabase anon key<input id="supabaseAnonKeyInput" placeholder="sb_publishable_... ou anon key"></label>
+          <div class="dialog-grid two">
+            <label>ID da loja<input id="storeIdInput" autocomplete="off"></label>
+            <label>ID do terminal<input id="terminalIdInput" autocomplete="off"></label>
+          </div>
+        </section>
+      </div>
+      <p id="settingsStatus" class="settings-status"></p>
+      <menu>
+        <button value="cancel" class="ghost">Cancelar</button>
+        <button id="saveSettingsButton" value="default" class="primary">Salvar configuracoes</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="workDialog" class="work-dialog">
+    <form method="dialog">
+      <header>
+        <div>
+          <strong id="workDialogTitle">Funcao</strong>
+          <span id="workDialogSubtitle"></span>
+        </div>
+        <button value="cancel" class="icon-button">X</button>
+      </header>
+      <section id="workDialogBody" class="work-dialog-body"></section>
+      <menu id="workDialogFooter">
+        <button value="cancel" class="ghost">Fechar</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+  <script type="module" src="./src/app.js?v=9"></script>
+</body>
+</html>

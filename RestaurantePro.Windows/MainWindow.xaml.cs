@@ -55,6 +55,8 @@ public partial class MainWindow : Window
     private const string AppReceiptName = "BALCAO LIVRE PDV";
     private const string DefaultUpdateManifestUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/version.json";
     private const string DefaultAdminApiUrl = "https://balcaolivrepdv.onrender.com";
+    private const string SupabaseUrlEnvironment = "BALCAO_SUPABASE_URL";
+    private const string SupabaseAnonKeyEnvironment = "BALCAO_SUPABASE_ANON_KEY";
     private static readonly CultureInfo Brazil = CultureInfo.GetCultureInfo("pt-BR");
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
     private static readonly Brush GreenTile = Solid("#9CE083");
@@ -209,6 +211,13 @@ public partial class MainWindow : Window
             return false;
         }
 
+        if (!RequireSupabaseLogin())
+        {
+            _exitRequested = true;
+            Application.Current.Shutdown();
+            return false;
+        }
+
         if (CurrentUser is not null)
         {
             return true;
@@ -231,6 +240,200 @@ public partial class MainWindow : Window
         _currentUser = user.Name;
         SetStatus($"Operador conectado: {user.Name} ({user.Role}).");
         return true;
+    }
+
+    private bool RequireSupabaseLogin()
+    {
+        if (ApplySupabaseEnvironmentDefaults())
+        {
+            SaveAppSettings();
+        }
+        if (!_appSettings.SupabaseAuthEnabled || !IsSupabaseConfigured())
+        {
+            return true;
+        }
+
+        if (HasValidSupabaseSession())
+        {
+            return true;
+        }
+
+        return ShowSupabaseLoginDialog();
+    }
+
+    private bool IsSupabaseConfigured()
+    {
+        return !string.IsNullOrWhiteSpace(_appSettings.SupabaseUrl)
+            && !string.IsNullOrWhiteSpace(_appSettings.SupabaseAnonKey);
+    }
+
+    private bool HasValidSupabaseSession()
+    {
+        return !string.IsNullOrWhiteSpace(_appSettings.SupabaseAccessToken)
+            && _appSettings.SupabaseTokenExpiresAt.HasValue
+            && _appSettings.SupabaseTokenExpiresAt.Value.ToUniversalTime() > DateTime.UtcNow.AddMinutes(2);
+    }
+
+    private bool ShowSupabaseLoginDialog()
+    {
+        var approved = false;
+        var dialog = CreateDialog("Login Supabase", 480, 360);
+        dialog.ResizeMode = ResizeMode.NoResize;
+
+        var emailBox = new TextBox
+        {
+            Text = _appSettings.SupabaseUserEmail,
+            Margin = new Thickness(0, 4, 0, 8)
+        };
+        var passwordBox = new PasswordBox { Margin = new Thickness(0, 4, 0, 8), Height = 34 };
+        var message = new TextBlock
+        {
+            Text = "Entre com o mesmo usuario Supabase usado no PDV Web.",
+            Foreground = Solid("#245B91"),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        var error = new TextBlock
+        {
+            Foreground = RedText,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        var button = DialogButton("Entrar com Supabase", "#0F766E");
+        button.HorizontalAlignment = HorizontalAlignment.Stretch;
+        button.Width = double.NaN;
+
+        async Task TryLoginAsync()
+        {
+            error.Text = "";
+            var email = emailBox.Text.Trim();
+            var password = passwordBox.Password;
+            if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+            {
+                error.Text = "Informe email e senha Supabase.";
+                return;
+            }
+
+            button.IsEnabled = false;
+            button.Content = "Entrando...";
+            var result = await TrySupabasePasswordLoginAsync(email, password);
+            button.Content = "Entrar com Supabase";
+            button.IsEnabled = true;
+
+            if (!result.Ok)
+            {
+                error.Text = result.Message;
+                passwordBox.Clear();
+                passwordBox.Focus();
+                return;
+            }
+
+            approved = true;
+            SetStatus($"Supabase conectado: {result.Email}.");
+            dialog.Close();
+        }
+
+        button.Click += async (_, _) => await TryLoginAsync();
+        passwordBox.KeyDown += async (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                await TryLoginAsync();
+                e.Handled = true;
+            }
+        };
+
+        var panel = DialogPanel();
+        panel.Children.Add(message);
+        panel.Children.Add(DialogLabel("Email Supabase"));
+        panel.Children.Add(emailBox);
+        panel.Children.Add(DialogLabel("Senha"));
+        panel.Children.Add(passwordBox);
+        panel.Children.Add(error);
+        panel.Children.Add(button);
+        panel.Children.Add(DialogHint("A URL e a anon key ficam em Configuracoes do sistema > Login Supabase."));
+        dialog.Content = panel;
+        dialog.Loaded += (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(emailBox.Text))
+            {
+                emailBox.Focus();
+            }
+            else
+            {
+                passwordBox.Focus();
+            }
+        };
+        dialog.ShowDialog();
+        return approved;
+    }
+
+    private async Task<SupabaseLoginResult> TrySupabasePasswordLoginAsync(string email, string password)
+    {
+        var url = (_appSettings.SupabaseUrl ?? "").Trim().TrimEnd('/');
+        var anonKey = (_appSettings.SupabaseAnonKey ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(anonKey))
+        {
+            return SupabaseLoginResult.Fail("Supabase URL e anon key nao configuradas.");
+        }
+
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(12) };
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{url}/auth/v1/token?grant_type=password");
+            request.Headers.TryAddWithoutValidation("apikey", anonKey);
+            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {anonKey}");
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(new { email, password }, JsonOptions),
+                Encoding.UTF8,
+                "application/json");
+
+            using var response = await client.SendAsync(request);
+            var json = await response.Content.ReadAsStringAsync();
+            using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+            var root = document.RootElement;
+            if (!response.IsSuccessStatusCode)
+            {
+                var message = ReadJsonString(root, "error_description")
+                    ?? ReadJsonString(root, "msg")
+                    ?? ReadJsonString(root, "message")
+                    ?? ReadJsonString(root, "error")
+                    ?? "Login Supabase recusado.";
+                return SupabaseLoginResult.Fail(message);
+            }
+
+            var accessToken = ReadJsonString(root, "access_token") ?? "";
+            var refreshToken = ReadJsonString(root, "refresh_token") ?? "";
+            var expiresIn = root.TryGetProperty("expires_in", out var expiresElement) && expiresElement.TryGetInt32(out var seconds)
+                ? seconds
+                : 3600;
+            var user = root.TryGetProperty("user", out var userElement) ? userElement : default;
+            var userId = user.ValueKind == JsonValueKind.Object ? ReadJsonString(user, "id") ?? "" : "";
+            var userEmail = user.ValueKind == JsonValueKind.Object ? ReadJsonString(user, "email") ?? email : email;
+
+            _appSettings.SupabaseAccessToken = accessToken;
+            _appSettings.SupabaseRefreshToken = refreshToken;
+            _appSettings.SupabaseUserId = userId;
+            _appSettings.SupabaseUserEmail = userEmail;
+            _appSettings.SupabaseTokenExpiresAt = DateTime.UtcNow.AddSeconds(Math.Max(60, expiresIn - 30));
+            SaveAppSettings();
+            return SupabaseLoginResult.Success(userEmail);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or UriFormatException)
+        {
+            return SupabaseLoginResult.Fail($"Falha ao conectar no Supabase: {ex.Message}");
+        }
+    }
+
+    private static string? ReadJsonString(JsonElement element, string propertyName)
+    {
+        return element.ValueKind == JsonValueKind.Object
+            && element.TryGetProperty(propertyName, out var value)
+            && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
     }
 
     private bool EnsureFirstInstallSetup()
@@ -429,8 +632,6 @@ public partial class MainWindow : Window
     private AdminClientPayload CreateAdminClientPayload(string eventName, string licenseKey, DateTime? expiresAt, string plan)
     {
         var boards = Tables.Concat(DeliveryTiles).ToList();
-        var today = DateTime.Today;
-        var allPayments = boards.SelectMany(board => board.Payments.Concat(board.ClosedPayments)).ToList();
         var openBoards = boards.Count(board =>
             !string.Equals(board.Status, "LIVRE", StringComparison.OrdinalIgnoreCase)
             && (board.Lines.Count > 0 || board.Payments.Count > 0 || board.Total > 0));
@@ -469,7 +670,10 @@ public partial class MainWindow : Window
                 ReceiptQrKind = _appSettings.ReceiptQrKind,
                 ReceiptQrContentPreview = MaskConfigValue(_appSettings.ReceiptQrContent),
                 AutoCheckUpdates = _appSettings.AutoCheckUpdates,
-                AdminSyncEnabled = _appSettings.AdminSyncEnabled
+                AdminSyncEnabled = _appSettings.AdminSyncEnabled,
+                SupabaseAuthEnabled = _appSettings.SupabaseAuthEnabled,
+                SupabaseUrlConfigured = !string.IsNullOrWhiteSpace(_appSettings.SupabaseUrl),
+                SupabaseUserEmail = _appSettings.SupabaseUserEmail
             },
             Metrics = new AdminMetricsSnapshot
             {
@@ -479,9 +683,6 @@ public partial class MainWindow : Window
                 ProductsCount = Products.Count,
                 UsersCount = Users.Count,
                 CustomersCount = Customers.Count,
-                CashTotal = _cashTotal,
-                SalesToday = allPayments.Where(payment => payment.When.Date == today).Sum(payment => payment.Amount),
-                SoldItemsTotal = Products.Sum(product => (int)product.SoldQuantity),
                 LowStockCount = Products.Count(product => product.IsLowStock)
             }
         };
@@ -1125,6 +1326,34 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
         };
+        var adminUrlBox = new TextBox
+        {
+            Text = _appSettings.AdminApiUrl,
+            MinHeight = 38,
+            Margin = new Thickness(0, 4, 0, 8)
+        };
+        var supabaseUrlBox = new TextBox
+        {
+            Text = _appSettings.SupabaseUrl,
+            MinHeight = 38,
+            Margin = new Thickness(0, 4, 0, 8)
+        };
+        var supabaseAnonKeyBox = new TextBox
+        {
+            Text = _appSettings.SupabaseAnonKey,
+            MinHeight = 38,
+            Margin = new Thickness(0, 4, 0, 8)
+        };
+        var supabaseUserText = new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(_appSettings.SupabaseUserEmail)
+                ? "Nenhum usuario Supabase conectado."
+                : $"Usuario conectado: {_appSettings.SupabaseUserEmail}",
+            Foreground = Solid("#667684"),
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
 
         var soundButtons = new List<Button>();
         var printSizeButtons = new List<Button>();
@@ -1280,6 +1509,11 @@ public partial class MainWindow : Window
                 ? ""
                 : selectedPrinter.Trim();
             _appSettings.UpdateManifestUrl = DefaultUpdateManifestUrl;
+            _appSettings.AdminApiUrl = string.IsNullOrWhiteSpace(adminUrlBox.Text)
+                ? DefaultAdminApiUrl
+                : adminUrlBox.Text.Trim();
+            _appSettings.SupabaseUrl = supabaseUrlBox.Text.Trim();
+            _appSettings.SupabaseAnonKey = supabaseAnonKeyBox.Text.Trim();
             _appSettings.ReceiptQrKind = NormalizeReceiptQrKind(qrTypeBox.SelectedItem?.ToString() ?? _appSettings.ReceiptQrKind);
             _appSettings.ReceiptQrContent = qrContentBox.Text.Trim();
             SaveRestaurantProfile();
@@ -1304,7 +1538,7 @@ public partial class MainWindow : Window
         company.Children.Add(new Border { Background = Solid("#F8FBFD"), BorderBrush = Solid("#D8E2EC"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(12), Margin = new Thickness(0, 4, 0, 10), Child = new StackPanel { Children = { new TextBlock { Text = "Foto/logo", Foreground = Solid("#667684"), FontWeight = FontWeights.SemiBold }, logoText, chooseLogo } } });
         company.Children.Add(SectionTitle("Comprovantes"));
         company.Children.Add(new TextBlock { Text = "Dados usados somente nos comprovantes, recibos e impressoes locais.", Foreground = Solid("#667684"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 8) });
-        company.Children.Add(new TextBlock { Text = "Sistema offline 100%: sem login e sem sincronizacao externa.", Foreground = Solid("#0F766E"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
+        company.Children.Add(new TextBlock { Text = "Login Supabase opcional para usar o mesmo usuario no Windows e no PDV Web.", Foreground = Solid("#0F766E"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
         company.Children.Add(versionText);
 
         var system = new StackPanel { Margin = new Thickness(14, 0, 0, 0) };
@@ -1332,6 +1566,17 @@ public partial class MainWindow : Window
         system.Children.Add(SectionTitle("Atualizacoes"));
         system.Children.Add(ToggleCard("Atualizar automaticamente ao abrir", "Consulta o servidor ao entrar no PDV. Se houver versao nova, baixa, instala e reabre o sistema.", () => _appSettings.AutoCheckUpdates, value => _appSettings.AutoCheckUpdates = value));
         system.Children.Add(checkUpdate);
+        system.Children.Add(SectionTitle("Admin"));
+        system.Children.Add(ToggleCard("Sincronizacao admin", "Envia ativacao, uso e clientes para o painel quando houver conexao.", () => _appSettings.AdminSyncEnabled, value => _appSettings.AdminSyncEnabled = value));
+        system.Children.Add(DialogLabel("URL do admin"));
+        system.Children.Add(adminUrlBox);
+        system.Children.Add(SectionTitle("Login Supabase"));
+        system.Children.Add(ToggleCard("Login Supabase", "Usa o mesmo usuario no PDV Web e no app Windows.", () => _appSettings.SupabaseAuthEnabled, value => _appSettings.SupabaseAuthEnabled = value));
+        system.Children.Add(DialogLabel("Supabase URL"));
+        system.Children.Add(supabaseUrlBox);
+        system.Children.Add(DialogLabel("Supabase anon key"));
+        system.Children.Add(supabaseAnonKeyBox);
+        system.Children.Add(supabaseUserText);
 
         root.Children.Add(company);
         Grid.SetColumn(system, 1);
@@ -7166,10 +7411,36 @@ public partial class MainWindow : Window
             shouldSaveSettings = true;
         }
 
+        if (ApplySupabaseEnvironmentDefaults())
+        {
+            shouldSaveSettings = true;
+        }
+
         if (shouldSaveSettings)
         {
             SaveAppSettings();
         }
+    }
+
+    private bool ApplySupabaseEnvironmentDefaults()
+    {
+        var changed = false;
+        var envUrl = Environment.GetEnvironmentVariable(SupabaseUrlEnvironment);
+        var envAnonKey = Environment.GetEnvironmentVariable(SupabaseAnonKeyEnvironment);
+
+        if (string.IsNullOrWhiteSpace(_appSettings.SupabaseUrl) && !string.IsNullOrWhiteSpace(envUrl))
+        {
+            _appSettings.SupabaseUrl = envUrl.Trim();
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(_appSettings.SupabaseAnonKey) && !string.IsNullOrWhiteSpace(envAnonKey))
+        {
+            _appSettings.SupabaseAnonKey = envAnonKey.Trim();
+            changed = true;
+        }
+
+        return changed;
     }
 
     private void SaveAppSettings()
@@ -10678,6 +10949,34 @@ public partial class MainWindow : Window
         public bool AdminSyncEnabled { get; set; } = true;
         public string AdminApiUrl { get; set; } = DefaultAdminApiUrl;
         public DateTime? LastAdminSyncAt { get; set; }
+        public bool SupabaseAuthEnabled { get; set; } = true;
+        public string SupabaseUrl { get; set; } = "";
+        public string SupabaseAnonKey { get; set; } = "";
+        public string SupabaseAccessToken { get; set; } = "";
+        public string SupabaseRefreshToken { get; set; } = "";
+        public string SupabaseUserId { get; set; } = "";
+        public string SupabaseUserEmail { get; set; } = "";
+        public DateTime? SupabaseTokenExpiresAt { get; set; }
+    }
+
+    public sealed class SupabaseLoginResult
+    {
+        public bool Ok { get; set; }
+        public string Message { get; set; } = "";
+        public string Email { get; set; } = "";
+
+        public static SupabaseLoginResult Success(string email) => new()
+        {
+            Ok = true,
+            Email = email,
+            Message = "Login Supabase conectado."
+        };
+
+        public static SupabaseLoginResult Fail(string message) => new()
+        {
+            Ok = false,
+            Message = message
+        };
     }
 
     public sealed class ActivationLedger
@@ -10759,6 +11058,9 @@ public partial class MainWindow : Window
         public string ReceiptQrContentPreview { get; set; } = "";
         public bool AutoCheckUpdates { get; set; }
         public bool AdminSyncEnabled { get; set; }
+        public bool SupabaseAuthEnabled { get; set; }
+        public bool SupabaseUrlConfigured { get; set; }
+        public string SupabaseUserEmail { get; set; } = "";
     }
 
     public sealed class AdminMetricsSnapshot
@@ -10769,9 +11071,6 @@ public partial class MainWindow : Window
         public int ProductsCount { get; set; }
         public int UsersCount { get; set; }
         public int CustomersCount { get; set; }
-        public decimal CashTotal { get; set; }
-        public decimal SalesToday { get; set; }
-        public int SoldItemsTotal { get; set; }
         public int LowStockCount { get; set; }
     }
 

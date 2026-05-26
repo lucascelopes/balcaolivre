@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Balcao Livre PDV Admin</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <main id="loginView" class="login-shell">
     <section class="login-card">
       <div class="brand-mark">BL</div>
       <h1>Balcao Livre PDV</h1>
-      <p>Painel interno de licencas, clientes e metricas.</p>
+      <p>Painel interno de licencas, clientes e uso do programa.</p>
       <label>Login</label>
       <input id="loginUser" autocomplete="username" value="balcaoVirtualPDV">
       <label>Senha</label>
@@ -41,7 +41,7 @@
       <header class="topbar">
         <div>
           <h1 id="viewTitle">Dashboard</h1>
-          <p id="viewSubtitle">Metricas de uso, chaves e clientes ativos.</p>
+          <p id="viewSubtitle">Uso do programa, chaves e clientes ativos.</p>
         </div>
         <div class="top-actions">
           <span id="storageMode" class="storage-badge">local-json</span>
@@ -54,7 +54,8 @@
           <article class="metric"><span>Licencas ativas</span><strong id="mActive">0</strong></article>
           <article class="metric"><span>Disponiveis</span><strong id="mAvailable">0</strong></article>
           <article class="metric"><span>Clientes 24h</span><strong id="mOnline">0</strong></article>
-          <article class="metric"><span>Vendas hoje</span><strong id="mSales">R$ 0,00</strong></article>
+          <article class="metric"><span>Usuarios do app</span><strong id="mUsers">0</strong></article>
+          <article class="metric"><span>Apps instalados</span><strong id="mDevices">0</strong></article>
         </div>
         <div class="grid-two">
           <article class="panel">
@@ -132,6 +133,6 @@
     </section>
   </main>
 
-  <script src="/app.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>

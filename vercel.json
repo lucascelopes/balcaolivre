@@ -1,0 +1,52 @@
+{
+  "rewrites": [
+    {
+      "source": "/admin-api/:path*",
+      "destination": "https://balcaolivrepdv.onrender.com/api/:path*"
+    },
+    {
+      "source": "/admin",
+      "destination": "/BalcaoLivre.Admin/wwwroot/index.html"
+    },
+    {
+      "source": "/admin/",
+      "destination": "/BalcaoLivre.Admin/wwwroot/index.html"
+    },
+    {
+      "source": "/admin/:path*",
+      "destination": "/BalcaoLivre.Admin/wwwroot/:path*"
+    },
+    {
+      "source": "/pdv",
+      "destination": "/BalcaoLivre.PDV.Web/index.html"
+    },
+    {
+      "source": "/pdv/",
+      "destination": "/BalcaoLivre.PDV.Web/index.html"
+    },
+    {
+      "source": "/pdv/:path*",
+      "destination": "/BalcaoLivre.PDV.Web/:path*"
+    },
+    {
+      "source": "/app/:path*",
+      "destination": "/BalcaoLivreLadingPage/app/:path*"
+    },
+    {
+      "source": "/public/:path*",
+      "destination": "/BalcaoLivreLadingPage/public/:path*"
+    },
+    {
+      "source": "/balcao-livre-icon.png",
+      "destination": "/BalcaoLivreLadingPage/public/balcao-livre-icon.png"
+    },
+    {
+      "source": "/balcao-livre-logo.png",
+      "destination": "/BalcaoLivreLadingPage/public/balcao-livre-logo.png"
+    },
+    {
+      "source": "/",
+      "destination": "/BalcaoLivreLadingPage/preview.html"
+    }
+  ]
+}

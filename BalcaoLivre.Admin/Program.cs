@@ -793,6 +793,9 @@ sealed class AppSettingsSnapshot
     public string ReceiptQrKind { get; set; } = "";
     public bool AutoCheckUpdates { get; set; }
     public bool AdminSyncEnabled { get; set; }
+    public bool SupabaseAuthEnabled { get; set; }
+    public bool SupabaseUrlConfigured { get; set; }
+    public string SupabaseUserEmail { get; set; } = "";
 }
 
 sealed class AppMetricsSnapshot
@@ -803,9 +806,6 @@ sealed class AppMetricsSnapshot
     public int ProductsCount { get; set; }
     public int UsersCount { get; set; }
     public int CustomersCount { get; set; }
-    public decimal CashTotal { get; set; }
-    public decimal SalesToday { get; set; }
-    public int SoldItemsTotal { get; set; }
     public int LowStockCount { get; set; }
 }
 
@@ -825,8 +825,7 @@ sealed class AdminDashboard
         var expired = store.Licenses.Count(item => item.Status == LicenseStatus.Expired || item.ExpiresAt <= now);
         var blocked = store.Licenses.Count(item => item.Status == LicenseStatus.Blocked);
         var online24h = store.Devices.Count(item => item.LastSeenAt >= now.AddHours(-24));
-        var salesToday = store.Devices.Sum(item => item.Metrics.SalesToday);
-        var openBoards = store.Devices.Sum(item => item.Metrics.OpenBoardsCount);
+        var registeredUsers = store.Devices.Sum(item => item.Metrics.UsersCount);
 
         return new AdminDashboard
         {
@@ -839,8 +838,7 @@ sealed class AdminDashboard
                 blockedLicenses = blocked,
                 devices = store.Devices.Count,
                 online24h,
-                openBoards,
-                salesToday
+                registeredUsers
             },
             VersionDistribution = store.Devices
                 .GroupBy(item => string.IsNullOrWhiteSpace(item.AppVersion) ? "sem versao" : item.AppVersion)
