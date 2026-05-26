@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Balcao Livre WhatsApp Connector",
+  "version": "0.1.0",
+  "description": "Conector local do Balcao Livre PDV para WhatsApp Web.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://web.whatsapp.com/*",
+    "http://127.0.0.1:8787/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

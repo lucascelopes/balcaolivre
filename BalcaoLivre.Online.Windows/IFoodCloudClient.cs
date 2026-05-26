@@ -1,0 +1,206 @@
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+
+namespace BalcaoLivre.Online.Windows;
+
+public sealed class IFoodCloudClient
+{
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    private readonly HttpClient _httpClient = new()
+    {
+        Timeout = TimeSpan.FromSeconds(25)
+    };
+
+    public async Task<IFoodCloudStartResponse> StartConnectionAsync(
+        string backendUrl,
+        IFoodCloudStoreContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return await PostAsync<IFoodCloudStartResponse>(
+            backendUrl,
+            "connect/start",
+            context,
+            cancellationToken);
+    }
+
+    public async Task<IFoodCloudFinishResponse> FinishConnectionAsync(
+        string backendUrl,
+        IFoodCloudFinishRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return await PostAsync<IFoodCloudFinishResponse>(
+            backendUrl,
+            "connect/finish",
+            request,
+            cancellationToken);
+    }
+
+    public async Task<IFoodCloudSyncResponse> SyncOrdersAsync(
+        string backendUrl,
+        IFoodCloudSyncRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return await PostAsync<IFoodCloudSyncResponse>(
+            backendUrl,
+            "orders/sync",
+            request,
+            cancellationToken);
+    }
+
+    public async Task<IFoodCloudActionResponse> SendOrderActionAsync(
+        string backendUrl,
+        IFoodCloudOrderActionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return await PostAsync<IFoodCloudActionResponse>(
+            backendUrl,
+            "orders/action",
+            request,
+            cancellationToken);
+    }
+
+    private async Task<T> PostAsync<T>(string backendUrl, string path, object payload, CancellationToken cancellationToken)
+    {
+        var endpoint = BuildUri(backendUrl, path);
+        var json = JsonSerializer.Serialize(payload, JsonOptions);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        using var response = await _httpClient.PostAsync(endpoint, content, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var detail = ExtractMessage(body);
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
+                ? $"Supabase iFood retornou {(int)response.StatusCode}."
+                : detail);
+        }
+
+        return JsonSerializer.Deserialize<T>(body, JsonOptions)
+            ?? throw new InvalidOperationException("Resposta vazia do Supabase iFood.");
+    }
+
+    private static Uri BuildUri(string backendUrl, string path)
+    {
+        var baseUrl = (backendUrl ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            baseUrl = IFoodIntegrationSettings.DefaultBackendUrl;
+        }
+
+        if (!Uri.TryCreate(baseUrl.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri))
+        {
+            throw new InvalidOperationException("Backend Supabase do iFood esta invalido.");
+        }
+
+        return new Uri(baseUri, path.TrimStart('/'));
+    }
+
+    private static string ExtractMessage(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return "";
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.TryGetProperty("message", out var message))
+            {
+                return message.GetString() ?? "";
+            }
+
+            if (document.RootElement.TryGetProperty("error", out var error))
+            {
+                return error.GetString() ?? "";
+            }
+        }
+        catch (JsonException)
+        {
+            return body;
+        }
+
+        return body;
+    }
+}
+
+public class IFoodCloudStoreContext
+{
+    public string LicenseKey { get; set; } = "";
+    public string MachineHash { get; set; } = "";
+    public string MachineCode { get; set; } = "";
+    public string BusinessName { get; set; } = "";
+    public string LegalName { get; set; } = "";
+    public string Cnpj { get; set; } = "";
+    public string Phone { get; set; } = "";
+    public string Address { get; set; } = "";
+    public string City { get; set; } = "";
+    public string State { get; set; } = "";
+    public string AppVersion { get; set; } = "";
+}
+
+public sealed class IFoodCloudFinishRequest : IFoodCloudStoreContext
+{
+    public string ConnectionId { get; set; } = "";
+    public string AuthorizationCode { get; set; } = "";
+}
+
+public sealed class IFoodCloudSyncRequest : IFoodCloudStoreContext
+{
+    public string ConnectionId { get; set; } = "";
+}
+
+public sealed class IFoodCloudOrderActionRequest : IFoodCloudStoreContext
+{
+    public string ConnectionId { get; set; } = "";
+    public string OrderId { get; set; } = "";
+    public string Action { get; set; } = "";
+    public string Reason { get; set; } = "";
+    public string DeliveredBy { get; set; } = "MERCHANT";
+}
+
+public sealed class IFoodCloudStartResponse
+{
+    public bool Ok { get; set; }
+    public string Message { get; set; } = "";
+    public string ConnectionId { get; set; } = "";
+    public string Status { get; set; } = "";
+    public string UserCode { get; set; } = "";
+    public string VerificationUrl { get; set; } = "";
+    public string VerificationUrlComplete { get; set; } = "";
+    public int ExpiresIn { get; set; }
+    public string MerchantId { get; set; } = "";
+    public string MerchantName { get; set; } = "";
+    public string WebhookUrl { get; set; } = "";
+}
+
+public sealed class IFoodCloudFinishResponse
+{
+    public bool Ok { get; set; }
+    public string Message { get; set; } = "";
+    public string ConnectionId { get; set; } = "";
+    public string MerchantId { get; set; } = "";
+    public string MerchantName { get; set; } = "";
+    public string WebhookUrl { get; set; } = "";
+}
+
+public sealed class IFoodCloudSyncResponse
+{
+    public bool Ok { get; set; }
+    public string Message { get; set; } = "";
+    public DateTime? SyncedAt { get; set; }
+    public List<IFoodImportedOrder> Orders { get; set; } = [];
+}
+
+public sealed class IFoodCloudActionResponse
+{
+    public bool Ok { get; set; }
+    public string Message { get; set; } = "";
+    public string OrderId { get; set; } = "";
+    public string Status { get; set; } = "";
+}

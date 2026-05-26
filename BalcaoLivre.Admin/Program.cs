@@ -179,16 +179,21 @@ app.MapPost("/api/app/activate", async (HttpContext context, AdminStoreService s
             return AdminActivationResponse.Deny("Esta chave esta expirada.");
         }
 
+        var mobileClient = IsMobileClient(request);
         if (!string.IsNullOrWhiteSpace(license.MachineHash) &&
-            !string.Equals(license.MachineHash, request.MachineHash, StringComparison.Ordinal))
+            !string.Equals(license.MachineHash, request.MachineHash, StringComparison.Ordinal) &&
+            !mobileClient)
         {
             data.Events.Add(AdminEvent.License("activation.used_other_pc", "Chave ja vinculada a outro PC", license.Key));
             return AdminActivationResponse.Deny("Esta chave ja foi usada em outro computador.");
         }
 
         license.Status = LicenseStatus.Active;
-        license.MachineHash = request.MachineHash;
-        license.MachineCode = request.MachineCode;
+        if (!mobileClient || string.IsNullOrWhiteSpace(license.MachineHash))
+        {
+            license.MachineHash = request.MachineHash;
+            license.MachineCode = request.MachineCode;
+        }
         license.ActivatedAt ??= now;
         license.LastSeenAt = now;
         license.AppVersion = request.AppVersion;
@@ -246,8 +251,113 @@ app.MapPost("/api/app/checkin", async (HttpContext context, AdminStoreService st
     return Results.Ok(new { ok = true });
 });
 
+app.MapPost("/api/app/sync", async (HttpContext context, AdminStoreService store) =>
+{
+    var request = await context.Request.ReadFromJsonAsync<AppSyncPayload>(AdminJson.Options) ?? new AppSyncPayload();
+    request.LicenseKey = LicenseKeyFactory.Normalize(request.LicenseKey);
+    if (string.IsNullOrWhiteSpace(request.LicenseKey) || string.IsNullOrWhiteSpace(request.MachineHash))
+    {
+        return Results.Json(new { ok = false, message = "Chave e computador sao obrigatorios." }, statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var accepted = MarkAppPayloadSeen(store, request, "sync.central", "Sync central recebido");
+    if (!accepted)
+    {
+        return Results.Json(new { ok = false, message = "Chave sem permissao para sync." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var saved = store.SaveClientObject(
+        "sync",
+        request.LicenseKey,
+        request.MachineHash,
+        "latest.json",
+        JsonSerializer.Serialize(request, AdminJson.Options),
+        upsert: true);
+
+    return Results.Ok(new { ok = true, saved, mode = store.StorageMode });
+});
+
+app.MapPost("/api/app/backup", async (HttpContext context, AdminStoreService store) =>
+{
+    var request = await context.Request.ReadFromJsonAsync<AppBackupPayload>(AdminJson.Options) ?? new AppBackupPayload();
+    request.LicenseKey = LicenseKeyFactory.Normalize(request.LicenseKey);
+    if (string.IsNullOrWhiteSpace(request.LicenseKey) || string.IsNullOrWhiteSpace(request.MachineHash))
+    {
+        return Results.Json(new { ok = false, message = "Chave e computador sao obrigatorios." }, statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var accepted = MarkAppPayloadSeen(store, request, "backup.received", "Backup versionado recebido");
+    if (!accepted)
+    {
+        return Results.Json(new { ok = false, message = "Chave sem permissao para backup." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var fileName = $"{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}-{ShortStableId(request.MachineHash)}.json";
+    var saved = store.SaveClientObject(
+        "backups",
+        request.LicenseKey,
+        request.MachineHash,
+        fileName,
+        JsonSerializer.Serialize(request, AdminJson.Options),
+        upsert: false);
+
+    return Results.Ok(new { ok = true, saved, fileName, mode = store.StorageMode });
+});
+
 app.MapFallbackToFile("index.html");
 app.Run();
+
+static bool MarkAppPayloadSeen(AdminStoreService store, AppClientPayload request, string eventType, string eventMessage)
+{
+    return store.Update(data =>
+    {
+        var now = DateTimeOffset.UtcNow;
+        var license = data.Licenses.FirstOrDefault(item => string.Equals(item.Key, request.LicenseKey, StringComparison.OrdinalIgnoreCase));
+        if (license is null)
+        {
+            data.Events.Add(AdminEvent.Device($"{eventType}.denied", $"{eventMessage}: chave nao encontrada", request));
+            return false;
+        }
+
+        LicenseTools.RefreshLicenseStatus(license, now);
+        if (license.Status == LicenseStatus.Blocked || license.Status == LicenseStatus.Expired)
+        {
+            data.Events.Add(AdminEvent.License($"{eventType}.blocked", $"{eventMessage}: chave {license.Status}", license.Key));
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(license.MachineHash) &&
+            !string.Equals(license.MachineHash, request.MachineHash, StringComparison.Ordinal) &&
+            !IsMobileClient(request))
+        {
+            data.Events.Add(AdminEvent.License($"{eventType}.other_pc", $"{eventMessage}: computador diferente", license.Key));
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(license.MachineHash) && !IsMobileClient(request))
+        {
+            license.MachineHash = request.MachineHash;
+            license.MachineCode = request.MachineCode;
+            license.ActivatedAt ??= now;
+        }
+
+        license.Status = LicenseStatus.Active;
+        license.LastSeenAt = now;
+        license.AppVersion = request.AppVersion;
+        license.BusinessName = request.Profile.BusinessName;
+        license.Cnpj = request.Profile.Cnpj;
+        license.OwnerName = request.Profile.OwnerName;
+        license.Phone = request.Profile.Phone;
+        license.City = request.Profile.City;
+        license.State = request.Profile.State;
+        license.ConfigSnapshot = request.Settings;
+        license.MetricsSnapshot = request.Metrics;
+
+        UpsertDevice(data, request, now);
+        data.Events.Add(AdminEvent.Device(eventType, $"{eventMessage}: {request.Profile.BusinessName.TrimOrDefault(request.MachineCode)}", request));
+        return true;
+    });
+}
 
 static void UpsertDevice(AdminStore data, AppClientPayload request, DateTimeOffset now)
 {
@@ -266,10 +376,30 @@ static void UpsertDevice(AdminStore data, AppClientPayload request, DateTimeOffs
 
     device.LastSeenAt = now;
     device.LicenseKey = request.LicenseKey;
+    device.ClientKind = NormalizeClientKind(request.ClientKind);
     device.AppVersion = request.AppVersion;
     device.Profile = request.Profile;
     device.Settings = request.Settings;
     device.Metrics = request.Metrics;
+}
+
+static bool IsMobileClient(AppClientPayload request)
+{
+    return string.Equals(NormalizeClientKind(request.ClientKind), "android", StringComparison.Ordinal)
+        || request.MachineCode.StartsWith("AND-", StringComparison.OrdinalIgnoreCase);
+}
+
+static string NormalizeClientKind(string? value)
+{
+    var clean = (value ?? "").Trim().ToLowerInvariant();
+    return string.IsNullOrWhiteSpace(clean) ? "windows" : clean;
+}
+
+static string ShortStableId(string value)
+{
+    using var sha = SHA256.Create();
+    var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(value));
+    return Convert.ToHexString(bytes)[..10].ToLowerInvariant();
 }
 
 static string NormalizeDurationUnit(string? unit)
@@ -431,6 +561,7 @@ sealed class AdminSessionService
 
 sealed class AdminStoreService
 {
+    private readonly string _dataRoot;
     private readonly string _filePath;
     private readonly string _supabaseUrl;
     private readonly string _supabaseKey;
@@ -445,10 +576,10 @@ sealed class AdminStoreService
 
     public AdminStoreService(IWebHostEnvironment environment)
     {
-        var dataRoot = Environment.GetEnvironmentVariable("BVPDV_ADMIN_DATA")
+        _dataRoot = Environment.GetEnvironmentVariable("BVPDV_ADMIN_DATA")
             ?? Path.Combine(environment.ContentRootPath, "App_Data");
-        Directory.CreateDirectory(dataRoot);
-        _filePath = Path.Combine(dataRoot, "admin-store.json");
+        Directory.CreateDirectory(_dataRoot);
+        _filePath = Path.Combine(_dataRoot, "admin-store.json");
         _supabaseUrl = (Environment.GetEnvironmentVariable("BVPDV_SUPABASE_URL")
             ?? Environment.GetEnvironmentVariable("SUPABASE_URL")
             ?? "").Trim().TrimEnd('/');
@@ -491,6 +622,28 @@ sealed class AdminStoreService
             TrimEvents(store);
             SaveUnsafe(store);
             return result;
+        }
+    }
+
+    public bool SaveClientObject(string area, string licenseKey, string machineHash, string fileName, string json, bool upsert)
+    {
+        lock (_gate)
+        {
+            var objectPath = string.Join('/',
+                SafeObjectSegment(area),
+                SafeObjectSegment(licenseKey),
+                SafeObjectSegment(machineHash),
+                SafeObjectSegment(fileName));
+            var localPath = Path.Combine(_dataRoot, objectPath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
+            File.WriteAllText(localPath, json, Encoding.UTF8);
+
+            if (!UsesSupabase)
+            {
+                return true;
+            }
+
+            return SaveJsonObjectToSupabaseUnsafe(objectPath, json, upsert);
         }
     }
 
@@ -545,7 +698,7 @@ sealed class AdminStoreService
         try
         {
             EnsureSupabaseBucketUnsafe();
-            using var request = CreateSupabaseRequest(HttpMethod.Get, SupabaseObjectPath());
+            using var request = CreateSupabaseRequest(HttpMethod.Get, SupabaseObjectPath(_supabaseObjectPath));
             using var response = _httpClient.Send(request);
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
@@ -573,7 +726,7 @@ sealed class AdminStoreService
         try
         {
             EnsureSupabaseBucketUnsafe();
-            using var request = CreateSupabaseRequest(HttpMethod.Post, SupabaseObjectPath());
+            using var request = CreateSupabaseRequest(HttpMethod.Post, SupabaseObjectPath(_supabaseObjectPath));
             request.Headers.TryAddWithoutValidation("x-upsert", "true");
             request.Content = new StringContent(JsonSerializer.Serialize(store, AdminJson.Options), Encoding.UTF8, "application/json");
             using var response = _httpClient.Send(request);
@@ -581,6 +734,25 @@ sealed class AdminStoreService
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException or InvalidOperationException)
         {
+        }
+    }
+
+    private bool SaveJsonObjectToSupabaseUnsafe(string objectPath, string json, bool upsert)
+    {
+        try
+        {
+            EnsureSupabaseBucketUnsafe();
+            using var request = CreateSupabaseRequest(HttpMethod.Post, SupabaseObjectPath(objectPath));
+            request.Headers.TryAddWithoutValidation("x-upsert", upsert ? "true" : "false");
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var response = _httpClient.Send(request);
+            _lastSupabaseOk = response.IsSuccessStatusCode;
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException or InvalidOperationException)
+        {
+            _lastSupabaseOk = false;
+            return false;
         }
     }
 
@@ -611,9 +783,14 @@ sealed class AdminStoreService
         }
     }
 
-    private string SupabaseObjectPath()
+    private string SupabaseObjectPath(string objectPath)
     {
-        return $"/storage/v1/object/{Uri.EscapeDataString(_supabaseBucket)}/{_supabaseObjectPath}";
+        var encodedPath = string.Join('/',
+            objectPath
+                .TrimStart('/')
+                .Split('/', StringSplitOptions.RemoveEmptyEntries)
+                .Select(Uri.EscapeDataString));
+        return $"/storage/v1/object/{Uri.EscapeDataString(_supabaseBucket)}/{encodedPath}";
     }
 
     private HttpRequestMessage CreateSupabaseRequest(HttpMethod method, string pathAndQuery)
@@ -639,6 +816,16 @@ sealed class AdminStoreService
             .Take(500)
             .OrderBy(item => item.When)
             .ToList();
+    }
+
+    private static string SafeObjectSegment(string value)
+    {
+        var clean = new string((value ?? "")
+            .Trim()
+            .Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.' ? ch : '-')
+            .ToArray())
+            .Trim('-');
+        return string.IsNullOrWhiteSpace(clean) ? "sem-valor" : clean;
     }
 }
 
@@ -682,6 +869,7 @@ sealed class DeviceRecord
     public string MachineHash { get; set; } = "";
     public string MachineCode { get; set; } = "";
     public string LicenseKey { get; set; } = "";
+    public string ClientKind { get; set; } = "windows";
     public string AppVersion { get; set; } = "";
     public DateTimeOffset FirstSeenAt { get; set; }
     public DateTimeOffset LastSeenAt { get; set; }
@@ -731,18 +919,34 @@ sealed class CreateLicenseRequest
     public string Notes { get; set; } = "";
 }
 
-sealed class AppClientPayload
+class AppClientPayload
 {
     public string EventName { get; set; } = "";
     public string LicenseKey { get; set; } = "";
     public string MachineHash { get; set; } = "";
     public string MachineCode { get; set; } = "";
+    public string ClientKind { get; set; } = "windows";
     public string AppVersion { get; set; } = "";
     public DateTimeOffset? LocalExpiresAt { get; set; }
     public string LocalPlan { get; set; } = "";
     public RestaurantProfileSnapshot Profile { get; set; } = new();
     public AppSettingsSnapshot Settings { get; set; } = new();
     public AppMetricsSnapshot Metrics { get; set; } = new();
+}
+
+sealed class AppSyncPayload : AppClientPayload
+{
+    public string SyncKind { get; set; } = "summary";
+    public DateTimeOffset LocalWhen { get; set; } = DateTimeOffset.UtcNow;
+    public JsonElement Summary { get; set; }
+}
+
+sealed class AppBackupPayload : AppClientPayload
+{
+    public DateTimeOffset LocalWhen { get; set; } = DateTimeOffset.UtcNow;
+    public string StoreHash { get; set; } = "";
+    public long StoreBytes { get; set; }
+    public JsonElement Store { get; set; }
 }
 
 sealed class AdminActivationResponse

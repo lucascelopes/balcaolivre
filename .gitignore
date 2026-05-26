@@ -3,6 +3,9 @@ bin/
 obj/
 dist/
 publish/
+**/build/
+.gradle/
+local.properties
 *.user
 *.suo
 *.pdb
@@ -17,6 +20,7 @@ supabase-key.txt
 .env
 .env.*
 !.env.example
+supabase/.temp/
 
 # Codex/local research artifacts
 .agents/
