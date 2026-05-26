@@ -76,7 +76,16 @@ public sealed class IFoodImportedOrder
 {
     public string OrderId { get; set; } = "";
     public string DisplayId { get; set; } = "";
+    public string Status { get; set; } = "";
+    public DateTime? CreatedAt { get; set; }
+    public string OrderTiming { get; set; } = "";
+    public DateTime? PreparationStartDateTime { get; set; }
+    public DateTime? ConfirmationDeadlineAt { get; set; }
     public string OrderType { get; set; } = "DELIVERY";
+    public string DeliveredBy { get; set; } = "";
+    public string PickupCode { get; set; } = "";
+    public string DeliveryLocalizer { get; set; } = "";
+    public string ShipmentInfo { get; set; } = "";
     public string CustomerName { get; set; } = "CLIENTE IFOOD";
     public string CustomerDocument { get; set; } = "";
     public string Phone { get; set; } = "";
@@ -90,6 +99,7 @@ public sealed class IFoodImportedOrder
 public sealed class IFoodImportedItem
 {
     public string Code { get; set; } = "";
+    public string ProductId { get; set; } = "";
     public string Name { get; set; } = "";
     public int Quantity { get; set; }
     public decimal UnitPrice { get; set; }

@@ -1,9 +1,9 @@
-#define MyAppName "Balcao Livre PDV"
-#define MyAppVersion "1.2.2026"
+#define MyAppName "Balcao Livre PDV Online"
+#define MyAppVersion "1.0.2026"
 #define MyAppPublisher "Balcao Livre"
-#define MyAppExeName "BalcaoLivrePDV.exe"
+#define MyAppExeName "BalcaoLivrePDVOnline.exe"
 #define ProjectRoot AddBackslash(SourcePath) + ".."
-#define PublishDir ProjectRoot + "\RestaurantePro.Windows\bin\Release\net9.0-windows\win-x64\publish-cliente-limpo-self-contained"
+#define PublishDir ProjectRoot + "\BalcaoLivre.Online.Windows\bin\Release\net9.0-windows\win-x64\publish-online-self-contained"
 #define OutputRoot ProjectRoot + "\dist"
 
 [Setup]
@@ -18,7 +18,7 @@ OutputBaseFilename=BalcaoLivrePDV-Setup-{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-SetupIconFile={#ProjectRoot}\RestaurantePro.Windows\Assets\app.ico
+SetupIconFile={#ProjectRoot}\BalcaoLivre.Online.Windows\Assets\app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible

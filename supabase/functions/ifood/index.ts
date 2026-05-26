@@ -68,6 +68,10 @@ Deno.serve(async (req) => {
       return await handleOrderAction(req);
     }
 
+    if (route === "/stock/sync") {
+      return await handleStockSync(req);
+    }
+
     return json({ ok: false, message: "Rota iFood nao encontrada." }, 404);
   } catch (error) {
     return json({ ok: false, message: messageFromError(error) }, 500);
@@ -150,49 +154,8 @@ async function handleWebhook(req: Request) {
 
 async function handleConnectStart(req: Request) {
   const context = await readJson(req) as StoreContext;
-  const clientId = requiredEnv("IFOOD_CLIENT_ID");
   const webhookUrl = publicFunctionUrl() + "/webhook";
-
-  try {
-    const code = await ifoodForm("/authentication/v1.0/oauth/userCode", {
-      clientId,
-    });
-
-    const row = baseConnectionRow(context, webhookUrl, {
-      status: "waiting_authorization",
-      user_code: text(code.userCode),
-      authorization_code_verifier: text(code.authorizationCodeVerifier),
-      verification_url: text(code.verificationUrl),
-      verification_url_complete: text(code.verificationUrlComplete),
-    });
-
-    const { data, error } = await serviceClient()
-      .from("bv_ifood_connections")
-      .upsert(row, { onConflict: "license_key,machine_hash" })
-      .select("id")
-      .single();
-
-    if (error) throw error;
-
-    return json({
-      ok: true,
-      status: "waiting_authorization",
-      message: "Abrimos a autorizacao do iFood. Confirme a loja no portal e cole o codigo final no PDV.",
-      connectionId: data.id,
-      userCode: code.userCode ?? "",
-      verificationUrl: code.verificationUrl ?? "",
-      verificationUrlComplete: code.verificationUrlComplete ?? code.verificationUrl ?? "",
-      expiresIn: Number(code.expiresIn ?? 0),
-      webhookUrl,
-    });
-  } catch (error) {
-    const detail = messageFromError(error);
-    if (!detail.toLowerCase().includes("grant type not authorized")) {
-      throw error;
-    }
-
-    return await connectCentralizedApp(context, webhookUrl);
-  }
+  return await connectCentralizedApp(context, webhookUrl);
 }
 
 async function connectCentralizedApp(context: StoreContext, webhookUrl: string) {
@@ -212,7 +175,7 @@ async function connectCentralizedApp(context: StoreContext, webhookUrl: string) 
   if (!merchantId) {
     return json({
       ok: false,
-      message: "iFood conectado ao Supabase, mas nenhum merchant foi identificado. Gere um pedido de teste ou confira permissao de loja no portal iFood.",
+      message: "iFood conectado, mas nenhuma loja foi identificada. Gere um pedido de teste ou confira a permissao da loja no portal iFood.",
       webhookUrl,
     }, 400);
   }
@@ -238,7 +201,7 @@ async function connectCentralizedApp(context: StoreContext, webhookUrl: string) 
   return json({
     ok: true,
     status: "connected",
-    message: `iFood conectado automaticamente pelo app centralizado: ${merchantName}. Novos pedidos entram no Delivery.`,
+    message: `iFood conectado: ${merchantName}. Novos pedidos entram automaticamente no Delivery.`,
     connectionId: data.id,
     merchantId,
     merchantName,
@@ -372,9 +335,9 @@ async function handleOrdersSync(req: Request) {
     ok: true,
     message: orders.length === 0
       ? pollingWarning
-        ? "Nenhum pedido novo salvo pelo webhook. Polling iFood indisponivel agora."
-        : "Nenhum pedido novo no iFood."
-      : `${orders.length} pedido(s) iFood pronto(s).`,
+        ? "Nenhum pedido novo recebido agora. iFood indisponivel para consulta automatica."
+        : "Nenhum pedido novo recebido do iFood."
+      : `${orders.length} pedido(s) iFood recebido(s).`,
     syncedAt: new Date().toISOString(),
     pollingWarning,
     orders,
@@ -387,6 +350,7 @@ async function handleOrderAction(req: Request) {
     orderId?: string;
     action?: string;
     reason?: string;
+    cancellationCode?: string;
     deliveredBy?: string;
   };
   const orderId = text(body.orderId);
@@ -411,6 +375,75 @@ async function handleOrderAction(req: Request) {
     message: command.message,
     orderId,
     status: command.status,
+    deliveredBy: text(body.deliveredBy) || "",
+  });
+}
+
+async function handleStockSync(req: Request) {
+  const body = await readJson(req) as StoreContext & {
+    connectionId?: string;
+    productId?: string;
+    externalCode?: string;
+    productCode?: string;
+    productName?: string;
+    amount?: number;
+    reason?: string;
+  };
+  const productId = text(body.productId);
+  const externalCode = text(body.externalCode || body.productCode);
+  const amount = Math.max(0, Math.floor(Number(body.amount ?? 0)));
+  if (!productId && !externalCode) {
+    return json({ ok: false, message: "Produto sem vinculo iFood. Informe productId ou codigo externo." }, 400);
+  }
+
+  let connection = await findConnection(body);
+  connection = await ensureToken(connection);
+  const merchantId = text(connection.merchant_id);
+  if (!merchantId) {
+    return json({ ok: false, message: "Loja iFood nao identificada no vinculo." }, 400);
+  }
+
+  let ifoodResponse: Record<string, unknown> = {};
+  let mode = "inventory";
+  if (productId) {
+    ifoodResponse = await ifoodPost(
+      `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/inventory`,
+      connection.access_token ?? "",
+      { productId, amount },
+    );
+  } else {
+    mode = "status";
+    ifoodResponse = await ifoodPatch(
+      `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/products/status`,
+      connection.access_token ?? "",
+      [{
+        externalCode,
+        status: amount > 0 ? "AVAILABLE" : "UNAVAILABLE",
+        resources: ["ITEM", "OPTION"],
+      }],
+    );
+  }
+
+  await saveStockSync(connection, {
+    productId,
+    externalCode,
+    productCode: text(body.productCode),
+    productName: text(body.productName),
+    amount,
+    reason: text(body.reason),
+    mode,
+    response: ifoodResponse,
+  });
+
+  return json({
+    ok: true,
+    message: productId
+      ? `Estoque iFood atualizado para ${amount}.`
+      : `Status iFood atualizado por codigo externo: ${amount > 0 ? "disponivel" : "indisponivel"}.`,
+    productId,
+    externalCode,
+    amount,
+    mode,
   });
 }
 
@@ -627,6 +660,19 @@ async function ifoodPost(path: string, accessToken: string, payload?: Record<str
   return await parseIfoodResponse(response);
 }
 
+async function ifoodPatch(path: string, accessToken: string, payload: unknown) {
+  const response = await fetch(`${IFOOD_API_BASE}${path}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  return await parseIfoodResponse(response);
+}
+
 async function parseIfoodResponse(response: Response) {
   const body = await response.text();
   if (!response.ok) {
@@ -638,11 +684,34 @@ async function parseIfoodResponse(response: Response) {
 function mapOrder(order: Record<string, unknown>, fallbackOrderId: string) {
   const customer = valueAt(order, ["customer"]) as Record<string, unknown> | undefined;
   const delivery = valueAt(order, ["delivery"]) as Record<string, unknown> | undefined;
+  const phoneObject = valueAt(customer ?? {}, ["phone"]) as Record<string, unknown> | undefined;
   const deliveryAddress = valueAt(delivery ?? {}, ["deliveryAddress"]) as Record<string, unknown> | undefined;
   const phoneValue = customer ? valueAt(customer, ["phone"]) : undefined;
   const phone = typeof phoneValue === "object" && phoneValue !== null
     ? text((phoneValue as Record<string, unknown>).number)
     : text(phoneValue);
+  const deliveredBy = text(delivery?.deliveredBy ?? order.deliveredBy).toUpperCase();
+  const pickupCode = text(delivery?.pickupCode ?? order.pickupCode);
+  const deliveryLocalizer = text(phoneObject?.localizer ?? delivery?.deliveryCode ?? order.deliveryCode);
+  const scheduled = valueAt(order, ["scheduled", "scheduling"]) as Record<string, unknown> | undefined;
+  const createdAt = text(order.createdAt ?? order.created_at ?? order.createdDate);
+  const orderTiming = text(order.orderTiming ?? order.timing ?? order.type).toUpperCase();
+  const preparationStartDateTime = text(
+    scheduled?.preparationStartDateTime ??
+    scheduled?.preparation_start_date_time ??
+    scheduled?.preparationStart ??
+    order.preparationStartDateTime ??
+    order.preparationStart,
+  );
+  const confirmationBase = orderTiming === "SCHEDULED" && preparationStartDateTime
+    ? preparationStartDateTime
+    : createdAt;
+  const confirmationDeadlineAt = addMinutesIso(confirmationBase, 8);
+  const shipmentInfo = [
+    deliveredBy ? deliveredBy === "IFOOD" ? "Entrega iFood" : "Entrega propria" : "",
+    pickupCode ? `Codigo coleta ${pickupCode}` : "",
+    deliveryLocalizer ? `Localizador ${deliveryLocalizer}` : "",
+  ].filter(Boolean).join(" | ");
   const items = Array.isArray(order.items) ? order.items as Record<string, unknown>[] : [];
   const mappedItems = items.map((item, index) => {
     const quantity = numberAt(item, ["quantity"], 1);
@@ -650,6 +719,7 @@ function mapOrder(order: Record<string, unknown>, fallbackOrderId: string) {
     const unitPrice = numberAt(item, ["unitPrice"], quantity > 0 ? total / quantity : total);
     return {
       code: text(item.externalCode ?? item.ean ?? String(index + 1).padStart(6, "0")),
+      productId: text(item.productId ?? item.catalogItemId ?? item.id),
       name: text(item.name ?? "ITEM IFOOD").toUpperCase(),
       quantity: Math.max(1, Math.round(quantity)),
       unitPrice,
@@ -667,7 +737,16 @@ function mapOrder(order: Record<string, unknown>, fallbackOrderId: string) {
   return {
     orderId: text(order.id ?? fallbackOrderId),
     displayId: text(order.displayId ?? order.shortReference ?? fallbackOrderId.slice(-6)),
+    status: text(order.status ?? order.orderStatus),
+    createdAt,
+    orderTiming,
+    preparationStartDateTime,
+    confirmationDeadlineAt,
     orderType: text(order.orderType ?? order.type ?? "DELIVERY").toUpperCase(),
+    deliveredBy,
+    pickupCode,
+    deliveryLocalizer,
+    shipmentInfo,
     customerName: text(customer?.name ?? "CLIENTE IFOOD"),
     customerDocument: text(customer?.documentNumber ?? customer?.document),
     phone,
@@ -689,10 +768,17 @@ function normalizeOrderAction(value?: string) {
   return "";
 }
 
+function addMinutesIso(value: string, minutes: number) {
+  if (!value) return "";
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return "";
+  return new Date(time + minutes * 60000).toISOString();
+}
+
 function buildOrderActionCommand(
   orderId: string,
   action: string,
-  body: { reason?: string; deliveredBy?: string },
+  body: { reason?: string; cancellationCode?: string; deliveredBy?: string },
 ) {
   const encoded = encodeURIComponent(orderId);
   switch (action) {
@@ -725,16 +811,45 @@ function buildOrderActionCommand(
         message: "Pedido iFood despachado.",
       };
     case "cancel":
+      const cancellationCode = cancellationCodeFrom(body.cancellationCode ?? body.reason);
+      const reason = cancellationReasonFrom(body.reason ?? body.cancellationCode, cancellationCode);
       return {
         path: `/order/v1.0/orders/${encoded}/requestCancellation`,
         payload: {
-          reason: text(body.reason) || "501",
+          cancellationCode,
+          reason,
         },
         status: "CANCELAMENTO",
         message: "Cancelamento iFood solicitado.",
       };
     default:
       throw new Error("Acao iFood invalida.");
+  }
+}
+
+function cancellationCodeFrom(value?: string) {
+  const match = text(value).match(/\d+/);
+  return match?.[0] || "501";
+}
+
+function cancellationReasonFrom(value: unknown, cancellationCode: string) {
+  const raw = text(value);
+  const withoutCode = raw.replace(/^\d+\s*[-:]\s*/, "").trim();
+  if (withoutCode) {
+    return withoutCode;
+  }
+
+  switch (cancellationCode) {
+    case "501":
+      return "Loja sem produto";
+    case "502":
+      return "Loja sem capacidade";
+    case "503":
+      return "Cliente solicitou cancelamento";
+    case "504":
+      return "Endereco fora da area";
+    default:
+      return "Cancelamento solicitado pelo restaurante";
   }
 }
 
@@ -786,6 +901,40 @@ async function saveOrderAction(
   if (error) throw error;
 }
 
+async function saveStockSync(
+  connection: ConnectionRow,
+  sync: {
+    productId: string;
+    externalCode: string;
+    productCode: string;
+    productName: string;
+    amount: number;
+    reason: string;
+    mode: string;
+    response: Record<string, unknown>;
+  },
+) {
+  const { error } = await serviceClient()
+    .from("bv_ifood_stock_sync")
+    .insert({
+      connection_id: connection.id,
+      merchant_id: connection.merchant_id,
+      product_id: sync.productId || null,
+      external_code: sync.externalCode || null,
+      product_code: sync.productCode || null,
+      product_name: sync.productName || null,
+      amount: sync.amount,
+      reason: sync.reason || null,
+      mode: sync.mode,
+      payload: sync.response,
+      synced_at: new Date().toISOString(),
+    });
+
+  if (error) {
+    console.warn("iFood stock sync log skipped", error.message);
+  }
+}
+
 function routeFromPath(pathname: string) {
   const marker = "/ifood";
   const index = pathname.indexOf(marker);
@@ -815,10 +964,30 @@ function isOrderCreatedEvent(event: Record<string, unknown>) {
 async function readJson(req: Request) {
   try {
     const textBody = await req.text();
-    return textBody ? JSON.parse(textBody) : {};
+    return textBody ? withTopLevelCamelAliases(JSON.parse(textBody)) : {};
   } catch {
     return {};
   }
+}
+
+function withTopLevelCamelAliases(value: unknown) {
+  if (!value || Array.isArray(value) || typeof value !== "object") {
+    return value;
+  }
+
+  const payload = value as Record<string, unknown>;
+  for (const key of Object.keys(payload)) {
+    if (!key || key[0] !== key[0].toUpperCase()) {
+      continue;
+    }
+
+    const camelKey = key[0].toLowerCase() + key.slice(1);
+    if (!(camelKey in payload)) {
+      payload[camelKey] = payload[key];
+    }
+  }
+
+  return payload;
 }
 
 function serviceClient() {

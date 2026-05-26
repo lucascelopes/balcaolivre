@@ -1,7 +1,7 @@
 {
-  "version": "1.2.2026",
-  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.2.2026.exe",
-  "notes": "PDV aponta para o admin publico do Render, sincronizando clientes/licencas no Supabase Storage. Configuracoes antigas com localhost sao migradas automaticamente. Atualizacoes futuras sao instaladas automaticamente ao abrir o PDV.",
+  "version": "1.0.2026",
+  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe",
+  "notes": "Instalador do Balcao Livre PDV Online com atendimento WhatsApp, estoque integrado, iFood e sincronizacao central.",
   "required": false,
-  "publishedAt": "2026-05-25T00:00:00-03:00"
+  "publishedAt": "2026-05-26T00:00:00-03:00"
 }

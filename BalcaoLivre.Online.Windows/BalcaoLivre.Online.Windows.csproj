@@ -13,10 +13,10 @@
     <AssemblyTitle>Balcão Livre PDV Online</AssemblyTitle>
     <Company>Nagazaki Software</Company>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
-    <Version>1.2.2026</Version>
-    <AssemblyVersion>1.2.2026.0</AssemblyVersion>
-    <FileVersion>1.2.2026.0</FileVersion>
-    <InformationalVersion>1.2.2026-online</InformationalVersion>
+    <Version>1.0.2026</Version>
+    <AssemblyVersion>1.0.2026.0</AssemblyVersion>
+    <FileVersion>1.0.2026.0</FileVersion>
+    <InformationalVersion>1.0.2026</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
@@ -30,6 +30,9 @@
     <Content Include="Assets\setup-logo.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
+    <Content Include="Assets\ifood-order-alert.mp3">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
     <Content Include="..\BalcaoLivre.WhatsAppExtension\**\*">
       <Link>BalcaoLivre.WhatsAppExtension\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -38,6 +41,7 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3967.48" />
     <PackageReference Include="QRCoder" Version="1.8.0" />
   </ItemGroup>
 

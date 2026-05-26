@@ -1,7 +1,7 @@
 import CashierDemo from "./CashierDemo";
 
 const downloadUrl =
-  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.2.2026.exe";
+  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe";
 
 const quickFacts = [
   ["Restaurantes", "bares e eventos"],

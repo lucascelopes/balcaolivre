@@ -13,8 +13,26 @@ public static class IFoodOrderMapper
         {
             OrderId = GetString(order, "id"),
             DisplayId = GetString(order, "displayId"),
+            Status = GetString(order, "status"),
+            CreatedAt = GetDateTime(order, "createdAt"),
+            OrderTiming = FirstNotEmpty(GetString(order, "orderTiming"), GetString(order, "timing")),
             OrderType = GetString(order, "orderType", "DELIVERY")
         };
+
+        if (order.TryGetProperty("scheduled", out var scheduled) || order.TryGetProperty("scheduling", out scheduled))
+        {
+            imported.PreparationStartDateTime = FirstDateTime(
+                GetDateTime(scheduled, "preparationStartDateTime"),
+                GetDateTime(scheduled, "preparation_start_date_time"),
+                GetDateTime(scheduled, "preparationStart"));
+        }
+
+        imported.PreparationStartDateTime ??= FirstDateTime(
+            GetDateTime(order, "preparationStartDateTime"),
+            GetDateTime(order, "preparationStart"));
+        imported.ConfirmationDeadlineAt = FirstDateTime(
+            GetDateTime(order, "confirmationDeadlineAt"),
+            ConfirmationDeadlineFrom(imported));
 
         if (order.TryGetProperty("customer", out var customer))
         {
@@ -68,6 +86,7 @@ public static class IFoodOrderMapper
                 imported.Items.Add(new IFoodImportedItem
                 {
                     Code = FirstNotEmpty(GetString(item, "externalCode"), GetString(item, "id"), "IFOOD"),
+                    ProductId = FirstNotEmpty(GetString(item, "productId"), GetString(item, "catalogItemId"), GetString(item, "id")),
                     Name = GetString(item, "name", "ITEM IFOOD").ToUpperInvariant(),
                     Quantity = quantity,
                     UnitPrice = unit,
@@ -125,6 +144,22 @@ public static class IFoodOrderMapper
             : fallback;
     }
 
+    private static DateTime? GetDateTime(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property) || property.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        return DateTime.TryParse(
+            property.ToString(),
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+            out var value)
+            ? value
+            : null;
+    }
+
     private static decimal GetNestedDecimal(JsonElement element, params string[] path)
     {
         var current = element;
@@ -148,6 +183,16 @@ public static class IFoodOrderMapper
     }
 
     private static decimal FirstPositive(params decimal[] values) => values.FirstOrDefault(value => value > 0m);
+
+    private static DateTime? FirstDateTime(params DateTime?[] values) => values.FirstOrDefault(value => value.HasValue);
+
+    private static DateTime? ConfirmationDeadlineFrom(IFoodImportedOrder order)
+    {
+        var baseAt = string.Equals(order.OrderTiming, "SCHEDULED", StringComparison.OrdinalIgnoreCase)
+            ? order.PreparationStartDateTime ?? order.CreatedAt
+            : order.CreatedAt;
+        return baseAt?.AddMinutes(8);
+    }
 
     private static string FirstNotEmpty(params string[] values) => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
 

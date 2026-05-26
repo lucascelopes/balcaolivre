@@ -2,7 +2,7 @@ param(
     [string]$SupabaseUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co",
     [string]$ServiceRoleKey = $env:SUPABASE_SERVICE_ROLE_KEY,
     [string]$Bucket = "balcao-livre-updates",
-    [string]$Version = "1.2.2026"
+    [string]$Version = "1.0.2026"
 )
 
 $ErrorActionPreference = "Stop"

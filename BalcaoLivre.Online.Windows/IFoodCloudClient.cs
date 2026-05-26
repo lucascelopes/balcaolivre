@@ -8,6 +8,7 @@ public sealed class IFoodCloudClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true
     };
 
@@ -64,6 +65,18 @@ public sealed class IFoodCloudClient
             cancellationToken);
     }
 
+    public async Task<IFoodCloudStockSyncResponse> SyncStockAsync(
+        string backendUrl,
+        IFoodCloudStockSyncRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return await PostAsync<IFoodCloudStockSyncResponse>(
+            backendUrl,
+            "stock/sync",
+            request,
+            cancellationToken);
+    }
+
     private async Task<T> PostAsync<T>(string backendUrl, string path, object payload, CancellationToken cancellationToken)
     {
         var endpoint = BuildUri(backendUrl, path);
@@ -112,20 +125,67 @@ public sealed class IFoodCloudClient
             using var document = JsonDocument.Parse(body);
             if (document.RootElement.TryGetProperty("message", out var message))
             {
-                return message.GetString() ?? "";
+                return SimplifyMessage(message.GetString() ?? "");
             }
 
             if (document.RootElement.TryGetProperty("error", out var error))
             {
-                return error.GetString() ?? "";
+                return error.ValueKind == JsonValueKind.String
+                    ? SimplifyMessage(error.GetString() ?? "")
+                    : SimplifyMessage(error.GetRawText());
             }
         }
         catch (JsonException)
         {
-            return body;
+            return SimplifyMessage(body);
         }
 
-        return body;
+        return SimplifyMessage(body);
+    }
+
+    private static string SimplifyMessage(string value)
+    {
+        var message = (value ?? "").Trim();
+        for (var i = 0; i < 2; i++)
+        {
+            if (string.IsNullOrWhiteSpace(message) || !message.StartsWith("{", StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            try
+            {
+                using var document = JsonDocument.Parse(message);
+                if (document.RootElement.TryGetProperty("message", out var nestedMessage))
+                {
+                    message = nestedMessage.GetString() ?? message;
+                    continue;
+                }
+
+                if (document.RootElement.TryGetProperty("error", out var nestedError))
+                {
+                    if (nestedError.ValueKind == JsonValueKind.String)
+                    {
+                        message = nestedError.GetString() ?? message;
+                        continue;
+                    }
+
+                    if (nestedError.TryGetProperty("message", out var nestedErrorMessage))
+                    {
+                        message = nestedErrorMessage.GetString() ?? message;
+                        continue;
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                break;
+            }
+
+            break;
+        }
+
+        return message;
     }
 }
 
@@ -162,6 +222,17 @@ public sealed class IFoodCloudOrderActionRequest : IFoodCloudStoreContext
     public string Action { get; set; } = "";
     public string Reason { get; set; } = "";
     public string DeliveredBy { get; set; } = "MERCHANT";
+}
+
+public sealed class IFoodCloudStockSyncRequest : IFoodCloudStoreContext
+{
+    public string ConnectionId { get; set; } = "";
+    public string ProductId { get; set; } = "";
+    public string ExternalCode { get; set; } = "";
+    public string ProductCode { get; set; } = "";
+    public string ProductName { get; set; } = "";
+    public int Amount { get; set; }
+    public string Reason { get; set; } = "";
 }
 
 public sealed class IFoodCloudStartResponse
@@ -203,4 +274,15 @@ public sealed class IFoodCloudActionResponse
     public string Message { get; set; } = "";
     public string OrderId { get; set; } = "";
     public string Status { get; set; } = "";
+    public string DeliveredBy { get; set; } = "";
+}
+
+public sealed class IFoodCloudStockSyncResponse
+{
+    public bool Ok { get; set; }
+    public string Message { get; set; } = "";
+    public string ProductId { get; set; } = "";
+    public string ExternalCode { get; set; } = "";
+    public int Amount { get; set; }
+    public string Mode { get; set; } = "";
 }

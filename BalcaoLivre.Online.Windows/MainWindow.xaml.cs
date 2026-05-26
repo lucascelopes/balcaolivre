@@ -55,6 +55,7 @@ public partial class MainWindow : Window
     private const string AppReceiptName = "BALCAO LIVRE PDV ONLINE";
     private const string DefaultUpdateManifestUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/version.json";
     private const string DefaultAdminApiUrl = "https://balcaolivrepdv.onrender.com";
+    private const string DefaultIFoodAlertSoundFile = "Assets\\ifood-order-alert.mp3";
     private const string PasswordHashPrefix = "PBKDF2";
     private static readonly CultureInfo Brazil = CultureInfo.GetCultureInfo("pt-BR");
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
@@ -74,7 +75,7 @@ public partial class MainWindow : Window
     private static readonly int[] ActivationWarningDays = [1, 3, 7, 15, 30];
     private readonly DispatcherTimer _toastTimer = new() { Interval = TimeSpan.FromSeconds(2.8) };
     private readonly DispatcherTimer _licenseTimer = new() { Interval = TimeSpan.FromSeconds(5) };
-    private readonly DispatcherTimer _ifoodSyncTimer = new() { Interval = TimeSpan.FromSeconds(20) };
+    private readonly DispatcherTimer _ifoodSyncTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private readonly IFoodCloudClient _ifoodClient = new();
 
     private readonly string _dataRoot = Path.Combine(
@@ -151,6 +152,8 @@ public partial class MainWindow : Window
         ApplyRestaurantIdentity();
         SeedStaticUi();
         LoadStore();
+        ResetWhatsAppRuntimeState();
+        SaveAppSettings();
         DataContext = this;
         ModeList.SelectedIndex = 0;
         RefreshBoardForMode();
@@ -703,6 +706,12 @@ public partial class MainWindow : Window
 
         if (TryDigit(e, out var digit))
         {
+            if (BlockIFoodDeliveryEdit("incluir produto"))
+            {
+                e.Handled = true;
+                return;
+            }
+
             CodeBox.Text += digit;
             CodeBox.CaretIndex = CodeBox.Text.Length;
             SelectArea(KeyboardArea.Products);
@@ -719,11 +728,23 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.F2:
-                IncludeSelectedProduct(requireCode: true);
+                if (!BlockIFoodDeliveryEdit("incluir produto"))
+                {
+                    IncludeSelectedProduct(requireCode: true);
+                }
+
                 e.Handled = true;
                 break;
             case Key.F3:
-                ShowProductSearchDialog();
+                if (IsCurrentIFoodDeliveryLocked())
+                {
+                    OpenIFoodActionsForCurrentOrder();
+                }
+                else
+                {
+                    ShowProductSearchDialog();
+                }
+
                 e.Handled = true;
                 break;
             case Key.F4:
@@ -735,7 +756,11 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.F6:
-                ShowTransferDialog();
+                if (!BlockIFoodDeliveryEdit("transferir pedido"))
+                {
+                    ShowTransferDialog();
+                }
+
                 e.Handled = true;
                 break;
             case Key.F7:
@@ -762,6 +787,12 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.Back:
+                if (BlockIFoodDeliveryEdit("editar codigo"))
+                {
+                    e.Handled = true;
+                    break;
+                }
+
                 if (CodeBox.Text.Length > 0)
                 {
                     CodeBox.Text = CodeBox.Text[..^1];
@@ -771,12 +802,20 @@ public partial class MainWindow : Window
                 break;
             case Key.Add:
             case Key.OemPlus:
-                ChangeQuantity(1);
+                if (!BlockIFoodDeliveryEdit("alterar quantidade"))
+                {
+                    ChangeQuantity(1);
+                }
+
                 e.Handled = true;
                 break;
             case Key.Subtract:
             case Key.OemMinus:
-                ChangeQuantity(-1);
+                if (!BlockIFoodDeliveryEdit("alterar quantidade"))
+                {
+                    ChangeQuantity(-1);
+                }
+
                 e.Handled = true;
                 break;
             case Key.Left:
@@ -811,6 +850,12 @@ public partial class MainWindow : Window
 
         if (e.Text.Length == 1 && char.IsDigit(e.Text[0]))
         {
+            if (BlockIFoodDeliveryEdit("incluir produto"))
+            {
+                e.Handled = true;
+                return;
+            }
+
             CodeBox.Text += e.Text;
             CodeBox.CaretIndex = CodeBox.Text.Length;
             SelectArea(KeyboardArea.Products);
@@ -927,6 +972,12 @@ public partial class MainWindow : Window
         {
             if (e.Key == Key.Enter)
             {
+                if (BlockIFoodDeliveryEdit("incluir produto"))
+                {
+                    e.Handled = true;
+                    return true;
+                }
+
                 QuantityBox.Focus();
                 QuantityBox.SelectAll();
                 SelectArea(KeyboardArea.Products);
@@ -941,6 +992,13 @@ public partial class MainWindow : Window
         {
             if (e.Key == Key.Enter)
             {
+                if (IsCurrentIFoodDeliveryLocked())
+                {
+                    OpenIFoodActionsForCurrentOrder();
+                    e.Handled = true;
+                    return true;
+                }
+
                 FilterProducts();
                 SelectArea(KeyboardArea.Products);
                 ProductsList.Focus();
@@ -954,6 +1012,12 @@ public partial class MainWindow : Window
         {
             if (e.Key == Key.Enter)
             {
+                if (BlockIFoodDeliveryEdit("incluir produto"))
+                {
+                    e.Handled = true;
+                    return true;
+                }
+
                 IncludeSelectedProduct(requireCode: true);
                 e.Handled = true;
             }
@@ -965,6 +1029,12 @@ public partial class MainWindow : Window
         {
             if (e.Key == Key.Enter)
             {
+                if (BlockIFoodDeliveryEdit("aplicar taxas"))
+                {
+                    e.Handled = true;
+                    return true;
+                }
+
                 ApplyTableCharges();
                 e.Handled = true;
             }
@@ -1045,9 +1115,6 @@ public partial class MainWindow : Window
             case "WhatsApp":
                 ShowWhatsAppDialog();
                 break;
-            case "FiscalTef":
-                ShowFiscalTefDialog();
-                break;
             case "WaiterWeb":
                 ShowWaiterWebDialog();
                 break;
@@ -1088,6 +1155,8 @@ public partial class MainWindow : Window
             Address = _profile.Address,
             City = _profile.City,
             State = _profile.State,
+            Latitude = _profile.Latitude,
+            Longitude = _profile.Longitude,
             LocalLogoPath = _profile.LocalLogoPath
         };
         var dialog = CreateDialog("Configuracoes do sistema", 940, 700);
@@ -1109,7 +1178,7 @@ public partial class MainWindow : Window
         var ifoodSoundPath = _appSettings.IFoodAlertSoundPath;
         var ifoodSoundText = new TextBlock
         {
-            Text = string.IsNullOrWhiteSpace(ifoodSoundPath) ? "Toque iFood: padrao do app" : Path.GetFileName(ifoodSoundPath),
+            Text = string.IsNullOrWhiteSpace(ifoodSoundPath) ? "Toque iFood: alerta de pedido do app" : Path.GetFileName(ifoodSoundPath),
             Foreground = Solid("#667684"),
             TextWrapping = TextWrapping.Wrap
         };
@@ -1321,8 +1390,8 @@ public partial class MainWindow : Window
         clearIFoodSound.Click += (_, _) =>
         {
             ifoodSoundPath = "";
-            ifoodSoundText.Text = "Toque iFood: padrao do app";
-            status.Text = "Toque iFood voltou para o padrao. Clique em Salvar configuracoes.";
+            ifoodSoundText.Text = "Toque iFood: alerta de pedido do app";
+            status.Text = "Toque iFood voltou para o alerta de pedido do app. Clique em Salvar configuracoes.";
         };
 
         var testIFoodSound = DialogButton("Testar toque iFood", "#99620D");
@@ -1355,6 +1424,10 @@ public partial class MainWindow : Window
         save.HorizontalAlignment = HorizontalAlignment.Stretch;
         save.Click += (_, _) =>
         {
+            var locationChanged = !string.Equals(_profile.Address, addressBox.Text.Trim(), StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(_profile.City, cityBox.Text.Trim(), StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(_profile.State, stateBox.Text.Trim(), StringComparison.OrdinalIgnoreCase);
+
             profile.OwnerName = ownerBox.Text.Trim();
             profile.BusinessName = businessBox.Text.Trim();
             profile.LegalName = legalBox.Text.Trim();
@@ -1363,6 +1436,8 @@ public partial class MainWindow : Window
             profile.Address = addressBox.Text.Trim();
             profile.City = cityBox.Text.Trim();
             profile.State = stateBox.Text.Trim().ToUpperInvariant();
+            profile.Latitude = locationChanged ? 0 : _profile.Latitude;
+            profile.Longitude = locationChanged ? 0 : _profile.Longitude;
             profile.LocalLogoPath = logoPath;
 
             _profile = profile;
@@ -1494,6 +1569,13 @@ public partial class MainWindow : Window
         var board = CurrentBoard;
         if (board is null)
         {
+            return;
+        }
+
+        if (IsIFoodOrder(board))
+        {
+            ShowIFoodOrderActionDialog(board, isNewOrder: false);
+            e.Handled = true;
             return;
         }
 
@@ -1724,12 +1806,26 @@ public partial class MainWindow : Window
 
     private void SearchButton_Click(object sender, RoutedEventArgs e)
     {
+        if (IsCurrentIFoodDeliveryLocked())
+        {
+            OpenIFoodActionsForCurrentOrder();
+            SelectArea(KeyboardArea.Ticket);
+            return;
+        }
+
         ShowProductSearchDialog();
         SelectArea(KeyboardArea.Products);
     }
 
     private void DeleteTicketLineButton_Click(object sender, RoutedEventArgs e)
     {
+        if (BlockIFoodDeliveryEdit("excluir item"))
+        {
+            e.Handled = true;
+            SelectArea(KeyboardArea.Ticket);
+            return;
+        }
+
         if (sender is FrameworkElement { DataContext: TicketLine line })
         {
             RemoveTicketLine(line);
@@ -1741,6 +1837,11 @@ public partial class MainWindow : Window
 
     private void ConfirmInclude_Click(object sender, RoutedEventArgs e)
     {
+        if (BlockIFoodDeliveryEdit("aplicar taxas"))
+        {
+            return;
+        }
+
         ToggleTableCharges();
     }
 
@@ -1889,12 +1990,16 @@ public partial class MainWindow : Window
         IEnumerable<TableTile> source = CurrentMode switch
         {
             "Balcao" => Tables.Where(table => table.Kind == "BALCAO"),
-            "Delivery" => DeliveryTiles,
+            "Delivery" => DeliveryTiles
+                .OrderBy(DeliveryBoardSortGroup)
+                .ThenBy(DeliveryBoardDeadlineSort)
+                .ThenByDescending(tile => tile.CreatedAt),
             _ => Tables.Where(table => table.Kind == "MESA")
         };
 
         foreach (var tile in source)
         {
+            UpdateIFoodDynamicDetail(tile);
             BoardTiles.Add(tile);
         }
 
@@ -1910,6 +2015,7 @@ public partial class MainWindow : Window
         if (BoardTiles.Count == 0)
         {
             ClearBoardSelectionForEmptyMode();
+            RefreshIFoodDeliveryLockUi(null);
         }
     }
 
@@ -1932,6 +2038,7 @@ public partial class MainWindow : Window
             _ => "Nenhuma comanda"
         };
         RefreshTotals();
+        RefreshIFoodDeliveryLockUi(null);
     }
 
     private void UpdateCommandPanelText()
@@ -2220,9 +2327,11 @@ public partial class MainWindow : Window
 
     private void LoadActiveTicketFromBoard(TableTile board)
     {
+        var canDeleteLines = !IsIFoodDeliveryBoard(board);
         TicketLines.Clear();
         foreach (var line in board.Lines)
         {
+            line.CanDelete = canDeleteLines;
             TicketLines.Add(line);
         }
 
@@ -2393,6 +2502,7 @@ public partial class MainWindow : Window
         OpenInfoText.Text = BuildBoardInfo(selected, Payments.Sum(payment => payment.Amount));
         LoadActiveTicketFromBoard(selected);
         RefreshTotals();
+        RefreshIFoodDeliveryLockUi(selected);
     }
 
     private void SelectCategory(int index)
@@ -2406,6 +2516,12 @@ public partial class MainWindow : Window
 
     private void SelectProduct(int index)
     {
+        if (IsCurrentIFoodDeliveryLocked())
+        {
+            SelectedProductText.Text = "Pedido iFood bloqueado para edicao. Use F9 ou Acoes iFood para confirmar/despachar.";
+            return;
+        }
+
         if (VisibleProducts.Count == 0)
         {
             SelectedProductText.Text = "Nenhum produto encontrado";
@@ -2464,6 +2580,12 @@ public partial class MainWindow : Window
         if (board is null)
         {
             SetStatus("Selecione uma mesa, balcao ou pedido.");
+            return;
+        }
+
+        if (IsIFoodDeliveryBoard(board))
+        {
+            BlockIFoodDeliveryEdit("incluir produto");
             return;
         }
 
@@ -2566,9 +2688,11 @@ public partial class MainWindow : Window
             _ => "OCUPADA"
         };
         board.Waiter = ParseInt(WaiterBox.Text, board.Waiter);
+        var stockChanged = false;
         if (product.StockQuantity > 0)
         {
             product.StockQuantity = Math.Max(0, product.StockQuantity - qty);
+            stockChanged = true;
         }
 
         product.SoldQuantity += qty;
@@ -2591,6 +2715,10 @@ public partial class MainWindow : Window
         SetStatus(existingLine is null
             ? $"Incluido: {qty}x {line.Name}"
             : $"Agrupado: {line.Quantity}x {line.Name}");
+        if (stockChanged)
+        {
+            QueueIFoodStockSync(product, $"Venda PDV {board.Kind} {board.Number}");
+        }
     }
 
     private void FocusAfterProductInclude(TableTile board)
@@ -2610,6 +2738,11 @@ public partial class MainWindow : Window
 
     private void ToggleTableCharges()
     {
+        if (BlockIFoodDeliveryEdit("aplicar taxas"))
+        {
+            return;
+        }
+
         if (HasAppliedTableCharges())
         {
             RemoveTableCharges();
@@ -2625,6 +2758,12 @@ public partial class MainWindow : Window
         if (board is null)
         {
             SetStatus("Selecione uma mesa ou ficha antes de aplicar couvert/garcom.");
+            return;
+        }
+
+        if (IsIFoodDeliveryBoard(board))
+        {
+            BlockIFoodDeliveryEdit("aplicar taxas");
             return;
         }
 
@@ -2697,6 +2836,11 @@ public partial class MainWindow : Window
 
     private void RemoveTableCharges(bool showStatus = true)
     {
+        if (BlockIFoodDeliveryEdit("remover taxas"))
+        {
+            return;
+        }
+
         if (CurrentBoard is { } board)
         {
             board.ChargesEnabled = false;
@@ -2752,6 +2896,12 @@ public partial class MainWindow : Window
 
         if (board.Kind == "DELIVERY")
         {
+            if (IsIFoodOrder(board))
+            {
+                ShowIFoodOrderActionDialog(board, isNewOrder: false);
+                return;
+            }
+
             board.Status = NextDeliveryStatus(board.Status);
         }
         else if (board.Kind == "KDS")
@@ -2795,6 +2945,11 @@ public partial class MainWindow : Window
 
     private void RemoveSelectedLine()
     {
+        if (BlockIFoodDeliveryEdit("excluir item"))
+        {
+            return;
+        }
+
         if (TicketLines.Count == 0)
         {
             return;
@@ -2806,6 +2961,11 @@ public partial class MainWindow : Window
 
     private void RemoveTicketLine(TicketLine line)
     {
+        if (BlockIFoodDeliveryEdit("excluir item"))
+        {
+            return;
+        }
+
         if (!TicketLines.Contains(line))
         {
             return;
@@ -2819,6 +2979,12 @@ public partial class MainWindow : Window
 
         var chargesWereActive = HasAppliedTableCharges();
         TicketLines.Remove(line);
+        var restoredProduct = Products.FirstOrDefault(product => string.Equals(product.Code, line.Code, StringComparison.OrdinalIgnoreCase));
+        if (restoredProduct is not null)
+        {
+            restoredProduct.StockQuantity += Math.Max(0, line.Quantity);
+        }
+
         _selectedTicketIndex = Math.Min(_selectedTicketIndex, TicketLines.Count - 1);
         if (chargesWereActive)
         {
@@ -2832,10 +2998,19 @@ public partial class MainWindow : Window
         }
 
         SetStatus($"Removido: {line.Name}");
+        if (restoredProduct is not null)
+        {
+            QueueIFoodStockSync(restoredProduct, "Item removido da venda");
+        }
     }
 
     private void TransferSelectedLine()
     {
+        if (BlockIFoodDeliveryEdit("transferir item"))
+        {
+            return;
+        }
+
         if (TicketLines.Count == 0)
         {
             SetStatus("Nao ha item para transferir.");
@@ -2992,12 +3167,23 @@ public partial class MainWindow : Window
 
     private void ChangeQuantity(int delta)
     {
+        if (BlockIFoodDeliveryEdit("alterar quantidade"))
+        {
+            return;
+        }
+
         var qty = Math.Max(1, ParseInt(QuantityBox.Text, 1) + delta);
         QuantityBox.Text = qty.ToString(Brazil);
     }
 
     private void ShowProductSearchDialog()
     {
+        if (IsCurrentIFoodDeliveryLocked())
+        {
+            OpenIFoodActionsForCurrentOrder();
+            return;
+        }
+
         var dialog = CreateDialog("Pesquisa de produtos", 720, 520);
         var queryBox = new TextBox { Margin = new Thickness(0, 0, 0, 10) };
         var list = new ListBox { DisplayMemberPath = nameof(ProductTile.SearchDisplay), Height = 360 };
@@ -3451,6 +3637,7 @@ public partial class MainWindow : Window
             formSubtitle.Text = $"{product.Code}  |  {product.Category}  |  venda {product.PriceText}  |  {product.ProfitMarginText}{ifoodSummary}";
             RefreshMarginPreview();
             SetStatus($"Produto salvo: {product.Code} {product.Name}");
+            QueueIFoodStockSync(product, "Cadastro de produto");
             return true;
         }
 
@@ -3629,7 +3816,7 @@ public partial class MainWindow : Window
         var settingsBox = new CheckBox { Content = "Configuracoes do sistema/cardapio" };
         var backupBox = new CheckBox { Content = "Backup/exportacao" };
         var fiscalBox = new CheckBox { Content = "Modulo fiscal/TEF" };
-        var zonesBox = new CheckBox { Content = "Taxas por bairro/zona" };
+        var zonesBox = new CheckBox { Content = "Taxas por raio no mapa" };
         var syncBox = new CheckBox { Content = "Sync central/nuvem" };
 
         void LoadUser(UserAccount user)
@@ -3905,7 +4092,7 @@ public partial class MainWindow : Window
             SetStatus($"Cliente incluido no delivery: {customer.Name}");
         };
 
-        var zonesButton = DialogButton("Taxas por bairro/zona", "#2F6FAE");
+        var zonesButton = DialogButton("Taxas por raio no mapa", "#2F6FAE");
         zonesButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         zonesButton.Width = double.NaN;
         zonesButton.Margin = new Thickness(0, 0, 0, 10);
@@ -4263,6 +4450,11 @@ public partial class MainWindow : Window
             return WaiterActionResult.Fail("Mesa nao existe. Crie as mesas no caixa Windows.", state);
         }
 
+        if (IsIFoodDeliveryBoard(board))
+        {
+            return WaiterActionResult.Fail("Pedido iFood nao permite adicionar item manualmente.", state);
+        }
+
         if (HasReceivedPayment(board))
         {
             return WaiterActionResult.Fail("Mesa ja recebida/finalizada. Abra outra mesa no caixa.", state);
@@ -4333,12 +4525,18 @@ public partial class MainWindow : Window
         board.Waiter = waiterNumber;
         board.Status = "OCUPADA";
         board.Total = board.Lines.Sum(line => line.Total);
+        var stockChanged = false;
         if (product.StockQuantity > 0)
         {
             product.StockQuantity = Math.Max(0, product.StockQuantity - qty);
+            stockChanged = true;
         }
 
         product.SoldQuantity += qty;
+        if (stockChanged)
+        {
+            QueueIFoodStockSync(product, $"Venda garcom web {board.Number}");
+        }
         PrintWaiterKitchenLine(board, lineToAdd);
         RefreshAfterWaiterMutation(board);
         return WaiterActionResult.Success($"Incluido: {qty}x {product.Name}.", BuildWaiterState());
@@ -4353,6 +4551,11 @@ public partial class MainWindow : Window
             return WaiterActionResult.Fail("Mesa nao encontrada.", state);
         }
 
+        if (IsIFoodDeliveryBoard(board))
+        {
+            return WaiterActionResult.Fail("Pedido iFood nao permite excluir item manualmente.", state);
+        }
+
         if (request.LineIndex < 0 || request.LineIndex >= board.Lines.Count)
         {
             return WaiterActionResult.Fail("Item nao encontrado na comanda.", state);
@@ -4365,6 +4568,13 @@ public partial class MainWindow : Window
         }
 
         board.Lines.RemoveAt(request.LineIndex);
+        var restoredProduct = Products.FirstOrDefault(product => string.Equals(product.Code, line.Code, StringComparison.OrdinalIgnoreCase));
+        if (restoredProduct is not null)
+        {
+            restoredProduct.StockQuantity += Math.Max(0, line.Quantity);
+            QueueIFoodStockSync(restoredProduct, $"Item removido garcom web {board.Number}");
+        }
+
         board.Total = board.Lines.Sum(item => item.Total);
         if (board.Lines.Count == 0 && board.Payments.Count == 0)
         {
@@ -4690,16 +4900,7 @@ public partial class MainWindow : Window
 
         var settings = _appSettings.IFood ??= new IFoodIntegrationSettings();
         EnsureIFoodCloudSettings(settings);
-        var dialog = CreateDialog("iFood Online", 760, 560);
-        var authCodeBox = new TextBox { FontSize = 20, FontWeight = FontWeights.SemiBold };
-        var userCodeBox = new TextBlock
-        {
-            Text = string.IsNullOrWhiteSpace(settings.LastUserCode) ? "Nenhum codigo gerado" : settings.LastUserCode,
-            FontSize = 30,
-            FontWeight = FontWeights.Bold,
-            Foreground = Solid("#0F766E"),
-            Margin = new Thickness(0, 4, 0, 2)
-        };
+        var dialog = CreateDialog("iFood Online", 680, 450);
         var connectionBox = new TextBlock
         {
             Text = BuildIFoodStatusText(settings),
@@ -4707,20 +4908,14 @@ public partial class MainWindow : Window
             Foreground = Solid("#5A6B7C"),
             Margin = new Thickness(0, 4, 0, 0)
         };
-        var webhookBox = new TextBox
+        var operationBox = new TextBlock
         {
-            Text = settings.WebhookUrl,
-            IsReadOnly = true,
-            FontSize = 13
-        };
-        var logBox = new TextBox
-        {
-            AcceptsReturn = true,
-            IsReadOnly = true,
             TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            MinHeight = 95,
-            Text = BuildIFoodStatusText(settings)
+            Foreground = Solid("#52687A"),
+            Margin = new Thickness(0, 10, 0, 0),
+            Text = settings.HasCloudConnection
+                ? "Recebimento automatico ligado. Quando entrar pedido no iFood, ele aparece no Delivery com aviso sonoro, vibracao visual e impressao se estiver configurada."
+                : "Clique em conectar uma vez. Depois disso os pedidos entram automaticamente no Delivery."
         };
 
         void SaveFields()
@@ -4731,19 +4926,16 @@ public partial class MainWindow : Window
             SaveStore();
         }
 
-        void AppendLog(string message)
+        void ShowIFoodMessage(string message)
         {
-            logBox.Text = $"{DateTime.Now:HH:mm:ss}  {message}\n{logBox.Text}".Trim();
-            logBox.ScrollToHome();
             connectionBox.Text = BuildIFoodStatusText(settings);
-            userCodeBox.Text = string.IsNullOrWhiteSpace(settings.LastUserCode) ? "Nenhum codigo gerado" : settings.LastUserCode;
-            webhookBox.Text = settings.WebhookUrl;
+            operationBox.Text = message;
             SetStatus(message);
         }
 
-        var connect = DialogButton("1 Conectar iFood", "#0F766E");
-        var finish = DialogButton("2 Finalizar vinculo", "#2F6FAE");
-        var syncOrders = DialogButton("Buscar pedidos agora", "#99620D");
+        var connect = DialogButton(settings.HasCloudConnection ? "Reconectar iFood" : "Conectar iFood", "#0F766E");
+        connect.MinHeight = 58;
+        connect.FontSize = 17;
 
         connect.Click += async (_, _) =>
         {
@@ -4751,6 +4943,7 @@ public partial class MainWindow : Window
             {
                 SaveFields();
                 connect.IsEnabled = false;
+                ShowIFoodMessage("Conectando com o iFood...");
                 var response = await _ifoodClient.StartConnectionAsync(settings.BackendUrl, CreateIFoodCloudContext());
                 settings.ConnectionId = response.ConnectionId;
                 settings.LastUserCode = response.UserCode;
@@ -4763,81 +4956,31 @@ public partial class MainWindow : Window
                     ? string.IsNullOrWhiteSpace(response.MerchantId) ? "aguardando autorizacao" : "conectado"
                     : response.Status;
                 SaveAppSettings();
-                AppendLog(response.Message);
                 if (string.Equals(settings.ConnectionStatus, "conectado", StringComparison.OrdinalIgnoreCase))
                 {
                     _ifoodSyncTimer.Start();
+                    ShowIFoodMessage("iFood conectado. Novos pedidos entram automaticamente no Delivery em tempo real.");
                     _ = AutoImportIFoodOrdersAsync(force: true);
                 }
                 else if (!string.IsNullOrWhiteSpace(settings.VerificationUrlComplete))
                 {
                     Process.Start(new ProcessStartInfo(settings.VerificationUrlComplete) { UseShellExecute = true });
+                    ShowIFoodMessage("Finalize a autorizacao no navegador do iFood. O PDV continua aguardando a loja ficar conectada.");
+                }
+                else
+                {
+                    ShowIFoodMessage(string.IsNullOrWhiteSpace(response.Message)
+                        ? "Vinculo iFood iniciado. Aguarde a autorizacao da loja."
+                        : response.Message);
                 }
             }
             catch (Exception ex)
             {
-                AppendLog($"Falha ao iniciar vinculo iFood: {ex.Message}");
+                ShowIFoodMessage($"Falha ao conectar iFood: {ex.Message}");
             }
             finally
             {
                 connect.IsEnabled = true;
-            }
-        };
-
-        finish.Click += async (_, _) =>
-        {
-            try
-            {
-                SaveFields();
-                finish.IsEnabled = false;
-                if (string.IsNullOrWhiteSpace(settings.ConnectionId))
-                {
-                    AppendLog("Clique em Conectar iFood antes de finalizar o vinculo.");
-                    return;
-                }
-
-                var authorizationCode = authCodeBox.Text.Trim();
-                if (string.IsNullOrWhiteSpace(authorizationCode))
-                {
-                    AppendLog("Cole o codigo de autorizacao exibido pelo iFood para finalizar.");
-                    return;
-                }
-
-                var request = CreateIFoodFinishRequest(settings.ConnectionId, authorizationCode);
-                var response = await _ifoodClient.FinishConnectionAsync(settings.BackendUrl, request);
-                settings.ConnectionId = response.ConnectionId;
-                settings.MerchantId = response.MerchantId;
-                settings.MerchantName = response.MerchantName;
-                settings.WebhookUrl = string.IsNullOrWhiteSpace(response.WebhookUrl) ? settings.WebhookUrl : response.WebhookUrl;
-                settings.ConnectionStatus = "conectado";
-                settings.Enabled = true;
-                SaveAppSettings();
-                authCodeBox.Clear();
-                AppendLog(response.Message);
-                _ifoodSyncTimer.Start();
-                _ = AutoImportIFoodOrdersAsync(force: true);
-            }
-            catch (Exception ex)
-            {
-                AppendLog($"Falha ao finalizar vinculo iFood: {ex.Message}");
-            }
-            finally
-            {
-                finish.IsEnabled = true;
-            }
-        };
-
-        syncOrders.Click += async (_, _) =>
-        {
-            SaveFields();
-            syncOrders.IsEnabled = false;
-            var imported = await ImportIFoodOrdersAsync(AppendLog);
-            syncOrders.IsEnabled = true;
-            if (imported > 0)
-            {
-                ModeList.SelectedItem = "Delivery";
-                RefreshBoardForMode();
-                SelectTable(BoardTiles.Count - 1, saveCurrent: false);
             }
         };
 
@@ -4847,77 +4990,46 @@ public partial class MainWindow : Window
         var headerPanel = new StackPanel();
         headerPanel.Children.Add(new TextBlock
         {
-            Text = "Vinculo simples com iFood",
+            Text = "Pedidos iFood automaticos",
             FontSize = 24,
             FontWeight = FontWeights.Bold,
             Foreground = Solid("#18222B")
         });
         headerPanel.Children.Add(new TextBlock
         {
-            Text = "O PDV usa o backend do Balcao Livre no Supabase. Credenciais, webhook e loja ficam protegidos fora do computador do cliente.",
+            Text = "Conecte a loja uma vez. Os novos pedidos aparecem no Delivery sem procurar codigo, webhook ou configuracao tecnica.",
             TextWrapping = TextWrapping.Wrap,
             Foreground = Solid("#52687A"),
             Margin = new Thickness(0, 8, 0, 0)
         });
         headerPanel.Children.Add(connectionBox);
+        headerPanel.Children.Add(operationBox);
         header.Child = headerPanel;
 
-        var steps = new Grid { Margin = new Thickness(0, 14, 0, 0) };
-        steps.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        steps.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        var stepOne = BorderCard();
-        stepOne.Margin = new Thickness(0, 0, 8, 0);
-        var stepOnePanel = new StackPanel();
-        stepOnePanel.Children.Add(SectionTitle("1. Autorizar a loja"));
-        stepOnePanel.Children.Add(new TextBlock { Text = "Clique para abrir o iFood. Se o portal pedir codigo, use este:", Foreground = Solid("#5A6B7C"), TextWrapping = TextWrapping.Wrap });
-        stepOnePanel.Children.Add(userCodeBox);
-        stepOnePanel.Children.Add(connect);
-        stepOne.Child = stepOnePanel;
-
-        var stepTwo = BorderCard();
-        stepTwo.Margin = new Thickness(8, 0, 0, 0);
-        var stepTwoPanel = new StackPanel();
-        stepTwoPanel.Children.Add(SectionTitle("2. Concluir e importar"));
-        stepTwoPanel.Children.Add(new TextBlock
+        var flow = BorderCard();
+        flow.Margin = new Thickness(0, 14, 0, 0);
+        var flowPanel = new StackPanel();
+        flowPanel.Children.Add(SectionTitle("Recebimento de pedidos"));
+        flowPanel.Children.Add(new TextBlock
         {
-            Text = "Depois de conectado, novos pedidos entram sozinhos no Delivery, com aviso sonoro, toast e impressao automatica se estiver ligada.",
+            Text = "O Balcao Livre fica escutando o iFood em segundo plano. Pedido novo abre um aviso grande para confirmar, preparar, marcar pronto, despachar ou cancelar.",
             Foreground = Solid("#5A6B7C"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
         });
-        stepTwoPanel.Children.Add(DialogField("Codigo de autorizacao do iFood", authCodeBox));
-        stepTwoPanel.Children.Add(finish);
-        stepTwoPanel.Children.Add(syncOrders);
-        stepTwo.Child = stepTwoPanel;
-        Grid.SetColumn(stepTwo, 1);
-        steps.Children.Add(stepOne);
-        steps.Children.Add(stepTwo);
-
-        var technical = BorderCard();
-        technical.Margin = new Thickness(0, 14, 0, 0);
-        var technicalPanel = new StackPanel();
-        technicalPanel.Children.Add(SectionTitle("Webhook publico"));
-        technicalPanel.Children.Add(new TextBlock
+        flowPanel.Children.Add(connect);
+        flowPanel.Children.Add(new TextBlock
         {
-            Text = "Essa URL e do Supabase, nao do computador local. Ela deve ser cadastrada no portal do iFood uma vez para receber eventos.",
+            Text = "Sem botao de buscar: o PDV atualiza sozinho enquanto estiver aberto e conectado a internet.",
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#5A6B7C")
+            Foreground = Solid("#5A6B7C"),
+            Margin = new Thickness(0, 10, 0, 0)
         });
-        technicalPanel.Children.Add(DialogField("URL Supabase", webhookBox));
-        technical.Child = technicalPanel;
-
-        foreach (var button in new[] { connect, finish, syncOrders })
-        {
-            button.Margin = new Thickness(0, 10, 0, 0);
-            button.MinHeight = 48;
-        }
+        flow.Child = flowPanel;
 
         var outer = DialogPanel();
         outer.Children.Add(header);
-        outer.Children.Add(steps);
-        outer.Children.Add(technical);
-        outer.Children.Add(DialogField("Historico", logBox));
+        outer.Children.Add(flow);
         dialog.Content = outer;
         dialog.ShowDialog();
     }
@@ -4927,13 +5039,13 @@ public partial class MainWindow : Window
         var settings = _appSettings.IFood ??= new IFoodIntegrationSettings();
         if (!settings.Enabled)
         {
-            log?.Invoke("Conecte o iFood antes de buscar pedidos.");
+            log?.Invoke("Conecte o iFood para receber pedidos automaticamente.");
             return 0;
         }
 
         if (!settings.HasCloudConnection)
         {
-            log?.Invoke("Finalize o vinculo iFood antes de buscar pedidos.");
+            log?.Invoke("Finalize o vinculo iFood para receber pedidos automaticamente.");
             return 0;
         }
 
@@ -4949,7 +5061,7 @@ public partial class MainWindow : Window
             if (response.Orders.Count == 0)
             {
                 log?.Invoke(string.IsNullOrWhiteSpace(response.Message)
-                    ? "Nenhum pedido novo no iFood."
+                    ? "Nenhum pedido novo recebido do iFood."
                     : response.Message);
                 return 0;
             }
@@ -4969,7 +5081,7 @@ public partial class MainWindow : Window
 
             SaveStore();
             log?.Invoke(importedCount == 0
-                ? "Pedidos iFood conferidos; nenhum pedido novo importado."
+                ? "Pedidos iFood conferidos automaticamente; nenhum pedido novo importado."
                 : $"{importedCount} pedido(s) iFood importado(s) para Delivery.");
             if (log is null && importedTiles.Count > 0)
             {
@@ -5096,7 +5208,7 @@ public partial class MainWindow : Window
         };
     }
 
-    private IFoodCloudOrderActionRequest CreateIFoodOrderActionRequest(string connectionId, string orderId, string action, string reason = "")
+    private IFoodCloudOrderActionRequest CreateIFoodOrderActionRequest(string connectionId, string orderId, string action, string reason = "", string deliveredBy = "")
     {
         var context = CreateIFoodCloudContext();
         return new IFoodCloudOrderActionRequest
@@ -5116,8 +5228,117 @@ public partial class MainWindow : Window
             OrderId = orderId,
             Action = action,
             Reason = reason,
-            DeliveredBy = "MERCHANT"
+            DeliveredBy = string.IsNullOrWhiteSpace(deliveredBy) ? "MERCHANT" : NormalizeIFoodDeliveredBy(deliveredBy)
         };
+    }
+
+    private IFoodCloudStockSyncRequest CreateIFoodStockSyncRequest(string connectionId, IFoodStockSyncSnapshot product)
+    {
+        var context = CreateIFoodCloudContext();
+        return new IFoodCloudStockSyncRequest
+        {
+            LicenseKey = context.LicenseKey,
+            MachineHash = context.MachineHash,
+            MachineCode = context.MachineCode,
+            BusinessName = context.BusinessName,
+            LegalName = context.LegalName,
+            Cnpj = context.Cnpj,
+            Phone = context.Phone,
+            Address = context.Address,
+            City = context.City,
+            State = context.State,
+            AppVersion = context.AppVersion,
+            ConnectionId = connectionId,
+            ProductId = product.ProductId,
+            ExternalCode = product.ExternalCode,
+            ProductCode = product.Code,
+            ProductName = product.Name,
+            Amount = product.Amount,
+            Reason = product.Reason
+        };
+    }
+
+    private readonly record struct IFoodStockSyncSnapshot(
+        string Code,
+        string Name,
+        string ProductId,
+        string ExternalCode,
+        int Amount,
+        string Reason);
+
+    private void QueueIFoodStockSync(ProductTile? product, string reason)
+    {
+        if (product is null)
+        {
+            return;
+        }
+
+        var settings = _appSettings.IFood ??= new IFoodIntegrationSettings();
+        if (!settings.HasCloudConnection)
+        {
+            return;
+        }
+
+        var productId = (product.IFoodProductId ?? "").Trim();
+        var externalCode = (product.IFoodExternalCode ?? "").Trim();
+        if (!HasIFoodCatalogLink(product))
+        {
+            if (string.Equals(product.Category, "IFOOD", StringComparison.OrdinalIgnoreCase))
+            {
+                SetStatus($"Produto iFood sem vinculo no catalogo: {product.Name}. Sincronize/importe o item para atualizar estoque no iFood.");
+            }
+
+            return;
+        }
+
+        var amount = Math.Max(0, (int)Math.Floor(product.StockQuantity));
+        var snapshot = new IFoodStockSyncSnapshot(
+            product.Code,
+            product.Name,
+            productId,
+            externalCode,
+            amount,
+            reason);
+        _ = SyncIFoodStockSnapshotAsync(settings.BackendUrl, settings.ConnectionId, snapshot);
+    }
+
+    private static bool HasIFoodCatalogLink(ProductTile product)
+    {
+        return !string.IsNullOrWhiteSpace(product.IFoodProductId)
+               || !string.IsNullOrWhiteSpace(product.IFoodExternalCode);
+    }
+
+    private async Task SyncIFoodStockSnapshotAsync(string backendUrl, string connectionId, IFoodStockSyncSnapshot product)
+    {
+        try
+        {
+            var response = await _ifoodClient.SyncStockAsync(
+                backendUrl,
+                CreateIFoodStockSyncRequest(connectionId, product));
+            RunOnUiThread(() =>
+            {
+                var message = string.IsNullOrWhiteSpace(response.Message)
+                    ? $"Estoque iFood atualizado: {product.Name} = {product.Amount:N0}."
+                    : $"{response.Message} {product.Name}.";
+                SetStatus(message.Trim());
+            });
+        }
+        catch (Exception ex)
+        {
+            RunOnUiThread(() => SetStatus($"Falha ao atualizar estoque no iFood ({product.Name}): {ex.Message}"));
+        }
+    }
+
+    private void RunOnUiThread(Action action)
+    {
+        if (Dispatcher.CheckAccess())
+        {
+            action();
+        }
+        else
+        {
+            Dispatcher.BeginInvoke(action);
+        }
     }
 
     private bool HasIFoodOrder(string orderId)
@@ -5130,46 +5351,73 @@ public partial class MainWindow : Window
     private TableTile CreateIFoodDelivery(IFoodImportedOrder order)
     {
         var display = string.IsNullOrWhiteSpace(order.DisplayId) ? (DeliveryTiles.Count + 1).ToString("00000", Brazil) : order.DisplayId;
+        var stockWarnings = new List<string>();
         var tile = new TableTile
         {
             Number = $"I{display}".Length <= 8 ? $"I{display}" : $"I{DeliveryTiles.Count + 1:00000}",
             Kind = "DELIVERY",
-            Status = "NOVO",
+            Status = StatusFromIFoodImportedStatus(order.Status),
+            CreatedAt = LocalTimeOrNow(order.CreatedAt),
             CustomerName = string.IsNullOrWhiteSpace(order.CustomerName) ? "CLIENTE IFOOD" : order.CustomerName.Trim().ToUpperInvariant(),
             CustomerCpf = order.CustomerDocument,
             Phone = order.Phone,
             Address = order.Address,
             District = order.District,
-            Detail = $"IFOOD {order.OrderType}".Trim(),
-            Notes = $"iFood {display} / {order.OrderId}\n{order.Notes}".Trim(),
+            Detail = $"IFOOD {order.OrderType} {IFoodShipmentLabel(order.DeliveredBy)}".Trim(),
+            Notes = $"iFood {display} / {order.OrderId}\n{order.ShipmentInfo}\n{order.Notes}".Trim(),
             ExternalSource = "IFOOD",
             ExternalOrderId = order.OrderId,
-            ExternalDisplayId = display
+            ExternalDisplayId = display,
+            ExternalDeliveredBy = NormalizeIFoodDeliveredBy(order.DeliveredBy),
+            ExternalPickupCode = order.PickupCode,
+            ExternalDeliveryLocalizer = order.DeliveryLocalizer,
+            ExternalShipmentInfo = order.ShipmentInfo,
+            ExternalOrderTiming = order.OrderTiming,
+            ExternalCreatedAt = LocalTimeOrNull(order.CreatedAt),
+            ExternalPreparationStartAt = LocalTimeOrNull(order.PreparationStartDateTime),
+            ExternalConfirmationDeadlineAt = LocalTimeOrNull(order.ConfirmationDeadlineAt)
         };
+        UpdateIFoodDynamicDetail(tile);
 
         foreach (var item in order.Items)
         {
+            var product = ResolveOrCreateIFoodProduct(item, display, stockWarnings);
+            var itemCode = product?.Code ?? (string.IsNullOrWhiteSpace(item.Code) ? "IFOOD" : item.Code);
+            var itemName = product?.Name ?? item.Name;
+            var itemSector = product?.Sector ?? "BALCAO";
             var line = tile.Lines.FirstOrDefault(line =>
-                string.Equals(line.Code, item.Code, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(line.Name, item.Name, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(line.Code, itemCode, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(line.Name, itemName, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(line.Note, item.Notes, StringComparison.OrdinalIgnoreCase));
             if (line is null)
             {
                 tile.Lines.Add(new TicketLine
                 {
-                    Code = string.IsNullOrWhiteSpace(item.Code) ? "IFOOD" : item.Code,
-                    Name = item.Name,
+                    Code = itemCode,
+                    Name = itemName,
                     Quantity = item.Quantity,
                     UnitPrice = item.UnitPrice,
                     Note = item.Notes,
-                    Sector = "BALCAO"
+                    Sector = itemSector
                 });
             }
             else
             {
                 line.Quantity += item.Quantity;
             }
+
+            if (product is not null)
+            {
+                ApplyIFoodStockMovement(product, item.Quantity, display);
+                QueueIFoodStockSync(product, $"Pedido iFood {display}");
+            }
         }
+
+        if (stockWarnings.Count > 0)
+        {
+            tile.Notes = $"{tile.Notes}\n{string.Join("\n", stockWarnings)}".Trim();
+        }
+        tile.ExternalStockApplied = true;
 
         tile.Total = tile.Lines.Sum(line => line.Total);
         if (order.Total > 0m && Math.Abs(order.Total - tile.Total) >= 0.01m)
@@ -5187,12 +5435,148 @@ public partial class MainWindow : Window
 
         DeliveryTiles.Add(tile);
         UpsertCustomerRecord(tile.CustomerCpf, tile.CustomerName, tile.Phone, tile.Address, tile.District, tile.Notes);
-        if (_appSettings.AutoPrintDelivery)
+        if (_appSettings.AutoPrintDelivery && !IsIFoodDeliveryBoard(tile))
         {
-            _ = TryPrintTextToDefaultPrinter(BuildDeliveryPrintText(tile, tile.District, _appSettings.PrintLayout), $"iFood {tile.Number}", _appSettings.PrintLayout == "PEQUENO");
+            _ = TryPrintTextToDefaultPrinter(BuildDeliveryPrintText(tile, tile.District, _appSettings.PrintLayout), $"Delivery {tile.Number}", _appSettings.PrintLayout == "PEQUENO");
         }
 
         return tile;
+    }
+
+    private ProductTile ResolveOrCreateIFoodProduct(IFoodImportedItem item, string display, ICollection<string> stockWarnings, bool announce = true)
+    {
+        var rawCode = (item.Code ?? "").Trim();
+        var normalizedCode = string.IsNullOrWhiteSpace(rawCode) ? "" : NormalizeProductCode(rawCode);
+        var productId = (item.ProductId ?? "").Trim();
+        var normalizedName = NormalizeProductLookupText(item.Name);
+
+        var product = Products.FirstOrDefault(product =>
+                !string.IsNullOrWhiteSpace(productId)
+                && string.Equals(product.IFoodProductId, productId, StringComparison.OrdinalIgnoreCase))
+            ?? Products.FirstOrDefault(product =>
+                !string.IsNullOrWhiteSpace(rawCode)
+                && string.Equals(product.IFoodExternalCode, rawCode, StringComparison.OrdinalIgnoreCase))
+            ?? Products.FirstOrDefault(product =>
+                !string.IsNullOrWhiteSpace(normalizedCode)
+                && string.Equals(product.Code, normalizedCode, StringComparison.OrdinalIgnoreCase))
+            ?? Products.FirstOrDefault(product =>
+                !string.IsNullOrWhiteSpace(rawCode)
+                && string.Equals(product.Code, rawCode, StringComparison.OrdinalIgnoreCase))
+            ?? Products.FirstOrDefault(product =>
+                !string.IsNullOrWhiteSpace(normalizedName)
+                && string.Equals(NormalizeProductLookupText(product.Name), normalizedName, StringComparison.Ordinal));
+
+        if (product is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(productId))
+            {
+                product.IFoodProductId = productId;
+            }
+
+            if (!string.IsNullOrWhiteSpace(rawCode))
+            {
+                product.IFoodExternalCode = rawCode;
+            }
+
+            return product;
+        }
+
+        var code = !string.IsNullOrWhiteSpace(normalizedCode) && normalizedCode.All(char.IsDigit) && normalizedCode.Length <= 6
+            ? normalizedCode.PadLeft(6, '0')
+            : NextProductCode();
+        while (Products.Any(product => string.Equals(product.Code, code, StringComparison.OrdinalIgnoreCase)))
+        {
+            code = NextProductCode();
+        }
+
+        product = new ProductTile
+        {
+            Code = code,
+            Name = string.IsNullOrWhiteSpace(item.Name) ? "ITEM IFOOD" : item.Name.Trim().ToUpperInvariant(),
+            Category = "IFOOD",
+            Price = item.UnitPrice,
+            Sector = "BALCAO",
+            Active = true,
+            IFoodProductId = productId,
+            IFoodExternalCode = rawCode,
+            StockQuantity = 0,
+            MinimumStock = 0
+        };
+        Products.Add(product);
+        if (Categories.All(category => !string.Equals(category.Name, "IFOOD", StringComparison.OrdinalIgnoreCase)))
+        {
+            Categories.Add(new CategoryTile("IFOOD"));
+        }
+
+        stockWarnings.Add($"ESTOQUE IFOOD: produto criado automaticamente ({product.Code}) para revisar codigo/vinculo do iFood.");
+        if (announce)
+        {
+            SetStatus($"Produto iFood criado no estoque: {product.Name} ({product.Code}).");
+        }
+        return product;
+    }
+
+    private static void ApplyIFoodStockMovement(ProductTile product, int quantity, string display)
+    {
+        var amount = Math.Max(1, quantity);
+        product.StockQuantity -= amount;
+        product.SoldQuantity += amount;
+        product.StockHistory.Add(new StockMovement
+        {
+            ProductCode = product.Code,
+            Type = "IFOOD",
+            Quantity = -amount,
+            Reason = $"Pedido iFood {display}",
+            When = DateTime.Now
+        });
+    }
+
+    private static string NormalizeIFoodDeliveredBy(string value)
+    {
+        var normalized = (value ?? "").Trim().ToUpperInvariant();
+        return normalized is "IFOOD" or "MERCHANT" ? normalized : "";
+    }
+
+    private static string IFoodShipmentLabel(string deliveredBy)
+    {
+        return NormalizeIFoodDeliveredBy(deliveredBy) switch
+        {
+            "IFOOD" => "ENTREGA IFOOD",
+            "MERCHANT" => "ENTREGA LOJA",
+            _ => ""
+        };
+    }
+
+    private static bool IsIFoodShipment(string deliveredBy)
+    {
+        return NormalizeIFoodDeliveredBy(deliveredBy) == "IFOOD";
+    }
+
+    private static bool IsMerchantShipment(string deliveredBy)
+    {
+        return NormalizeIFoodDeliveredBy(deliveredBy) == "MERCHANT";
+    }
+
+    private static string StatusFromIFoodImportedStatus(string status)
+    {
+        var normalized = (status ?? "").Trim().ToUpperInvariant().Replace("-", "_", StringComparison.Ordinal);
+        return normalized switch
+        {
+            "CONFIRMED" or "CONFIRMADO" => "CONFIRMADO",
+            "PREPARATION_STARTED" or "START_PREPARATION" or "PREPARING" or "PREPARO" or "PREPARANDO" => "PREPARANDO",
+            "READY_TO_PICKUP" or "READY" or "PRONTO" => "PRONTO",
+            "DISPATCHED" or "DESPACHADO" => "DESPACHADO",
+            "CANCELLATION_REQUESTED" or "CANCEL_REQUESTED" or "CANCELAMENTO" => "CANCELAMENTO",
+            "CANCELLED" or "CANCELED" or "CANCELADO" => "CANCELADO",
+            "CONCLUDED" or "ENTREGUE" or "FINALIZADO" => "ENTREGUE",
+            "PLACED" or "CREATED" or "NOVO" or "" => "NOVO",
+            _ => normalized
+        };
+    }
+
+    private static string NormalizeIFoodBoardStatus(string status)
+    {
+        return StatusFromIFoodImportedStatus(status);
     }
 
     private static bool IsIFoodOrder(TableTile? board)
@@ -5200,6 +5584,41 @@ public partial class MainWindow : Window
         return board is not null
             && string.Equals(board.ExternalSource, "IFOOD", StringComparison.OrdinalIgnoreCase)
             && !string.IsNullOrWhiteSpace(board.ExternalOrderId);
+    }
+
+    private static bool IsIFoodDeliveryBoard(TableTile? board)
+    {
+        return board is not null
+            && string.Equals(board.Kind, "DELIVERY", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(board.ExternalSource, "IFOOD", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsCurrentIFoodDeliveryLocked()
+    {
+        return IsIFoodDeliveryBoard(CurrentBoard);
+    }
+
+    private bool BlockIFoodDeliveryEdit(string action)
+    {
+        if (!IsCurrentIFoodDeliveryLocked())
+        {
+            return false;
+        }
+
+        SetStatus($"Pedido iFood nao permite {action}. Use F9 ou Acoes iFood para confirmar/despachar.");
+        return true;
+    }
+
+    private void OpenIFoodActionsForCurrentOrder()
+    {
+        var board = CurrentBoard;
+        if (board is not null && IsIFoodOrder(board))
+        {
+            ShowIFoodOrderActionDialog(board, isNewOrder: false);
+            return;
+        }
+
+        SetStatus("Pedido iFood sem ID externo. Nao da para enviar acao ao iFood.");
     }
 
     private void NotifyIFoodOrdersReceived(IReadOnlyList<TableTile> orders)
@@ -5236,6 +5655,7 @@ public partial class MainWindow : Window
             dialog.Activate();
             dialog.Topmost = false;
         };
+        dialog.Closed += (_, _) => StopIFoodOrderSound();
 
         var statusText = new TextBlock
         {
@@ -5245,9 +5665,19 @@ public partial class MainWindow : Window
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 6, 0, 0)
         };
+        var deadlineText = new TextBlock
+        {
+            Text = BuildIFoodConfirmationDeadlineText(order),
+            Foreground = IsIFoodConfirmationExpired(order) ? RedText : Solid("#99620D"),
+            TextWrapping = TextWrapping.Wrap,
+            FontWeight = FontWeights.Bold,
+            TextAlignment = TextAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 6, 0, 0)
+        };
         var actionMessage = new TextBlock
         {
-            Text = "Confirme o pedido ou avance o despacho. F9 abre esta tela para pedidos iFood.",
+            Text = BuildIFoodActionHint(order),
             Foreground = Solid("#0F766E"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
@@ -5270,22 +5700,31 @@ public partial class MainWindow : Window
         {
             try
             {
+                if (!CanRunIFoodAction(order, action, out var blockedReason))
+                {
+                    actionMessage.Text = blockedReason;
+                    actionMessage.Foreground = RedText;
+                    return;
+                }
+
                 button.IsEnabled = false;
+                StopIFoodOrderSound();
                 actionMessage.Text = "Enviando para o iFood...";
                 actionMessage.Foreground = Solid("#667684");
                 var reason = action == "cancel"
-                    ? new string((cancelReasonBox.SelectedItem?.ToString() ?? "501").TakeWhile(char.IsDigit).ToArray())
+                    ? cancelReasonBox.SelectedItem?.ToString() ?? "501 - Loja sem produto"
                     : "";
-                var sent = await SendIFoodOrderActionAsync(order, action, reason);
-                if (sent)
+                var result = await SendIFoodOrderActionAsync(order, action, reason);
+                if (result.Success)
                 {
                     statusText.Text = BuildIFoodOrderStatusText(order);
-                    actionMessage.Text = $"Atualizado: {order.Status}.";
+                    deadlineText.Text = BuildIFoodConfirmationDeadlineText(order);
+                    deadlineText.Foreground = IsIFoodConfirmationExpired(order) ? RedText : Solid("#99620D");
+                    actionMessage.Text = string.IsNullOrWhiteSpace(result.Message)
+                        ? $"Atualizado: {order.Status}."
+                        : result.Message;
                     actionMessage.Foreground = Solid("#0F766E");
-                    if (action is "dispatch" or "cancel")
-                    {
-                        dialog.Close();
-                    }
+                    dialog.Close();
                 }
             }
             catch (Exception ex)
@@ -5306,6 +5745,26 @@ public partial class MainWindow : Window
         var cancel = DialogButton("Cancelar no iFood", "#A11D1D");
         var openDelivery = DialogButton("Abrir Delivery", "#245B91");
 
+        void RefreshActionState()
+        {
+            statusText.Text = BuildIFoodOrderStatusText(order);
+            deadlineText.Text = BuildIFoodConfirmationDeadlineText(order);
+            deadlineText.Foreground = IsIFoodConfirmationExpired(order) ? RedText : Solid("#99620D");
+            ApplyIFoodActionButtonState(order, confirm, "confirm");
+            ApplyIFoodActionButtonState(order, prepare, "prepare");
+            ApplyIFoodActionButtonState(order, ready, "ready");
+            ApplyIFoodActionButtonState(order, dispatch, "dispatch");
+            ApplyIFoodActionButtonState(order, cancel, "cancel");
+            cancelReasonBox.IsEnabled = CanRunIFoodAction(order, "cancel", out _);
+            dispatch.Content = IsIFoodShipment(order.ExternalDeliveredBy) ? "Entrega iFood" : "Despachar pedido";
+        }
+
+        RefreshActionState();
+        var deadlineTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        deadlineTimer.Tick += (_, _) => RefreshActionState();
+        deadlineTimer.Start();
+        dialog.Closed += (_, _) => deadlineTimer.Stop();
+
         confirm.Click += async (_, _) => await RunActionAsync("confirm", confirm);
         prepare.Click += async (_, _) => await RunActionAsync("prepare", prepare);
         ready.Click += async (_, _) => await RunActionAsync("ready", ready);
@@ -5313,6 +5772,7 @@ public partial class MainWindow : Window
         cancel.Click += async (_, _) => await RunActionAsync("cancel", cancel);
         openDelivery.Click += (_, _) =>
         {
+            StopIFoodOrderSound();
             ModeList.SelectedItem = "Delivery";
             RefreshBoardForMode();
             var index = BoardTiles.IndexOf(order);
@@ -5362,7 +5822,8 @@ public partial class MainWindow : Window
                         HorizontalAlignment = HorizontalAlignment.Center,
                         Margin = new Thickness(0, 8, 0, 0)
                     },
-                    statusText
+                    statusText,
+                    deadlineText
                 }
             }
         };
@@ -5383,6 +5844,7 @@ public partial class MainWindow : Window
             {
                 SectionTitle("Dados do pedido"),
                 new TextBlock { Text = $"Cliente: {order.CustomerName}", Foreground = Solid("#18222B"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"Entrega: {BuildIFoodShipmentText(order)}", Foreground = Solid("#0F766E"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
                 new TextBlock { Text = $"Telefone: {EmptyDash(order.Phone)}", Foreground = Solid("#667684"), Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
                 new TextBlock { Text = $"Endereco: {EmptyDash(order.Address)}", Foreground = Solid("#667684"), Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
                 new TextBlock { Text = $"Obs: {EmptyDash(order.Notes)}", Foreground = Solid("#667684"), Margin = new Thickness(0, 3, 0, 8), TextWrapping = TextWrapping.Wrap },
@@ -5431,28 +5893,80 @@ public partial class MainWindow : Window
         dialog.ShowDialog();
     }
 
-    private async Task<bool> SendIFoodOrderActionAsync(TableTile order, string action, string reason)
+    private async Task<IFoodOrderActionResult> SendIFoodOrderActionAsync(TableTile order, string action, string reason)
     {
         var settings = _appSettings.IFood ??= new IFoodIntegrationSettings();
         if (!settings.HasCloudConnection)
         {
-            SetStatus("iFood nao conectado. Abra IFood > Conectar iFood.");
-            return false;
+            var message = "iFood nao conectado. Abra IFood > Conectar iFood.";
+            SetStatus(message);
+            return new IFoodOrderActionResult(false, message);
         }
 
-        var response = await _ifoodClient.SendOrderActionAsync(
-            settings.BackendUrl,
-            CreateIFoodOrderActionRequest(settings.ConnectionId, order.ExternalOrderId, action, reason));
-        order.Status = string.IsNullOrWhiteSpace(response.Status) ? OrderStatusFromIFoodAction(action) : response.Status;
-        if (!(order.Detail ?? "").Contains(order.Status, StringComparison.OrdinalIgnoreCase))
+        if (!CanRunIFoodAction(order, action, out var blockedReason))
         {
-            order.Detail = $"IFOOD {order.Status}";
+            SetStatus(blockedReason);
+            return new IFoodOrderActionResult(false, blockedReason);
         }
+
+        IFoodCloudActionResponse response;
+        try
+        {
+            response = await _ifoodClient.SendOrderActionAsync(
+                settings.BackendUrl,
+                CreateIFoodOrderActionRequest(settings.ConnectionId, order.ExternalOrderId, action, reason, order.ExternalDeliveredBy));
+        }
+        catch (InvalidOperationException ex) when (IsIFoodAlreadyCancelledMessage(ex.Message))
+        {
+            MarkIFoodOrderCancelled(order);
+            var message = "Pedido ja estava cancelado no iFood. Atualizei o status local.";
+            SetStatus(message);
+            return new IFoodOrderActionResult(true, message);
+        }
+
+        order.Status = NormalizeIFoodBoardStatus(string.IsNullOrWhiteSpace(response.Status) ? OrderStatusFromIFoodAction(action) : response.Status);
+        if (!string.IsNullOrWhiteSpace(response.DeliveredBy))
+        {
+            order.ExternalDeliveredBy = NormalizeIFoodDeliveredBy(response.DeliveredBy);
+        }
+
+        UpdateIFoodDynamicDetail(order);
 
         SaveStore();
         RefreshBoardForMode();
-        SetStatus(string.IsNullOrWhiteSpace(response.Message) ? $"iFood atualizado: {order.Status}." : response.Message);
-        return true;
+        var statusMessage = string.IsNullOrWhiteSpace(response.Message) ? $"iFood atualizado: {order.Status}." : response.Message;
+        if (string.Equals(action, "confirm", StringComparison.OrdinalIgnoreCase))
+        {
+            var printed = TryPrintTextToDefaultPrinter(
+                BuildDeliveryPrintText(order, order.District, _appSettings.PrintLayout),
+                $"iFood {order.Number}",
+                _appSettings.PrintLayout == "PEQUENO");
+            statusMessage += printed
+                ? " Pedido impresso."
+                : " Impressora padrao indisponivel.";
+        }
+
+        SetStatus(statusMessage);
+        return new IFoodOrderActionResult(true, statusMessage);
+    }
+
+    private readonly record struct IFoodOrderActionResult(bool Success, string Message);
+
+    private static bool IsIFoodAlreadyCancelledMessage(string message)
+    {
+        var normalized = (message ?? "").ToLowerInvariant();
+        return normalized.Contains("already cancelled", StringComparison.Ordinal)
+               || normalized.Contains("already canceled", StringComparison.Ordinal)
+               || normalized.Contains("ja cancelado", StringComparison.Ordinal)
+               || normalized.Contains("já cancelado", StringComparison.Ordinal);
+    }
+
+    private void MarkIFoodOrderCancelled(TableTile order)
+    {
+        order.Status = "CANCELADO";
+        UpdateIFoodDynamicDetail(order);
+        SaveStore();
+        RefreshBoardForMode();
     }
 
     private static string OrderStatusFromIFoodAction(string action)
@@ -5468,9 +5982,240 @@ public partial class MainWindow : Window
         };
     }
 
+    private static bool CanRunIFoodAction(TableTile order, string action, out string reason)
+    {
+        var status = NormalizeIFoodBoardStatus(order.Status);
+        var deliveredBy = NormalizeIFoodDeliveredBy(order.ExternalDeliveredBy);
+        var finished = status is "DESPACHADO" or "CANCELAMENTO" or "CANCELADO" or "ENTREGUE" or "CONCLUDED";
+        reason = "";
+
+        if (finished)
+        {
+            reason = $"Pedido iFood ja esta {status.ToLowerInvariant()}. Nao ha nova acao para enviar.";
+            return false;
+        }
+
+        if (IsIFoodConfirmationExpired(order))
+        {
+            reason = "Prazo de 8 minutos para aceitar o pedido iFood expirou. Sincronize o iFood antes de agir nesse pedido.";
+            return false;
+        }
+
+        switch (action)
+        {
+            case "confirm":
+                if (status is "NOVO" or "PLACED" or "CREATED")
+                {
+                    return true;
+                }
+
+                reason = "Pedido iFood ja foi confirmado. Nao precisa confirmar de novo.";
+                return false;
+
+            case "cancel":
+                if (status is "NOVO" or "PLACED" or "CREATED")
+                {
+                    return true;
+                }
+
+                reason = "Pedido iFood confirmado/em preparo nao pode ser cancelado por esse atalho.";
+                return false;
+
+            case "prepare":
+                if (status is "CONFIRMADO" or "ACEITO")
+                {
+                    return true;
+                }
+
+                reason = status is "NOVO" or "PLACED" or "CREATED"
+                    ? "Confirme o pedido antes de iniciar preparo."
+                    : "Pedido iFood ja passou da etapa de preparo.";
+                return false;
+
+            case "ready":
+                if (status is "CONFIRMADO" or "ACEITO" or "PREPARO" or "PREPARANDO")
+                {
+                    return true;
+                }
+
+                reason = status is "NOVO" or "PLACED" or "CREATED"
+                    ? "Confirme o pedido antes de marcar pronto."
+                    : "Pedido iFood ja foi marcado como pronto ou finalizado.";
+                return false;
+
+            case "dispatch":
+                if (IsIFoodShipment(deliveredBy))
+                {
+                    reason = "Entrega e do iFood. Marque pronto e aguarde o entregador iFood; nao despache pela loja.";
+                    return false;
+                }
+
+                if (!string.IsNullOrWhiteSpace(deliveredBy) && !IsMerchantShipment(deliveredBy))
+                {
+                    reason = $"Tipo de entrega iFood nao reconhecido: {deliveredBy}.";
+                    return false;
+                }
+
+                if (status is "CONFIRMADO" or "ACEITO" or "PREPARO" or "PREPARANDO" or "PRONTO")
+                {
+                    return true;
+                }
+
+                reason = "Confirme o pedido antes de despachar entrega propria.";
+                return false;
+
+            default:
+                reason = "Acao iFood invalida.";
+                return false;
+        }
+    }
+
+    private static void ApplyIFoodActionButtonState(TableTile order, Button button, string action)
+    {
+        var canRun = CanRunIFoodAction(order, action, out var reason);
+        button.IsEnabled = canRun;
+        button.Opacity = canRun ? 1 : 0.42;
+        button.ToolTip = canRun ? null : reason;
+    }
+
+    private static string BuildIFoodActionHint(TableTile order)
+    {
+        var status = NormalizeIFoodBoardStatus(order.Status);
+        if (status is "NOVO" or "PLACED" or "CREATED")
+        {
+            return IsIFoodConfirmationExpired(order)
+                ? "Prazo de aceite expirou. O iFood deve cancelar esse pedido; sincronize antes de agir."
+                : $"Novo pedido: {BuildIFoodConfirmationDeadlineText(order)}. Depois de confirmado, o cancelamento fica bloqueado.";
+        }
+
+        if (status is "CONFIRMADO" or "ACEITO")
+        {
+            return "Pedido confirmado. Avance para preparo, pronto ou despacho conforme o tipo de entrega.";
+        }
+
+        if (status is "PREPARO" or "PREPARANDO")
+        {
+            return "Pedido em preparo. Marque pronto quando finalizar.";
+        }
+
+        if (status == "PRONTO")
+        {
+            return IsIFoodShipment(order.ExternalDeliveredBy)
+                ? "Pedido pronto. Entrega iFood: aguarde a coleta do entregador."
+                : "Pedido pronto. Entrega propria: despache quando sair para entrega.";
+        }
+
+        return $"Pedido iFood em status {status}.";
+    }
+
     private static string BuildIFoodOrderStatusText(TableTile order)
     {
-        return $"Status: {order.Status}  |  Pedido iFood: {order.ExternalDisplayId}  |  ID {order.ExternalOrderId}";
+        return $"Status: {NormalizeIFoodBoardStatus(order.Status)}  |  Pedido iFood: {order.ExternalDisplayId}  |  {BuildIFoodShipmentText(order)}  |  ID {order.ExternalOrderId}";
+    }
+
+    private static DateTime LocalTimeOrNow(DateTime? value) => LocalTimeOrNull(value) ?? DateTime.Now;
+
+    private static DateTime? LocalTimeOrNull(DateTime? value)
+    {
+        if (!value.HasValue)
+        {
+            return null;
+        }
+
+        return value.Value.Kind == DateTimeKind.Utc ? value.Value.ToLocalTime() : value.Value;
+    }
+
+    private static bool IsIFoodWaitingForConfirmation(TableTile order)
+    {
+        var status = NormalizeIFoodBoardStatus(order.Status);
+        return status is "NOVO" or "PLACED" or "CREATED";
+    }
+
+    private static DateTime? GetIFoodConfirmationDeadline(TableTile order)
+    {
+        if (order.ExternalConfirmationDeadlineAt.HasValue)
+        {
+            return order.ExternalConfirmationDeadlineAt.Value;
+        }
+
+        var isScheduled = string.Equals(order.ExternalOrderTiming, "SCHEDULED", StringComparison.OrdinalIgnoreCase);
+        var baseAt = isScheduled
+            ? order.ExternalPreparationStartAt ?? order.ExternalCreatedAt ?? order.CreatedAt
+            : order.ExternalCreatedAt ?? order.CreatedAt;
+        return baseAt == default ? null : baseAt.AddMinutes(8);
+    }
+
+    private static bool IsIFoodConfirmationExpired(TableTile order)
+    {
+        return IsIFoodWaitingForConfirmation(order)
+               && GetIFoodConfirmationDeadline(order) is { } deadline
+               && DateTime.Now > deadline;
+    }
+
+    private static string BuildIFoodConfirmationDeadlineText(TableTile order)
+    {
+        if (!IsIFoodWaitingForConfirmation(order))
+        {
+            return "Prazo de aceite: pedido ja confirmado/avancado.";
+        }
+
+        var deadline = GetIFoodConfirmationDeadline(order);
+        if (!deadline.HasValue)
+        {
+            return "Prazo de aceite: nao informado pelo iFood.";
+        }
+
+        var remaining = deadline.Value - DateTime.Now;
+        if (remaining <= TimeSpan.Zero)
+        {
+            return $"Prazo de aceite expirado as {deadline.Value:HH:mm}.";
+        }
+
+        var minutes = Math.Max(0, (int)Math.Floor(remaining.TotalMinutes));
+        return $"Aceitar ate {deadline.Value:HH:mm:ss}  |  faltam {minutes:00}:{remaining.Seconds:00}";
+    }
+
+    private static void UpdateIFoodDynamicDetail(TableTile tile)
+    {
+        if (!IsIFoodDeliveryBoard(tile))
+        {
+            return;
+        }
+
+        var type = string.IsNullOrWhiteSpace(tile.ExternalOrderTiming)
+            ? "IFOOD"
+            : $"IFOOD {tile.ExternalOrderTiming}";
+        var stage = IsIFoodWaitingForConfirmation(tile) && GetIFoodConfirmationDeadline(tile) is { } deadline
+            ? $"ACEITAR {deadline:HH:mm}"
+            : NormalizeIFoodBoardStatus(tile.Status);
+        tile.Detail = $"{type} {stage} {IFoodShipmentLabel(tile.ExternalDeliveredBy)}".Trim();
+    }
+
+    private static string BuildIFoodShipmentText(TableTile order)
+    {
+        var parts = new List<string>();
+        var label = IFoodShipmentLabel(order.ExternalDeliveredBy);
+        if (!string.IsNullOrWhiteSpace(label))
+        {
+            parts.Add(label);
+        }
+
+        if (!string.IsNullOrWhiteSpace(order.ExternalPickupCode))
+        {
+            parts.Add($"Coleta {order.ExternalPickupCode}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(order.ExternalDeliveryLocalizer))
+        {
+            parts.Add($"Localizador {order.ExternalDeliveryLocalizer}");
+        }
+
+        if (parts.Count == 0 && !string.IsNullOrWhiteSpace(order.ExternalShipmentInfo))
+        {
+            parts.Add(order.ExternalShipmentInfo);
+        }
+
+        return parts.Count == 0 ? "Entrega nao informada" : string.Join(" | ", parts);
     }
 
     private static string EmptyDash(string value)
@@ -5488,53 +6233,63 @@ public partial class MainWindow : Window
         var customPath = _appSettings.IFoodAlertSoundPath;
         if (!string.IsNullOrWhiteSpace(customPath) && File.Exists(customPath))
         {
-            try
+            if (TryPlayIFoodAlertFile(customPath))
             {
-                _ifoodAlertPlayer?.Stop();
-                _ifoodAlertPlayer = new MediaPlayer();
-                _ifoodAlertPlayer.Open(new Uri(customPath, UriKind.Absolute));
-                _ifoodAlertPlayer.Volume = 1;
-                _ifoodAlertPlayer.Play();
                 return;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Custom iFood alert failed: {ex.Message}");
             }
         }
 
-        _ = Task.Run(() =>
+        var bundledPath = Path.Combine(AppContext.BaseDirectory, DefaultIFoodAlertSoundFile);
+        if (File.Exists(bundledPath) && TryPlayIFoodAlertFile(bundledPath))
         {
-            try
-            {
-                for (var i = 0; i < 4; i++)
-                {
-                    Console.Beep(988, 150);
-                    System.Threading.Thread.Sleep(55);
-                    Console.Beep(740, 170);
-                    System.Threading.Thread.Sleep(90);
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"iFood alert sound failed: {ex.Message}");
-                try
-                {
-                    SystemSounds.Exclamation.Play();
-                }
-                catch (Exception fallback)
-                {
-                    Debug.WriteLine($"iFood fallback sound failed: {fallback.Message}");
-                }
-            }
-        });
+            return;
+        }
+
+        try
+        {
+            SystemSounds.Exclamation.Play();
+        }
+        catch (Exception fallback)
+        {
+            Debug.WriteLine($"iFood fallback sound failed: {fallback.Message}");
+        }
+    }
+
+    private bool TryPlayIFoodAlertFile(string path)
+    {
+        try
+        {
+            _ifoodAlertPlayer?.Stop();
+            _ifoodAlertPlayer = new MediaPlayer();
+            _ifoodAlertPlayer.Open(new Uri(path, UriKind.Absolute));
+            _ifoodAlertPlayer.Volume = 1;
+            _ifoodAlertPlayer.Play();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"iFood alert file failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    private void StopIFoodOrderSound()
+    {
+        try
+        {
+            _ifoodAlertPlayer?.Stop();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"iFood alert stop failed: {ex.Message}");
+        }
     }
 
     private static string BuildIFoodStatusText(IFoodIntegrationSettings settings)
     {
         var status = settings.HasCloudConnection
             ? string.IsNullOrWhiteSpace(settings.MerchantName)
-                ? "conectado ao Supabase"
+                ? "conectado"
                 : $"conectado: {settings.MerchantName}"
             : string.IsNullOrWhiteSpace(settings.ConnectionId)
                 ? "nao conectado"
@@ -5543,7 +6298,7 @@ public partial class MainWindow : Window
         var last = settings.LastSyncUtc.HasValue
             ? TimeZoneInfo.ConvertTimeFromUtc(settings.LastSyncUtc.Value, TimeZoneInfo.Local).ToString("g", Brazil)
             : "nunca";
-        return $"Status iFood: {status}. Ultima busca: {last}.";
+        return $"Status iFood: {status}. Ultima atualizacao: {last}.";
     }
 
     private static bool EnsureIFoodCloudSettings(IFoodIntegrationSettings settings)
@@ -5629,7 +6384,14 @@ public partial class MainWindow : Window
             qtyBox.Text = product.StockQuantity.ToString("N0", Brazil);
             minBox.Text = product.MinimumStock.ToString("N0", Brazil);
             selectedName.Text = product.Name;
-            selectedMeta.Text = $"{product.Code}  |  {product.Category}  |  {product.PriceText}";
+            var ifoodMeta = _appSettings.IFood?.HasCloudConnection == true
+                ? HasIFoodCatalogLink(product)
+                    ? "  |  iFood sync ativo"
+                    : string.Equals(product.Category, "IFOOD", StringComparison.OrdinalIgnoreCase)
+                        ? "  |  iFood sem vinculo de catalogo"
+                        : ""
+                : "";
+            selectedMeta.Text = $"{product.Code}  |  {product.Category}  |  {product.PriceText}{ifoodMeta}";
             selectedStatus.Text = product.StockStatusText;
             selectedStatus.Foreground = Solid(product.IsLowStock ? "#A11D1D" : "#0F766E");
             var lastMovement = product.StockHistory
@@ -5688,7 +6450,7 @@ public partial class MainWindow : Window
             totalProductsValue.Text = sortedProducts.Count.ToString("N0", Brazil);
             lowStockValue.Text = sortedProducts.Count(product => product.IsLowStock).ToString("N0", Brazil);
             totalUnitsValue.Text = sortedProducts.Sum(product => product.StockQuantity).ToString("N0", Brazil);
-            inventoryValue.Text = Money(sortedProducts.Sum(product => product.StockQuantity * product.Price));
+            inventoryValue.Text = Money(sortedProducts.Sum(product => Math.Max(0, product.StockQuantity) * product.Price));
         }
 
         var grid = new Grid { Margin = new Thickness(18) };
@@ -5813,6 +6575,7 @@ public partial class MainWindow : Window
             });
             RefreshInventory(product);
             SetStatus($"{type}: {product.Name} {amount:N0}. Saldo {product.StockQuantity:N0}");
+            QueueIFoodStockSync(product, $"Estoque {type}");
         }
 
         var setButton = DialogButton("Salvar saldo/minimo", "#2F6FAE");
@@ -5832,6 +6595,7 @@ public partial class MainWindow : Window
                 });
                 RefreshInventory(product);
                 SetStatus($"Estoque atualizado: {product.Name} {product.StockQuantity:N0}");
+                QueueIFoodStockSync(product, "Ajuste manual de estoque");
             }
         };
         var inButton = DialogButton("Entrada", "#0F766E");
@@ -6271,6 +7035,11 @@ public partial class MainWindow : Window
 
     private void ShowTransferDialog()
     {
+        if (BlockIFoodDeliveryEdit("transferir pedido"))
+        {
+            return;
+        }
+
         if (!RequirePermission(user => user.IsMaster || user.CanTransfer, "Transferencia de comanda"))
         {
             return;
@@ -6280,7 +7049,7 @@ public partial class MainWindow : Window
         var current = CurrentBoard;
         var transferBoards = GetTransferBoards();
         var sources = transferBoards
-            .Where(board => !HasReceivedPayment(board) && (board.Lines.Count > 0 || board.Payments.Count > 0))
+            .Where(board => !IsIFoodDeliveryBoard(board) && !HasReceivedPayment(board) && (board.Lines.Count > 0 || board.Payments.Count > 0))
             .ToList();
         if (sources.Count == 0)
         {
@@ -7990,6 +8759,11 @@ public partial class MainWindow : Window
 
     private void ApplyProductSelection(ProductTile product)
     {
+        if (BlockIFoodDeliveryEdit("selecionar produto"))
+        {
+            return;
+        }
+
         var categoryIndex = Categories.ToList().FindIndex(category => category.Name == product.Category);
         if (categoryIndex >= 0)
         {
@@ -9201,7 +9975,7 @@ public partial class MainWindow : Window
         return Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
             .InformationalVersion
-            ?? "1.2.2026";
+            ?? "1.0.2026";
     }
 
     private async Task<bool> CheckForUpdatesAsync(bool showIfCurrent, bool autoInstall = false)
@@ -9474,7 +10248,7 @@ public partial class MainWindow : Window
             builder.Append(invalid.Contains(ch) ? '-' : ch);
         }
 
-        return builder.Length == 0 ? "1.2.2026" : builder.ToString();
+        return builder.Length == 0 ? "1.0.2026" : builder.ToString();
     }
 
     private static string CopyLogoToAppIdentityFolder(string sourcePath)
@@ -10129,6 +10903,11 @@ public partial class MainWindow : Window
         sb.AppendLine($"Pedido: {order.Number}");
         sb.AppendLine($"Data: {DateTime.Now:G}");
         sb.AppendLine($"Tipo: {order.Detail}");
+        if (IsIFoodDeliveryBoard(order))
+        {
+            sb.AppendLine($"Entrega: {BuildIFoodShipmentText(order)}");
+        }
+
         sb.AppendLine($"Cliente: {order.CustomerName}");
         if (!string.IsNullOrWhiteSpace(order.CustomerCpf)) sb.AppendLine($"CPF/CNPJ: {order.CustomerCpf}");
         if (!string.IsNullOrWhiteSpace(order.Phone)) sb.AppendLine($"Telefone: {order.Phone}");
@@ -11346,6 +12125,31 @@ public partial class MainWindow : Window
         return text.Length <= maxLength ? text : text[..maxLength];
     }
 
+    private static string NormalizeProductLookupText(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "";
+        }
+
+        var normalized = value.Trim().Normalize(NormalizationForm.FormD);
+        var sb = new StringBuilder(normalized.Length);
+        foreach (var c in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            if (char.IsLetterOrDigit(c))
+            {
+                sb.Append(char.ToUpperInvariant(c));
+            }
+        }
+
+        return sb.ToString();
+    }
+
     private static string Emv(string id, string value)
     {
         value ??= "";
@@ -11619,6 +12423,52 @@ public partial class MainWindow : Window
         RefreshChargeToggleButton();
     }
 
+    private void RefreshIFoodDeliveryLockUi(TableTile? board)
+    {
+        var locked = IsIFoodDeliveryBoard(board);
+        var canEditProducts = !locked;
+
+        CodeBox.IsEnabled = canEditProducts;
+        QuantityBox.IsEnabled = canEditProducts;
+        SearchBox.IsEnabled = canEditProducts;
+        ProductsList.IsEnabled = canEditProducts;
+        PriceBox.IsEnabled = canEditProducts;
+        NoteBox.IsEnabled = canEditProducts;
+        ChargeToggleButton.IsEnabled = canEditProducts;
+
+        SearchButton.Content = locked ? "F9 Acoes iFood" : "F3 Catalogo";
+        SearchButton.ToolTip = locked
+            ? "Abrir acoes do pedido iFood: confirmar, preparar, pronto, despachar ou cancelar."
+            : "Pesquisar produto";
+
+        KeyboardText.Text = locked
+            ? "Pedido iFood: F9 abre acoes/despacho  |  Itens bloqueados para edicao manual  |  F10 abrir/fechar caixa"
+            : "Tab troca area: Comanda > Mesas/Fichas > Venda rapida  |  Enter inclui  |  F3 catalogo  |  Excluir na linha do item  |  F10 abrir/fechar caixa";
+
+        foreach (var line in TicketLines)
+        {
+            line.CanDelete = canEditProducts;
+        }
+
+        TicketList.Items.Refresh();
+
+        if (locked)
+        {
+            if (!string.IsNullOrEmpty(CodeBox.Text))
+            {
+                CodeBox.Text = "";
+            }
+
+            if (!string.IsNullOrEmpty(SearchBox.Text))
+            {
+                SearchBox.Text = "";
+            }
+
+            SelectedProductText.Text = "Pedido iFood bloqueado para edicao. Use F9 ou Acoes iFood para confirmar/despachar.";
+            SelectArea(KeyboardArea.Ticket);
+        }
+    }
+
     private decimal GetTodaySalesTotal()
     {
         var today = DateTime.Today;
@@ -11864,7 +12714,6 @@ public partial class MainWindow : Window
         RibbonActions.Add(new("DeliveryZones", "TZ", "Taxas", "Delivery"));
         RibbonActions.Add(new("IFood", "IF", "iFood", "Pedidos"));
         RibbonActions.Add(new("WhatsApp", "WA", "WhatsApp", "Cliente"));
-        RibbonActions.Add(new("FiscalTef", "NF", "Fiscal/TEF", "Modulo"));
         RibbonActions.Add(new("WaiterWeb", "GW", "Garcom", "Web"));
         RibbonActions.Add(new("Inventory", "ES", "Estoque", "Receitas"));
         RibbonActions.Add(new("Cardapio", "QR", "Cardapio", "Digital"));
@@ -11878,8 +12727,7 @@ public partial class MainWindow : Window
         {
             if (RibbonActions.Any(action => action.Id == "WaiterWeb")
                 && RibbonActions.Any(action => action.Id == "DeliveryZones")
-                && RibbonActions.Any(action => action.Id == "WhatsApp")
-                && RibbonActions.Any(action => action.Id == "FiscalTef"))
+                && RibbonActions.Any(action => action.Id == "WhatsApp"))
             {
                 return;
             }
@@ -11903,12 +12751,6 @@ public partial class MainWindow : Window
         if (RibbonActions.All(action => action.Id != "WhatsApp"))
         {
             RibbonActions.Insert(insertAt, new RibbonAction("WhatsApp", "WA", "WhatsApp", "Cliente"));
-            insertAt++;
-        }
-
-        if (RibbonActions.All(action => action.Id != "FiscalTef"))
-        {
-            RibbonActions.Insert(insertAt, new RibbonAction("FiscalTef", "NF", "Fiscal/TEF", "Modulo"));
             insertAt++;
         }
 
@@ -12034,7 +12876,7 @@ public partial class MainWindow : Window
         if (store.RibbonActions.Count > 0)
         {
             RibbonActions.Clear();
-            foreach (var item in store.RibbonActions.Where(action => action.Id is not "Users" and not "DeleteCommand"))
+            foreach (var item in store.RibbonActions.Where(action => action.Id is not "Users" and not "DeleteCommand" and not "FiscalTef"))
             {
                 RibbonActions.Add(item.Id switch
                 {
@@ -12093,6 +12935,7 @@ public partial class MainWindow : Window
         foreach (var item in store.Categories) Categories.Add(item);
         Products.Clear();
         foreach (var item in store.Products) Products.Add(item);
+        ApplyPendingIFoodStockReconciliation();
         TicketLines.Clear();
         Payments.Clear();
         Users.Clear();
@@ -12129,6 +12972,44 @@ public partial class MainWindow : Window
         }
 
         return Users.Count > 0;
+    }
+
+    private void ApplyPendingIFoodStockReconciliation()
+    {
+        var changed = false;
+        foreach (var order in DeliveryTiles.Where(IsIFoodOrder).Where(order => !order.ExternalStockApplied))
+        {
+            var display = string.IsNullOrWhiteSpace(order.ExternalDisplayId) ? order.Number : order.ExternalDisplayId;
+            var stockWarnings = new List<string>();
+            foreach (var line in order.Lines.Where(line =>
+                         !IsTableCharge(line)
+                         && !string.Equals(line.Code, "IFOOD-TOTAL", StringComparison.OrdinalIgnoreCase)))
+            {
+                var item = new IFoodImportedItem
+                {
+                    Code = line.Code,
+                    Name = line.Name,
+                    Quantity = line.Quantity,
+                    UnitPrice = line.UnitPrice,
+                    Notes = line.Note
+                };
+                var product = ResolveOrCreateIFoodProduct(item, display, stockWarnings, announce: false);
+                ApplyIFoodStockMovement(product, line.Quantity, display);
+            }
+
+            if (stockWarnings.Count > 0)
+            {
+                order.Notes = $"{order.Notes}\n{string.Join("\n", stockWarnings)}".Trim();
+            }
+
+            order.ExternalStockApplied = true;
+            changed = true;
+        }
+
+        if (changed)
+        {
+            Debug.WriteLine("iFood stock reconciliation applied to pending imported orders.");
+        }
     }
 
     private void WriteStoreFile(AppStore store)
@@ -12197,6 +13078,30 @@ public partial class MainWindow : Window
         };
     }
 
+    private static int DeliveryBoardSortGroup(TableTile tile)
+    {
+        var status = NormalizeIFoodBoardStatus(tile.Status);
+        return status switch
+        {
+            "NOVO" or "PLACED" or "CREATED" => 0,
+            "CONFIRMADO" or "ACEITO" => 1,
+            "PREPARO" or "PREPARANDO" => 2,
+            "PRONTO" => 3,
+            "ROTA" => 4,
+            "DESPACHADO" => 8,
+            "ENTREGUE" or "FINALIZADO" => 9,
+            "CANCELAMENTO" or "CANCELADO" => 10,
+            _ => 5
+        };
+    }
+
+    private static DateTime DeliveryBoardDeadlineSort(TableTile tile)
+    {
+        return IsIFoodWaitingForConfirmation(tile) && GetIFoodConfirmationDeadline(tile) is { } deadline
+            ? deadline
+            : DateTime.MaxValue;
+    }
+
     private static string NextKitchenStatus(string status)
     {
         return status switch
@@ -12222,7 +13127,8 @@ public partial class MainWindow : Window
             KitchenStatus = line.KitchenStatus,
             KitchenStartedAt = line.KitchenStartedAt,
             KitchenReadyAt = line.KitchenReadyAt,
-            ModifierSummary = line.ModifierSummary
+            ModifierSummary = line.ModifierSummary,
+            CanDelete = line.CanDelete
         };
     }
 
@@ -12428,6 +13334,15 @@ public partial class MainWindow : Window
         public string ExternalSource { get; set; } = "";
         public string ExternalOrderId { get; set; } = "";
         public string ExternalDisplayId { get; set; } = "";
+        public string ExternalDeliveredBy { get; set; } = "";
+        public string ExternalPickupCode { get; set; } = "";
+        public string ExternalDeliveryLocalizer { get; set; } = "";
+        public string ExternalShipmentInfo { get; set; } = "";
+        public string ExternalOrderTiming { get; set; } = "";
+        public DateTime? ExternalCreatedAt { get; set; }
+        public DateTime? ExternalPreparationStartAt { get; set; }
+        public DateTime? ExternalConfirmationDeadlineAt { get; set; }
+        public bool ExternalStockApplied { get; set; }
         public int People { get; set; } = 1;
         public int Waiter { get; set; }
         public bool ChargesEnabled { get; set; }
@@ -12465,6 +13380,7 @@ public partial class MainWindow : Window
         {
             "LIVRE" => GreenTile,
             "PRONTO" => GreenTile,
+            "DESPACHADO" => GreenTile,
             "ENTREGUE" => GreenTile,
             "FINALIZADO" => GreenTile,
             "CONTA" => AmberTile,
@@ -12474,7 +13390,6 @@ public partial class MainWindow : Window
             "PREPARO" => AmberTile,
             "PREPARANDO" => AmberTile,
             "ROTA" => AmberTile,
-            "DESPACHADO" => AmberTile,
             "CANCELAMENTO" => AmberTile,
             "CANCELADO" => RedTile,
             _ => RedTile
@@ -12580,6 +13495,8 @@ public partial class MainWindow : Window
         public bool IsPizza { get; set; }
         public string WhatsAppCode { get; set; } = "";
         public string WhatsAppAliases { get; set; } = "";
+        public string IFoodProductId { get; set; } = "";
+        public string IFoodExternalCode { get; set; } = "";
         public bool IFoodCompositionEnabled { get; set; }
         public List<ProductModifier> Modifiers { get; set; } = [];
         public List<ProductRecipeItem> RecipeItems { get; set; } = [];
@@ -12602,8 +13519,8 @@ public partial class MainWindow : Window
         [JsonIgnore] public string StockDisplay => StockQuantity <= MinimumStock && MinimumStock > 0
             ? $"ALERTA  {Code} {Name}  estoque {StockQuantity:N0}  minimo {MinimumStock:N0}"
             : $"{Code} {Name}  estoque {StockQuantity:N0}  minimo {MinimumStock:N0}";
-        [JsonIgnore] public bool IsLowStock => MinimumStock > 0 && StockQuantity <= MinimumStock;
-        [JsonIgnore] public string StockStatusText => IsLowStock ? "CRITICO" : "OK";
+        [JsonIgnore] public bool IsLowStock => StockQuantity < 0 || (MinimumStock > 0 && StockQuantity <= MinimumStock);
+        [JsonIgnore] public string StockStatusText => StockQuantity < 0 ? "NEGATIVO" : IsLowStock ? "CRITICO" : "OK";
 
         [JsonIgnore]
         public bool IsSelected
@@ -12625,6 +13542,7 @@ public partial class MainWindow : Window
         public DateTime? KitchenStartedAt { get; set; }
         public DateTime? KitchenReadyAt { get; set; }
         public string ModifierSummary { get; set; } = "";
+        [JsonIgnore] public bool CanDelete { get; set; } = true;
         [JsonIgnore] public decimal Total => Quantity * UnitPrice;
         [JsonIgnore] public string TotalText => Money(Total);
         [JsonIgnore] public string TransferDisplay => $"{Quantity}x {Name}  {TotalText}  {Note}";
@@ -12709,10 +13627,13 @@ public partial class MainWindow : Window
     {
         public string Zone { get; set; } = "";
         public string DistrictMatch { get; set; } = "";
+        public double RadiusKm { get; set; }
         public decimal Fee { get; set; }
         public decimal MinimumOrder { get; set; }
         public bool Active { get; set; } = true;
-        [JsonIgnore] public string Display => $"{Zone}  {DistrictMatch}  {Money(Fee)}";
+        [JsonIgnore] public string Display => RadiusKm > 0
+            ? $"Ate {RadiusKm:N1} km  {Money(Fee)}"
+            : $"{Zone}  {Money(Fee)}";
     }
 
     public sealed class ProductModifier
@@ -12779,6 +13700,7 @@ public partial class MainWindow : Window
         public int LocalConnectorPort { get; set; } = 8787;
         public bool AutoReplyConnector { get; set; } = true;
         public bool AutoCreateConfirmedOrders { get; set; } = true;
+        public int ManagedBrowserProcessId { get; set; }
     }
 
     public sealed class WhatsAppMessageLog

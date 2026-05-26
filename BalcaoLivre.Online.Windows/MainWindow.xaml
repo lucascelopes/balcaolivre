@@ -308,6 +308,7 @@
                     <TextBlock Grid.Column="2" Text="{Binding Quantity}" HorizontalAlignment="Center"/>
                     <TextBlock Grid.Column="3" Text="{Binding TotalText}" HorizontalAlignment="Right" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                     <Button Grid.Column="4"
+                            x:Name="DeleteLineButton"
                             Content="Excluir"
                             Click="DeleteTicketLineButton_Click"
                             Background="#A11D1D"
@@ -321,6 +322,11 @@
                             Cursor="Hand"/>
                 </Grid>
             </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding CanDelete}" Value="False">
+                    <Setter TargetName="DeleteLineButton" Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
         </DataTemplate>
     </Window.Resources>
 
@@ -678,7 +684,7 @@
                             <ColumnDefinition Width="112"/>
                         </Grid.ColumnDefinitions>
                         <TextBox x:Name="SearchBox" TextChanged="SearchBox_TextChanged" Margin="0,0,8,0" FontSize="16" Height="40" VerticalContentAlignment="Center" ToolTip="Digite codigo ou nome do produto"/>
-                        <Button Grid.Column="1" Content="F3 Catalogo" Click="SearchButton_Click" Style="{StaticResource GhostButton}" Height="40"/>
+                        <Button Grid.Column="1" x:Name="SearchButton" Content="F3 Catalogo" Click="SearchButton_Click" Style="{StaticResource GhostButton}" Height="40"/>
                     </Grid>
 
                     <Grid Grid.Row="2" Margin="0,0,0,4">
