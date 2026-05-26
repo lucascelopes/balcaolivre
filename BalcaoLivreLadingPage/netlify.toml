@@ -1,0 +1,3 @@
+[build]
+  command = "node ../scripts/build-netlify-site.mjs BalcaoLivreLadingPage/netlify-site"
+  publish = "netlify-site"

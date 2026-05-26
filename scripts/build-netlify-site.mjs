@@ -3,7 +3,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const outputDir = path.join(root, "dist", "netlify-site");
+const outputDir = process.argv[2]
+  ? path.resolve(root, process.argv[2])
+  : path.join(root, "dist", "netlify-site");
 
 const fromRoot = (...parts) => path.join(root, ...parts);
 const toOutput = (...parts) => path.join(outputDir, ...parts);
