@@ -1,0 +1,767 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Balcão Livre PDV</title>
+    <link rel="icon" href="public/balcao-livre-icon.png" />
+    <link rel="stylesheet" href="app/globals.css" />
+  </head>
+  <body>
+    <main>
+      <header class="topbar">
+        <a class="brand" href="#inicio" aria-label="Balcão Livre PDV">
+          <img src="public/balcao-livre-icon.png" alt="" />
+          <span>Balcão Livre PDV</span>
+        </a>
+        <nav aria-label="Navegacao principal">
+          <a href="#produto">Produto</a>
+          <a href="#impressao">Impressao</a>
+          <a href="#operacao">Operacao</a>
+          <a href="#preco">Preco</a>
+          <a href="#faq">FAQ</a>
+          <a href="/pdv/">Login</a>
+        </nav>
+        <a class="topbarAction" href="#">Baixar instalador</a>
+      </header>
+
+      <section class="hero" id="inicio">
+        <div class="heroCopy">
+          <div class="productMark">
+            <img src="public/balcao-livre-icon.png" alt="" />
+            <div><span>Balcão Livre</span><b>PDV para restaurante</b></div>
+          </div>
+          <p class="eyebrow">Restaurantes, bares, lanchonetes e casas de eventos</p>
+          <h1>PDV simples para restaurante atender mais rapido.</h1>
+          <p class="heroLead">
+            Controle mesa, balcao, delivery, pagamentos, estoque e comprovantes
+            em uma rotina direta para o operador do caixa.
+          </p>
+          <div class="heroBenefit">
+            <strong>Menos fila, menos erro e mais controle no fechamento.</strong>
+            <span>
+              O Balcão Livre PDV organiza o atendimento do pedido ate o
+              comprovante, ajudando o restaurante a saber o que vendeu, quem
+              atendeu, quanto recebeu e o que saiu do estoque.
+            </span>
+          </div>
+          <div class="heroFlow">
+            <article><b>1</b><div><strong>Mesas e comandas</strong><span>Abra mesa, ficha de balcao ou delivery sem mudar de sistema.</span></div></article>
+            <article><b>2</b><div><strong>Produtos e estoque</strong><span>Lance itens, agrupe quantidades e acompanhe baixa de estoque.</span></div></article>
+            <article><b>3</b><div><strong>Pagamento e impressao</strong><span>Receba em dinheiro, Pix ou cartao e imprima o comprovante.</span></div></article>
+          </div>
+          <div class="heroActions">
+            <a class="primaryButton" href="#">Baixar Balcão Livre</a>
+            <a class="secondaryButton" href="#preco">Ver planos</a>
+          </div>
+          <div class="quickFacts">
+            <span><b>Restaurantes</b>bares e eventos</span>
+            <span><b>Windows</b>app nativo</span>
+            <span><b>Impressoras</b>termica ou padrao</span>
+            <span><b>Nao fiscal</b>comprovante simples</span>
+          </div>
+        </div>
+
+        <div class="impactPanel" aria-label="Beneficios para restaurantes">
+          <article><span>Atendimento</span><strong>Pedido entra mais rapido</strong><p>Mesa, balcao e delivery seguem um fluxo simples para o operador.</p></article>
+          <article><span>Caixa</span><strong>Recebimento com troco</strong><p>Dinheiro, Pix, cartao e fiado ficam registrados no fechamento.</p></article>
+          <article><span>Controle</span><strong>Estoque e relatorios</strong><p>Produtos vendidos, estoque minimo e resumo do dia em poucos cliques.</p></article>
+          <article><span>Fechamento</span><strong>Resumo impresso do dia</strong><p>Entradas, retiradas, recebimentos e pendencias aparecem antes de fechar.</p></article>
+          <article class="impactWide controlPreview">
+            <div>
+              <span>Controle do restaurante</span>
+              <strong>O dono enxerga venda, estoque e caixa do dia.</strong>
+              <p>O PDV nao fica so registrando pedido. Ele mostra se a loja esta vendendo e onde precisa repor produto.</p>
+            </div>
+            <div class="controlMetrics" aria-label="Indicadores principais do PDV">
+              <b><span>Hoje</span>R$ 1.284,00</b>
+              <b><span>Ticket medio</span>R$ 42,80</b>
+              <b><span>Estoque baixo</span>3 itens</b>
+              <b><span>Margem</span>48%</b>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="shortcutBand" aria-label="Diferenciais principais do sistema">
+        <span><b>Offline no caixa</b>vende mesmo se a internet cair</span>
+        <span><b>Pix com valor</b>QR sai pronto no comprovante</span>
+        <span><b>Impressao automatica</b>recibo sai ao receber</span>
+        <span><b>Fechamento seguro</b>bloqueia pendencias abertas</span>
+        <span><b>Estoque e lucro</b>baixa venda e mostra margem</span>
+      </section>
+
+      <section class="appDemo cashierDemoSection" aria-label="Teste do caixa do Balcao Livre PDV">
+        <div class="sectionIntro">
+          <p class="eyebrow">Teste o caixa</p>
+          <h2>Clique nos produtos ou digite o codigo para simular uma venda.</h2>
+          <p>
+            Esta demo mostra o fluxo que o restaurante usa no dia a dia: lancar
+            item, agrupar quantidade, ver total, informar dinheiro recebido e
+            calcular troco.
+          </p>
+        </div>
+        <div class="cashierDemo" data-cashier-demo>
+          <div class="cashierTop">
+            <div><span>Balcao Livre PDV</span><strong>Caixa demonstrativo</strong></div>
+            <b data-cashier-open>Caixa aberto R$ 184,00</b>
+          </div>
+          <div class="cashierTabs" aria-label="Modos de venda">
+            <button class="active" type="button">Comandas</button>
+            <button type="button">Balcao</button>
+            <button type="button">Delivery</button>
+          </div>
+          <div class="cashierGrid">
+            <aside class="ticketConsole">
+              <div class="consoleTitle"><span>Comanda</span><b>000012</b></div>
+              <div class="miniFields">
+                <span>Mesa 12</span>
+                <span>Garcom 2</span>
+                <span data-item-count>0 itens</span>
+              </div>
+              <div class="ticketRows" data-ticket-rows>
+                <p class="emptyTicket">Nenhum produto lancado.</p>
+              </div>
+              <div class="ticketTotalLive">
+                <span>Total da comanda</span>
+                <strong data-total>R$ 0,00</strong>
+              </div>
+            </aside>
+            <section class="productConsole">
+              <div class="codeEntry">
+                <label for="demo-product-code">Codigo do produto</label>
+                <div>
+                  <input id="demo-product-code" inputmode="numeric" placeholder="Ex: 000003" data-code-input />
+                  <button type="button" data-add-code>Enter incluir</button>
+                </div>
+              </div>
+              <div class="productPicker" data-product-picker>
+                <button class="active" type="button" data-product-code="000001"><span>000001</span><strong>COCA COLA</strong><small>BEBIDAS | Est. 18</small><b>R$ 6,00</b></button>
+                <button type="button" data-product-code="000002"><span>000002</span><strong>COXINHA DE CATUPIRY</strong><small>SALGADOS | Est. 10</small><b>R$ 4,00</b></button>
+                <button type="button" data-product-code="000003"><span>000003</span><strong>X-BURGER</strong><small>LANCHES | Est. 8</small><b>R$ 18,00</b></button>
+                <button type="button" data-product-code="000004"><span>000004</span><strong>SUCO NATURAL</strong><small>BEBIDAS | Est. 12</small><b>R$ 9,00</b></button>
+                <button type="button" data-product-code="000005"><span>000005</span><strong>BATATA FRITA</strong><small>PORCOES | Est. 7</small><b>R$ 14,00</b></button>
+                <button type="button" data-product-code="000006"><span>000006</span><strong>PIZZA BROTINHO</strong><small>PIZZAS | Est. 5</small><b>R$ 36,00</b></button>
+                <button type="button" data-product-code="000007"><span>000007</span><strong>HAMBURGUER ARTESANAL</strong><small>LANCHES | Est. 11</small><b>R$ 28,00</b></button>
+                <button type="button" data-product-code="000008"><span>000008</span><strong>CHEESE SALADA</strong><small>LANCHES | Est. 14</small><b>R$ 22,00</b></button>
+              </div>
+            </section>
+            <aside class="paymentConsole">
+              <div class="paymentTotal"><span>Total</span><strong data-payment-total>R$ 0,00</strong></div>
+              <label for="demo-received">Valor recebido</label>
+              <input id="demo-received" inputmode="decimal" value="0,00" data-received-input />
+              <div class="changeBox"><span>Troco</span><b data-change>R$ 0,00</b></div>
+              <div class="payButtons" data-pay-buttons>
+                <button class="active" type="button" data-method="Dinheiro">Dinheiro</button>
+                <button type="button" data-method="Pix">Pix</button>
+                <button type="button" data-method="Credito">Credito</button>
+              </div>
+              <button class="finishButton" type="button" data-finish>Finalizar venda</button>
+              <button class="clearButton" type="button" data-clear>Limpar venda</button>
+            </aside>
+            <section class="stockConsole" aria-label="Estoque integrado ao caixa demo">
+              <div class="stockHeader">
+                <div>
+                  <span>Estoque conectado ao PDV</span>
+                  <strong>Venda baixa estoque e mostra lucro previsto.</strong>
+                </div>
+                <b data-stock-alerts>0 alertas de minimo</b>
+              </div>
+              <div class="stockRows" data-stock-rows></div>
+            </section>
+          </div>
+        <div class="demoStatus">
+          <span data-demo-message>Teste o caixa: clique em um produto ou digite 000003 e pressione Enter.</span>
+          <b>Comprovante: NAO E DOCUMENTO FISCAL</b>
+        </div>
+        <section class="inlineReceiptDemo" id="comprovante-demo">
+          <div class="inlineReceiptCopy">
+            <span>Comprovante demo</span>
+            <strong data-live-receipt-title>A previa acompanha os produtos adicionados.</strong>
+            <p>Adicione produtos no PDV, escolha a forma de pagamento e confirme para ver o comprovante preenchido com a venda testada.</p>
+          </div>
+          <div class="receiptPaper liveReceiptPaper" data-live-receipt></div>
+        </section>
+      </div>
+        <div class="demoModalBackdrop isHidden" data-payment-modal role="dialog" aria-modal="true" aria-label="Receber venda demo">
+          <div class="demoModal paymentModal">
+            <div class="demoModalHeader">
+              <div><span>PDV</span><strong>Receber venda</strong></div>
+              <button type="button" data-close-modal>X</button>
+            </div>
+            <div class="paymentDialogGrid">
+              <section class="paymentDialogTotal">
+                <span>Total da comanda</span>
+                <strong data-modal-total>R$ 0,00</strong>
+                <small>Comanda 000012 | Garcom 2</small>
+              </section>
+              <section class="paymentDialogForm">
+                <label>Forma de pagamento</label>
+                <div class="paymentMethodGrid" data-modal-methods></div>
+                <label for="payment-modal-received">Valor recebido</label>
+                <input id="payment-modal-received" inputmode="decimal" data-modal-received />
+                <div class="paymentDialogChange"><span>Troco</span><b data-modal-change>R$ 0,00</b></div>
+                <div class="pixPreview isHidden" data-pix-preview>
+                  <div class="miniQr" data-pix-qr></div>
+                  <div><strong>Pix pronto com valor</strong><span data-pix-value>R$ 0,00 para o cliente pagar.</span></div>
+                </div>
+                <button class="finishButton" type="button" data-confirm-payment>Confirmar e ver comprovante</button>
+              </section>
+            </div>
+          </div>
+        </div>
+        <div class="demoModalBackdrop isHidden" data-receipt-modal role="dialog" aria-modal="true" aria-label="Comprovante demo">
+          <div class="demoModal receiptDialog">
+            <div class="demoModalHeader">
+              <div><span>PDV</span><strong>Comprovante gerado</strong></div>
+              <button type="button" data-close-modal>X</button>
+            </div>
+            <div class="receiptPaper" data-receipt-paper></div>
+            <div class="receiptActions">
+              <button type="button" data-back-payment>Voltar pagamento</button>
+              <button class="finishButton" type="button" data-new-sale>Nova venda</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="produto">
+        <div class="sectionIntro">
+          <p class="eyebrow">Produto</p>
+          <h2>Como o PDV funciona na pratica.</h2>
+          <p>
+            O cliente precisa bater o olho e entender o uso real: abrir caixa,
+            digitar produto, controlar mesa ou ficha, receber pagamento,
+            imprimir comprovante e fechar o dia.
+          </p>
+        </div>
+        <div class="featureGrid">
+          <article class="featureCard"><h3>Venda rapida</h3><p>Digite o codigo, quantidade e Enter. O produto agrupa automaticamente na comanda.</p></article>
+          <article class="featureCard"><h3>Balcao com fichas</h3><p>Atendimento rapido para retirada, consumo no balcao e venda comum.</p></article>
+          <article class="featureCard"><h3>Mapa de mesas</h3><p>A loja escolhe se usa 5, 30, 50 ou mais de 100 mesas.</p></article>
+          <article class="featureCard"><h3>Comissao por garcom</h3><p>Numero do garcom aparece na comanda, no controle e no comprovante.</p></article>
+          <article class="featureCard"><h3>Delivery completo</h3><p>Cliente, telefone, endereco, taxa e observacao no comprovante.</p></article>
+          <article class="featureCard"><h3>Pix com valor pronto</h3><p>QR Code de pagamento ja nasce com o total da venda.</p></article>
+          <article class="featureCard"><h3>Estoque e margem</h3><p>Preco de compra, preco de venda, lucro, entrada, saida e alerta de minimo.</p></article>
+          <article class="featureCard"><h3>Relatorios de caixa</h3><p>Resumo do dia, vendas, estoque critico e impressao do fechamento.</p></article>
+        </div>
+      </section>
+
+      <section class="splitSection" id="operacao">
+        <div class="splitCopy">
+          <p class="eyebrow">Operacao</p>
+          <h2>Fluxo de caixa que qualquer funcionario entende.</h2>
+          <p>O operador entra com numero e senha, abre o caixa, vende pelo teclado e fecha o dia com resumo impresso.</p>
+        </div>
+        <div class="timeline">
+          <article class="timelineItem"><b>01</b><div><h3>Abre o caixa</h3><p>O operador informa o dinheiro vivo inicial e entra com numero/senha.</p></div></article>
+          <article class="timelineItem"><b>02</b><div><h3>Vende sem mouse</h3><p>Setas, Enter, F2, F9 e F10 resolvem o fluxo principal do caixa.</p></div></article>
+          <article class="timelineItem"><b>03</b><div><h3>Recebe e imprime</h3><p>Dinheiro mostra troco. Pix gera QR. Cartao, debito, vale e fiado ficam registrados.</p></div></article>
+          <article class="timelineItem"><b>04</b><div><h3>Fecha o dia</h3><p>O sistema bloqueia fechamento com pendencias e imprime resumo do caixa.</p></div></article>
+        </div>
+      </section>
+
+      <section class="printSection" id="impressao">
+        <div class="receiptMock">
+          <h3>BALCAO LIVRE PDV</h3>
+          <p>COMPROVANTE DO PDV</p>
+          <div class="receiptMeta">
+            <span>COMANDA 000012</span>
+            <span>GARCOM: 2</span>
+            <span>OPERADOR: CAIXA</span>
+          </div>
+          <div class="receiptInstruction">
+            <strong>Monte a venda no PDV demo acima.</strong>
+            <span>Ao finalizar, a pagina desce para o comprovante com os produtos testados.</span>
+          </div>
+          <div class="receiptRows receiptTotals">
+            <span>TOTAL</span><strong>R$ 0,00</strong>
+            <span>PAGAMENTO</span><strong>aguardando</strong>
+            <span>TROCO</span><strong>R$ 0,00</strong>
+          </div>
+          <div class="receiptControl">CONTROLE GERADO NA VENDA</div>
+          <div class="qrMock" aria-label="QR Code de exemplo">
+            <i class="on"></i><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i></i><i class="on"></i>
+            <i class="on"></i><i></i><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i></i>
+            <i class="on"></i><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i class="on"></i><i class="on"></i>
+            <i></i><i class="on"></i><i></i><i class="on"></i><i class="on"></i><i></i><i class="on"></i>
+            <i class="on"></i><i></i><i class="on"></i><i></i><i class="on"></i><i class="on"></i><i></i>
+            <i></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i class="on"></i>
+            <i class="on"></i><i></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i class="on"></i>
+          </div>
+          <small>QR Pix, Instagram, mapa ou link opcional</small>
+        </div>
+        <div class="printCopy">
+          <p class="eyebrow">Impressao</p>
+          <h2>Comprovante grande, legivel e pronto para a impressora da loja.</h2>
+          <p>O recibo usa os dados configurados da empresa, mostra operador ou garcom, calcula troco, imprime fechamento de caixa e pode incluir QR Code quando a loja quiser.</p>
+          <div class="pillList">
+            <span>Impressora padrao do Windows</span>
+            <span>Termica 58/80mm</span>
+            <span>USB, rede ou compartilhada</span>
+            <span>Resumo do dia</span>
+            <span>QR opcional</span>
+          </div>
+          <div class="printOperations" aria-label="Rotina de impressao no PDV">
+            <article>
+              <b>01</b>
+              <div>
+                <strong>Recebeu pagamento</strong>
+                <span>O comprovante abre igual na demo e ja pode sair na impressora.</span>
+              </div>
+            </article>
+            <article>
+              <b>02</b>
+              <div>
+                <strong>Pix com valor</strong>
+                <span>O QR usa o total da comanda, sem o cliente digitar valor.</span>
+              </div>
+            </article>
+            <article>
+              <b>03</b>
+              <div>
+                <strong>Dados da loja</strong>
+                <span>Nome, CNPJ, endereco e telefone vem das configuracoes.</span>
+              </div>
+            </article>
+            <article>
+              <b>04</b>
+              <div>
+                <strong>Fechamento do dia</strong>
+                <span>Ao fechar caixa, imprime resumo das vendas e movimentos.</span>
+              </div>
+            </article>
+          </div>
+          <div class="printerStatus">
+            <span>Demo da impressao</span>
+            <strong>Comprovante grande + QR centralizado + troco calculado</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="pricingSection" id="preco">
+        <div class="sectionIntro">
+          <p class="eyebrow">Preco</p>
+          <h2>Escolha o plano do Balcao Livre PDV.</h2>
+          <p>Planos simples para usar o PDV no Windows, com pagamento seguro e licenca de ativacao para o computador do cliente.</p>
+        </div>
+        <div class="pricingPromise">
+          <strong>Sem taxa de instalacao e sem surpresa no caixa.</strong>
+          <span>O PDV continua vendendo offline depois de ativado.</span>
+        </div>
+        <div class="pricingGrid">
+          <article class="priceCard">
+            <div class="priceCardTop"><span>Mensal</span><small>Mais flexivel</small></div>
+            <div class="priceValue"><strong>R$ 17,00</strong><em>por mes</em></div>
+            <p>Para comecar agora, testar na operacao real e continuar pagando pouco.</p>
+            <ul>
+              <li>Ativacao por chave</li>
+              <li>Instalador Windows</li>
+              <li>PDV offline</li>
+              <li>Atualizacoes inclusas</li>
+            </ul>
+            <a class="checkoutButton" href="#" data-preview-checkout="mensal">Assinar mensal</a>
+          </article>
+          <article class="priceCard featured">
+            <div class="priceCardTop"><span>Anual</span><small>Melhor para loja</small></div>
+            <div class="priceValue"><strong>R$ 200,00</strong><em>por ano</em></div>
+            <p>Plano para deixar o caixa rodando o ano todo com uma unica renovacao.</p>
+            <ul>
+              <li>12 meses de uso</li>
+              <li>Melhor controle da licenca</li>
+              <li>PDV offline</li>
+              <li>Atualizacoes inclusas</li>
+            </ul>
+            <a class="checkoutButton" href="#" data-preview-checkout="anual">Assinar anual</a>
+          </article>
+        </div>
+        <div class="paymentTrust">
+          <span>Checkout seguro Stripe</span>
+          <span>Cartao de credito</span>
+          <span>Licenca por chave</span>
+          <span>Instalador independente</span>
+        </div>
+      </section>
+
+      <section class="faqSection" id="faq">
+        <div class="sectionIntro"><p class="eyebrow">Duvidas rapidas</p><h2>Informacao direta para vender melhor.</h2></div>
+        <div class="faqGrid">
+          <article><h3>Funciona sem internet?</h3><p>Sim. A operacao do PDV e offline. A internet e usada para ativacao da licenca e atualizacao.</p></article>
+          <article><h3>Serve para loja pequena?</h3><p>Sim. A ideia e ser simples para balcao e crescer com mesas, delivery, estoque e relatorios.</p></article>
+          <article><h3>Precisa usar mouse?</h3><p>O fluxo principal foi pensado para teclado, inclusive numerico, setas, Enter e teclas F.</p></article>
+          <article><h3>Imprime em qualquer impressora?</h3><p>Sim. O sistema usa a impressora padrao do Windows ou a impressora escolhida nas configuracoes.</p></article>
+        </div>
+      </section>
+
+      <section class="finalCta">
+        <img src="public/balcao-livre-icon.png" alt="" />
+        <div><h2>Instale o Balcão Livre PDV no Windows.</h2><p>PDV para restaurante com mesas, balcao, delivery, impressao, Pix e estoque.</p></div>
+        <a class="primaryButton" href="#">Baixar instalador</a>
+      </section>
+
+      <footer class="siteFooter">
+        <div class="footerBrand">
+          <div>
+            <strong>Balcão Livre PDV</strong>
+            <span>Nagazaki Software</span>
+          </div>
+        </div>
+        <p>2026 Balcão Livre PDV. Caixa simples, rápido e sem complicação.</p>
+        <nav aria-label="Links do rodape">
+          <a href="#produto">Produto</a>
+          <a href="#impressao">Impressao</a>
+          <a href="#preco">Planos</a>
+        </nav>
+      </footer>
+    </main>
+    <script>
+      (() => {
+        const products = [
+          { code: "000001", name: "COCA COLA", group: "BEBIDAS", price: 6, cost: 3.2, stock: 18, min: 5 },
+          { code: "000002", name: "COXINHA DE CATUPIRY", group: "SALGADOS", price: 4, cost: 1.55, stock: 10, min: 4 },
+          { code: "000003", name: "X-BURGER", group: "LANCHES", price: 18, cost: 9.4, stock: 8, min: 3 },
+          { code: "000004", name: "SUCO NATURAL", group: "BEBIDAS", price: 9, cost: 3.8, stock: 12, min: 4 },
+          { code: "000005", name: "BATATA FRITA", group: "PORCOES", price: 14, cost: 5.7, stock: 7, min: 3 },
+          { code: "000006", name: "PIZZA BROTINHO", group: "PIZZAS", price: 36, cost: 17.2, stock: 5, min: 2 },
+          { code: "000007", name: "HAMBURGUER ARTESANAL", group: "LANCHES", price: 28, cost: 13.6, stock: 11, min: 3 },
+          { code: "000008", name: "CHEESE SALADA", group: "LANCHES", price: 22, cost: 10.4, stock: 14, min: 4 },
+          { code: "000009", name: "PASTEL DE CARNE", group: "SALGADOS", price: 8, cost: 3.1, stock: 24, min: 6 },
+          { code: "000010", name: "PASTEL DE QUEIJO", group: "SALGADOS", price: 8, cost: 2.9, stock: 22, min: 6 },
+          { code: "000011", name: "FRANGO A PASSARINHO", group: "PORCOES", price: 38, cost: 18.8, stock: 6, min: 2 },
+          { code: "000012", name: "CALABRESA ACEBOLADA", group: "PORCOES", price: 32, cost: 14.7, stock: 9, min: 3 },
+          { code: "000013", name: "MARMITA EXECUTIVA", group: "PRATOS", price: 24.9, cost: 11.2, stock: 16, min: 5 },
+          { code: "000014", name: "FILE COM FRITAS", group: "PRATOS", price: 39.9, cost: 19.8, stock: 8, min: 3 },
+          { code: "000015", name: "PIZZA MUSSARELA", group: "PIZZAS", price: 58, cost: 27.5, stock: 5, min: 2 },
+          { code: "000016", name: "PIZZA CALABRESA", group: "PIZZAS", price: 62, cost: 29.6, stock: 5, min: 2 },
+          { code: "000017", name: "REFRIGERANTE LATA", group: "BEBIDAS", price: 7, cost: 3.05, stock: 36, min: 10 },
+          { code: "000018", name: "AGUA MINERAL", group: "BEBIDAS", price: 4, cost: 1.25, stock: 42, min: 12 },
+          { code: "000019", name: "BROWNIE COM SORVETE", group: "SOBREMESAS", price: 18, cost: 7.6, stock: 10, min: 3 },
+          { code: "000020", name: "TAXA DE ENTREGA", group: "DELIVERY", price: 8, cost: 0, stock: 999, min: 0 }
+        ];
+        const paymentMethods = ["Dinheiro", "Pix", "Credito", "Debito"];
+        const qrCells = [
+          1,1,1,0,1,0,1,1,0,
+          1,0,1,1,0,1,0,1,1,
+          1,1,1,0,1,1,1,0,1,
+          0,1,0,1,1,0,1,1,0,
+          1,0,1,0,1,1,0,1,1,
+          0,1,1,1,0,1,1,0,1,
+          1,0,1,1,1,0,1,1,1,
+          1,1,0,0,1,1,0,1,0,
+          0,1,1,1,0,1,1,1,1
+        ];
+        let items = [];
+        let selectedCode = "000001";
+        let method = "Dinheiro";
+        let receiptReady = false;
+
+        const root = document.querySelector("[data-cashier-demo]");
+        document.querySelectorAll("[data-preview-checkout]").forEach((link) => {
+          link.addEventListener("click", (event) => {
+            event.preventDefault();
+            alert("No site publicado, este botao abre o checkout seguro da Stripe.");
+          });
+        });
+        const rows = root.querySelector("[data-ticket-rows]");
+        const picker = root.querySelector("[data-product-picker]");
+        const stockRows = root.querySelector("[data-stock-rows]");
+        const codeInput = root.querySelector("[data-code-input]");
+        const receivedInput = root.querySelector("[data-received-input]");
+        const message = root.querySelector("[data-demo-message]");
+        const paymentModal = root.querySelector("[data-payment-modal]");
+        const receiptModal = root.querySelector("[data-receipt-modal]");
+        const modalMethods = root.querySelector("[data-modal-methods]");
+        const modalReceived = root.querySelector("[data-modal-received]");
+        const pixPreview = root.querySelector("[data-pix-preview]");
+        const pixQr = root.querySelector("[data-pix-qr]");
+        const receiptPaper = root.querySelector("[data-receipt-paper]");
+        const liveReceipt = root.querySelector("[data-live-receipt]");
+        const liveReceiptTitle = root.querySelector("[data-live-receipt-title]");
+        const format = (value) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        const inputFormat = (value) => value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const parseMoney = (value) => {
+          const parsed = Number.parseFloat(String(value).replace(/\./g, "").replace(",", "."));
+          return Number.isFinite(parsed) ? parsed : 0;
+        };
+        const total = () => items.reduce((sum, item) => sum + item.price * item.qty, 0);
+        const itemCount = () => items.reduce((sum, item) => sum + item.qty, 0);
+        const soldQty = (code) => items.find((item) => item.code === code)?.qty ?? 0;
+        const available = (product) => product.stock - soldQty(product.code);
+        const stockState = () => products.map((product) => {
+          const profit = product.price - product.cost;
+          return {
+            ...product,
+            available: available(product),
+            profit,
+            margin: Math.round((profit / product.price) * 100)
+          };
+        });
+
+        function renderProducts() {
+          picker.innerHTML = products.map((product) => `
+            <button class="${product.code === selectedCode ? "active" : ""}" type="button" data-product-code="${product.code}" ${available(product) <= 0 ? "disabled" : ""}>
+              <span>${product.code}</span>
+              <strong>${product.name}</strong>
+              <small>${product.group} | Est. ${available(product)}</small>
+              <b>${format(product.price)}</b>
+            </button>
+          `).join("");
+        }
+
+        function renderPaymentMethods() {
+          modalMethods.innerHTML = paymentMethods.map((option) => `
+            <button class="${method === option ? "active" : ""}" type="button" data-method="${option}">${option}</button>
+          `).join("");
+          root.querySelectorAll(".payButtons [data-method]").forEach((button) => {
+            button.classList.toggle("active", button.dataset.method === method);
+          });
+        }
+
+        function renderQr() {
+          pixQr.innerHTML = qrCells.map((cell) => `<i class="${cell ? "on" : ""}"></i>`).join("");
+        }
+
+        function renderStock() {
+          const rows = stockState();
+          const lowCount = rows.filter((product) => product.available <= product.min).length;
+          root.querySelector("[data-stock-alerts]").textContent = `${lowCount} alerta${lowCount === 1 ? "" : "s"} de minimo`;
+          stockRows.innerHTML = rows.map((product) => `
+            <div class="stockRow ${product.available <= product.min ? "low" : ""}">
+              <span>${product.code}</span>
+              <strong>${product.name}</strong>
+              <small>Est. ${product.available} / min. ${product.min}</small>
+              <em>Compra ${format(product.cost)}</em>
+              <b>Lucro ${format(product.profit)} | ${product.margin}%</b>
+            </div>
+          `).join("");
+        }
+
+        function renderLiveReceipt() {
+          liveReceiptTitle.textContent = receiptReady
+            ? "Venda finalizada na demo."
+            : "A previa acompanha os produtos adicionados.";
+          liveReceipt.innerHTML = `
+            <h3>BALCAO LIVRE PDV</h3>
+            <p>${receiptReady ? "COMPROVANTE GERADO" : "PREVIA DA CONTA"}</p>
+            <p>COMANDA 000012 | GARCOM 2</p>
+            <p>NAO E DOCUMENTO FISCAL</p>
+            <div class="receiptLine"></div>
+            ${items.length ? items.map((item) => `
+              <div class="receiptProduct">
+                <span>${item.name}</span>
+                <small>${item.qty},000 x ${format(item.price)}</small>
+                <b>${format(item.price * item.qty)}</b>
+              </div>
+            `).join("") : '<p class="emptyReceipt">Adicione produtos no caixa demo para montar o comprovante.</p>'}
+            <div class="receiptLine"></div>
+            <div class="receiptTotals">
+              <span>TOTAL</span><b>${format(total())}</b>
+              <span>${method.toUpperCase()}</span><b>${format(parseMoney(receivedInput.value))}</b>
+              <span>TROCO</span><b>${format(Math.max(0, parseMoney(receivedInput.value) - total()))}</b>
+            </div>
+            ${method === "Pix" && items.length ? `
+              <div class="receiptQr">
+                <div class="miniQr large">${qrCells.map((cell) => `<i class="${cell ? "on" : ""}"></i>`).join("")}</div>
+                <span>PIX ${format(total())}</span>
+              </div>
+            ` : ""}
+            <strong class="receiptThanks">OBRIGADO PELA PREFERENCIA</strong>
+          `;
+        }
+
+        function render() {
+          const currentTotal = total();
+          const change = Math.max(0, parseMoney(receivedInput.value) - currentTotal);
+
+          rows.innerHTML = items.length
+            ? items.map((item) => `
+              <div class="ticketRow">
+                <span>${item.code}</span>
+                <strong>${item.name}</strong>
+                <b>${item.qty}x</b>
+                <em>${format(item.price * item.qty)}</em>
+                <button type="button" data-remove="${item.code}">Excluir</button>
+              </div>
+            `).join("")
+            : '<p class="emptyTicket">Nenhum produto lancado.</p>';
+
+          root.querySelector("[data-total]").textContent = format(currentTotal);
+          root.querySelector("[data-payment-total]").textContent = format(currentTotal);
+          root.querySelector("[data-change]").textContent = format(change);
+          root.querySelector("[data-cashier-open]").textContent = `Caixa aberto ${format(184 + currentTotal)}`;
+          root.querySelector("[data-item-count]").textContent = `${itemCount()} itens`;
+          root.querySelector("[data-modal-total]").textContent = format(currentTotal);
+          root.querySelector("[data-modal-change]").textContent = format(change);
+          root.querySelector("[data-pix-value]").textContent = `${format(currentTotal)} para o cliente pagar.`;
+          modalReceived.value = receivedInput.value;
+          pixPreview.classList.toggle("isHidden", method !== "Pix");
+          renderProducts();
+          renderPaymentMethods();
+          renderQr();
+          renderStock();
+          renderLiveReceipt();
+        }
+
+        function addProduct(product) {
+          if (available(product) <= 0) {
+            selectedCode = product.code;
+            message.textContent = `${product.name} sem estoque na demo.`;
+            render();
+            return;
+          }
+
+          const existing = items.find((item) => item.code === product.code);
+          if (existing) {
+            items = items.map((item) => item.code === product.code ? { ...item, qty: item.qty + 1 } : item);
+          } else {
+            items = [...items, { ...product, qty: 1 }];
+          }
+          selectedCode = product.code;
+          codeInput.value = "";
+          receiptReady = false;
+          message.textContent = `${product.name} incluido. Estoque baixou automaticamente na demo.`;
+          render();
+        }
+
+        function addByCode() {
+          const typedCode = codeInput.value.trim().padStart(6, "0");
+          const product = products.find((item) => item.code === typedCode);
+          if (!product) {
+            message.textContent = "Codigo nao encontrado. Use 000001 a 000020 nesta demo.";
+            return;
+          }
+          addProduct(product);
+        }
+
+        function chooseMethod(option) {
+          method = option;
+          if (option !== "Dinheiro") {
+            receivedInput.value = inputFormat(total());
+          }
+          render();
+        }
+
+        function openPayment() {
+          if (!items.length) {
+            message.textContent = "Inclua pelo menos um produto antes de finalizar.";
+            return;
+          }
+
+          receiptReady = false;
+          paymentModal.classList.remove("isHidden");
+          receiptModal.classList.add("isHidden");
+          message.textContent = "Escolha a forma de pagamento para gerar o comprovante.";
+          render();
+        }
+
+        function openReceipt() {
+          if (parseMoney(receivedInput.value) < total()) {
+            message.textContent = "Valor recebido menor que o total da comanda.";
+            return;
+          }
+
+          receiptPaper.innerHTML = `
+            <h3>BALCAO LIVRE PDV</h3>
+            <p>COMANDA 000012 | GARCOM 2</p>
+            <p>NAO E DOCUMENTO FISCAL</p>
+            <div class="receiptLine"></div>
+            ${items.map((item) => `
+              <div class="receiptProduct">
+                <span>${item.name}</span>
+                <small>${item.qty},000 x ${format(item.price)}</small>
+                <b>${format(item.price * item.qty)}</b>
+              </div>
+            `).join("")}
+            <div class="receiptLine"></div>
+            <div class="receiptTotals">
+              <span>TOTAL</span><b>${format(total())}</b>
+              <span>${method.toUpperCase()}</span><b>${format(parseMoney(receivedInput.value))}</b>
+              <span>TROCO</span><b>${format(Math.max(0, parseMoney(receivedInput.value) - total()))}</b>
+            </div>
+            ${method === "Pix" ? `
+              <div class="receiptQr">
+                <div class="miniQr large">${qrCells.map((cell) => `<i class="${cell ? "on" : ""}"></i>`).join("")}</div>
+                <span>PIX ${format(total())}</span>
+              </div>
+            ` : ""}
+            <strong class="receiptThanks">OBRIGADO PELA PREFERENCIA</strong>
+          `;
+
+          receiptReady = true;
+          paymentModal.classList.add("isHidden");
+          receiptModal.classList.add("isHidden");
+          message.textContent = `Venda finalizada em ${method}. Comprovante gerado na tela.`;
+          renderLiveReceipt();
+          liveReceipt.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
+        function closeModals() {
+          paymentModal.classList.add("isHidden");
+          receiptModal.classList.add("isHidden");
+        }
+
+        root.addEventListener("click", (event) => {
+          const productButton = event.target.closest("[data-product-code]");
+          const removeButton = event.target.closest("[data-remove]");
+          const methodButton = event.target.closest("[data-method]");
+
+          if (productButton) {
+            addProduct(products.find((product) => product.code === productButton.dataset.productCode));
+          }
+
+          if (removeButton) {
+            items = items.filter((item) => item.code !== removeButton.dataset.remove);
+            receiptReady = false;
+            message.textContent = "Item removido da comanda.";
+            render();
+          }
+
+          if (methodButton) {
+            chooseMethod(methodButton.dataset.method);
+          }
+        });
+
+        root.querySelector("[data-add-code]").addEventListener("click", addByCode);
+        codeInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            addByCode();
+          }
+        });
+        receivedInput.addEventListener("input", render);
+        modalReceived.addEventListener("input", () => {
+          receivedInput.value = modalReceived.value;
+          render();
+        });
+        root.querySelector("[data-finish]").addEventListener("click", openPayment);
+        root.querySelector("[data-confirm-payment]").addEventListener("click", openReceipt);
+        root.querySelector("[data-back-payment]").addEventListener("click", () => {
+          receiptModal.classList.add("isHidden");
+          paymentModal.classList.remove("isHidden");
+        });
+        root.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", closeModals));
+        root.querySelector("[data-clear]").addEventListener("click", () => {
+          items = [];
+          codeInput.value = "";
+          receivedInput.value = "0,00";
+          method = "Dinheiro";
+          receiptReady = false;
+          closeModals();
+          message.textContent = "Caixa limpo. Comece outra venda com os produtos fake.";
+          render();
+        });
+        root.querySelector("[data-new-sale]").addEventListener("click", () => {
+          items = [];
+          codeInput.value = "";
+          receivedInput.value = "0,00";
+          method = "Dinheiro";
+          receiptReady = false;
+          closeModals();
+          message.textContent = "Venda finalizada. Comece outra venda na demo.";
+          render();
+        });
+
+        render();
+      })();
+    </script>
+  </body>
+</html>
