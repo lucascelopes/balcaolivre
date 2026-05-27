@@ -9810,7 +9810,7 @@ public partial class MainWindow : Window
         var open = DialogButton("Abrir cardapio", "#2F6FAE");
         var html = DialogButton("Gerar HTML do menu", "#667684");
 
-        publish.Click += async (_, _) =>
+        async Task PublishCurrentMenuAsync(bool automatic)
         {
             if (!TryGetPublicMenuUrl(out _))
             {
@@ -9818,22 +9818,33 @@ public partial class MainWindow : Window
             }
 
             publish.IsEnabled = false;
-            statusText.Text = "Publicando cardapio no Supabase...";
+            statusText.Text = automatic
+                ? "Publicando cardapio automaticamente..."
+                : "Publicando cardapio no Supabase...";
             statusText.Foreground = Solid("#667684");
             try
             {
                 var result = await PublishGeneratedPublicMenuAsync(silent: false);
-                statusText.Text = result.Ok
-                    ? $"Publicado: {result.ItemsPublished:N0} produto(s). Link pronto para o QR."
-                    : (string.IsNullOrWhiteSpace(result.Message) ? "Nao foi possivel publicar o cardapio." : result.Message.Trim());
-                statusText.Foreground = result.Ok ? GreenText : RedText;
-                RefreshPreview();
+                if (result.Ok)
+                {
+                    RefreshPreview();
+                    statusText.Text = $"Publicado: {result.ItemsPublished:N0} produto(s). Link pronto para o QR.";
+                    statusText.Foreground = GreenText;
+                    return;
+                }
+
+                statusText.Text = string.IsNullOrWhiteSpace(result.Message)
+                    ? "Nao foi possivel publicar o cardapio."
+                    : result.Message.Trim();
+                statusText.Foreground = RedText;
             }
             finally
             {
                 publish.IsEnabled = true;
             }
-        };
+        }
+
+        publish.Click += async (_, _) => await PublishCurrentMenuAsync(automatic: false);
 
         print.Click += (_, _) =>
         {
@@ -10007,6 +10018,7 @@ public partial class MainWindow : Window
         dialog.Content = panel;
         RefreshGeneratedLink(save: true);
         RefreshPreview();
+        dialog.Loaded += async (_, _) => await PublishCurrentMenuAsync(automatic: true);
         dialog.ShowDialog();
     }
 
@@ -10169,13 +10181,13 @@ public partial class MainWindow : Window
             || !_appSettings.PublicMenuAutoPublish
             || !_appSettings.AdminSyncEnabled
             || string.IsNullOrWhiteSpace(_appSettings.ActivationKey)
-            || string.IsNullOrWhiteSpace(_profile.MenuSlug)
-            || !IsValidPublicMenuUrl(_profile.MenuPublicUrl)
             || Products.Count == 0)
         {
             return;
         }
 
+        EnsurePublicMenuSlug();
+        _profile.MenuPublicUrl = BuildPublicMenuUrl(_profile.MenuSlug);
         var signature = BuildPublicMenuSignature();
         if (signature == _lastPublishedPublicMenuSignature || signature == _pendingPublicMenuSignature)
         {
