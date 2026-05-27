@@ -44,8 +44,17 @@ app.MapGet("/api/health", (AdminStoreService store) => Results.Ok(new { ok = tru
 app.MapPost("/api/login", async (HttpContext context, AdminSessionService sessions) =>
 {
     var request = await context.Request.ReadFromJsonAsync<LoginRequest>(AdminJson.Options) ?? new LoginRequest();
-    var user = Environment.GetEnvironmentVariable("BVPDV_ADMIN_USER") ?? "balcaoVirtualPDV";
-    var password = Environment.GetEnvironmentVariable("BVPDV_ADMIN_PASSWORD") ?? "BVPDV24055";
+    var user = (Environment.GetEnvironmentVariable("BVPDV_ADMIN_USER") ?? "").Trim();
+    var password = Environment.GetEnvironmentVariable("BVPDV_ADMIN_PASSWORD") ?? "";
+
+    if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(password))
+    {
+        return Results.Json(new
+        {
+            ok = false,
+            message = "Login admin nao configurado no servidor. Configure BVPDV_ADMIN_USER e BVPDV_ADMIN_PASSWORD."
+        }, statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
 
     if (!string.Equals(request.User, user, StringComparison.Ordinal) ||
         !string.Equals(request.Password, password, StringComparison.Ordinal))

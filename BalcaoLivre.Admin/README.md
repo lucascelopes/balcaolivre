@@ -2,16 +2,13 @@
 
 Painel web interno para controle de licencas, clientes instalados e uso do app Windows.
 
-## Login padrao
+## Login admin
 
-- Login: `balcaoVirtualPDV`
-- Senha: `BVPDV24055`
-
-Em producao, da para sobrescrever com variaveis de ambiente:
+O login do painel nao tem senha padrao no codigo. Configure sempre por variaveis de ambiente no servidor:
 
 ```powershell
-$env:BVPDV_ADMIN_USER = "seu-login"
-$env:BVPDV_ADMIN_PASSWORD = "sua-senha"
+$env:BVPDV_ADMIN_USER = "seu-login-admin"
+$env:BVPDV_ADMIN_PASSWORD = "sua-senha-forte"
 ```
 
 ## Rodar local

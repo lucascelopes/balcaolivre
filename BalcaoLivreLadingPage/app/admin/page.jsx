@@ -12,9 +12,9 @@ const adminMarkup = `
       <h1>Balcao Livre PDV</h1>
       <p>Painel interno de licencas, clientes e uso do programa.</p>
       <label>Login</label>
-      <input id="loginUser" autocomplete="username" value="balcaoVirtualPDV">
+      <input id="loginUser" autocomplete="username" placeholder="Login admin">
       <label>Senha</label>
-      <input id="loginPassword" autocomplete="current-password" type="password" value="BVPDV24055">
+      <input id="loginPassword" autocomplete="current-password" type="password" placeholder="Senha admin">
       <button id="loginButton">Entrar</button>
       <div id="loginMessage" class="message"></div>
     </section>
