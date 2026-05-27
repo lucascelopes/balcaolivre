@@ -6,12 +6,12 @@ O site Netlify publica todas as superficies no mesmo deploy:
 - `www.balcaolivrepdv.com.br`: landing page.
 - `admin.balcaolivrepdv.com.br`: admin estatico.
 - `pdv.balcaolivrepdv.com.br`: PDV web.
-- `*.balcaolivrepdv.com.br`: cardapio publico de cada loja.
+- `cardapio.balcaolivrepdv.com.br`: cardapio publico de cada loja por slug.
 
 O cardapio usa o subdominio como slug. Exemplo:
 
 ```text
-balcao-livre-pdv-online-7011ff.balcaolivrepdv.com.br
+cardapio.balcaolivrepdv.com.br/balcao-livre-pdv-online-7011ff
 ```
 
 Esse host carrega os arquivos de `BalcaoLivre.Cardapio.Web` e busca os dados publicados no Supabase pelas tabelas `bv_public_menus` e `bv_public_menu_items`.
@@ -25,10 +25,10 @@ balcaolivrepdv.com.br        -> site Netlify
 www                         -> CNAME do site Netlify
 admin                       -> CNAME do site Netlify
 pdv                         -> CNAME do site Netlify
-*                           -> CNAME do site Netlify
+cardapio                    -> CNAME do site Netlify
 ```
 
-Depois, no painel da Netlify, adicione os dominios acima no mesmo site e emita HTTPS para eles. O wildcard `*.balcaolivrepdv.com.br` e obrigatorio para o cardapio por loja funcionar sem criar dominio manual para cada restaurante.
+Depois, no painel da Netlify, adicione os dominios acima no mesmo site e emita HTTPS para eles. Esta estrutura evita depender de wildcard `*.balcaolivrepdv.com.br` no plano/painel da Netlify.
 
 ## Build
 

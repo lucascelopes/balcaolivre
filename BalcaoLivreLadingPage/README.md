@@ -6,7 +6,7 @@ Landing page em Next.js, sem Tailwind e sem bibliotecas visuais externas para ma
 
 Abra `preview.html` no navegador para conferir o visual sem rodar `npm install`.
 
-Na publicacao pela raiz do repositorio, o build da Netlify deixa a landing no dominio principal, o admin em `admin.balcaolivrepdv.com.br`, o PDV web em `pdv.balcaolivrepdv.com.br` e cada cardapio em `slug-da-loja.balcaolivrepdv.com.br`. O link `Login` da landing aponta para `https://pdv.balcaolivrepdv.com.br`.
+Na publicacao pela raiz do repositorio, o build da Netlify deixa a landing no dominio principal, o admin em `admin.balcaolivrepdv.com.br`, o PDV web em `pdv.balcaolivrepdv.com.br` e cada cardapio em `cardapio.balcaolivrepdv.com.br/slug-da-loja`. O link `Login` da landing aponta para `https://pdv.balcaolivrepdv.com.br`.
 
 Dominios esperados no mesmo site Netlify:
 
@@ -14,7 +14,7 @@ Dominios esperados no mesmo site Netlify:
 - `www.balcaolivrepdv.com.br`
 - `admin.balcaolivrepdv.com.br`
 - `pdv.balcaolivrepdv.com.br`
-- `*.balcaolivrepdv.com.br`
+- `cardapio.balcaolivrepdv.com.br`
 
 ## Rodar local
 
