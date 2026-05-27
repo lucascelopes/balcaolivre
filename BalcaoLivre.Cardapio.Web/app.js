@@ -7,6 +7,16 @@ function currentSlug() {
   const fromQuery = url.searchParams.get("loja") || url.searchParams.get("menu");
   if (fromQuery) return fromQuery.trim();
 
+  const apexDomain = String(config.apexDomain || "balcaolivrepdv.com.br").toLowerCase();
+  const host = url.hostname.toLowerCase();
+  const reservedSubdomains = new Set(["admin", "api", "app", "cardapio", "pdv", "www"]);
+  if (apexDomain && host.endsWith(`.${apexDomain}`)) {
+    const subdomain = host.slice(0, -(apexDomain.length + 1)).split(".").filter(Boolean).pop();
+    if (subdomain && !reservedSubdomains.has(subdomain)) {
+      return subdomain.trim();
+    }
+  }
+
   const cleanPath = url.pathname
     .replace(/^\/cardapio\/?/i, "")
     .split("/")

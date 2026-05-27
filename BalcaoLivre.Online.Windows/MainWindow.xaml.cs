@@ -56,7 +56,8 @@ public partial class MainWindow : Window
     private const string DefaultUpdateManifestUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/version.json";
     private const string DefaultAdminApiUrl = "https://balcaolivrepdv.onrender.com";
     private const string DefaultWhatsAppFunctionUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/whatsapp";
-    private const string DefaultPublicMenuBaseUrl = "https://balcaolivrepdv.com.br/cardapio";
+    private const string PublicMenuApexHost = "balcaolivrepdv.com.br";
+    private const string DefaultPublicMenuBaseUrl = "https://balcaolivrepdv.com.br";
     private const string DefaultIFoodAlertSoundFile = "Assets\\ifood-order-alert.mp3";
     private const string PasswordHashPrefix = "PBKDF2";
     private static readonly CultureInfo Brazil = CultureInfo.GetCultureInfo("pt-BR");
@@ -9625,7 +9626,7 @@ public partial class MainWindow : Window
             MinHeight = 42,
             FontSize = 15,
             Padding = new Thickness(10, 8, 10, 8),
-            ToolTip = "Dominio publico onde o cardapio web esta publicado. O slug da loja sera gerado automaticamente."
+            ToolTip = "Dominio base do cardapio. O Balcao Livre gera o subdominio da loja automaticamente."
         };
         var slugBox = new TextBox
         {
@@ -9860,13 +9861,13 @@ public partial class MainWindow : Window
         left.Children.Add(SectionTitle("Link gerado"));
         left.Children.Add(new TextBlock
         {
-            Text = "O operador nao cola link manual. O Balcao Livre gera o slug da loja, publica restaurante/produtos/estoque no Supabase e o QR abre fora do Wi-Fi da loja.",
+            Text = "O operador nao cola link manual. O Balcao Livre gera o subdominio da loja, publica restaurante/produtos/estoque no Supabase e o QR abre fora do Wi-Fi da loja.",
             TextWrapping = TextWrapping.Wrap,
             Foreground = Solid("#18222B"),
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 10)
         });
-        left.Children.Add(DialogField("Base publica do cardapio", baseBox));
+        left.Children.Add(DialogField("Dominio base do cardapio", baseBox));
         left.Children.Add(DialogField("Slug gerado", slugBox));
         left.Children.Add(DialogField("Link final para cliente", linkBox));
         left.Children.Add(statusText);
@@ -9983,7 +9984,27 @@ public partial class MainWindow : Window
             normalized = DefaultPublicMenuBaseUrl;
         }
 
+        if (Uri.TryCreate(normalized, UriKind.Absolute, out var uri))
+        {
+            var path = uri.AbsolutePath.Trim('/');
+            if (path.Equals("cardapio", StringComparison.OrdinalIgnoreCase))
+            {
+                normalized = new UriBuilder(uri) { Path = "", Query = "", Fragment = "" }.Uri.GetLeftPart(UriPartial.Authority);
+            }
+
+            if (IsPublicMenuApexHost(uri))
+            {
+                normalized = $"https://{PublicMenuApexHost}";
+            }
+        }
+
         return normalized.TrimEnd('/');
+    }
+
+    private static bool IsPublicMenuApexHost(Uri uri)
+    {
+        return uri.Host.Equals(PublicMenuApexHost, StringComparison.OrdinalIgnoreCase)
+            || uri.Host.Equals($"www.{PublicMenuApexHost}", StringComparison.OrdinalIgnoreCase);
     }
 
     private string EnsurePublicMenuSlug()
@@ -10048,8 +10069,19 @@ public partial class MainWindow : Window
             baseUrl = DefaultPublicMenuBaseUrl;
         }
 
+        var normalizedSlug = NormalizePublicMenuSlug(slug);
+        if (string.IsNullOrWhiteSpace(normalizedSlug))
+        {
+            normalizedSlug = EnsurePublicMenuSlug();
+        }
+
         _appSettings.PublicMenuBaseUrl = baseUrl;
-        return $"{baseUrl}/{NormalizePublicMenuSlug(slug)}";
+        if (Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) && IsPublicMenuApexHost(uri))
+        {
+            return $"{uri.Scheme}://{normalizedSlug}.{PublicMenuApexHost}";
+        }
+
+        return $"{baseUrl.TrimEnd('/')}/cardapio/{normalizedSlug}";
     }
 
     private void QueuePublicMenuPublish()
@@ -16875,6 +16907,9 @@ public partial class MainWindow : Window
         public bool Pending { get; set; }
         public string Message { get; set; } = "";
         public string StorePhone { get; set; } = "";
+        public string OnboardingUrl { get; set; } = "";
+        public string PhoneNumberId { get; set; } = "";
+        public string WabaId { get; set; } = "";
 
         public static AdminWhatsAppResult Fail(string message) => new()
         {

@@ -6,6 +6,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputDir = process.argv[2]
   ? path.resolve(root, process.argv[2])
   : path.join(root, "dist", "netlify-site");
+const publicApexDomain = process.env.BALCAO_PUBLIC_APEX_DOMAIN || "balcaolivrepdv.com.br";
+const publicMenuSupabaseUrl = process.env.BALCAO_SUPABASE_URL || "https://hzvplpotsdzxygkxrgyi.supabase.co";
+const publicMenuPublishableKey =
+  process.env.BALCAO_SUPABASE_PUBLISHABLE_KEY ||
+  "sb_publishable_qNl5_EGAeuhN6PqTzRIeyQ_YQV2MdV6";
 
 const fromRoot = (...parts) => path.join(root, ...parts);
 const toOutput = (...parts) => path.join(outputDir, ...parts);
@@ -71,13 +76,43 @@ async function copyAdmin() {
   await copyDirectory(fromRoot("BalcaoLivre.Admin", "wwwroot"), toOutput("admin"));
 }
 
+async function copyCardapio() {
+  await copyDirectory(fromRoot("BalcaoLivre.Cardapio.Web"), toOutput("cardapio"));
+  const config = {
+    supabaseUrl: publicMenuSupabaseUrl,
+    publishableKey: publicMenuPublishableKey,
+    apexDomain: publicApexDomain
+  };
+
+  await writeFile(
+    toOutput("cardapio", "config.js"),
+    `window.BALCAO_CARDAPIO_CONFIG = ${JSON.stringify(config, null, 2)};\n`,
+    "utf8"
+  );
+}
+
 async function writeRedirects() {
   const redirects = [
+    `https://admin.${publicApexDomain}/admin-api/* https://balcaolivrepdv.onrender.com/api/:splat 200!`,
     "/admin-api/* https://balcaolivrepdv.onrender.com/api/:splat 200!",
+    `https://www.${publicApexDomain}/ /index.html 200!`,
+    `https://www.${publicApexDomain}/* /:splat 200`,
+    `https://admin.${publicApexDomain}/ /admin/index.html 200!`,
+    `https://admin.${publicApexDomain}/* /admin/:splat 200!`,
+    `https://pdv.${publicApexDomain}/ /pdv/index.html 200!`,
+    `https://pdv.${publicApexDomain}/* /pdv/:splat 200!`,
+    `https://*.${publicApexDomain}/app.js /cardapio/app.js 200!`,
+    `https://*.${publicApexDomain}/config.js /cardapio/config.js 200!`,
+    `https://*.${publicApexDomain}/styles.css /cardapio/styles.css 200!`,
+    `https://*.${publicApexDomain}/ /cardapio/index.html 200!`,
+    `https://*.${publicApexDomain}/* /cardapio/index.html 200!`,
     "/admin /admin/index.html 200",
     "/admin/ /admin/index.html 200",
     "/pdv /pdv/index.html 200",
-    "/pdv/ /pdv/index.html 200"
+    "/pdv/ /pdv/index.html 200",
+    "/cardapio /cardapio/index.html 200",
+    "/cardapio/ /cardapio/index.html 200",
+    "/cardapio/* /cardapio/index.html 200"
   ];
 
   await writeFile(toOutput("_redirects"), `${redirects.join("\n")}\n`, "utf8");
@@ -89,6 +124,7 @@ await mkdir(outputDir, { recursive: true });
 await copyLanding();
 await copyPdv();
 await copyAdmin();
+await copyCardapio();
 await writeRedirects();
 
 console.log(`Netlify static site generated at ${path.relative(root, outputDir)}`);

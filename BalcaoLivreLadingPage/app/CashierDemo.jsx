@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
 const products = [
   { code: "000001", name: "COCA COLA", group: "BEBIDAS", price: 6, cost: 3.2, stock: 18, min: 5 },
@@ -60,7 +60,6 @@ function parseMoney(value) {
 }
 
 export default function CashierDemo() {
-  const receiptRef = useRef(null);
   const [items, setItems] = useState([]);
   const [code, setCode] = useState("");
   const [selectedCode, setSelectedCode] = useState("000001");
@@ -145,7 +144,7 @@ export default function CashierDemo() {
 
   function scrollToReceipt() {
     window.setTimeout(() => {
-      receiptRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.querySelector("#impressao")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
   }
 
@@ -163,7 +162,7 @@ export default function CashierDemo() {
       setReceived(inputMoney(finalTotal));
     }
     setModal(null);
-    setReceiptReady(true);
+    setReceiptReady(false);
     setReceiptVersion((current) => current + 1);
     setMessage(`Venda finalizada em ${method}. Comprovante gerado na tela.`);
     scrollToReceipt();
@@ -188,7 +187,7 @@ export default function CashierDemo() {
     }
 
     setModal(null);
-    setReceiptReady(true);
+    setReceiptReady(false);
     setReceiptVersion((current) => current + 1);
     setMessage(`Venda finalizada em ${method}. Comprovante gerado na tela.`);
     scrollToReceipt();
@@ -335,7 +334,7 @@ export default function CashierDemo() {
         </div>
 
         {receiptReady && (
-          <section className="inlineReceiptDemo finalReceiptDemo receiptFlash" ref={receiptRef} id="comprovante-demo" key={receiptVersion}>
+          <section className="inlineReceiptDemo finalReceiptDemo receiptFlash" id="comprovante-demo" key={receiptVersion}>
             <div className="inlineReceiptCopy">
               <span>Venda finalizada</span>
               <strong>Comprovante gerado na tela.</strong>

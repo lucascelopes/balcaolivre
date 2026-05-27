@@ -1,5 +1,3 @@
-import Script from "next/script";
-
 export const metadata = {
   title: "Admin | Balcao Livre PDV",
   description: "Painel Next.js do Balcao Livre PDV para licencas, clientes e suporte."
@@ -30,7 +28,7 @@ const adminMarkup = `
         </div>
       </div>
       <a class="nav link-nav" href="/">Landing page</a>
-      <a class="nav link-nav" href="/pdv">PDV Web</a>
+      <a class="nav link-nav" href="https://pdv.balcaolivrepdv.com.br">PDV Web</a>
       <button class="nav active" data-view="dashboard">Dashboard</button>
       <button class="nav" data-view="licenses">Licencas</button>
       <button class="nav" data-view="support">Suporte</button>
@@ -46,6 +44,7 @@ const adminMarkup = `
           <p id="viewSubtitle">Uso do programa, chaves e clientes ativos.</p>
         </div>
         <div class="top-actions">
+          <span id="realtimeMode" class="storage-badge pending">Tempo real conectando</span>
           <span id="storageMode" class="storage-badge error">Supabase nao configurado</span>
           <button id="refreshButton">Atualizar</button>
         </div>
@@ -155,7 +154,7 @@ export default function AdminPage() {
     <>
       <link rel="stylesheet" href="/admin-assets/styles.css" />
       <div dangerouslySetInnerHTML={{ __html: adminMarkup }} />
-      <Script src="/admin-assets/app.js" strategy="afterInteractive" />
+      <script src="/admin-assets/app.js?v=5" />
     </>
   );
 }

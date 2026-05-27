@@ -15,7 +15,7 @@ export default function HowToUsePage() {
           <a href="/#preco">Planos</a>
           <a href="/como-usar/">Como usar</a>
           <a href="/termos/">Termos</a>
-          <a href="/pdv">Login</a>
+          <a href="https://pdv.balcaolivrepdv.com.br">Login</a>
         </nav>
         <a className="topbarAction" href="/#preco">Contratar</a>
       </header>

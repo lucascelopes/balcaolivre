@@ -1450,7 +1450,7 @@ public partial class MainWindow
                 && !string.IsNullOrWhiteSpace(settings.SendPulseBotId)
                 && !settings.SendPulseActivationPending
                 && !string.IsNullOrWhiteSpace(phone);
-            title.Text = active ? "WhatsApp ativo" : "WhatsApp ainda nao ativo";
+            title.Text = active ? "WhatsApp conectado" : "WhatsApp precisa conectar";
             badge.Background = Solid(active ? "#E8F7F4" : "#FFF2CB");
             badge.BorderBrush = Solid(active ? "#BDE5DD" : "#F7D87A");
             badge.BorderThickness = new Thickness(1);
@@ -1460,14 +1460,14 @@ public partial class MainWindow
                 ? ok.Value ? GreenText : AmberText
                 : active ? GreenText : Solid("#667684");
             status.Text = message ?? (active
-                ? "Numero conectado. O PDV envia mensagens automaticamente pelo servico central."
-                : "Informe o numero da loja e clique em Ativar. O app encontra o WhatsApp conectado no provedor automaticamente.");
+                ? "Numero conectado na Meta. O PDV envia mensagens automaticas por esse WhatsApp."
+                : "Informe o numero da loja e conecte pela Meta. Depois disso os scripts saem pelo WhatsApp desse restaurante.");
             hint.Text = active
                 ? $"Numero da loja: {phone}. O operador nao precisa abrir WhatsApp Web."
-                : "O usuario so informa o numero. A integracao fica pendente por tras ate esse WhatsApp estar liberado para envio automatico.";
+                : "O navegador vai abrir a tela segura da Meta Business. O PDV nao mostra chave, token ou mensagens scriptadas para o usuario.";
         }
 
-        var activate = DialogButton("Ativar numero", "#0F766E");
+        var activate = DialogButton("Conectar numero", "#0F766E");
         activate.Click += async (_, _) =>
         {
             SavePhone();
@@ -1479,7 +1479,7 @@ public partial class MainWindow
             }
 
             activate.IsEnabled = false;
-            RenderState("Ativando WhatsApp automatico...", null);
+            RenderState("Conectando WhatsApp na Meta...", null);
             var result = await ActivateSendPulseStorePhoneAsync(settings, settings.SendPulseStorePhone);
             activate.IsEnabled = true;
             historyList.Items.Refresh();
@@ -1515,7 +1515,7 @@ public partial class MainWindow
                     FontSize = 18,
                     FontWeight = FontWeights.Bold
                 },
-                DialogHint("Use o numero do WhatsApp Business que atende os clientes."),
+                DialogHint("Use o numero do WhatsApp Business que atende os clientes. Se ainda nao estiver conectado, o PDV abre a Meta para vincular esse numero."),
                 DialogField("WhatsApp", phoneBox),
                 actions,
                 status
@@ -2300,13 +2300,15 @@ public partial class MainWindow
         public bool Ok { get; set; }
         public bool NeedsConnection { get; set; }
         public string Message { get; set; } = "";
+        public string OnboardingUrl { get; set; } = "";
 
         public static SendPulseActivationResult Success(string message) => new() { Ok = true, Message = message };
-        public static SendPulseActivationResult Fail(string message, bool needsConnection = false) => new()
+        public static SendPulseActivationResult Fail(string message, bool needsConnection = false, string onboardingUrl = "") => new()
         {
             Ok = false,
             NeedsConnection = needsConnection,
-            Message = message
+            Message = message,
+            OnboardingUrl = onboardingUrl
         };
     }
 
@@ -2661,13 +2663,17 @@ public partial class MainWindow
             settings.SendPulseLastActivationAt = DateTime.Now;
             if (result.Ok)
             {
-                settings.SendPulseBotId = "CENTRAL";
+                settings.SendPulseBotId = "META";
                 settings.SendPulseActivationPending = false;
             }
             else
             {
                 settings.SendPulseBotId = "";
                 settings.SendPulseActivationPending = true;
+                if (!string.IsNullOrWhiteSpace(result.OnboardingUrl))
+                {
+                    OpenWhatsAppOnboardingUrl(result.OnboardingUrl);
+                }
             }
 
             NormalizeWhatsAppSendPulseOnlySettings();
@@ -2682,13 +2688,31 @@ public partial class MainWindow
                 : result.Message.Trim();
             return result.Ok
                 ? SendPulseActivationResult.Success(message)
-                : SendPulseActivationResult.Fail(message, needsConnection: result.Pending);
+                : SendPulseActivationResult.Fail(message, needsConnection: result.Pending, onboardingUrl: result.OnboardingUrl);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException)
         {
             await SavePendingSendPulseActivationAsync(settings).ConfigureAwait(false);
             Debug.WriteLine($"Supabase WhatsApp activation failed: {ex.Message}");
             return SendPulseActivationResult.Fail("Supabase indisponivel agora. O numero ficou salvo e sera tentado novamente.", needsConnection: true);
+        }
+    }
+
+    private void OpenWhatsAppOnboardingUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            SetStatus("Abra a tela da Meta, conecte o WhatsApp e depois clique de novo em Conectar numero.");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            SetStatus($"Nao consegui abrir a conexao Meta: {ex.Message}");
         }
     }
 
@@ -2828,7 +2852,7 @@ public partial class MainWindow
                 return;
             }
 
-            settings.SendPulseBotId = "CENTRAL";
+            settings.SendPulseBotId = "META";
             settings.SendPulseActivationPending = false;
             settings.SendPulseStorePhone = string.IsNullOrWhiteSpace(result.StorePhone) ? settings.SendPulseStorePhone : result.StorePhone;
             await Dispatcher.InvokeAsync(SaveAppSettings, DispatcherPriority.Background);

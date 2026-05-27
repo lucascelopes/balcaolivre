@@ -5,7 +5,9 @@ const DEFAULT_ADMIN_BUCKET = "balcao-livre-admin";
 const DEFAULT_ADMIN_OBJECT = "admin-store.json";
 const DEFAULT_VERIFY_TOKEN = "balcao_livre_meta_webhook_2026";
 const DEFAULT_PHONE_NUMBER_ID = "154114447792775";
+const DEFAULT_META_APP_ID = "355393956897950";
 const CENTRAL_BOT_ID = "META_CLOUD";
+const ONBOARDING_STATE_MINUTES = 30;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,6 +42,32 @@ type WhatsAppSendPayload = WhatsAppActivationPayload & {
   total?: number;
 };
 
+type WhatsAppStoreConnection = {
+  license_key?: string;
+  machine_hash?: string;
+  store_phone?: string;
+  waba_id?: string;
+  business_id?: string;
+  phone_number_id?: string;
+  phone_display_number?: string;
+  access_token?: string;
+  token_type?: string;
+  status?: string;
+  last_error?: string;
+  connected_at?: string;
+  updated_at?: string;
+  meta_payload?: Record<string, unknown>;
+};
+
+type WhatsAppOnboardingState = {
+  state?: string;
+  license_key?: string;
+  machine_hash?: string;
+  store_phone?: string;
+  expires_at?: string;
+  created_at?: string;
+};
+
 type AdminStore = {
   licenses?: AdminLicense[];
   events?: AdminEvent[];
@@ -48,16 +76,36 @@ type AdminStore = {
 };
 
 type AdminLicense = {
+  id?: string;
   key?: string;
   status?: string;
+  plan?: string;
+  customerName?: string;
+  email?: string;
+  businessName?: string;
+  ownerName?: string;
+  cnpj?: string;
+  phone?: string;
+  city?: string;
+  state?: string;
   machineHash?: string;
+  machineCode?: string;
+  appVersion?: string;
   expiresAt?: string;
+  createdAt?: string;
+  activatedAt?: string;
+  lastSeenAt?: string;
   whatsAppPhone?: string;
   whatsAppBotId?: string;
   whatsAppStatus?: string;
   whatsAppLastError?: string;
   whatsAppRequestedAt?: string;
   whatsAppActivatedAt?: string;
+  whatsAppWabaId?: string;
+  whatsAppBusinessId?: string;
+  whatsAppPhoneNumberId?: string;
+  whatsAppDisplayPhone?: string;
+  whatsAppConnectedAt?: string;
 };
 
 type AdminEvent = {
@@ -116,12 +164,28 @@ Deno.serve(async (req) => {
       return health();
     }
 
+    if (route === "/onboarding/start" && req.method === "GET") {
+      return startOnboarding(url);
+    }
+
+    if (route === "/onboarding/callback" && req.method === "GET") {
+      return completeOnboardingCallback(url);
+    }
+
+    if (route === "/onboarding/complete" && req.method === "POST") {
+      return completeOnboarding(req);
+    }
+
     if (req.method !== "POST") {
       return json({ ok: false, message: "Metodo nao permitido." }, 405);
     }
 
     if (route === "/activate") {
       return activateStorePhone(req);
+    }
+
+    if (route === "/status") {
+      return storeStatus(req);
     }
 
     if (route === "/send") {
@@ -168,6 +232,111 @@ async function receiveWebhook(req: Request) {
   });
 }
 
+async function startOnboarding(url: URL) {
+  const state = String(url.searchParams.get("state") ?? "").trim();
+  if (!state) {
+    return text("Link invalido. Abra a conexao pelo botao WhatsApp dentro do PDV.", 400);
+  }
+
+  const context = await readOnboardingState(state);
+  if (!context.ok) {
+    return text(context.message, 400);
+  }
+
+  const appId = metaAppId();
+  const configId = embeddedSignupConfigId();
+  if (!appId || !configId) {
+    return text("Meta nao configurado. Falta App ID ou Config ID do Embedded Signup.", 503);
+  }
+
+  return Response.redirect(metaOAuthUrl({
+    appId,
+    configId,
+    graphVersion: graphVersion(),
+    state,
+    redirectUri: functionRouteUrl(url, "/onboarding/callback"),
+  }), 302);
+}
+
+async function completeOnboarding(req: Request) {
+  const payload = await readJson(req) as Record<string, unknown>;
+  const stateKey = String(payload.state ?? "").trim();
+  const code = String(payload.code ?? "").trim();
+  const sessionInfo = normalizeSessionInfo(payload.sessionInfo ?? payload.session ?? {});
+
+  const result = await finishOnboarding(stateKey, code, sessionInfo);
+  return json(result.body, result.status);
+}
+
+async function completeOnboardingCallback(url: URL) {
+  const error = String(url.searchParams.get("error_message") || url.searchParams.get("error_description") || url.searchParams.get("error") || "").trim();
+  if (error) {
+    return text(`Meta recusou a conexao: ${error}`, 400);
+  }
+
+  const stateKey = String(url.searchParams.get("state") ?? "").trim();
+  const code = String(url.searchParams.get("code") ?? "").trim();
+  const result = await finishOnboarding(stateKey, code, {}, functionRouteUrl(url, "/onboarding/callback"));
+  return text(result.body.message || (result.body.ok ? "WhatsApp conectado. Pode voltar para o PDV." : "Falha ao conectar WhatsApp."), result.status);
+}
+
+async function finishOnboarding(stateKey: string, code: string, sessionInfo: Record<string, unknown>, redirectUri = "") {
+  if (!stateKey || !code) {
+    return { status: 400, body: fail("Meta nao retornou codigo de conexao.") };
+  }
+
+  const state = await consumeOnboardingState(stateKey);
+  if (!state.ok) {
+    return { status: 400, body: fail(state.message) };
+  }
+
+  const tokenResult = await exchangeMetaCode(code, redirectUri);
+  if (!tokenResult.ok) {
+    return { status: 502, body: fail(tokenResult.message) };
+  }
+
+  const phoneInfo = await resolveOnboardedPhone(tokenResult.accessToken, sessionInfo, normalizePhone(state.state.store_phone));
+  if (!phoneInfo.ok) {
+    return { status: 502, body: fail(phoneInfo.message) };
+  }
+
+  if (phoneInfo.wabaId) {
+    await subscribeWaba(tokenResult.accessToken, phoneInfo.wabaId);
+  }
+
+  const connection: WhatsAppStoreConnection = {
+    license_key: normalizeLicense(state.state.license_key),
+    machine_hash: String(state.state.machine_hash ?? ""),
+    store_phone: normalizePhone(phoneInfo.displayPhone || state.state.store_phone),
+    waba_id: phoneInfo.wabaId,
+    business_id: phoneInfo.businessId,
+    phone_number_id: phoneInfo.phoneNumberId,
+    phone_display_number: phoneInfo.displayPhone,
+    access_token: tokenResult.accessToken,
+    token_type: tokenResult.tokenType,
+    status: "ATIVO",
+    last_error: "",
+    connected_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    meta_payload: sessionInfo,
+  };
+
+  const saved = await saveStoreConnection(connection);
+  if (!saved.ok) {
+    return { status: 500, body: fail(saved.message) };
+  }
+
+  await updateLicenseConnection(connection);
+
+  return { status: 200, body: {
+    ok: true,
+    message: "WhatsApp conectado. Pode voltar para o PDV.",
+    storePhone: connection.store_phone,
+    phoneNumberId: connection.phone_number_id,
+    wabaId: connection.waba_id,
+  } };
+}
+
 async function activateStorePhone(req: Request) {
   const payload = await readJson(req) as WhatsAppActivationPayload;
   const storePhone = normalizePhone(payload.storePhone);
@@ -175,27 +344,36 @@ async function activateStorePhone(req: Request) {
     return json(fail("Informe o numero do WhatsApp da loja com DDD."), 400);
   }
 
-  if (!await hasMetaAccessToken()) {
-    return json(pending("WhatsApp central ainda nao configurado no Supabase.", storePhone), 503);
+  const context = await loadValidatedLicense(payload);
+  if (!context.ok) {
+    return json(fail(context.message), context.status);
   }
 
-  const licenseCheck = await validateAndUpdateLicense(payload, (license) => {
-    license.whatsAppPhone = storePhone;
-    license.whatsAppBotId = CENTRAL_BOT_ID;
-    license.whatsAppStatus = "ATIVO";
-    license.whatsAppLastError = "";
-    license.whatsAppRequestedAt = new Date().toISOString();
-    license.whatsAppActivatedAt ??= new Date().toISOString();
-  }, {
-    type: "whatsapp.meta.active",
-    message: `WhatsApp Meta ativo: ${maskPhone(storePhone)}`,
-  });
-
-  if (!licenseCheck.ok) {
-    return json(fail(licenseCheck.message), licenseCheck.status);
+  const connection = await readStoreConnection(context.licenseKey);
+  if (connection.ok && connection.connection && connectionUsableForPhone(connection.connection, storePhone)) {
+    applyConnectionToLicense(context.license, connection.connection, storePhone);
+    appendEvent(context.store, payload, "whatsapp.meta.active", `WhatsApp Meta conectado: ${maskPhone(storePhone)}`);
+    await saveAdminStore(context.store);
+    return json(active("WhatsApp automatico conectado pelo numero da loja.", storePhone, connection.connection));
   }
 
-  return json(active("WhatsApp automatico ativado pelo Supabase.", storePhone));
+  const onboarding = await createOnboardingSession(req, payload, storePhone);
+  context.license.whatsAppPhone = storePhone;
+  context.license.whatsAppBotId = CENTRAL_BOT_ID;
+  context.license.whatsAppStatus = "AGUARDANDO_META";
+  context.license.whatsAppLastError = onboarding.ok ? "" : onboarding.message;
+  context.license.whatsAppRequestedAt = new Date().toISOString();
+  appendEvent(context.store, payload, "whatsapp.meta.onboarding_required",
+    onboarding.ok
+      ? `WhatsApp aguardando conexao Meta: ${maskPhone(storePhone)}`
+      : `WhatsApp Meta pendente: ${onboarding.message}`);
+  await saveAdminStore(context.store);
+
+  if (!onboarding.ok) {
+    return json(pending(onboarding.message, storePhone), 503);
+  }
+
+  return json(pending("Abra a conexao Meta para liberar o WhatsApp desse restaurante.", storePhone, onboarding.url));
 }
 
 async function sendMessage(req: Request) {
@@ -211,34 +389,58 @@ async function sendMessage(req: Request) {
     return json(fail("Mensagem do WhatsApp vazia."), 400);
   }
 
-  if (!await hasMetaAccessToken()) {
-    return json(pending("WhatsApp central ainda nao configurado no Supabase.", normalizePhone(payload.storePhone)), 503);
+  const context = await loadValidatedLicense(payload);
+  if (!context.ok) {
+    return json(fail(context.message), context.status);
   }
 
-  const licenseCheck = await validateAndUpdateLicense(payload, (license) => {
-    if (payload.storePhone) {
-      license.whatsAppPhone = normalizePhone(payload.storePhone);
-    }
-    license.whatsAppBotId = CENTRAL_BOT_ID;
-    license.whatsAppStatus = "ATIVO";
-    license.whatsAppActivatedAt ??= new Date().toISOString();
-  }, {
-    type: "whatsapp.meta.send",
-    message: `WhatsApp solicitado para ${maskPhone(customerPhone)}`,
-  });
-
-  if (!licenseCheck.ok) {
-    return json(fail(licenseCheck.message), licenseCheck.status);
+  const connection = await readStoreConnection(context.licenseKey);
+  if (!connection.ok || !connection.connection || !connectionUsable(connection.connection)) {
+    const onboarding = await createOnboardingSession(req, payload, normalizePhone(payload.storePhone || context.license.whatsAppPhone));
+    context.license.whatsAppStatus = "AGUARDANDO_META";
+    context.license.whatsAppLastError = "Numero da loja ainda nao conectado na Meta.";
+    appendEvent(context.store, payload, "whatsapp.meta.onboarding_required",
+      `WhatsApp nao enviado. Conecte o numero da loja antes de enviar para ${maskPhone(customerPhone)}`);
+    await saveAdminStore(context.store);
+    return json(pending("Conecte o numero da loja na Meta antes de enviar WhatsApp.", normalizePhone(payload.storePhone), onboarding.ok ? onboarding.url : ""), 428);
   }
 
-  const sent = await sendMetaText(customerPhone, message);
+  if (payload.storePhone) {
+    context.license.whatsAppPhone = normalizePhone(payload.storePhone);
+  }
+  applyConnectionToLicense(context.license, connection.connection, normalizePhone(payload.storePhone || context.license.whatsAppPhone));
+  appendEvent(context.store, payload, "whatsapp.meta.send", `WhatsApp solicitado para ${maskPhone(customerPhone)}`);
+  await saveAdminStore(context.store);
+
+  const sent = await sendMetaText(customerPhone, message, { connection: connection.connection });
   await updateLicenseError(payload, sent.ok ? "" : sent.message, sent.ok
     ? `WhatsApp enviado para ${maskPhone(customerPhone)}`
     : `WhatsApp falhou: ${sent.message}`);
 
   return sent.ok
-    ? json(active("WhatsApp enviado.", normalizePhone(payload.storePhone)))
+    ? json(active("WhatsApp enviado.", normalizePhone(payload.storePhone), connection.connection))
     : json(fail(sent.message), 502);
+}
+
+async function storeStatus(req: Request) {
+  const payload = await readJson(req) as WhatsAppActivationPayload;
+  const context = await loadValidatedLicense(payload);
+  if (!context.ok) {
+    return json(fail(context.message), context.status);
+  }
+
+  const connection = await readStoreConnection(context.licenseKey);
+  if (connection.ok && connection.connection && connectionUsable(connection.connection)) {
+    return json(active("WhatsApp conectado na Meta.", normalizePhone(connection.connection.store_phone || context.license.whatsAppPhone), connection.connection));
+  }
+
+  const storePhone = normalizePhone(payload.storePhone || context.license.whatsAppPhone);
+  const onboarding = storePhone ? await createOnboardingSession(req, payload, storePhone) : null;
+  return json(pending(
+    storePhone ? "WhatsApp ainda precisa ser conectado na Meta." : "Informe o numero da loja para conectar WhatsApp.",
+    storePhone,
+    onboarding?.ok ? onboarding.url : "",
+  ));
 }
 
 async function health() {
@@ -247,16 +449,26 @@ async function health() {
     provider: "meta",
     phoneNumberConfigured: Boolean(phoneNumberId()),
     tokenConfigured: await hasMetaAccessToken(),
+    onboardingConfigured: Boolean(metaAppId() && metaAppSecret() && embeddedSignupConfigId()),
   });
 }
 
-async function sendMetaText(phone: string, body: string, store?: AdminStore | null) {
-  const token = metaAccessToken(store ?? null) || await metaAccessTokenFromStore();
+async function sendMetaText(
+  phone: string,
+  body: string,
+  options: { store?: AdminStore | null; connection?: WhatsAppStoreConnection | null } = {},
+) {
+  const token = normalizeBearer(options.connection?.access_token ?? "") || metaAccessToken(options.store ?? null) || await metaAccessTokenFromStore();
   if (!token) {
     return { ok: false, message: "Token da Meta nao configurado no Supabase." };
   }
 
-  const response = await fetch(`https://graph.facebook.com/${graphVersion()}/${phoneNumberId()}/messages`, {
+  const fromPhoneNumberId = String(options.connection?.phone_number_id || phoneNumberId()).trim();
+  if (!fromPhoneNumberId) {
+    return { ok: false, message: "Phone Number ID da Meta nao configurado." };
+  }
+
+  const response = await fetch(`https://graph.facebook.com/${graphVersion()}/${fromPhoneNumberId}/messages`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${token}`,
@@ -292,7 +504,12 @@ async function processWebhookEvents(events: MetaWebhookEvent[]) {
   let changed = false;
 
   for (const event of events) {
-    const license = store ? findWhatsAppLicense(store, event.businessPhone) : null;
+    const connection = await readStoreConnectionByPhoneNumber(event.phoneNumberId);
+    const license = store
+      ? connection?.license_key
+        ? findLicense(store, normalizeLicense(connection.license_key))
+        : findWhatsAppLicense(store, event.businessPhone, event.phoneNumberId)
+      : null;
     const licenseKey = normalizeLicense(license?.key);
     const clientPayload: ClientPayload = {
       eventName: event.rawMessage ? "whatsapp.webhook.message" : "whatsapp.webhook.status",
@@ -313,9 +530,9 @@ async function processWebhookEvents(events: MetaWebhookEvent[]) {
       changed = true;
     }
 
-    if (event.rawMessage && shouldAutoReply(event, store)) {
+    if (event.rawMessage && shouldAutoReply(event, store, connection)) {
       const reply = buildIncomingReply(event);
-      const sent = await sendMetaText(event.customerPhone, reply, store);
+      const sent = await sendMetaText(event.customerPhone, reply, { store, connection });
       if (store) {
         appendEvent(store, clientPayload, sent.ok ? "whatsapp.meta.reply_sent" : "whatsapp.meta.reply_failed",
           sent.ok
@@ -332,12 +549,12 @@ async function processWebhookEvents(events: MetaWebhookEvent[]) {
   }
 }
 
-function shouldAutoReply(event: MetaWebhookEvent, store: AdminStore | null) {
+function shouldAutoReply(event: MetaWebhookEvent, store: AdminStore | null, connection: WhatsAppStoreConnection | null) {
   if (!event.customerPhone || !event.messageId || event.messageType !== "text") {
     return false;
   }
 
-  if (!metaAccessToken(store) || !autoReplyEnabled()) {
+  if (!autoReplyEnabled() || !connectionUsable(connection ?? {})) {
     return false;
   }
 
@@ -358,12 +575,14 @@ function buildIncomingReply(event: MetaWebhookEvent) {
   return `${greeting} Em instantes o restaurante responde por aqui.`;
 }
 
-function findWhatsAppLicense(store: AdminStore, businessPhone: string) {
+function findWhatsAppLicense(store: AdminStore, businessPhone: string, phoneNumberIdValue = "") {
   const normalizedBusinessPhone = normalizePhone(businessPhone);
-  if (!normalizedBusinessPhone) return null;
+  const normalizedPhoneNumberId = String(phoneNumberIdValue ?? "").trim();
+  if (!normalizedBusinessPhone && !normalizedPhoneNumberId) return null;
 
   return (store.licenses ?? []).find((license) =>
-    normalizePhone(license.whatsAppPhone) === normalizedBusinessPhone
+    (normalizedBusinessPhone && normalizePhone(license.whatsAppPhone) === normalizedBusinessPhone)
+      || (normalizedPhoneNumberId && String(license.whatsAppPhoneNumberId ?? "") === normalizedPhoneNumberId)
   ) ?? null;
 }
 
@@ -398,7 +617,7 @@ async function validateAndUpdateLicense(
   }
 
   const store = context.store;
-  const license = findLicense(store, licenseKey);
+  const license = await findOrRegisterLicense(store, payload, licenseKey);
   if (!license) {
     return { ok: false, status: 401, message: "Chave nao encontrada no Supabase." };
   }
@@ -484,6 +703,119 @@ async function saveAdminStore(store: AdminStore) {
   if (error) throw error;
 }
 
+async function readStoreConnection(licenseKey: string): Promise<{ ok: true; connection: WhatsAppStoreConnection | null } | { ok: false; message: string }> {
+  const supabase = serviceClient();
+  if (!supabase) return { ok: false, message: "Supabase service role indisponivel." };
+
+  const { data, error } = await supabase
+    .from("balcao_whatsapp_store_connections")
+    .select("*")
+    .eq("license_key", normalizeLicense(licenseKey))
+    .maybeSingle();
+
+  if (error) return { ok: false, message: error.message };
+  return { ok: true, connection: data as WhatsAppStoreConnection | null };
+}
+
+async function readStoreConnectionByPhoneNumber(phoneNumberIdValue: string) {
+  const supabase = serviceClient();
+  if (!supabase || !phoneNumberIdValue) return null;
+
+  const { data, error } = await supabase
+    .from("balcao_whatsapp_store_connections")
+    .select("*")
+    .eq("phone_number_id", phoneNumberIdValue)
+    .maybeSingle();
+
+  if (error) {
+    console.error("whatsapp.meta.connection_lookup_failed", error.message);
+    return null;
+  }
+
+  return data as WhatsAppStoreConnection | null;
+}
+
+async function saveStoreConnection(connection: WhatsAppStoreConnection) {
+  const supabase = serviceClient();
+  if (!supabase) return { ok: false, message: "Supabase service role indisponivel." };
+
+  const { error } = await supabase
+    .from("balcao_whatsapp_store_connections")
+    .upsert({
+      ...connection,
+      license_key: normalizeLicense(connection.license_key),
+      store_phone: normalizePhone(connection.store_phone),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "license_key" });
+
+  return error ? { ok: false, message: error.message } : { ok: true, message: "" };
+}
+
+async function createOnboardingSession(req: Request, payload: ClientPayload, storePhone: string) {
+  if (!metaAppId() || !metaAppSecret() || !embeddedSignupConfigId()) {
+    return {
+      ok: false,
+      message: "Configuracao Meta incompleta. Falta App ID, App Secret ou Config ID do Embedded Signup.",
+      url: "",
+    };
+  }
+
+  const supabase = serviceClient();
+  if (!supabase) {
+    return { ok: false, message: "Supabase service role indisponivel.", url: "" };
+  }
+
+  const state = crypto.randomUUID().replace(/-/g, "");
+  const expiresAt = new Date(Date.now() + ONBOARDING_STATE_MINUTES * 60_000).toISOString();
+  const { error } = await supabase
+    .from("balcao_whatsapp_onboarding_states")
+    .insert({
+      state,
+      license_key: normalizeLicense(payload.licenseKey),
+      machine_hash: String(payload.machineHash ?? ""),
+      store_phone: normalizePhone(storePhone),
+      expires_at: expiresAt,
+    });
+
+  if (error) return { ok: false, message: error.message, url: "" };
+
+  const url = new URL(functionRouteUrl(new URL(req.url), "/onboarding/start"));
+  url.searchParams.set("state", state);
+  return { ok: true, message: "", url: url.toString() };
+}
+
+async function readOnboardingState(state: string): Promise<{ ok: true; state: WhatsAppOnboardingState } | { ok: false; message: string }> {
+  const supabase = serviceClient();
+  if (!supabase) return { ok: false, message: "Supabase service role indisponivel." };
+
+  const { data, error } = await supabase
+    .from("balcao_whatsapp_onboarding_states")
+    .select("*")
+    .eq("state", state)
+    .maybeSingle();
+
+  if (error || !data) return { ok: false, message: error?.message ?? "Link de conexao nao encontrado." };
+
+  const row = data as WhatsAppOnboardingState;
+  if (row.expires_at && Date.parse(row.expires_at) <= Date.now()) {
+    return { ok: false, message: "Esse link expirou. Gere outro pelo PDV." };
+  }
+
+  return { ok: true, state: row };
+}
+
+async function consumeOnboardingState(state: string) {
+  const result = await readOnboardingState(state);
+  if (!result.ok) return result;
+
+  const supabase = serviceClient();
+  if (supabase) {
+    await supabase.from("balcao_whatsapp_onboarding_states").delete().eq("state", state);
+  }
+
+  return result;
+}
+
 function serviceClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
   const key = serviceRoleKey();
@@ -521,6 +853,234 @@ function findLicense(store: AdminStore, licenseKey: string) {
   return (store.licenses ?? []).find((license) =>
     normalizeLicense(license.key) === licenseKey
   ) ?? null;
+}
+
+async function findOrRegisterLicense(store: AdminStore, payload: ClientPayload, licenseKey: string) {
+  const existing = findLicense(store, licenseKey);
+  if (existing) {
+    return existing;
+  }
+
+  const validation = await validateSignedActivationLicense(licenseKey);
+  if (!validation.ok) {
+    return null;
+  }
+
+  const profile = asRecord(payload.profile);
+  const now = new Date().toISOString();
+  const license: AdminLicense = {
+    id: crypto.randomUUID(),
+    key: licenseKey,
+    status: "ATIVA",
+    plan: stringFrom(payload.localPlan) || validation.plan,
+    customerName: firstNonEmpty(profile.businessName, profile.ownerName, profile.email),
+    email: stringFrom(profile.email).toLowerCase(),
+    businessName: stringFrom(profile.businessName),
+    ownerName: stringFrom(profile.ownerName),
+    cnpj: stringFrom(profile.cnpj),
+    phone: stringFrom(profile.phone),
+    city: stringFrom(profile.city),
+    state: stringFrom(profile.state),
+    machineHash: stringFrom(payload.machineHash),
+    machineCode: stringFrom(payload.machineCode),
+    appVersion: stringFrom(payload.appVersion),
+    createdAt: now,
+    activatedAt: now,
+    lastSeenAt: now,
+    expiresAt: pickValidExpiration(payload.localExpiresAt, validation.expiresAt),
+  };
+
+  store.licenses ??= [];
+  store.licenses.unshift(license);
+  appendEvent(store, payload, "license.auto_registered", "Licenca registrada automaticamente no Supabase pelo PDV.");
+  return license;
+}
+
+async function validateSignedActivationLicense(licenseKey: string): Promise<
+  | { ok: true; expiresAt: string; plan: string }
+  | { ok: false }
+> {
+  const normalized = normalizeLicense(licenseKey);
+  if (!normalized) return { ok: false };
+
+  if (normalized === "BL-TESTE-2026") {
+    return {
+      ok: true,
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      plan: "Teste 30 dias",
+    };
+  }
+
+  const parts = normalized.split("-").filter(Boolean);
+  if (parts.length === 4 && parts[0] === "BLV") {
+    const expiresAt = parseActivationExpiration(parts[1]);
+    if (!expiresAt || expiresAt.getTime() <= Date.now()) return { ok: false };
+
+    const expected = (await activationSignature(`BLV|${parts[1]}|${parts[2]}`)).slice(0, 10);
+    return expected === parts[3].toUpperCase()
+      ? { ok: true, expiresAt: expiresAt.toISOString(), plan: "Licenca comercial" }
+      : { ok: false };
+  }
+
+  if (parts.length === 3 && parts[0] === "BL") {
+    const expiresAt = parseActivationExpiration(parts[1]);
+    if (!expiresAt || expiresAt.getTime() <= Date.now()) return { ok: false };
+
+    const expected = (await activationSignature(`BL|${parts[1]}`)).slice(0, 8);
+    return expected === parts[2].toUpperCase()
+      ? { ok: true, expiresAt: expiresAt.toISOString(), plan: "Licenca comercial" }
+      : { ok: false };
+  }
+
+  return { ok: false };
+}
+
+function parseActivationExpiration(value: string) {
+  if (!/^\d{8}(\d{4})?$/.test(value)) {
+    return null;
+  }
+
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(4, 6));
+  const day = Number(value.slice(6, 8));
+  if (!year || month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+
+  if (value.length === 8) {
+    return new Date(Date.UTC(year, month - 1, day, 26, 59, 59, 999));
+  }
+
+  const hour = Number(value.slice(8, 10));
+  const minute = Number(value.slice(10, 12));
+  if (hour > 23 || minute > 59) {
+    return null;
+  }
+
+  return new Date(Date.UTC(year, month - 1, day, hour + 3, minute, 0, 0));
+}
+
+async function activationSignature(message: string) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode("BalcaoLivrePDV-local-license-v1"),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return Array.from(new Uint8Array(signature))
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+}
+
+function pickValidExpiration(localExpiresAt: unknown, signedExpiresAt: string) {
+  const localText = stringFrom(localExpiresAt);
+  const signedTime = Date.parse(signedExpiresAt);
+  const localTime = Date.parse(localText);
+  if (Number.isFinite(localTime) && localTime > Date.now() && localTime <= signedTime) {
+    return new Date(localTime).toISOString();
+  }
+
+  return signedExpiresAt;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function stringFrom(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function firstNonEmpty(...values: unknown[]) {
+  for (const value of values) {
+    const text = stringFrom(value);
+    if (text) return text;
+  }
+
+  return "";
+}
+
+async function loadValidatedLicense(payload: ClientPayload): Promise<
+  | { ok: true; store: AdminStore; license: AdminLicense; licenseKey: string }
+  | { ok: false; status: number; message: string }
+> {
+  const licenseKey = normalizeLicense(payload.licenseKey);
+  if (!licenseKey) {
+    return { ok: false, status: 401, message: "Licenca obrigatoria para usar WhatsApp automatico." };
+  }
+
+  const context = await readAdminStore();
+  if (!context.ok) {
+    return { ok: false, status: 503, message: context.message };
+  }
+
+  const license = await findOrRegisterLicense(context.store, payload, licenseKey);
+  if (!license) {
+    return { ok: false, status: 401, message: "Chave nao encontrada no Supabase." };
+  }
+
+  const blocked = String(license.status ?? "").toUpperCase() === "BLOQUEADA";
+  if (blocked) {
+    return { ok: false, status: 403, message: "Licenca bloqueada para WhatsApp." };
+  }
+
+  if (license.expiresAt && Date.parse(license.expiresAt) <= Date.now()) {
+    return { ok: false, status: 403, message: "Licenca expirada para WhatsApp." };
+  }
+
+  const requestMachine = String(payload.machineHash ?? "").trim();
+  const licenseMachine = String(license.machineHash ?? "").trim();
+  if (licenseMachine && requestMachine && licenseMachine !== requestMachine) {
+    return { ok: false, status: 403, message: "Licenca pertence a outro computador." };
+  }
+
+  return { ok: true, store: context.store, license, licenseKey };
+}
+
+function applyConnectionToLicense(license: AdminLicense, connection: WhatsAppStoreConnection, storePhone: string) {
+  license.whatsAppPhone = normalizePhone(storePhone || connection.store_phone || license.whatsAppPhone);
+  license.whatsAppBotId = CENTRAL_BOT_ID;
+  license.whatsAppStatus = "ATIVO";
+  license.whatsAppLastError = "";
+  license.whatsAppActivatedAt ??= new Date().toISOString();
+  license.whatsAppConnectedAt = connection.connected_at || new Date().toISOString();
+  license.whatsAppWabaId = String(connection.waba_id ?? "");
+  license.whatsAppBusinessId = String(connection.business_id ?? "");
+  license.whatsAppPhoneNumberId = String(connection.phone_number_id ?? "");
+  license.whatsAppDisplayPhone = String(connection.phone_display_number ?? "");
+}
+
+async function updateLicenseConnection(connection: WhatsAppStoreConnection) {
+  const context = await readAdminStore();
+  if (!context.ok) return;
+
+  const license = findLicense(context.store, normalizeLicense(connection.license_key));
+  if (!license) return;
+
+  applyConnectionToLicense(license, connection, normalizePhone(connection.store_phone));
+  appendEvent(context.store, { licenseKey: license.key, machineHash: connection.machine_hash },
+    "whatsapp.meta.connected", `WhatsApp Meta conectado: ${maskPhone(normalizePhone(connection.store_phone))}`);
+  await saveAdminStore(context.store);
+}
+
+function connectionUsable(connection: WhatsAppStoreConnection) {
+  return Boolean(
+    normalizeBearer(connection.access_token ?? "")
+      && String(connection.phone_number_id ?? "").trim()
+      && String(connection.status ?? "ATIVO").toUpperCase() !== "BLOQUEADA"
+  );
+}
+
+function connectionUsableForPhone(connection: WhatsAppStoreConnection, storePhone: string) {
+  if (!connectionUsable(connection)) return false;
+  const left = normalizePhone(storePhone);
+  const right = normalizePhone(connection.store_phone || connection.phone_display_number);
+  return !left || !right || left === right || left.endsWith(right) || right.endsWith(left);
 }
 
 async function readJson(req: Request) {
@@ -593,6 +1153,25 @@ function phoneNumberId() {
     ?? DEFAULT_PHONE_NUMBER_ID).trim();
 }
 
+function metaAppId() {
+  return String(Deno.env.get("META_WHATSAPP_APP_ID")
+    ?? Deno.env.get("WHATSAPP_META_APP_ID")
+    ?? DEFAULT_META_APP_ID).trim();
+}
+
+function metaAppSecret() {
+  return String(Deno.env.get("META_WHATSAPP_APP_SECRET")
+    ?? Deno.env.get("WHATSAPP_META_APP_SECRET")
+    ?? "").trim();
+}
+
+function embeddedSignupConfigId() {
+  return String(Deno.env.get("META_WHATSAPP_EMBEDDED_CONFIG_ID")
+    ?? Deno.env.get("WHATSAPP_META_EMBEDDED_CONFIG_ID")
+    ?? Deno.env.get("META_WHATSAPP_CONFIG_ID")
+    ?? "").trim();
+}
+
 function verifyToken() {
   return String(Deno.env.get("META_WHATSAPP_VERIFY_TOKEN")
     ?? Deno.env.get("WHATSAPP_META_VERIFY_TOKEN")
@@ -616,12 +1195,195 @@ function adminObjectPath() {
   return String(Deno.env.get("BVPDV_SUPABASE_OBJECT") ?? DEFAULT_ADMIN_OBJECT).trim().replace(/^\/+/, "");
 }
 
-function active(message: string, storePhone: string) {
-  return { ok: true, pending: false, message, storePhone };
+async function exchangeMetaCode(code: string, redirectUri = "") {
+  const appId = metaAppId();
+  const secret = metaAppSecret();
+  if (!appId || !secret) {
+    return { ok: false as const, message: "App Secret da Meta nao configurado na Supabase." };
+  }
+
+  const url = new URL(`https://graph.facebook.com/${graphVersion()}/oauth/access_token`);
+  url.searchParams.set("client_id", appId);
+  url.searchParams.set("client_secret", secret);
+  url.searchParams.set("code", code);
+  if (redirectUri) {
+    url.searchParams.set("redirect_uri", redirectUri);
+  }
+
+  const response = await fetch(url);
+  const text = await response.text();
+  if (!response.ok) {
+    return { ok: false as const, message: extractMetaError(response.status, text) };
+  }
+
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    const accessToken = normalizeBearer(String(parsed.access_token ?? ""));
+    if (!accessToken) return { ok: false as const, message: "Meta nao retornou token de acesso." };
+    return {
+      ok: true as const,
+      accessToken,
+      tokenType: String(parsed.token_type ?? ""),
+      raw: parsed,
+    };
+  } catch (_error) {
+    return { ok: false as const, message: "Resposta da Meta veio invalida." };
+  }
 }
 
-function pending(message: string, storePhone: string) {
-  return { ok: false, pending: true, message, storePhone };
+async function resolveOnboardedPhone(accessToken: string, sessionInfo: Record<string, unknown>, wantedPhone: string) {
+  const phoneNumberId = firstString(sessionInfo, [
+    ["phone_number_id"],
+    ["data", "phone_number_id"],
+    ["phoneNumberId"],
+    ["phone", "id"],
+  ]);
+  const wabaId = firstString(sessionInfo, [
+    ["waba_id"],
+    ["data", "waba_id"],
+    ["whatsapp_business_account_id"],
+    ["data", "whatsapp_business_account_id"],
+    ["wabaId"],
+  ]);
+  const businessId = firstString(sessionInfo, [
+    ["business_id"],
+    ["data", "business_id"],
+    ["businessId"],
+  ]);
+  const displayPhone = normalizePhone(firstString(sessionInfo, [
+    ["phone_number"],
+    ["display_phone_number"],
+    ["data", "phone_number"],
+    ["data", "display_phone_number"],
+  ]));
+
+  if (phoneNumberId) {
+    return { ok: true as const, phoneNumberId, wabaId, businessId, displayPhone: displayPhone || wantedPhone };
+  }
+
+  const wabaIds = wabaId ? [wabaId] : await resolveWabaIdsFromToken(accessToken);
+  if (wabaIds.length === 0) {
+    return { ok: false as const, message: "Meta nao retornou WABA nem Phone Number ID." };
+  }
+
+  for (const candidateWabaId of wabaIds) {
+    const resolved = await resolvePhoneFromWaba(accessToken, candidateWabaId, businessId, wantedPhone);
+    if (resolved.ok) return resolved;
+  }
+
+  return { ok: false as const, message: "Nenhum numero WhatsApp encontrado nessa WABA." };
+}
+
+async function resolvePhoneFromWaba(accessToken: string, wabaId: string, businessId: string, wantedPhone: string) {
+  const response = await fetch(`https://graph.facebook.com/${graphVersion()}/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    return { ok: false as const, message: extractMetaError(response.status, text) };
+  }
+
+  try {
+    const parsed = JSON.parse(text) as { data?: Array<Record<string, unknown>> };
+    const numbers = Array.isArray(parsed.data) ? parsed.data : [];
+    const wanted = normalizePhone(wantedPhone);
+    const match = numbers.find((item) => {
+      const current = normalizePhone(item.display_phone_number);
+      return wanted && current && (current === wanted || current.endsWith(wanted) || wanted.endsWith(current));
+    }) ?? numbers[0];
+
+    const id = String(match?.id ?? "");
+    if (!id) return { ok: false as const, message: "Nenhum numero WhatsApp encontrado nessa WABA." };
+
+    return {
+      ok: true as const,
+      phoneNumberId: id,
+      wabaId,
+      businessId,
+      displayPhone: normalizePhone(match?.display_phone_number) || wanted,
+    };
+  } catch (_error) {
+    return { ok: false as const, message: "Lista de numeros da Meta veio invalida." };
+  }
+}
+
+async function resolveWabaIdsFromToken(accessToken: string) {
+  const appId = metaAppId();
+  const secret = metaAppSecret();
+  if (!appId || !secret) return [];
+
+  const url = new URL(`https://graph.facebook.com/${graphVersion()}/debug_token`);
+  url.searchParams.set("input_token", accessToken);
+  url.searchParams.set("access_token", `${appId}|${secret}`);
+
+  const response = await fetch(url);
+  const text = await response.text();
+  if (!response.ok) {
+    console.error("whatsapp.meta.debug_token_failed", extractMetaError(response.status, text));
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(text) as { data?: { granular_scopes?: Array<{ scope?: string; target_ids?: string[] }> } };
+    const scopes = Array.isArray(parsed.data?.granular_scopes) ? parsed.data?.granular_scopes ?? [] : [];
+    return [...new Set(scopes
+      .filter((scope) => String(scope.scope ?? "").includes("whatsapp"))
+      .flatMap((scope) => Array.isArray(scope.target_ids) ? scope.target_ids : [])
+      .map((id) => String(id ?? "").trim())
+      .filter(Boolean))];
+  } catch (_error) {
+    return [];
+  }
+}
+
+async function subscribeWaba(accessToken: string, wabaId: string) {
+  if (!wabaId) return;
+  const response = await fetch(`https://graph.facebook.com/${graphVersion()}/${wabaId}/subscribed_apps`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    console.error("whatsapp.meta.subscribe_failed", extractMetaError(response.status, await response.text()));
+  }
+}
+
+function firstString(root: Record<string, unknown>, paths: string[][]) {
+  for (const path of paths) {
+    let current: unknown = root;
+    for (const key of path) {
+      current = current && typeof current === "object" ? (current as Record<string, unknown>)[key] : undefined;
+    }
+    const value = String(current ?? "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function normalizeSessionInfo(value: unknown): Record<string, unknown> {
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value) as Record<string, unknown>;
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function active(message: string, storePhone: string, connection?: WhatsAppStoreConnection | null) {
+  return {
+    ok: true,
+    pending: false,
+    message,
+    storePhone,
+    phoneNumberId: connection?.phone_number_id ?? "",
+    wabaId: connection?.waba_id ?? "",
+  };
+}
+
+function pending(message: string, storePhone: string, onboardingUrl = "") {
+  return { ok: false, pending: true, message, storePhone, onboardingUrl };
 }
 
 function fail(message: string) {
@@ -633,6 +1395,171 @@ function json(data: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" },
   });
+}
+
+function text(body: string, status = 200) {
+  const headers = new Headers(corsHeaders);
+  headers.set("content-type", "text/plain; charset=utf-8");
+  return new Response(body, { status, headers });
+}
+
+function html(body: string, status = 200) {
+  const headers = new Headers(corsHeaders);
+  headers.set("content-type", "text/html; charset=utf-8");
+  headers.set(
+    "content-security-policy",
+    [
+      "default-src 'self' https://connect.facebook.net https://www.facebook.com https://web.facebook.com https://static.xx.fbcdn.net",
+      "script-src 'self' 'unsafe-inline' https://connect.facebook.net",
+      "style-src 'self' 'unsafe-inline'",
+      "connect-src 'self' https://www.facebook.com https://web.facebook.com https://graph.facebook.com",
+      "frame-src https://www.facebook.com https://web.facebook.com",
+      "img-src 'self' data: https:",
+    ].join("; "),
+  );
+  return new Response(body, {
+    status,
+    headers,
+  });
+}
+
+function metaOAuthUrl(options: { appId: string; configId: string; graphVersion: string; state: string; redirectUri: string }) {
+  const url = new URL(`https://www.facebook.com/${options.graphVersion}/dialog/oauth`);
+  url.searchParams.set("client_id", options.appId);
+  url.searchParams.set("redirect_uri", options.redirectUri);
+  url.searchParams.set("state", options.state);
+  url.searchParams.set("config_id", options.configId);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("override_default_response_type", "true");
+  url.searchParams.set("extras", JSON.stringify({
+    feature: "whatsapp_embedded_signup",
+    sessionInfoVersion: "3",
+    setup: {},
+  }));
+  return url.toString();
+}
+
+function functionRouteUrl(url: URL, route: string) {
+  const next = new URL(url.toString());
+  const functionMarker = "/functions/v1/whatsapp";
+  const functionIndex = url.pathname.indexOf(functionMarker);
+  const pathname = functionIndex >= 0
+    ? `${url.pathname.slice(0, functionIndex + functionMarker.length)}${route}`
+    : `${functionMarker}${route}`;
+  next.protocol = "https:";
+  next.pathname = pathname;
+  next.search = "";
+  return next.toString();
+}
+
+function onboardingMessagePage(title: string, message: string) {
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    body{margin:0;font-family:Arial,sans-serif;background:#f4f7fb;color:#17212b;display:grid;place-items:center;min-height:100vh}
+    main{width:min(520px,calc(100vw - 32px));background:#fff;border:1px solid #d8e3ef;border-radius:14px;padding:28px;box-shadow:0 18px 50px rgba(31,52,75,.14)}
+    h1{margin:0 0 10px;font-size:24px}
+    p{margin:0;color:#52657a;line-height:1.5}
+  </style>
+</head>
+<body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></main></body>
+</html>`;
+}
+
+function onboardingStartPage(options: { appId: string; configId: string; graphVersion: string; state: string; storePhone: string; completeUrl: string }) {
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Conectar WhatsApp</title>
+  <style>
+    body{margin:0;font-family:Arial,sans-serif;background:#eef4fa;color:#17212b;display:grid;place-items:center;min-height:100vh}
+    main{width:min(560px,calc(100vw - 32px));background:#fff;border:1px solid #d8e3ef;border-radius:16px;padding:28px;box-shadow:0 18px 50px rgba(31,52,75,.16)}
+    h1{margin:0 0 8px;font-size:24px}
+    p{margin:0 0 18px;color:#52657a;line-height:1.45}
+    button{width:100%;border:0;border-radius:10px;background:#0f766e;color:white;font-weight:700;font-size:16px;padding:16px;cursor:pointer}
+    button:disabled{background:#8aa4b8;cursor:wait}
+    .status{margin-top:16px;padding:14px;border-radius:10px;background:#f6f9fc;color:#52657a;min-height:22px}
+    .ok{background:#eaf8ef;color:#176b36}.err{background:#ffe2df;color:#a11d1d}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Conectar WhatsApp da loja</h1>
+    <p>Numero informado: <b>${escapeHtml(maskPhone(options.storePhone))}</b>. Entre com a conta Meta Business que administra esse WhatsApp.</p>
+    <button id="connect">Conectar pelo Meta</button>
+    <div id="status" class="status">Aguardando inicio da conexao.</div>
+  </main>
+  <script>
+    const appId = ${JSON.stringify(options.appId)};
+    const configId = ${JSON.stringify(options.configId)};
+    const graphVersion = ${JSON.stringify(options.graphVersion)};
+    const state = ${JSON.stringify(options.state)};
+    const completeUrl = ${JSON.stringify(options.completeUrl)};
+    let sessionInfo = {};
+    const button = document.getElementById("connect");
+    const status = document.getElementById("status");
+    function setStatus(text, cls){ status.textContent = text; status.className = "status " + (cls || ""); }
+    window.addEventListener("message", (event) => {
+      if (!String(event.origin || "").includes("facebook.com")) return;
+      try {
+        const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+        if (data && (data.type === "WA_EMBEDDED_SIGNUP" || data.event)) sessionInfo = data.data || data;
+      } catch (_) {}
+    });
+    window.fbAsyncInit = function() {
+      FB.init({ appId, cookie: true, xfbml: false, version: graphVersion });
+      button.disabled = false;
+    };
+    button.onclick = function() {
+      button.disabled = true;
+      setStatus("Abrindo Meta Business...");
+      FB.login(async function(response) {
+        try {
+          const code = response && response.authResponse && response.authResponse.code;
+          if (!code) throw new Error("A Meta nao retornou codigo de conexao.");
+          setStatus("Validando conexao na Supabase...");
+          const result = await fetch(completeUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ state, code, sessionInfo })
+          });
+          const data = await result.json();
+          if (!result.ok || !data.ok) throw new Error(data.message || "Falha ao conectar WhatsApp.");
+          setStatus("WhatsApp conectado. Pode voltar para o PDV.", "ok");
+        } catch (error) {
+          button.disabled = false;
+          setStatus(error.message || String(error), "err");
+        }
+      }, {
+        config_id: configId,
+        response_type: "code",
+        override_default_response_type: true,
+        extras: {
+          feature: "whatsapp_embedded_signup",
+          sessionInfoVersion: "3",
+          setup: {}
+        }
+      });
+    };
+  </script>
+  <script async defer crossorigin="anonymous" src="https://connect.facebook.net/pt_BR/sdk.js"></script>
+</body>
+</html>`;
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function normalizePhone(value: unknown) {

@@ -15,6 +15,808 @@
   --shadow: 0 14px 34px rgba(7, 26, 44, 0.08);
 }
 
+/* Landing rework 2026-05-27 */
+.lpPage {
+  min-height: 100vh;
+  overflow-x: hidden;
+  background:
+    linear-gradient(180deg, #ffffff 0, #f6f8fb 360px, #eef3f7 100%);
+  color: #071a2c;
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+}
+
+.lpHeader {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  min-height: 76px;
+  padding: 12px clamp(18px, 4vw, 64px);
+  border-bottom: 1px solid rgba(190, 202, 214, 0.72);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(16px);
+}
+
+.lpBrand,
+.lpFooterBrand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: #071a2c;
+}
+
+.lpBrandMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 6px;
+  background: #071a2c;
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.lpBrand strong,
+.lpFooterBrand strong {
+  display: block;
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.lpBrand small,
+.lpFooterBrand small {
+  display: block;
+  margin-top: 3px;
+  color: #607084;
+  font-size: 0.73rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.lpNav {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lpNav a {
+  padding: 9px 10px;
+  border-radius: 6px;
+  color: #42546a;
+  font-size: 0.93rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.lpNav a:hover {
+  background: #edf2f7;
+  color: #071a2c;
+}
+
+.lpHeaderActions,
+.lpHeroActions,
+.lpPlanActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lpSolidButton,
+.lpGhostButton,
+.lpPlanButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border-radius: 6px;
+  padding: 0 18px;
+  border: 1px solid transparent;
+  font-weight: 900;
+  line-height: 1.1;
+  cursor: pointer;
+}
+
+.lpSolidButton {
+  background: #0f766e;
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 118, 110, 0.16);
+}
+
+.lpSolidButton:hover {
+  background: #0b5f59;
+}
+
+.lpGhostButton {
+  border-color: #c9d4df;
+  background: #ffffff;
+  color: #071a2c;
+}
+
+.lpGhostButton:hover {
+  border-color: #aebdca;
+  background: #f4f7fa;
+}
+
+.lpLargeButton {
+  min-height: 50px;
+  padding-inline: 22px;
+}
+
+.lpHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
+  gap: clamp(28px, 5vw, 64px);
+  align-items: center;
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: clamp(54px, 7vw, 86px) 0 44px;
+}
+
+.lpHeroCopy h1 {
+  max-width: 760px;
+  margin: 14px 0 18px;
+  color: #071a2c;
+  font-size: clamp(2.35rem, 5vw, 4.7rem);
+  line-height: 0.98;
+  letter-spacing: 0;
+}
+
+.lpKicker {
+  margin: 0;
+  color: #0f766e;
+  font-size: 0.79rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.lpLead {
+  max-width: 680px;
+  margin: 0;
+  color: #4b5f75;
+  font-size: clamp(1.02rem, 1.5vw, 1.24rem);
+  line-height: 1.65;
+}
+
+.lpHeroActions {
+  margin-top: 30px;
+  flex-wrap: wrap;
+}
+
+.lpHeroStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  width: min(720px, 100%);
+  margin: 34px 0 0;
+  border: 1px solid #d7e0ea;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #d7e0ea;
+}
+
+.lpHeroStats div {
+  min-width: 0;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.lpHeroStats dt {
+  color: #071a2c;
+  font-weight: 900;
+}
+
+.lpHeroStats dd {
+  margin: 5px 0 0;
+  color: #607084;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.lpSystemPanel {
+  border: 1px solid #cbd7e2;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 44px rgba(7, 26, 44, 0.1);
+  overflow: hidden;
+}
+
+.lpPanelTop,
+.lpReceiptLine,
+.lpSaleHeader,
+.lpSaleRows p,
+.lpSaleTotal,
+.lpSignalBox p,
+.lpPlanTop,
+.lpPriceRows div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.lpPanelTop {
+  padding: 16px 18px;
+  border-bottom: 1px solid #d8e1ea;
+  background: #071a2c;
+  color: #ffffff;
+}
+
+.lpPanelTop span,
+.lpSaleHeader span,
+.lpReceiptLine span,
+.lpSignalBox span,
+.lpPlanTop span,
+.lpPriceRows span {
+  color: #6a7b8e;
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.lpPanelTop span {
+  color: #b9c7d6;
+}
+
+.lpPanelGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(170px, 0.85fr);
+  gap: 12px;
+  padding: 14px;
+  background: #f3f6f9;
+}
+
+.lpSaleBox,
+.lpSignalBox {
+  border: 1px solid #d7e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.lpSaleHeader {
+  padding: 14px;
+  border-bottom: 1px solid #e1e8ef;
+}
+
+.lpSaleHeader b {
+  color: #071a2c;
+  font-size: 0.88rem;
+}
+
+.lpSaleRows {
+  display: grid;
+  gap: 0;
+}
+
+.lpSaleRows p {
+  margin: 0;
+  padding: 13px 14px;
+  border-bottom: 1px solid #edf1f5;
+  color: #203247;
+}
+
+.lpSaleRows p span {
+  min-width: 0;
+}
+
+.lpSaleRows p b {
+  white-space: nowrap;
+}
+
+.lpSaleTotal {
+  padding: 16px 14px;
+}
+
+.lpSaleTotal span {
+  color: #4b5f75;
+  font-weight: 900;
+}
+
+.lpSaleTotal strong {
+  color: #0f766e;
+  font-size: 1.8rem;
+}
+
+.lpSignalBox {
+  display: grid;
+  align-content: start;
+  gap: 1px;
+  overflow: hidden;
+  background: #dce5ee;
+}
+
+.lpSignalBox p {
+  min-height: 80px;
+  margin: 0;
+  padding: 12px;
+  background: #ffffff;
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.lpSignalBox strong {
+  color: #071a2c;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.lpReceiptLine {
+  padding: 14px 18px;
+  border-top: 1px solid #d8e1ea;
+  background: #fffdf7;
+}
+
+.lpReceiptLine b {
+  color: #0f766e;
+}
+
+.lpStrip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto;
+  border: 1px solid #d7e0ea;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #d7e0ea;
+}
+
+.lpStrip span {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 18px;
+  background: #ffffff;
+  color: #607084;
+  line-height: 1.35;
+}
+
+.lpStrip b {
+  color: #071a2c;
+  font-size: 0.94rem;
+}
+
+.lpSection,
+.lpGuideBanner {
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto;
+}
+
+.lpSection {
+  padding: clamp(66px, 8vw, 104px) 0 0;
+}
+
+.lpSectionHead {
+  display: grid;
+  gap: 10px;
+  max-width: 760px;
+  margin-bottom: 28px;
+}
+
+.lpSectionHead h2,
+.lpGuideBanner h2 {
+  margin: 0;
+  color: #071a2c;
+  font-size: clamp(1.8rem, 3.5vw, 3.2rem);
+  line-height: 1.05;
+}
+
+.lpSectionHead p:not(.lpKicker),
+.lpGuideBanner p:not(.lpKicker) {
+  margin: 0;
+  color: #5c6f84;
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.lpModuleGrid,
+.lpFlowGrid,
+.lpFaqGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.lpModule,
+.lpFlowGrid article,
+.lpFaqGrid article {
+  min-width: 0;
+  border: 1px solid #d7e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 22px;
+}
+
+.lpModule span,
+.lpFlowGrid b {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  background: #edf7f5;
+  color: #0f766e;
+  font-weight: 900;
+}
+
+.lpModule h3,
+.lpFlowGrid h3,
+.lpFaqGrid h3,
+.lpPlan h3 {
+  margin: 18px 0 9px;
+  color: #071a2c;
+  font-size: 1.2rem;
+  line-height: 1.22;
+}
+
+.lpModule p,
+.lpFlowGrid p,
+.lpFaqGrid p,
+.lpPlan p {
+  margin: 0;
+  color: #5c6f84;
+  line-height: 1.58;
+}
+
+.lpOperation {
+  padding-top: clamp(56px, 7vw, 88px);
+}
+
+.lpFlowGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.lpPlansSection {
+  padding-bottom: 0;
+}
+
+.lpPlans {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.lpPlan {
+  min-width: 0;
+  border: 1px solid #cfd9e3;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: clamp(22px, 3vw, 32px);
+}
+
+.lpPlanFeatured {
+  border-color: #0f766e;
+  box-shadow: 0 20px 46px rgba(15, 118, 110, 0.12);
+}
+
+.lpPlanTop {
+  margin-bottom: 18px;
+}
+
+.lpPlanTop b {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #edf2f7;
+  color: #071a2c;
+  font-size: 0.82rem;
+}
+
+.lpPlanFeatured .lpPlanTop b {
+  background: #e3f4f1;
+  color: #0f766e;
+}
+
+.lpPlan h3 {
+  margin-top: 0;
+  font-size: clamp(1.55rem, 2.5vw, 2.15rem);
+}
+
+.lpPriceRows {
+  display: grid;
+  gap: 8px;
+  margin: 24px 0;
+}
+
+.lpPriceRows div {
+  min-height: 68px;
+  padding: 14px 16px;
+  border: 1px solid #d7e0ea;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.lpPriceRows strong {
+  color: #071a2c;
+  font-size: clamp(1.45rem, 3vw, 2.2rem);
+}
+
+.lpPlanCustom {
+  display: grid;
+  gap: 7px;
+  margin: -4px 0 22px;
+  padding: 15px 16px;
+  border: 1px solid #bcded9;
+  border-left: 4px solid #0f766e;
+  border-radius: 8px;
+  background: #eef8f6;
+}
+
+.lpPlanCustom span {
+  color: #0f766e;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.lpPlanCustom strong {
+  color: #071a2c;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.lpPlan ul {
+  display: grid;
+  gap: 11px;
+  margin: 0 0 24px;
+  padding: 0;
+  list-style: none;
+}
+
+.lpPlan li {
+  position: relative;
+  padding-left: 22px;
+  color: #34465a;
+  line-height: 1.45;
+}
+
+.lpPlan li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.58em;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #0f766e;
+}
+
+.lpPlanActions {
+  width: 100%;
+  margin: 0 0 10px;
+}
+
+.lpPlanButton {
+  width: 100%;
+  border: 0;
+  background: #071a2c;
+  color: #ffffff;
+  font-size: 0.96rem;
+}
+
+.lpPlanButton:hover {
+  background: #0f766e;
+}
+
+.lpPlanButtonMuted {
+  border: 1px solid #cbd7e2;
+  background: #ffffff;
+  color: #071a2c;
+}
+
+.lpPlanButtonMuted:hover {
+  border-color: #0f766e;
+  background: #edf7f5;
+  color: #0f766e;
+}
+
+.lpSellerBox {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid #d8e1ea;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.lpSellerBox span {
+  color: #607084;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.lpSellerBox a {
+  color: #071a2c;
+  font-weight: 850;
+}
+
+.lpSellerBox a:hover {
+  color: #0f766e;
+}
+
+.lpGuideBanner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  margin-top: clamp(56px, 7vw, 86px);
+  padding: clamp(24px, 4vw, 38px);
+  border: 1px solid #cbd7e2;
+  border-radius: 8px;
+  background: #071a2c;
+  color: #ffffff;
+}
+
+.lpGuideBanner .lpKicker {
+  color: #79d6cd;
+}
+
+.lpGuideBanner h2 {
+  color: #ffffff;
+}
+
+.lpGuideBanner p:not(.lpKicker) {
+  color: #c6d2df;
+}
+
+.lpFooter {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(140px, 0.7fr) minmax(160px, 0.8fr) minmax(280px, 1.25fr);
+  gap: 28px;
+  width: min(1180px, calc(100% - 40px));
+  margin: clamp(66px, 8vw, 100px) auto 0;
+  padding: 30px 0 42px;
+  border-top: 1px solid #cbd7e2;
+}
+
+.lpFooterColumn,
+.lpFooterWhatsapp {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+}
+
+.lpFooterColumn b,
+.lpFooterWhatsapp b {
+  color: #071a2c;
+  font-size: 0.92rem;
+}
+
+.lpFooterColumn a,
+.lpFooterWhatsapp a {
+  color: #5c6f84;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.lpFooterColumn a:hover,
+.lpFooterWhatsapp a:hover {
+  color: #0f766e;
+}
+
+@media (max-width: 1080px) {
+  .lpHeader {
+    grid-template-columns: 1fr auto;
+  }
+
+  .lpNav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .lpHero {
+    grid-template-columns: 1fr;
+  }
+
+  .lpSystemPanel {
+    max-width: 760px;
+  }
+
+  .lpStrip,
+  .lpFlowGrid,
+  .lpFooter {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 820px) {
+  .lpHeader {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .lpBrand {
+    flex: 1 1 220px;
+  }
+
+  .lpHeaderActions {
+    flex: 1 1 100%;
+  }
+
+  .lpHeaderActions .lpGhostButton,
+  .lpHeaderActions .lpSolidButton {
+    flex: 1 1 0;
+  }
+
+  .lpHero,
+  .lpStrip,
+  .lpSection,
+  .lpGuideBanner,
+  .lpFooter {
+    width: min(100% - 28px, 1180px);
+  }
+
+  .lpHeroStats,
+  .lpPanelGrid,
+  .lpModuleGrid,
+  .lpPlans,
+  .lpFaqGrid,
+  .lpGuideBanner {
+    grid-template-columns: 1fr;
+  }
+
+  .lpHeroCopy h1 {
+    font-size: clamp(2.1rem, 12vw, 3.4rem);
+  }
+}
+
+@media (max-width: 620px) {
+  .lpHeader {
+    position: static;
+    padding: 14px;
+  }
+
+  .lpHeaderActions,
+  .lpHeroActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lpNav {
+    width: 100%;
+  }
+
+  .lpHero {
+    padding-top: 42px;
+  }
+
+  .lpStrip,
+  .lpFlowGrid,
+  .lpFooter {
+    grid-template-columns: 1fr;
+  }
+
+  .lpReceiptLine,
+  .lpPriceRows div {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .lpModule,
+  .lpFlowGrid article,
+  .lpFaqGrid article,
+  .lpPlan {
+    padding: 18px;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -3055,9 +3857,25 @@ h1 {
 
 .infoBlock p,
 .guideStep p,
-.guideStep li {
+.guideStep li,
+.infoBlock li {
   color: var(--muted);
   line-height: 1.58;
+}
+
+.infoBlock p + p {
+  margin-top: 10px;
+}
+
+.infoBlock strong {
+  color: var(--navy-deep);
+}
+
+.infoBlock a {
+  color: #087b72;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .guideStep ul,
@@ -3079,6 +3897,53 @@ h1 {
   font: inherit;
   font-weight: 850;
   text-align: center;
+}
+
+.legalPage {
+  min-height: 100vh;
+}
+
+.legalTermsPage .infoHero {
+  padding-top: 44px;
+}
+
+.legalTermsPage .infoHero p strong {
+  color: var(--navy-deep);
+}
+
+.legalTermsPage .infoAside {
+  max-height: calc(100vh - 106px);
+  overflow: auto;
+}
+
+.legalNotice {
+  max-width: 920px;
+  padding: 14px 16px;
+  border: 1px solid #bcded9;
+  border-left: 4px solid var(--teal);
+  border-radius: 8px;
+  background: #eef8f6;
+  color: #24364a;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.legalContactList,
+.referenceLinks {
+  padding-left: 0 !important;
+  list-style: none;
+}
+
+.legalContactList li,
+.referenceLinks li {
+  padding: 10px 12px;
+  border: 1px solid #dbe4ec;
+  border-radius: 8px;
+  background: #f7fafc;
+}
+
+.referenceLinks {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .guideNotice {
@@ -3205,6 +4070,11 @@ h1 {
 
   .infoAside {
     position: static;
+    max-height: none;
+  }
+
+  .referenceLinks {
+    grid-template-columns: 1fr;
   }
 
   .sectionIntro > p:not(.eyebrow) {
@@ -3275,5 +4145,704 @@ h1 {
 
   .timelineItem {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Final landing tone: less playful, more product software. */
+.lpPage {
+  color: #0b1f33;
+  font-family: Arial, "Segoe UI", Helvetica, sans-serif;
+}
+
+.lpHeroCopy h1 {
+  max-width: 780px;
+  color: #0b1f33;
+  font-size: clamp(2.05rem, 4.45vw, 4.05rem);
+  font-weight: 700;
+  line-height: 1.06;
+}
+
+.lpSectionHead h2,
+.lpGuideBanner h2 {
+  font-weight: 700;
+  line-height: 1.12;
+}
+
+.lpBrand strong,
+.lpFooterBrand strong,
+.lpModule h3,
+.lpFlowGrid h3,
+.lpFaqGrid h3,
+.lpPlan h3,
+.lpSaleTotal strong,
+.lpPriceRows strong {
+  font-weight: 700;
+}
+
+.lpKicker,
+.lpNav a,
+.lpSolidButton,
+.lpGhostButton,
+.lpPlanButton,
+.lpStrip b,
+.lpPlanTop span,
+.lpPriceRows span,
+.lpSellerBox span,
+.lpFooterColumn b,
+.lpFooterWhatsapp b {
+  font-weight: 700;
+}
+
+.lpBrand small,
+.lpFooterBrand small,
+.lpHeroStats dt,
+.lpPanelTop span,
+.lpSaleHeader span,
+.lpReceiptLine span,
+.lpSignalBox span,
+.lpModule span,
+.lpFlowGrid b {
+  font-weight: 700;
+}
+
+.lpSystemPanel {
+  box-shadow: 0 16px 36px rgba(7, 26, 44, 0.08);
+}
+
+.lpPlanFeatured {
+  box-shadow: 0 18px 38px rgba(15, 118, 110, 0.09);
+}
+
+.lpPlanFeatured .lpPriceRows strong {
+  font-size: clamp(1.3rem, 2.15vw, 1.75rem);
+  text-align: right;
+}
+
+/* PDV demo responsive fix: keep the cashier inside the landing container. */
+.lpDemoReturn .cashierGrid,
+.lpDemoReturn.cashierDemoSection .cashierGrid {
+  grid-template-columns: minmax(250px, 0.9fr) minmax(0, 1.35fr) minmax(240px, 0.78fr);
+  gap: 12px;
+  padding: 14px;
+}
+
+.lpDemoReturn .ticketConsole,
+.lpDemoReturn .productConsole,
+.lpDemoReturn .paymentConsole,
+.lpDemoReturn.cashierDemoSection .ticketConsole,
+.lpDemoReturn.cashierDemoSection .productConsole,
+.lpDemoReturn.cashierDemoSection .paymentConsole {
+  min-width: 0;
+}
+
+.lpDemoReturn .productPicker,
+.lpDemoReturn.cashierDemoSection .productPicker {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.lpDemoReturn .productPicker button,
+.lpDemoReturn.cashierDemoSection .productPicker button {
+  grid-template-columns: 66px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.lpDemoReturn .productPicker span,
+.lpDemoReturn .productPicker strong,
+.lpDemoReturn .productPicker small,
+.lpDemoReturn .productPicker b,
+.lpDemoReturn.cashierDemoSection .productPicker span,
+.lpDemoReturn.cashierDemoSection .productPicker strong,
+.lpDemoReturn.cashierDemoSection .productPicker small,
+.lpDemoReturn.cashierDemoSection .productPicker b {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.lpDemoReturn .paymentTotal strong,
+.lpDemoReturn.cashierDemoSection .paymentTotal strong {
+  font-size: clamp(2rem, 3vw, 3rem);
+}
+
+.lpDemoReturn .payButtons,
+.lpDemoReturn.cashierDemoSection .payButtons {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.lpDemoReturn .payButtons button,
+.lpDemoReturn .finishButton,
+.lpDemoReturn .clearButton,
+.lpDemoReturn.cashierDemoSection .payButtons button,
+.lpDemoReturn.cashierDemoSection .finishButton,
+.lpDemoReturn.cashierDemoSection .clearButton {
+  min-width: 0;
+  white-space: normal;
+}
+
+@media (max-width: 1180px) {
+  .lpDemoReturn .cashierGrid,
+  .lpDemoReturn.cashierDemoSection .cashierGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .lpDemoReturn .productPicker,
+  .lpDemoReturn.cashierDemoSection .productPicker {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 820px) {
+  .lpDemoReturn .productPicker,
+  .lpDemoReturn.cashierDemoSection .productPicker {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lpDemoReturn .codeEntry div,
+  .lpDemoReturn .miniFields,
+  .lpDemoReturn .payButtons,
+  .lpDemoReturn.cashierDemoSection .codeEntry div,
+  .lpDemoReturn.cashierDemoSection .miniFields,
+  .lpDemoReturn.cashierDemoSection .payButtons {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .lpDemoReturn .cashierGrid,
+  .lpDemoReturn.cashierDemoSection .cashierGrid {
+    padding: 10px;
+  }
+
+  .lpDemoReturn .ticketConsole,
+  .lpDemoReturn .productConsole,
+  .lpDemoReturn .paymentConsole,
+  .lpDemoReturn.cashierDemoSection .ticketConsole,
+  .lpDemoReturn.cashierDemoSection .productConsole,
+  .lpDemoReturn.cashierDemoSection .paymentConsole {
+    padding: 12px;
+  }
+
+  .lpDemoReturn .productPicker,
+  .lpDemoReturn.cashierDemoSection .productPicker {
+    grid-template-columns: 1fr;
+    max-height: none;
+  }
+
+  .lpDemoReturn .productPicker button,
+  .lpDemoReturn.cashierDemoSection .productPicker button {
+    min-height: 94px;
+  }
+
+  .lpDemoReturn .cashierTop,
+  .lpDemoReturn.cashierDemoSection .cashierTop {
+    padding: 14px;
+  }
+}
+
+/* Header/footer and restored demo polish */
+.lpHeader {
+  width: min(1180px, calc(100% - 28px));
+  min-height: 70px;
+  margin: 12px auto 0;
+  padding: 10px 12px;
+  border: 1px solid #ccd7e2;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 34px rgba(7, 26, 44, 0.08);
+}
+
+.lpBrandMark {
+  border-radius: 8px;
+  background: linear-gradient(180deg, #0b1f33 0%, #071a2c 100%);
+}
+
+.lpNav {
+  justify-self: center;
+  padding: 5px;
+  border: 1px solid #d7e0ea;
+  border-radius: 8px;
+  background: #f4f7fa;
+  gap: 0;
+}
+
+.lpNav a {
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: #24364a;
+  font-size: 0.86rem;
+}
+
+.lpNav a:hover {
+  background: #ffffff;
+  box-shadow: 0 1px 5px rgba(7, 26, 44, 0.08);
+}
+
+.lpDemoReturn.cashierDemoSection,
+.lpDemoReturn .cashierDemoSection {
+  width: min(1180px, calc(100% - 40px));
+  margin: clamp(58px, 7vw, 88px) auto 0;
+  padding: 0;
+}
+
+.lpDemoReturn .sectionIntro,
+.lpDemoReturn.cashierDemoSection .sectionIntro {
+  max-width: 760px;
+  margin-bottom: 24px;
+}
+
+.lpDemoReturn .sectionIntro h2,
+.lpPrintReturn h2 {
+  color: #071a2c;
+  font-size: clamp(1.8rem, 3.4vw, 3.05rem);
+  font-weight: 700;
+  line-height: 1.12;
+}
+
+.lpDemoReturn .cashierDemo,
+.lpDemoReturn.cashierDemoSection .cashierDemo,
+.lpPrintReturn .receiptMock {
+  box-shadow: 0 18px 44px rgba(7, 26, 44, 0.08);
+}
+
+.lpPrintReturn {
+  width: min(1180px, calc(100% - 40px));
+  margin: clamp(58px, 7vw, 88px) auto 0;
+}
+
+.lpFooter {
+  grid-template-columns: 1.15fr minmax(220px, 1.1fr) 0.75fr 0.8fr 1.2fr;
+  align-items: start;
+  margin-bottom: 26px;
+  padding: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: #071a2c;
+  color: #ffffff;
+  box-shadow: 0 16px 40px rgba(7, 26, 44, 0.12);
+}
+
+.lpFooter .lpBrandMark {
+  background: #ffffff;
+  color: #071a2c;
+}
+
+.lpFooterBrand,
+.lpFooterBrand strong,
+.lpFooterColumn b,
+.lpFooterWhatsapp b,
+.lpFooterPitch b {
+  color: #ffffff;
+}
+
+.lpFooterBrand small,
+.lpFooterPitch span,
+.lpFooterColumn a,
+.lpFooterWhatsapp a {
+  color: #c6d2df;
+}
+
+.lpFooterPitch {
+  display: grid;
+  gap: 10px;
+  line-height: 1.45;
+}
+
+.lpFooterPitch b {
+  font-size: 1.02rem;
+}
+
+.lpFooterColumn a:hover,
+.lpFooterWhatsapp a:hover {
+  color: #79d6cd;
+}
+
+@media (max-width: 1120px) {
+  .lpHeader {
+    grid-template-columns: 1fr auto;
+  }
+
+  .lpNav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: stretch;
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .lpFooter {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .lpHeader {
+    display: flex;
+    flex-wrap: wrap;
+    width: calc(100% - 20px);
+    margin-top: 10px;
+  }
+
+  .lpHeaderActions,
+  .lpHeroActions {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .lpDemoReturn.cashierDemoSection,
+  .lpDemoReturn .cashierDemoSection,
+  .lpPrintReturn,
+  .lpFooter {
+    width: min(100% - 28px, 1180px);
+  }
+
+  .lpFooter {
+    grid-template-columns: 1fr;
+    padding: 22px;
+  }
+}
+
+/* Hero cleanup: compact product-first opening */
+.lpHeroProduct {
+  grid-template-columns: minmax(0, 0.98fr) minmax(330px, 0.82fr);
+  gap: clamp(24px, 3.4vw, 46px);
+  align-items: center;
+  padding: clamp(34px, 5.2vw, 62px) 0 30px;
+}
+
+.lpHeroProduct .lpHeroCopy {
+  max-width: 620px;
+}
+
+.lpHeroProduct .lpKicker {
+  max-width: 560px;
+  color: #0f766e;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  text-transform: none;
+}
+
+.lpHeroProduct .lpHeroCopy h1 {
+  max-width: 660px;
+  margin: 12px 0 16px;
+  color: #071a2c;
+  font-size: clamp(2.05rem, 4.15vw, 3.7rem);
+  font-weight: 700;
+  line-height: 1.07;
+}
+
+.lpHeroProduct .lpLead {
+  max-width: 580px;
+  color: #3f5267;
+  font-size: clamp(1rem, 1.35vw, 1.16rem);
+  line-height: 1.55;
+}
+
+.lpHeroProduct .lpHeroActions {
+  margin-top: 24px;
+}
+
+.lpHeroProduct .lpHeroStats {
+  width: 100%;
+  max-width: 620px;
+  margin-top: 26px;
+  border: 0;
+  background: transparent;
+  gap: 14px;
+  overflow: visible;
+}
+
+.lpHeroProduct .lpHeroStats div {
+  padding: 0 0 0 12px;
+  border-left: 2px solid #0f766e;
+  background: transparent;
+}
+
+.lpHeroProduct .lpHeroStats dt {
+  color: #071a2c;
+  font-size: 0.95rem;
+}
+
+.lpHeroProduct .lpHeroStats dd {
+  margin-top: 4px;
+  color: #56697f;
+  font-size: 0.86rem;
+}
+
+.lpHeroConsole {
+  border: 1px solid #152c42;
+  background: #071a2c;
+  box-shadow: 0 18px 42px rgba(7, 26, 44, 0.16);
+}
+
+.lpConsoleBar,
+.lpConsoleFooter,
+.lpOrderHeader,
+.lpOrderRows p,
+.lpOrderTotal,
+.lpCheckoutPane div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.lpConsoleBar {
+  padding: 14px 16px;
+  border-bottom: 1px solid #19344d;
+  color: #ffffff;
+}
+
+.lpConsoleBar span,
+.lpConsoleFooter span,
+.lpOrderHeader span,
+.lpCheckoutPane span,
+.lpOrderRows span {
+  color: #8da1b5;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.lpConsoleBar strong {
+  color: #ffffff;
+  font-size: 1.06rem;
+}
+
+.lpConsoleBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.55fr);
+  gap: 12px;
+  padding: 12px;
+  background: #0b1f33;
+}
+
+.lpOrderPane,
+.lpCheckoutPane {
+  min-width: 0;
+  border: 1px solid #cfd9e3;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.lpOrderHeader {
+  padding: 12px 14px;
+  border-bottom: 1px solid #dde5ed;
+}
+
+.lpOrderHeader b {
+  color: #071a2c;
+  font-size: 0.86rem;
+}
+
+.lpOrderRows {
+  display: grid;
+}
+
+.lpOrderRows p {
+  margin: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid #edf1f5;
+  color: #071a2c;
+}
+
+.lpOrderRows strong {
+  min-width: 0;
+  color: #071a2c;
+  font-size: 0.98rem;
+  font-weight: 700;
+}
+
+.lpOrderRows b {
+  color: #0f766e;
+  white-space: nowrap;
+}
+
+.lpOrderTotal {
+  padding: 14px;
+  background: #f7fafc;
+}
+
+.lpOrderTotal span {
+  color: #4b5f75;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.lpOrderTotal strong {
+  color: #071a2c;
+  font-size: 1.55rem;
+}
+
+.lpCheckoutPane {
+  display: grid;
+  align-content: start;
+  gap: 0;
+}
+
+.lpCheckoutPane div {
+  min-height: 58px;
+  padding: 12px;
+  border-bottom: 1px solid #edf1f5;
+}
+
+.lpCheckoutPane strong {
+  color: #071a2c;
+  text-align: right;
+}
+
+.lpCheckoutPane button {
+  min-height: 48px;
+  margin: 12px;
+  border: 0;
+  border-radius: 6px;
+  background: #0f766e;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 700;
+}
+
+.lpConsoleFooter {
+  padding: 13px 16px;
+  border-top: 1px solid #19344d;
+  color: #d7e2ec;
+}
+
+.lpConsoleFooter b {
+  color: #79d6cd;
+  text-align: right;
+}
+
+@media (max-width: 1080px) {
+  .lpHeroProduct {
+    grid-template-columns: minmax(0, 0.96fr) minmax(320px, 0.8fr);
+  }
+}
+
+@media (max-width: 840px) {
+  .lpHeroProduct {
+    grid-template-columns: 1fr;
+    padding-top: 34px;
+  }
+
+  .lpHeroConsole {
+    max-width: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .lpHeroProduct .lpHeroStats,
+  .lpConsoleBody {
+    grid-template-columns: 1fr;
+  }
+
+  .lpOrderRows p {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .lpConsoleFooter {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+/* Logo image in the header/footer */
+.lpHeader .lpBrand {
+  min-width: 0;
+}
+
+.lpBrandLogo {
+  display: block;
+  width: clamp(260px, 32vw, 340px);
+  height: auto;
+  max-height: 74px;
+  object-fit: contain;
+}
+
+.lpFooterBrandLogo {
+  width: min(280px, 100%);
+  max-height: none;
+  padding: 10px;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+@media (max-width: 620px) {
+  .lpBrandLogo {
+    width: min(255px, 76vw);
+    max-height: 70px;
+  }
+}
+
+@media (max-width: 620px) {
+  .lpHeroProduct .lpHeroStats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 20px;
+  }
+
+  .lpHeroProduct .lpHeroStats div {
+    padding-left: 8px;
+  }
+
+  .lpHeroProduct .lpHeroStats dt {
+    font-size: 0.84rem;
+  }
+
+  .lpHeroProduct .lpHeroStats dd {
+    font-size: 0.76rem;
+  }
+
+  .lpConsoleBody {
+    grid-template-columns: minmax(0, 1fr) minmax(112px, 0.58fr);
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .lpOrderHeader,
+  .lpOrderRows p,
+  .lpOrderTotal,
+  .lpCheckoutPane div {
+    padding: 9px 10px;
+  }
+
+  .lpOrderRows p {
+    align-items: center;
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .lpOrderRows span {
+    display: none;
+  }
+
+  .lpOrderRows strong {
+    font-size: 0.86rem;
+  }
+
+  .lpOrderRows b,
+  .lpCheckoutPane strong {
+    font-size: 0.82rem;
+  }
+
+  .lpOrderTotal strong {
+    font-size: 1.25rem;
+  }
+
+  .lpCheckoutPane div {
+    min-height: 44px;
+  }
+
+  .lpCheckoutPane button {
+    min-height: 40px;
+    margin: 8px;
+    font-size: 0.82rem;
+  }
+
+  .lpConsoleFooter {
+    padding: 10px 12px;
+    font-size: 0.8rem;
   }
 }

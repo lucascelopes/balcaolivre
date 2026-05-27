@@ -3,11 +3,17 @@ const state = {
   licenses: [],
   support: [],
   health: null,
-  currentView: "dashboard"
+  currentView: "dashboard",
+  realtimeStatus: "offline",
+  realtimeSnapshot: null
 };
 let liveTimer = null;
+let realtimeSource = null;
+let realtimeFallbackTimer = null;
+let refreshAllQueued = null;
 let lastSupportCustomerMessageAt = "";
 const supportPollMs = 30000;
+const realtimeFallbackPollMs = 10000;
 
 const qs = (selector) => document.querySelector(selector);
 const dateTime = (value) => value ? new Date(value).toLocaleString("pt-BR") : "-";
@@ -53,6 +59,7 @@ async function api(path, options = {}) {
 }
 
 function showLogin() {
+  stopLiveRefresh();
   qs("#loginView").classList.remove("hidden");
   qs("#appView").classList.add("hidden");
 }
@@ -82,10 +89,7 @@ async function login() {
 
 async function logout() {
   await api("/api/logout", { method: "POST" }).catch(() => {});
-  if (liveTimer) {
-    clearInterval(liveTimer);
-    liveTimer = null;
-  }
+  stopLiveRefresh();
   showLogin();
 }
 
@@ -140,13 +144,118 @@ async function refreshLive() {
 }
 
 function startLiveRefresh() {
-  if (liveTimer) return;
   if ("Notification" in window && Notification.permission === "default") {
     Notification.requestPermission().catch(() => {});
   }
+  startRealtime();
+  if (liveTimer) return;
   liveTimer = setInterval(() => {
     refreshLive().catch((error) => console.warn("live refresh failed", error));
   }, supportPollMs);
+}
+
+function stopLiveRefresh() {
+  if (liveTimer) {
+    clearInterval(liveTimer);
+    liveTimer = null;
+  }
+  stopRealtime();
+}
+
+function startRealtime() {
+  if (realtimeSource || qs("#appView").classList.contains("hidden")) return;
+  if (!("EventSource" in window)) {
+    startRealtimeFallback();
+    return;
+  }
+
+  updateRealtimeStatus("connecting");
+  const source = new EventSource(adminApiPath("/api/realtime"), { withCredentials: true });
+  realtimeSource = source;
+
+  source.addEventListener("admin.ready", (event) => {
+    updateRealtimeStatus("online", parseRealtimeEvent(event));
+  });
+  source.addEventListener("admin.changed", (event) => {
+    updateRealtimeStatus("online", parseRealtimeEvent(event));
+    queueRefreshAll();
+  });
+  source.onopen = () => updateRealtimeStatus("online", state.realtimeSnapshot);
+  source.onerror = () => {
+    if (realtimeSource === source) {
+      updateRealtimeStatus("reconnecting", state.realtimeSnapshot);
+    }
+  };
+}
+
+function startRealtimeFallback() {
+  updateRealtimeStatus("fallback");
+  if (realtimeFallbackTimer) return;
+  realtimeFallbackTimer = setInterval(() => queueRefreshAll(), realtimeFallbackPollMs);
+}
+
+function stopRealtime() {
+  if (realtimeSource) {
+    realtimeSource.close();
+    realtimeSource = null;
+  }
+  if (realtimeFallbackTimer) {
+    clearInterval(realtimeFallbackTimer);
+    realtimeFallbackTimer = null;
+  }
+  if (refreshAllQueued) {
+    clearTimeout(refreshAllQueued);
+    refreshAllQueued = null;
+  }
+  updateRealtimeStatus("offline");
+}
+
+function parseRealtimeEvent(event) {
+  try {
+    return JSON.parse(event.data || "{}");
+  } catch {
+    return null;
+  }
+}
+
+function updateRealtimeStatus(status, snapshot = null) {
+  state.realtimeStatus = status;
+  if (snapshot) {
+    state.realtimeSnapshot = snapshot;
+  }
+  window.__balcaoAdminRealtimeStatus = {
+    status,
+    snapshot: state.realtimeSnapshot,
+    updatedAt: new Date().toISOString()
+  };
+  renderRealtimeBadge();
+  if (state.dashboard && state.health) {
+    renderDashboard();
+  }
+}
+
+function renderRealtimeBadge() {
+  const badge = qs("#realtimeMode");
+  if (!badge) return;
+  const labels = {
+    online: "Tempo real ligado",
+    connecting: "Tempo real conectando",
+    reconnecting: "Tempo real reconectando",
+    fallback: "Atualizacao automatica",
+    offline: "Tempo real desligado"
+  };
+  badge.textContent = labels[state.realtimeStatus] || labels.offline;
+  badge.classList.toggle("online", state.realtimeStatus === "online" || state.realtimeStatus === "fallback");
+  badge.classList.toggle("pending", state.realtimeStatus === "connecting" || state.realtimeStatus === "reconnecting");
+  badge.classList.toggle("error", state.realtimeStatus === "offline");
+}
+
+function queueRefreshAll() {
+  if (refreshAllQueued || qs("#appView").classList.contains("hidden")) return;
+  refreshAllQueued = setTimeout(() => {
+    refreshAllQueued = null;
+    refreshAll().catch((error) => console.warn("realtime refresh failed", error));
+  }, 250);
 }
 
 function newestCustomerMessageAt(tickets) {
@@ -175,16 +284,28 @@ function renderDashboard() {
   qs("#mDevices").textContent = metrics.devices;
   qs("#mSupport").textContent = metrics.openSupport || 0;
   const storageMode = state.health?.storage || "supabase-nao-configurado";
-  qs("#storageMode").textContent = storageMode === "supabase"
+  const realtimeLabel = state.realtimeStatus === "online"
+    ? "tempo real ligado"
+    : state.realtimeStatus === "reconnecting"
+      ? "tempo real reconectando"
+      : state.realtimeStatus === "connecting"
+        ? "tempo real conectando"
+        : state.realtimeStatus === "fallback"
+          ? "atualizacao automatica"
+          : "tempo real desligado";
+  const storageText = storageMode === "supabase"
     ? "Supabase ativo"
     : storageMode === "supabase-pendente"
       ? "Supabase pendente"
       : storageMode === "supabase-nao-configurado"
         ? "Supabase nao configurado"
         : "Local JSON";
-  qs("#storageMode").classList.toggle("online", storageMode === "supabase");
-  qs("#storageMode").classList.toggle("pending", storageMode === "supabase-pendente");
+  qs("#storageMode").textContent = storageMode === "supabase" ? `${storageText} - ${realtimeLabel}` : storageText;
+  qs("#storageMode").title = `${storageText} - ${realtimeLabel}`;
+  qs("#storageMode").classList.toggle("online", storageMode === "supabase" && state.realtimeStatus === "online");
+  qs("#storageMode").classList.toggle("pending", storageMode === "supabase-pendente" || state.realtimeStatus === "reconnecting" || state.realtimeStatus === "connecting");
   qs("#storageMode").classList.toggle("error", storageMode === "supabase-nao-configurado");
+  renderRealtimeBadge();
   qs("#expiringList").innerHTML = state.dashboard.expiringSoon.length
     ? state.dashboard.expiringSoon.map((item) => `
       <div><strong>${escapeHtml(item.customerName || item.businessName || "Cliente")}</strong>
@@ -206,7 +327,7 @@ function renderSupport() {
     const haystack = `${item.shortId} ${item.licenseKey} ${item.customerName} ${item.businessName} ${item.ownerName} ${item.phone} ${item.machineCode} ${item.message}`.toLowerCase();
     return !query || haystack.includes(query);
   });
-  qs("#supportLiveBadge").textContent = `${rows.length} chamado(s) - consulta a cada ${supportPollMs / 1000}s`;
+  qs("#supportLiveBadge").textContent = `${rows.length} chamado(s) - tempo real + reserva ${supportPollMs / 1000}s`;
   target.innerHTML = rows.length
     ? rows.map((item) => supportCard(item)).join("")
     : `<div class="device-card">Nenhum suporte aberto.</div>`;

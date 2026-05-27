@@ -90,6 +90,51 @@ app.MapGet("/api/session", (HttpContext context, AdminSessionService sessions) =
     return Results.Ok(new { authenticated = sessions.IsValid(context) });
 });
 
+app.MapGet("/api/realtime", async (HttpContext context, AdminSessionService sessions, AdminStoreService store) =>
+{
+    if (!sessions.IsValid(context))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return;
+    }
+
+    var cancellation = context.RequestAborted;
+    context.Response.ContentType = "text/event-stream; charset=utf-8";
+    context.Response.Headers.CacheControl = "no-cache, no-transform";
+    context.Response.Headers.Connection = "keep-alive";
+    context.Response.Headers["X-Accel-Buffering"] = "no";
+
+    var snapshot = store.RefreshRealtimeState(forceRemote: true);
+    var lastRevision = snapshot.Revision;
+    var lastStorageMode = snapshot.StorageMode;
+    await WriteSseAsync(context, "admin.ready", snapshot, cancellation);
+
+    while (!cancellation.IsCancellationRequested)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), cancellation);
+            snapshot = store.RefreshRealtimeState(forceRemote: false);
+
+            if (snapshot.Revision != lastRevision ||
+                !string.Equals(snapshot.StorageMode, lastStorageMode, StringComparison.Ordinal))
+            {
+                lastRevision = snapshot.Revision;
+                lastStorageMode = snapshot.StorageMode;
+                await WriteSseAsync(context, "admin.changed", snapshot, cancellation);
+                continue;
+            }
+
+            await context.Response.WriteAsync(": keepalive\n\n", cancellation);
+            await context.Response.Body.FlushAsync(cancellation);
+        }
+        catch (OperationCanceledException)
+        {
+            break;
+        }
+    }
+});
+
 app.MapGet("/api/dashboard", (HttpContext context, AdminSessionService sessions, AdminStoreService store) =>
 {
     if (!sessions.IsValid(context)) return Results.Unauthorized();
@@ -693,6 +738,13 @@ static bool MarkAppPayloadSeen(AdminStoreService store, AppClientPayload request
     });
 }
 
+static async Task WriteSseAsync(HttpContext context, string eventName, object payload, CancellationToken cancellation)
+{
+    await context.Response.WriteAsync($"event: {eventName}\n", cancellation);
+    await context.Response.WriteAsync($"data: {JsonSerializer.Serialize(payload, AdminJson.Options)}\n\n", cancellation);
+    await context.Response.Body.FlushAsync(cancellation);
+}
+
 static void UpsertDevice(AdminStore data, AppClientPayload request, DateTimeOffset now)
 {
     var device = data.Devices.FirstOrDefault(item => string.Equals(item.MachineHash, request.MachineHash, StringComparison.Ordinal));
@@ -984,6 +1036,7 @@ sealed class AdminSessionService
 
 sealed class AdminStoreService
 {
+    private static readonly TimeSpan RemoteRefreshInterval = TimeSpan.FromSeconds(3);
     private readonly string _dataRoot;
     private readonly string _filePath;
     private readonly string _supabaseUrl;
@@ -995,6 +1048,10 @@ sealed class AdminStoreService
     private readonly HttpClient _httpClient = new();
     private readonly object _gate = new();
     private bool _lastSupabaseOk;
+    private long _revision;
+    private string _lastFingerprint = "";
+    private DateTimeOffset _lastChangedAt = DateTimeOffset.UtcNow;
+    private DateTimeOffset _lastRemoteRefreshAt = DateTimeOffset.MinValue;
 
     public string StorageMode => UsesSupabase
         ? (_lastSupabaseOk ? "supabase" : "supabase-pendente")
@@ -1023,6 +1080,28 @@ sealed class AdminStoreService
             ?? "admin-store.json").Trim().TrimStart('/');
         _supabaseRequired = ReadBooleanEnvironment("BVPDV_REQUIRE_SUPABASE", defaultValue: true);
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("BalcaoLivrePDVAdmin/1.2.2026");
+    }
+
+    public AdminRealtimeSnapshot RefreshRealtimeState(bool forceRemote)
+    {
+        lock (_gate)
+        {
+            if (UsesSupabase)
+            {
+                RefreshSupabaseSnapshotUnsafe(forceRemote);
+            }
+            else if (string.IsNullOrWhiteSpace(_lastFingerprint))
+            {
+                _ = LoadUnsafe();
+            }
+
+            return new AdminRealtimeSnapshot(
+                _revision,
+                _lastChangedAt,
+                StorageMode,
+                UsesSupabase,
+                DateTimeOffset.UtcNow);
+        }
     }
 
     public AdminStore Read()
@@ -1263,7 +1342,7 @@ sealed class AdminStoreService
                 {
                     SaveLocalUnsafe(remote);
                 }
-                return remote;
+                return TrackStoreUnsafe(remote);
             }
 
             _lastSupabaseOk = false;
@@ -1271,23 +1350,23 @@ sealed class AdminStoreService
 
         if (_supabaseRequired)
         {
-            return new AdminStore();
+            return TrackStoreUnsafe(new AdminStore());
         }
 
         if (!File.Exists(_filePath))
         {
             var empty = new AdminStore();
             SaveUnsafe(empty);
-            return empty;
+            return TrackStoreUnsafe(empty);
         }
 
         try
         {
-            return JsonSerializer.Deserialize<AdminStore>(File.ReadAllText(_filePath, Encoding.UTF8), AdminJson.Options) ?? new AdminStore();
+            return TrackStoreUnsafe(JsonSerializer.Deserialize<AdminStore>(File.ReadAllText(_filePath, Encoding.UTF8), AdminJson.Options) ?? new AdminStore());
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
-            return new AdminStore();
+            return TrackStoreUnsafe(new AdminStore());
         }
     }
 
@@ -1305,6 +1384,58 @@ sealed class AdminStoreService
                 SaveToSupabaseUnsafe(store);
             }
         }
+
+        MarkRevisionUnsafe(store);
+    }
+
+    private void RefreshSupabaseSnapshotUnsafe(bool forceRemote)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (!forceRemote && now - _lastRemoteRefreshAt < RemoteRefreshInterval)
+        {
+            return;
+        }
+
+        _lastRemoteRefreshAt = now;
+        var remote = LoadFromSupabaseUnsafe();
+        if (remote is null)
+        {
+            _lastSupabaseOk = false;
+            return;
+        }
+
+        _lastSupabaseOk = true;
+        if (!_supabaseRequired)
+        {
+            SaveLocalUnsafe(remote);
+        }
+
+        MarkRevisionUnsafe(remote);
+    }
+
+    private AdminStore TrackStoreUnsafe(AdminStore store)
+    {
+        MarkRevisionUnsafe(store);
+        return store;
+    }
+
+    private void MarkRevisionUnsafe(AdminStore store)
+    {
+        var fingerprint = ComputeStoreFingerprint(store);
+        if (string.Equals(fingerprint, _lastFingerprint, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastFingerprint = fingerprint;
+        _revision++;
+        _lastChangedAt = DateTimeOffset.UtcNow;
+    }
+
+    private static string ComputeStoreFingerprint(AdminStore store)
+    {
+        var json = JsonSerializer.Serialize(store, AdminJson.Options);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
     }
 
     private static bool ReadBooleanEnvironment(string name, bool defaultValue)
@@ -1368,6 +1499,7 @@ sealed class AdminStoreService
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException or InvalidOperationException)
         {
+            _lastSupabaseOk = false;
         }
     }
 
@@ -1608,6 +1740,13 @@ sealed class AdminStore
     public List<SupportTicketRecord> SupportTickets { get; set; } = [];
     public List<AdminEvent> Events { get; set; } = [];
 }
+
+sealed record AdminRealtimeSnapshot(
+    long Revision,
+    DateTimeOffset LastChangedAt,
+    string StorageMode,
+    bool SupabaseConfigured,
+    DateTimeOffset ServerTime);
 
 sealed class LicenseRecord
 {

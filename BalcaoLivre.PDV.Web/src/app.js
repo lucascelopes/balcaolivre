@@ -7,9 +7,9 @@ import {
   put,
   saveSaleBundle,
   seedIfEmpty
-} from "./db.js?v=9";
-import { categories, initialProducts, initialSettings, paymentMethods } from "./data.js?v=9";
-import { createSupabaseAuth, signInSupabase } from "./supabaseAuth.js?v=9";
+} from "./db.js?v=10";
+import { categories, initialProducts, initialSettings, paymentMethods } from "./data.js?v=10";
+import { createSupabaseAuth, signInSupabase } from "./supabaseAuth.js?v=10";
 
 const boardCount = 24;
 const initialUsers = [
@@ -87,6 +87,26 @@ function loadJson(key, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function normalizeDemoSettings(settings) {
+  const next = { ...settings };
+  if (!next.businessName || next.businessName === "COXITRUCK") {
+    next.businessName = initialSettings.businessName;
+  }
+  if (!next.legalName || next.legalName === "COXITRUCK") {
+    next.legalName = initialSettings.legalName;
+  }
+  if (next.ownerName === "Lucas") {
+    next.ownerName = initialSettings.ownerName;
+  }
+  if (next.cnpj === "50.597.666/0001-47") {
+    next.cnpj = initialSettings.cnpj;
+  }
+  if (next.phone === "(27) 98347-3241") {
+    next.phone = initialSettings.phone;
+  }
+  return next;
 }
 
 function currentTicket() {
@@ -175,7 +195,7 @@ async function boot() {
   state.users = await getAll("users");
   state.cashMovements = await getAll("cash_movements");
   const savedSettings = await getOne("terminal_settings", "main");
-  state.settings = { ...initialSettings, ...(savedSettings || {}) };
+  state.settings = normalizeDemoSettings({ ...initialSettings, ...(savedSettings || {}) });
   if (!state.settings.syncEndpoint) {
     state.settings.syncEndpoint = initialSettings.syncEndpoint;
   }
@@ -274,18 +294,26 @@ async function handleRibbon(action) {
 }
 
 function renderLoginState() {
+  const overlay = qs("#loginOverlay");
   const help = qs("#loginHelp");
   const emailInput = qs("#loginEmail");
+  const message = qs("#loginMessage");
   if (state.auth.configured) {
-    help.textContent = "Entre com o email vinculado no Windows. A senha inicial e a propria key de ativacao.";
+    help.textContent = "Entre com o email e senha da conta para liberar o PDV Online.";
     emailInput.value = state.auth.user?.email || emailInput.value;
     if (state.auth.session) {
-      qs("#loginOverlay").classList.add("hidden");
+      overlay.classList.add("hidden");
+    } else {
+      overlay.classList.remove("hidden");
     }
     return;
   }
 
-  help.textContent = "Supabase ainda nao configurado. Para teste local, use operador e senha do PDV.";
+  help.textContent = "Modo local ativo.";
+  message.textContent = "";
+  overlay.classList.add("hidden");
+  qs("#loginOperator").value = qs("#loginOperator").value || qs("#operatorNumber").value || "1";
+  requestAnimationFrame(() => qs("#productCode")?.focus());
 }
 
 function closeLogin() {
@@ -543,7 +571,7 @@ function renderSettingsLabels() {
   const cnpj = state.settings.cnpj || initialSettings.cnpj;
   const phone = state.settings.phone || initialSettings.phone;
   qs("#brandNameText").textContent = businessName;
-  qs("#brandDocText").textContent = cnpj ? `CNPJ ${cnpj}` : "CNPJ";
+  qs("#brandDocText").textContent = cnpj ? `CNPJ ${cnpj}` : "Caixa demonstrativo";
   qs("#brandPhoneText").textContent = phone || "-";
   qs("#connectionText").textContent = navigator.onLine ? "Online" : "Offline";
 }
@@ -818,7 +846,7 @@ async function saveSettings(event) {
   state.settings = {
     ...state.settings,
     ownerName: qs("#ownerNameInput").value.trim(),
-    businessName: qs("#businessNameInput").value.trim() || "COXITRUCK",
+    businessName: qs("#businessNameInput").value.trim() || initialSettings.businessName,
     legalName: qs("#legalNameInput").value.trim(),
     cnpj: qs("#cnpjInput").value.trim() || initialSettings.cnpj,
     phone: qs("#phoneInput").value.trim() || initialSettings.phone,
