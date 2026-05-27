@@ -10291,10 +10291,7 @@ public partial class MainWindow : Window
             if (!response.IsSuccessStatusCode)
             {
                 result.Ok = false;
-                if (string.IsNullOrWhiteSpace(result.Message))
-                {
-                    result.Message = $"Admin retornou HTTP {(int)response.StatusCode}.";
-                }
+                result.Message = NormalizePublicMenuPublishError(result.Message, response.StatusCode);
             }
 
             if (result.Ok)
@@ -10340,6 +10337,28 @@ public partial class MainWindow : Window
         {
             _publicMenuPublishRunning = false;
         }
+    }
+
+    private static string NormalizePublicMenuPublishError(string? message, System.Net.HttpStatusCode statusCode)
+    {
+        var text = (message ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return $"Admin retornou HTTP {(int)statusCode}.";
+        }
+
+        if (text.Contains("Licenca sem permissao para publicar cardapio", StringComparison.OrdinalIgnoreCase))
+        {
+            return "A chave desta loja nao esta ativa no painel de licencas. Gere ou ative a licenca no admin e tente publicar de novo.";
+        }
+
+        if (statusCode == System.Net.HttpStatusCode.Unauthorized &&
+            text.Contains("sem permissao", StringComparison.OrdinalIgnoreCase))
+        {
+            return "A chave desta loja foi recusada pelo painel de licencas. Confirme se a chave esta ativa e vinculada a este computador.";
+        }
+
+        return text;
     }
 
     private AdminPublicMenuPublishPayload BuildPublicMenuPublishPayload()
