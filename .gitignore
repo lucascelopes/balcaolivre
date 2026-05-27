@@ -1,8 +1,10 @@
 # Build output
+node_modules/
 bin/
 obj/
 dist/
 BalcaoLivreLadingPage/netlify-site/
+BalcaoLivreLadingPage/public/pdv/
 publish/
 **/build/
 .gradle/
@@ -25,6 +27,7 @@ supabase/.temp/
 
 # Codex/local research artifacts
 .agents/
+screenshots/
 yt_lechef/
 youtube_polyvan_videos.json
 lechef_filtered.json

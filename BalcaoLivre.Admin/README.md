@@ -37,23 +37,9 @@ O `vercel.json` da raiz publica:
 - `/pdv` para o PDV Web.
 - `/` para a landing page.
 
-## Dados
-
-Sem Supabase configurado, o painel salva em:
-
-```text
-BalcaoLivre.Admin\App_Data\admin-store.json
-```
-
-Tambem pode usar:
-
-```powershell
-$env:BVPDV_ADMIN_DATA = "C:\BalcaoLivreAdminData"
-```
-
 ## Supabase
 
-Para producao, use Supabase Storage como armazenamento central do admin. Configure no servidor do admin:
+O admin usa Supabase Storage como armazenamento central. Configure no servidor do admin:
 
 ```powershell
 $env:BVPDV_SUPABASE_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co"
@@ -63,6 +49,13 @@ $env:BVPDV_SUPABASE_SECRET_KEY = "sua-secret-key-ou-service-role"
 O admin cria automaticamente um bucket privado chamado `balcao-livre-admin` e salva `admin-store.json` nele.
 
 Nao coloque `secret key`/`service_role` dentro do app Windows do cliente. Essa chave fica somente no servidor/admin.
+
+O fallback em JSON local fica desligado por padrao. Para desenvolvimento isolado, da para liberar explicitamente:
+
+```powershell
+$env:BVPDV_REQUIRE_SUPABASE = "0"
+$env:BVPDV_ADMIN_DATA = "C:\BalcaoLivreAdminData"
+```
 
 ## Como funciona
 

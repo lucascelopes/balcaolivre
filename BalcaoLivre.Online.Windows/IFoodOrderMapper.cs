@@ -27,12 +27,46 @@ public static class IFoodOrderMapper
                 GetDateTime(scheduled, "preparationStart"));
         }
 
+        if (order.TryGetProperty("preparation", out var preparation))
+        {
+            imported.PreparationStartDateTime ??= FirstDateTime(
+                GetDateTime(preparation, "start"),
+                GetDateTime(preparation, "Start"),
+                GetDateTime(preparation, "startDateTime"),
+                GetDateTime(preparation, "preparationStartDateTime"));
+        }
+
         imported.PreparationStartDateTime ??= FirstDateTime(
             GetDateTime(order, "preparationStartDateTime"),
             GetDateTime(order, "preparationStart"));
         imported.ConfirmationDeadlineAt = FirstDateTime(
             GetDateTime(order, "confirmationDeadlineAt"),
             ConfirmationDeadlineFrom(imported));
+
+        if (order.TryGetProperty("delivery", out var delivery))
+        {
+            imported.DeliveryExpectedAt = FirstDateTime(
+                GetDateTime(delivery, "estimatedDeliveryDateTime"),
+                GetDateTime(delivery, "estimatedDeliveryTime"),
+                GetDateTime(delivery, "deliveryEstimateDateTime"),
+                GetDateTime(delivery, "deliveryEstimate"),
+                GetDateTime(delivery, "deliveryDateTimeStart"),
+                GetDateTime(delivery, "deliveryDateTime"),
+                GetDateTime(order, "estimatedDeliveryDateTime"),
+                GetDateTime(order, "estimatedDeliveryTime"),
+                GetDateTime(order, "deliveryDateTimeStart"));
+            imported.DeliveredAt = FirstDateTime(
+                GetDateTime(delivery, "deliveredAt"),
+                GetDateTime(delivery, "deliveredDateTime"),
+                GetDateTime(delivery, "deliveryDateTime"),
+                GetDateTime(order, "deliveredAt"),
+                GetDateTime(order, "deliveredDateTime"));
+            imported.CollectedAt = FirstDateTime(
+                GetDateTime(delivery, "collectedAt"),
+                GetDateTime(delivery, "pickupAt"),
+                GetDateTime(delivery, "pickupDateTime"),
+                GetDateTime(order, "collectedAt"));
+        }
 
         if (order.TryGetProperty("customer", out var customer))
         {
@@ -46,7 +80,7 @@ public static class IFoodOrderMapper
             }
         }
 
-        if (order.TryGetProperty("delivery", out var delivery) &&
+        if (order.TryGetProperty("delivery", out delivery) &&
             delivery.TryGetProperty("deliveryAddress", out var address))
         {
             imported.Address = BuildAddress(address);
@@ -58,10 +92,16 @@ public static class IFoodOrderMapper
 
         if (order.TryGetProperty("takeout", out var takeout))
         {
+            imported.OrderType = "TAKEOUT";
             imported.Notes = AppendLine(imported.Notes, $"Retirada: {GetString(takeout, "mode")}");
         }
 
         imported.Notes = AppendLine(imported.Notes, GetString(order, "extraInfo"));
+        imported.PaymentMethod = BuildPaymentMethod(order);
+        imported.PaymentSummary = BuildPaymentSummary(order);
+        imported.ChangeFor = ExtractChangeFor(order);
+        imported.VoucherSummary = BuildVoucherSummary(order);
+        imported.CancellationInfo = BuildCancellationInfo(order);
 
         if (order.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
         {
@@ -117,6 +157,257 @@ public static class IFoodOrderMapper
         var reference = GetString(address, "reference");
         return string.Join(", ", new[] { $"{street} {number}".Trim(), complement, reference }
             .Where(value => !string.IsNullOrWhiteSpace(value)));
+    }
+
+    private static string BuildPaymentMethod(JsonElement order)
+    {
+        return PaymentElements(order)
+            .Select(element => NormalizePaymentLabel(FirstNotEmpty(
+                GetString(element, "method"),
+                GetString(element, "name"),
+                GetString(element, "type"),
+                GetString(element, "brand"),
+                GetString(element, "cardBrand"))))
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
+    }
+
+    private static string BuildPaymentSummary(JsonElement order)
+    {
+        var parts = new List<string>();
+        foreach (var payment in PaymentElements(order))
+        {
+            var method = NormalizePaymentLabel(FirstNotEmpty(
+                GetString(payment, "method"),
+                GetString(payment, "name"),
+                GetString(payment, "type"),
+                GetString(payment, "brand"),
+                GetString(payment, "cardBrand")));
+            if (string.IsNullOrWhiteSpace(method))
+            {
+                continue;
+            }
+
+            var amount = FirstPositive(
+                GetNestedDecimal(payment, "value"),
+                GetNestedDecimal(payment, "amount"),
+                GetNestedDecimal(payment, "price", "value"));
+            var type = FirstNotEmpty(GetString(payment, "paymentType"), GetString(payment, "prepaid"), GetString(payment, "liability"));
+            var delivery = IsPaymentOnDelivery(payment, type) ? "na entrega" : IsPrepaidPayment(payment, type) ? "online" : "";
+            parts.Add(string.Join(" ", new[]
+            {
+                method,
+                amount > 0m ? Money(amount) : "",
+                delivery
+            }.Where(value => !string.IsNullOrWhiteSpace(value))));
+        }
+
+        var summary = string.Join(" / ", parts.Distinct(StringComparer.OrdinalIgnoreCase));
+        var changeFor = ExtractChangeFor(order);
+        if (changeFor > 0m)
+        {
+            summary = string.IsNullOrWhiteSpace(summary)
+                ? $"Troco para {Money(changeFor)}"
+                : $"{summary} | Troco para {Money(changeFor)}";
+        }
+
+        return summary;
+    }
+
+    private static IEnumerable<JsonElement> PaymentElements(JsonElement order)
+    {
+        if (order.TryGetProperty("payments", out var payments))
+        {
+            foreach (var item in ElementOrChildren(payments, "methods", "paymentMethods", "items"))
+            {
+                yield return item;
+            }
+        }
+
+        if (order.TryGetProperty("payment", out var payment))
+        {
+            foreach (var item in ElementOrChildren(payment, "methods", "paymentMethods", "items"))
+            {
+                yield return item;
+            }
+        }
+    }
+
+    private static IEnumerable<JsonElement> ElementOrChildren(JsonElement element, params string[] childNames)
+    {
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                yield return item;
+            }
+
+            yield break;
+        }
+
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            yield break;
+        }
+
+        foreach (var childName in childNames)
+        {
+            if (element.TryGetProperty(childName, out var child) && child.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in child.EnumerateArray())
+                {
+                    yield return item;
+                }
+            }
+        }
+
+        if (childNames.All(name => !element.TryGetProperty(name, out _)))
+        {
+            yield return element;
+        }
+    }
+
+    private static string NormalizePaymentLabel(string value)
+    {
+        var normalized = (value ?? "").Trim().ToUpperInvariant();
+        return normalized switch
+        {
+            "CASH" or "MONEY" or "DINHEIRO" => "DINHEIRO",
+            "CREDIT" or "CREDIT_CARD" or "CARTAO_CREDITO" => "CARTAO CREDITO",
+            "DEBIT" or "DEBIT_CARD" or "CARTAO_DEBITO" => "CARTAO DEBITO",
+            "MEAL_VOUCHER" or "VOUCHER" => "VOUCHER",
+            _ => normalized.Replace('_', ' ')
+        };
+    }
+
+    private static bool IsPaymentOnDelivery(JsonElement payment, string type)
+    {
+        var joined = $"{type} {GetString(payment, "liability")} {GetString(payment, "paymentType")}".ToUpperInvariant();
+        return joined.Contains("OFFLINE", StringComparison.Ordinal) ||
+               joined.Contains("ON_DELIVERY", StringComparison.Ordinal) ||
+               joined.Contains("NA ENTREGA", StringComparison.Ordinal) ||
+               joined.Contains("DELIVERY", StringComparison.Ordinal);
+    }
+
+    private static bool IsPrepaidPayment(JsonElement payment, string type)
+    {
+        var joined = $"{type} {GetString(payment, "liability")} {GetString(payment, "paymentType")}".ToUpperInvariant();
+        return joined.Contains("PREPAID", StringComparison.Ordinal) ||
+               joined.Contains("ONLINE", StringComparison.Ordinal);
+    }
+
+    private static decimal ExtractChangeFor(JsonElement order)
+    {
+        var candidates = new List<decimal>
+        {
+            GetNestedDecimal(order, "cash", "changeFor", "value"),
+            GetNestedDecimal(order, "cash", "changeFor"),
+            GetNestedDecimal(order, "payment", "cash", "changeFor", "value"),
+            GetNestedDecimal(order, "payment", "changeFor", "value"),
+            GetNestedDecimal(order, "payments", "cash", "changeFor", "value"),
+            GetNestedDecimal(order, "payments", "changeFor", "value")
+        };
+
+        foreach (var payment in PaymentElements(order))
+        {
+            candidates.Add(GetNestedDecimal(payment, "cash", "changeFor", "value"));
+            candidates.Add(GetNestedDecimal(payment, "changeFor", "value"));
+            candidates.Add(GetNestedDecimal(payment, "changeFor"));
+        }
+
+        return FirstPositive(candidates.ToArray());
+    }
+
+    private static string BuildVoucherSummary(JsonElement order)
+    {
+        var values = new List<string>();
+        CollectVoucherValues(order, values);
+        return string.Join(" / ", values
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(6));
+    }
+
+    private static void CollectVoucherValues(JsonElement element, ICollection<string> values)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            var code = FirstNotEmpty(
+                GetString(element, "code"),
+                GetString(element, "voucherCode"),
+                GetString(element, "couponCode"),
+                GetString(element, "promoCode"),
+                GetString(element, "campaignCode"),
+                GetString(element, "target"));
+            var name = FirstNotEmpty(GetString(element, "name"), GetString(element, "description"), GetString(element, "title"));
+            var amount = FirstPositive(
+                GetNestedDecimal(element, "value"),
+                GetNestedDecimal(element, "amount"),
+                GetNestedDecimal(element, "amount", "value"));
+            var joined = $"{code} {name}".Trim();
+            if (joined.Contains("VOUCHER", StringComparison.OrdinalIgnoreCase) ||
+                joined.Contains("ENTGRATIS", StringComparison.OrdinalIgnoreCase) ||
+                amount > 0m && ElementNameSuggestsDiscount(element))
+            {
+                values.Add(string.Join(" ", new[] { code, name, amount > 0m ? Money(amount) : "" }.Where(value => !string.IsNullOrWhiteSpace(value))));
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.Name.Contains("benefit", StringComparison.OrdinalIgnoreCase) ||
+                    property.Name.Contains("discount", StringComparison.OrdinalIgnoreCase) ||
+                    property.Name.Contains("voucher", StringComparison.OrdinalIgnoreCase) ||
+                    property.Name.Contains("coupon", StringComparison.OrdinalIgnoreCase) ||
+                    property.Name.Contains("promotion", StringComparison.OrdinalIgnoreCase))
+                {
+                    CollectVoucherValues(property.Value, values);
+                }
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                CollectVoucherValues(item, values);
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.String)
+        {
+            var text = element.GetString() ?? "";
+            if (text.Contains("VOUCHER", StringComparison.OrdinalIgnoreCase) ||
+                text.Contains("ENTGRATIS", StringComparison.OrdinalIgnoreCase))
+            {
+                values.Add(text);
+            }
+        }
+    }
+
+    private static bool ElementNameSuggestsDiscount(JsonElement element)
+    {
+        var raw = element.GetRawText();
+        return raw.Contains("discount", StringComparison.OrdinalIgnoreCase) ||
+               raw.Contains("benefit", StringComparison.OrdinalIgnoreCase) ||
+               raw.Contains("voucher", StringComparison.OrdinalIgnoreCase) ||
+               raw.Contains("coupon", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildCancellationInfo(JsonElement order)
+    {
+        if (order.TryGetProperty("cancellation", out var cancellation))
+        {
+            return string.Join(" - ", new[]
+            {
+                GetString(cancellation, "requestedBy"),
+                GetString(cancellation, "reason"),
+                GetString(cancellation, "cancellationCode"),
+                GetString(cancellation, "message")
+            }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        }
+
+        return FirstNotEmpty(
+            GetString(order, "cancellationReason"),
+            GetString(order, "cancelReason"),
+            GetString(order, "cancellationMessage"));
     }
 
     private static string GetString(JsonElement element, string propertyName, string fallback = "")
@@ -195,6 +486,8 @@ public static class IFoodOrderMapper
     }
 
     private static string FirstNotEmpty(params string[] values) => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
+
+    private static string Money(decimal value) => value.ToString("C", Brazil);
 
     private static string AppendLine(string current, string value)
     {

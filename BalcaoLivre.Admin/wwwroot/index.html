@@ -32,6 +32,7 @@
       </div>
       <button class="nav active" data-view="dashboard">Dashboard</button>
       <button class="nav" data-view="licenses">Licencas</button>
+      <button class="nav" data-view="support">Suporte</button>
       <button class="nav" data-view="devices">Clientes</button>
       <button class="nav" data-view="keys">Criar chave</button>
       <button id="logoutButton" class="nav danger">Sair</button>
@@ -44,7 +45,7 @@
           <p id="viewSubtitle">Uso do programa, chaves e clientes ativos.</p>
         </div>
         <div class="top-actions">
-          <span id="storageMode" class="storage-badge">local-json</span>
+          <span id="storageMode" class="storage-badge error">Supabase nao configurado</span>
           <button id="refreshButton">Atualizar</button>
         </div>
       </header>
@@ -56,6 +57,7 @@
           <article class="metric"><span>Clientes 24h</span><strong id="mOnline">0</strong></article>
           <article class="metric"><span>Usuarios do app</span><strong id="mUsers">0</strong></article>
           <article class="metric"><span>Apps instalados</span><strong id="mDevices">0</strong></article>
+          <article class="metric support-metric"><span>Suporte aberto</span><strong id="mSupport">0</strong></article>
         </div>
         <div class="grid-two">
           <article class="panel">
@@ -70,6 +72,19 @@
         <article class="panel">
           <h2>Eventos recentes</h2>
           <div id="eventsList" class="event-list"></div>
+        </article>
+      </section>
+
+      <section id="supportView" class="view hidden">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Suporte por conversa</h2>
+              <span id="supportLiveBadge" class="live-badge">consulta economica</span>
+            </div>
+            <input id="supportSearch" placeholder="Buscar por cliente, telefone, chave ou mensagem">
+          </div>
+          <div id="supportList" class="support-list"></div>
         </article>
       </section>
 

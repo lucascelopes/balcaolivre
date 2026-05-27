@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f766e">
+  <title>Cardapio Digital</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./config.js"></script>
+</head>
+<body>
+  <main class="app">
+    <header class="hero">
+      <div class="brand-shell">
+        <img id="restaurantLogo" class="restaurant-logo" alt="">
+        <div id="brandFallback" class="brand-mark">BL</div>
+      </div>
+      <p class="eyebrow">Cardapio digital</p>
+      <h1 id="restaurantName">Carregando cardapio...</h1>
+      <p id="restaurantInfo" class="info">Veja os produtos e chame a equipe para pedir.</p>
+    </header>
+
+    <section id="status" class="status" aria-live="polite">Buscando produtos...</section>
+    <nav id="categoryNav" class="categories" aria-label="Categorias"></nav>
+    <section id="menuList" class="menu-list"></section>
+
+    <footer class="footer">
+      <strong>Como usar</strong>
+      <span>Escolha os itens no celular e informe seu pedido para a equipe do restaurante.</span>
+    </footer>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

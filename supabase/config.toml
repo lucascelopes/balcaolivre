@@ -2,3 +2,6 @@ project_id = "hzvplpotsdzxygkxrgyi"
 
 [functions.ifood]
 verify_jwt = false
+
+[functions.whatsapp]
+verify_jwt = false

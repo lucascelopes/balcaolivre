@@ -3,18 +3,24 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using Forms = System.Windows.Forms;
+using Button = System.Windows.Controls.Button;
 using CheckBox = System.Windows.Controls.CheckBox;
+using ComboBox = System.Windows.Controls.ComboBox;
 using ListBox = System.Windows.Controls.ListBox;
+using Orientation = System.Windows.Controls.Orientation;
 using TextBox = System.Windows.Controls.TextBox;
 using HorizontalAlignment = System.Windows.HorizontalAlignment;
 
@@ -23,10 +29,16 @@ namespace BalcaoLivre.Online.Windows;
 public partial class MainWindow
 {
     private const int WhatsAppConnectorPort = 8787;
+    private static readonly HttpClient SendPulseWhatsAppHttp = new()
+    {
+        BaseAddress = new Uri("https://api.sendpulse.com/whatsapp/")
+    };
     private Window? _whatsAppAutomationWindow;
     private WebView2? _whatsAppAutomationView;
     private TextBlock? _whatsAppAutomationStatusText;
     private string _lastWhatsAppAutomationStatus = "";
+    private readonly Dictionary<string, DateTime> _whatsAppIncomingDedupe = new();
+    private bool _sendPulseActivationRunning;
 
     private sealed class WhatsAppCatalogEntry
     {
@@ -63,8 +75,13 @@ public partial class MainWindow
 
   const seenMessages = new Set();
   const initializedChats = new Set();
+  const sentReplyKeys = new Map();
+  let activeChatName = "";
   let readyForNewMessages = false;
   let pendingUnreadOpen = null;
+  let pendingSendInProgress = false;
+  const startupUnreadBaselines = new Map();
+  let startupUnreadBaselineCaptured = false;
 
   function textOf(element) {
     return (element?.innerText || element?.textContent || "").replace(/\s+/g, " ").trim();
@@ -72,6 +89,18 @@ public partial class MainWindow
 
   function plain(value) {
     return (value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  }
+
+  function isUnreadLabel(value) {
+    const label = plain(value);
+    return label.includes("unread")
+      || label.includes("unread-count")
+      || label.includes("nao lida")
+      || label.includes("nao lidas")
+      || label.includes("nao lido")
+      || label.includes("nao lidos")
+      || label.includes("nova mensagem")
+      || label.includes("novas mensagens");
   }
 
   function postStatus(status, detail = "") {
@@ -91,6 +120,32 @@ public partial class MainWindow
       textOf(document.querySelector("header")) ||
       "WhatsApp"
     );
+  }
+
+  function chatNameFromRow(row) {
+    return (
+      row.querySelector("span[title]")?.getAttribute("title") ||
+      textOf(row).split(/\d{1,2}:\d{2}|Ontem|Yesterday/i)[0]?.trim() ||
+      ""
+    );
+  }
+
+  function chatRowKey(row) {
+    const title = chatNameFromRow(row);
+    const rowText = textOf(row)
+      .replace(/\d{1,2}:\d{2}.*/g, "")
+      .slice(0, 120);
+    return plain(title || rowText || row.getAttribute("data-id") || "");
+  }
+
+  function chatRowSignature(row) {
+    const pieces = [
+      chatNameFromRow(row),
+      ...[...row.querySelectorAll("span[title], span[dir='auto'], div[dir='auto']")]
+        .map(textOf)
+        .filter(Boolean)
+    ];
+    return plain([...new Set(pieces)].join("|").slice(0, 240));
   }
 
   function getIncomingMessages() {
@@ -135,11 +190,43 @@ public partial class MainWindow
   function unreadMarkerOf(row) {
     const markers = [
       row,
-      ...row.querySelectorAll("span[aria-label], div[aria-label], span[data-icon], [data-testid]")
+      ...row.querySelectorAll("span[aria-label], div[aria-label], span[data-icon], div[data-icon], [data-testid], span, div")
     ];
-    return markers.find((marker) => {
-      const label = plain(`${marker.getAttribute("aria-label") || ""} ${marker.getAttribute("data-icon") || ""} ${marker.getAttribute("data-testid") || ""}`);
-      return label.includes("unread") || label.includes("nao lida") || label.includes("nao lidas") || label.includes("unread-count");
+    const labelMarker = markers.find((marker) => {
+      const label = `${marker.getAttribute("aria-label") || ""} ${marker.getAttribute("data-icon") || ""} ${marker.getAttribute("data-testid") || ""} ${marker.getAttribute("title") || ""}`;
+      return isUnreadLabel(label);
+    });
+    if (labelMarker) return labelMarker;
+
+    const rowRect = row.getBoundingClientRect();
+    return [...row.querySelectorAll("span, div")].find((marker) => {
+      const markerText = textOf(marker);
+      if (!/^\d{1,3}$/.test(markerText) || !visible(marker)) return false;
+      const rect = marker.getBoundingClientRect();
+      return rect.width <= 36
+        && rect.height <= 28
+        && rect.left > rowRect.left + rowRect.width * 0.55;
+    });
+  }
+
+  function chatRows() {
+    const listRoots = [
+      document.querySelector("#pane-side"),
+      ...document.querySelectorAll("[data-testid='chat-list'], [aria-label*='Chat' i], [aria-label*='conversa' i], [aria-label*='Lista' i], [role='grid']")
+    ].filter(Boolean);
+
+    const rows = [
+      ...listRoots.flatMap((root) => [
+        ...root.querySelectorAll("[role='row'], [role='listitem'], [data-testid='cell-frame-container'], [tabindex='0'], [tabindex='-1']")
+      ]),
+      ...document.querySelectorAll("#pane-side [role='row'], #pane-side [role='listitem'], #pane-side [data-testid='cell-frame-container'], #pane-side [tabindex='0'], #pane-side [tabindex='-1']")
+    ];
+
+    return [...new Set(rows)].filter((row) => {
+      if (!row || row.closest("footer") || row.closest("header") || row.closest(".message-in, .message-out")) return false;
+      if (!visible(row)) return false;
+      const rect = row.getBoundingClientRect();
+      return rect.width > 180 && rect.height >= 38;
     });
   }
 
@@ -156,37 +243,98 @@ public partial class MainWindow
     return Math.max(1, smallNumbers.at(-1) || 1);
   }
 
-  function findUnreadChat() {
-    const listRoots = [
-      ...document.querySelectorAll("[aria-label*='Chat' i], [aria-label*='conversa' i], [aria-label*='Lista' i], [role='grid'], #pane-side, [data-testid='chat-list']")
-    ];
-    const rows = [
-      ...listRoots.flatMap((root) => [
-        ...root.querySelectorAll("[role='row'], [role='listitem'], [data-testid='cell-frame-container'], [tabindex]")
-      ]),
-      ...document.querySelectorAll("[data-testid='cell-frame-container'], #pane-side [tabindex]")
-    ];
+  function findUnreadChatsRaw() {
+    const found = [];
+    const seenRows = new Set();
+    function add(row, marker) {
+      if (!row || seenRows.has(row)) return;
+      if (row.closest("footer") || row.closest("header") || row.closest(".message-in, .message-out")) return;
+      if (!visible(row)) return;
+      seenRows.add(row);
+      found.push({
+        row,
+        count: unreadCountOf(row, marker),
+        name: chatNameFromRow(row),
+        key: chatRowKey(row),
+        signature: chatRowSignature(row)
+      });
+    }
 
-    for (const row of rows) {
-      if (row.closest("footer") || row.closest("header")) continue;
+    const directMarkers = [
+      ...document.querySelectorAll("#pane-side span[aria-label], #pane-side div[aria-label], #pane-side span[data-icon], #pane-side div[data-icon], #pane-side [data-testid]")
+    ];
+    for (const marker of directMarkers) {
+      const label = `${marker.getAttribute("aria-label") || ""} ${marker.getAttribute("data-icon") || ""} ${marker.getAttribute("data-testid") || ""} ${marker.getAttribute("title") || ""}`;
+      if (!isUnreadLabel(label)) continue;
+      add(marker.closest("[role='row'], [role='listitem'], [data-testid='cell-frame-container'], #pane-side [tabindex='0'], #pane-side [tabindex='-1']"), marker);
+    }
+
+    for (const row of chatRows()) {
       const marker = unreadMarkerOf(row);
       if (!marker) continue;
-      if (row.closest(".message-in, .message-out")) continue;
-      return { row, count: unreadCountOf(row, marker) };
+      add(row, marker);
+    }
+
+    return found;
+  }
+
+  function captureStartupUnreadBaselines() {
+    startupUnreadBaselines.clear();
+    for (const unread of findUnreadChatsRaw()) {
+      if (!unread.key) continue;
+      startupUnreadBaselines.set(unread.key, {
+        count: unread.count,
+        signature: unread.signature
+      });
+    }
+    startupUnreadBaselineCaptured = true;
+  }
+
+  function findUnreadChat() {
+    for (const unread of findUnreadChatsRaw()) {
+      const baseline = startupUnreadBaselines.get(unread.key);
+      if (startupUnreadBaselineCaptured && baseline) {
+        if (unread.count <= baseline.count && unread.signature === baseline.signature) {
+          continue;
+        }
+        unread.count = Math.max(1, unread.count - baseline.count);
+      }
+      return unread;
     }
     return null;
+  }
+
+  function clickElement(element) {
+    if (!element) return false;
+    const rect = element.getBoundingClientRect();
+    const options = {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      clientX: rect.left + Math.max(4, rect.width / 2),
+      clientY: rect.top + Math.max(4, rect.height / 2)
+    };
+    element.dispatchEvent(new PointerEvent("pointerover", options));
+    element.dispatchEvent(new MouseEvent("mouseover", options));
+    element.dispatchEvent(new PointerEvent("pointerdown", options));
+    element.dispatchEvent(new MouseEvent("mousedown", options));
+    element.dispatchEvent(new PointerEvent("pointerup", options));
+    element.dispatchEvent(new MouseEvent("mouseup", options));
+    element.dispatchEvent(new MouseEvent("click", options));
+    return true;
   }
 
   function clickUnreadChat() {
     const unread = findUnreadChat();
     if (!unread) return false;
+    const chatBefore = getChatName();
     const clickable =
       unread.row.querySelector("[role='gridcell']") ||
       unread.row.querySelector("[data-testid='cell-frame-container']") ||
       unread.row;
     clickable.scrollIntoView({ block: "center" });
-    clickable.click();
-    pendingUnreadOpen = { count: unread.count, clickedAt: Date.now() };
+    clickElement(clickable);
+    pendingUnreadOpen = { count: Math.max(1, unread.count || 1), clickedAt: Date.now(), chatBefore, targetName: unread.name || "", targetKey: unread.key || "" };
     postStatus("chat", `Abrindo conversa com ${unread.count} mensagem(ns) nova(s).`);
     return true;
   }
@@ -203,18 +351,46 @@ public partial class MainWindow
   }
 
   function processMessages(chatName, messages, processLatestCount = 0) {
-    let itemsToProcess = messages;
-    if (processLatestCount > 0 && messages.length > processLatestCount) {
-      rememberVisibleMessages(chatName, messages.slice(0, -processLatestCount));
-      itemsToProcess = messages.slice(-processLatestCount);
+    const unseenItems = [];
+    for (const item of messages) {
+      const key = messageKey(chatName, item);
+      if (!seenMessages.has(key)) unseenItems.push(item);
     }
 
+    const limit = processLatestCount > 0 ? 1 : 1;
+    const skippedItems = unseenItems.length > limit ? unseenItems.slice(0, -limit) : [];
+    for (const item of skippedItems) {
+      rememberMessage(chatName, item);
+    }
+
+    const itemsToProcess = unseenItems.slice(-limit);
     for (const item of itemsToProcess) {
-      const key = messageKey(chatName, item);
-      if (seenMessages.has(key)) continue;
       rememberMessage(chatName, item);
       postToPdv(item.text);
     }
+  }
+
+  function pruneSentReplyKeys() {
+    const now = Date.now();
+    for (const [key, sentAt] of sentReplyKeys) {
+      if (now - sentAt > 90000) sentReplyKeys.delete(key);
+    }
+  }
+
+  function replyKeyOf(chatName, text) {
+    return `${chatName || "WhatsApp"}::${String(text || "").slice(0, 500)}`;
+  }
+
+  function wasReplyRecentlySent(chatName, text) {
+    pruneSentReplyKeys();
+    const key = replyKeyOf(chatName, text);
+    const sentAt = sentReplyKeys.get(key);
+    return Boolean(sentAt && Date.now() - sentAt < 90000);
+  }
+
+  function markReplySent(chatName, text) {
+    pruneSentReplyKeys();
+    sentReplyKeys.set(replyKeyOf(chatName, text), Date.now());
   }
 
   function scanCurrentChat(options = {}) {
@@ -232,15 +408,18 @@ public partial class MainWindow
         processMessages(chatName, messages, options.processLatestCount);
         return;
       }
-      if (chatName && chatName !== "WhatsApp" && messages.length > 0) {
-        processMessages(chatName, messages, 1);
-        return;
-      }
       rememberVisibleMessages(chatName, messages);
       return;
     }
 
     processMessages(chatName, messages);
+  }
+
+  function markCurrentChatVisibleAsSeen() {
+    const chatName = getChatName();
+    activeChatName = chatName;
+    initializedChats.add(chatName);
+    rememberVisibleMessages(chatName, getIncomingMessages());
   }
 
   function visible(element) {
@@ -291,7 +470,7 @@ public partial class MainWindow
     if (!(await writeMessage(text))) return false;
 
     const button = sendButton();
-    button?.click();
+    if (button) clickElement(button);
     const sent = Boolean(button);
     postStatus(sent ? "reply" : "error", sent ? "Resposta enviada no WhatsApp." : "Nao encontrei o botao enviar do WhatsApp.");
     return sent;
@@ -299,32 +478,75 @@ public partial class MainWindow
 
   const pendingSendKey = "__balcaoLivrePendingSend";
 
-  async function attemptPendingSend() {
+  function readPendingSend() {
     const raw = sessionStorage.getItem(pendingSendKey);
-    if (!raw) return;
+    if (!raw) return null;
 
     let pending;
     try {
       pending = JSON.parse(raw);
     } catch {
       sessionStorage.removeItem(pendingSendKey);
-      return;
+      return null;
     }
 
-    if (!pending?.text || Date.now() - Number(pending.createdAt || 0) > 120000) {
+    if (!pending?.text || Date.now() - Number(pending.createdAt || 0) > 600000) {
       sessionStorage.removeItem(pendingSendKey);
-      return;
+      return null;
     }
 
-    const sent = await sendReplyText(pending.text);
-    if (sent) {
-      sessionStorage.removeItem(pendingSendKey);
-      postStatus("reply", "Mensagem enviada no WhatsApp.");
+    return pending;
+  }
+
+  async function waitForValue(factory, timeoutMs = 22000, stepMs = 400) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const value = factory();
+      if (value) return value;
+      await new Promise((resolve) => setTimeout(resolve, stepMs));
+    }
+
+    return null;
+  }
+
+  async function attemptPendingSend() {
+    if (pendingSendInProgress) return false;
+
+    const pending = readPendingSend();
+    if (!pending) return false;
+
+    pendingSendInProgress = true;
+    try {
+      postStatus("waiting", "Aguardando o WhatsApp abrir a conversa para enviar.");
+      const editable = await waitForValue(() => messageInput(), 22000, 500);
+      if (!editable) {
+        postStatus("waiting", "WhatsApp ainda carregando a conversa para envio automatico.");
+        return false;
+      }
+
+      const sent = await sendReplyText(pending.text);
+      if (sent) {
+        sessionStorage.removeItem(pendingSendKey);
+        postStatus("reply", "Mensagem enviada no WhatsApp.");
+        return true;
+      }
+
+      return false;
+    } finally {
+      pendingSendInProgress = false;
     }
   }
 
   window.__balcaoLivreSendReply = async function(text) {
-    return await sendReplyText(text);
+    const chatName = getChatName();
+    if (wasReplyRecentlySent(chatName, text)) {
+      postStatus("reply", "Resposta duplicada ignorada.");
+      return true;
+    }
+
+    const sent = await sendReplyText(text);
+    if (sent) markReplySent(chatName, text);
+    return sent;
   };
 
   window.__balcaoLivreSendToPhone = async function(phone, text) {
@@ -340,42 +562,76 @@ public partial class MainWindow
       createdAt: Date.now()
     }));
     location.href = `https://web.whatsapp.com/send?phone=${encodeURIComponent(cleanPhone)}&text=${encodeURIComponent(text)}`;
-    setTimeout(attemptPendingSend, 1800);
     return true;
   };
 
-  function scan() {
-    attemptPendingSend();
+  function isWhatsAppLoggedIn() {
+    return Boolean(document.querySelector("#pane-side, [data-testid='chat-list'], [aria-label*='Chat' i], [aria-label*='conversa' i], [role='grid'], footer div[contenteditable='true']"));
+  }
 
-    if (!readyForNewMessages) {
-      scanCurrentChat();
+  function armForNewMessages() {
+    if (readyForNewMessages) return true;
+    if (!isWhatsAppLoggedIn()) {
+      postStatus("login", "Aguardando login/QR Code do WhatsApp.");
+      return false;
+    }
+
+    captureStartupUnreadBaselines();
+    markCurrentChatVisibleAsSeen();
+    readyForNewMessages = true;
+    postStatus("ready", "Leitor do Balcao Livre ativo no WhatsApp.");
+    return true;
+  }
+
+  function scan() {
+    if (readPendingSend()) {
+      attemptPendingSend();
+      return;
+    }
+
+    if (!armForNewMessages()) {
       return;
     }
 
     if (pendingUnreadOpen) {
       if (Date.now() - pendingUnreadOpen.clickedAt < 900) return;
-      const latestCount = pendingUnreadOpen.count || 1;
+      if (Date.now() - pendingUnreadOpen.clickedAt > 7000) {
+        pendingUnreadOpen = null;
+        markCurrentChatVisibleAsSeen();
+        postStatus("waiting", "Nao consegui abrir automaticamente a conversa nao lida.");
+        return;
+      }
+
+      if (pendingUnreadOpen.chatBefore
+          && getChatName() === pendingUnreadOpen.chatBefore
+          && Date.now() - pendingUnreadOpen.clickedAt < 2200) {
+        return;
+      }
+
       pendingUnreadOpen = null;
-      scanCurrentChat({ processLatestCount: latestCount });
+      activeChatName = getChatName();
+      scanCurrentChat({ processLatestCount: 1 });
+      return;
+    }
+
+    const chatName = getChatName();
+    if (activeChatName && chatName !== activeChatName) {
+      markCurrentChatVisibleAsSeen();
+      postStatus("waiting", "Conversa aberta manualmente marcada como vista.");
       return;
     }
 
     scanCurrentChat();
     if (!clickUnreadChat()) {
-      const loggedIn = Boolean(document.querySelector("[aria-label*='Chat' i], [aria-label*='conversa' i], [role='grid'], footer div[contenteditable='true']"));
-      postStatus(loggedIn ? "waiting" : "login", loggedIn ? "Aguardando mensagem nova no WhatsApp." : "Aguardando login/QR Code do WhatsApp.");
+      postStatus(isWhatsAppLoggedIn() ? "waiting" : "login", isWhatsAppLoggedIn() ? "Aguardando mensagem nova no WhatsApp." : "Aguardando login/QR Code do WhatsApp.");
     }
   }
 
-  setTimeout(() => {
-    readyForNewMessages = true;
-    const chatName = getChatName();
-    rememberVisibleMessages(chatName, getIncomingMessages());
-    initializedChats.add(chatName);
-    postStatus("ready", "Leitor do Balcao Livre ativo no WhatsApp.");
-  }, 1500);
+  const observer = new MutationObserver(() => window.clearTimeout(window.__balcaoLivreScanSoon) || (window.__balcaoLivreScanSoon = window.setTimeout(scan, 300)));
+  observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-label", "data-icon", "data-testid", "class"] });
 
-  setInterval(scan, 2500);
+  setTimeout(scan, 1500);
+  setInterval(scan, 1800);
   scan();
 })();
 """;
@@ -400,10 +656,10 @@ public partial class MainWindow
             return;
         }
 
-        var message = BuildWhatsAppSaleMessage(context);
-        var log = AddWhatsAppLog(context, phone, message, "ABRINDO", "");
+        var message = BuildSendPulseSaleMessage(context);
+        var log = AddWhatsAppLog(context, phone, message, "ENVIANDO_WHATSAPP", "");
         SaveStore();
-        OpenWhatsAppConversation(log, settings.AutoPressEnter);
+        _ = SendWhatsAppLogViaSendPulseAsync(log);
     }
 
     private WhatsAppSaleContext CreateWhatsAppSaleContext(
@@ -1106,6 +1362,509 @@ public partial class MainWindow
 
     private void ShowWhatsAppDialog()
     {
+        ShowSimpleSendPulseWhatsAppDialog();
+    }
+
+    private void ShowSimpleSendPulseWhatsAppDialog()
+    {
+        if (!RequirePermission(user => IsCashUser(user) || CanOperateDelivery(user), "WhatsApp do cliente"))
+        {
+            return;
+        }
+
+        SaveActiveTicketToCurrentBoard();
+        var settings = GetWhatsAppSettings();
+        StopLegacyWhatsAppRuntime(settings);
+        NormalizeWhatsAppSendPulseOnlySettings();
+        SaveAppSettings();
+
+        var dialog = CreateDialog("WhatsApp automatico", 760, 560);
+        var phoneBox = new TextBox
+        {
+            Text = string.IsNullOrWhiteSpace(settings.SendPulseStorePhone)
+                ? NormalizeWhatsAppPhone(_profile.Phone, settings.DefaultCountryCode)
+                : settings.SendPulseStorePhone
+        };
+        var title = new TextBlock
+        {
+            FontSize = 20,
+            FontWeight = FontWeights.Bold,
+            Foreground = Solid("#18222B")
+        };
+        var status = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        var hint = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = Solid("#667684"),
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        var badgeText = new TextBlock
+        {
+            FontWeight = FontWeights.Bold,
+            FontSize = 12
+        };
+        var badge = new Border
+        {
+            Child = badgeText,
+            CornerRadius = new CornerRadius(999),
+            Padding = new Thickness(10, 4, 10, 4),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        var historyList = new ListBox
+        {
+            DisplayMemberPath = nameof(WhatsAppMessageLog.Display),
+            ItemsSource = WhatsAppHistory,
+            Height = 170
+        };
+
+        void SavePhone()
+        {
+            var nextPhone = NormalizeWhatsAppPhone(phoneBox.Text, settings.DefaultCountryCode);
+            if (!string.Equals(settings.SendPulseStorePhone, nextPhone, StringComparison.Ordinal))
+            {
+                settings.SendPulseBotId = "";
+                settings.SendPulseActivationPending = true;
+            }
+
+            settings.Enabled = true;
+            settings.Provider = "META";
+            settings.DefaultCountryCode = "55";
+            settings.SendPulseStorePhone = nextPhone;
+            NormalizeWhatsAppSendPulseOnlySettings();
+            StopLegacyWhatsAppRuntime(settings);
+            SaveAppSettings();
+            SaveStore();
+        }
+
+        void RenderState(string? message = null, bool? ok = null)
+        {
+            var phone = NormalizeWhatsAppPhone(phoneBox.Text, settings.DefaultCountryCode);
+            var active = settings.Enabled
+                && !string.IsNullOrWhiteSpace(_appSettings.ActivationKey)
+                && !string.IsNullOrWhiteSpace(settings.SendPulseBotId)
+                && !settings.SendPulseActivationPending
+                && !string.IsNullOrWhiteSpace(phone);
+            title.Text = active ? "WhatsApp ativo" : "WhatsApp ainda nao ativo";
+            badge.Background = Solid(active ? "#E8F7F4" : "#FFF2CB");
+            badge.BorderBrush = Solid(active ? "#BDE5DD" : "#F7D87A");
+            badge.BorderThickness = new Thickness(1);
+            badgeText.Foreground = active ? GreenText : AmberText;
+            badgeText.Text = active ? "ATIVO" : "PENDENTE";
+            status.Foreground = ok.HasValue
+                ? ok.Value ? GreenText : AmberText
+                : active ? GreenText : Solid("#667684");
+            status.Text = message ?? (active
+                ? "Numero conectado. O PDV envia mensagens automaticamente pelo servico central."
+                : "Informe o numero da loja e clique em Ativar. O app encontra o WhatsApp conectado no provedor automaticamente.");
+            hint.Text = active
+                ? $"Numero da loja: {phone}. O operador nao precisa abrir WhatsApp Web."
+                : "O usuario so informa o numero. A integracao fica pendente por tras ate esse WhatsApp estar liberado para envio automatico.";
+        }
+
+        var activate = DialogButton("Ativar numero", "#0F766E");
+        activate.Click += async (_, _) =>
+        {
+            SavePhone();
+            if (string.IsNullOrWhiteSpace(settings.SendPulseStorePhone))
+            {
+                phoneBox.Focus();
+                RenderState("Informe o numero do WhatsApp da loja com DDD.", false);
+                return;
+            }
+
+            activate.IsEnabled = false;
+            RenderState("Ativando WhatsApp automatico...", null);
+            var result = await ActivateSendPulseStorePhoneAsync(settings, settings.SendPulseStorePhone);
+            activate.IsEnabled = true;
+            historyList.Items.Refresh();
+            RenderState(result.Message, result.Ok);
+            SetStatus(result.Message);
+        };
+
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Children = { activate }
+        };
+        activate.Margin = new Thickness(0, 12, 0, 0);
+
+        var statusCard = BorderCard();
+        statusCard.Margin = new Thickness(0, 0, 0, 12);
+        statusCard.Child = new StackPanel
+        {
+            Children = { title, badge, hint }
+        };
+
+        var phoneCard = BorderCard();
+        phoneCard.Margin = new Thickness(0, 0, 0, 12);
+        phoneCard.Child = new StackPanel
+        {
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Numero da loja",
+                    Foreground = Solid("#18222B"),
+                    FontSize = 18,
+                    FontWeight = FontWeights.Bold
+                },
+                DialogHint("Use o numero do WhatsApp Business que atende os clientes."),
+                DialogField("WhatsApp", phoneBox),
+                actions,
+                status
+            }
+        };
+
+        var historyCard = BorderCard();
+        historyCard.Child = new StackPanel
+        {
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Ultimos envios",
+                    Foreground = Solid("#18222B"),
+                    FontSize = 18,
+                    FontWeight = FontWeights.Bold
+                },
+                historyList
+            }
+        };
+
+        var panel = DialogPanel();
+        panel.Children.Add(statusCard);
+        panel.Children.Add(phoneCard);
+        panel.Children.Add(historyCard);
+        dialog.Content = new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+        RenderState();
+        dialog.ShowDialog();
+    }
+
+    private void ShowSendPulseWhatsAppDialog()
+    {
+        if (!RequirePermission(user => IsCashUser(user) || CanOperateDelivery(user), "WhatsApp do cliente"))
+        {
+            return;
+        }
+
+        SaveActiveTicketToCurrentBoard();
+        var settings = GetWhatsAppSettings();
+        StopLegacyWhatsAppRuntime(settings);
+        NormalizeWhatsAppSendPulseOnlySettings();
+        SaveAppSettings();
+
+        var board = CurrentBoard;
+        var dialog = CreateDialog("WhatsApp SendPulse", 900, 720);
+        var apiKeyBox = new PasswordBox
+        {
+            Password = settings.SendPulseApiKey,
+            Height = 38
+        };
+        var botIdBox = new TextBox { Text = settings.SendPulseBotId };
+        var customerBox = new TextBox
+        {
+            Text = string.IsNullOrWhiteSpace(board?.CustomerName) ? "CLIENTE" : board.CustomerName
+        };
+        var phoneBox = new TextBox
+        {
+            Text = NormalizeWhatsAppPhone(board?.Phone ?? "", settings.DefaultCountryCode)
+        };
+        var saleClosedBox = ScriptBox(settings.SendPulseSaleClosedScript);
+        var confirmedBox = ScriptBox(settings.SendPulseOrderConfirmedScript);
+        var readyBox = ScriptBox(settings.SendPulseOrderReadyScript);
+        var dispatchedBox = ScriptBox(settings.SendPulseOrderDispatchedScript);
+        var scriptSelector = new ComboBox
+        {
+            ItemsSource = new[]
+            {
+                "Venda finalizada",
+                "Pedido confirmado",
+                "Pedido pronto",
+                "Saiu para entrega"
+            },
+            SelectedIndex = 0
+        };
+        var messageBox = new TextBox
+        {
+            Height = 130,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+        };
+        var statusText = new TextBlock
+        {
+            Foreground = Solid("#667684"),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        var botsList = new ListBox
+        {
+            DisplayMemberPath = nameof(SendPulseBotOption.Display),
+            Height = 92
+        };
+        var historyList = new ListBox
+        {
+            DisplayMemberPath = nameof(WhatsAppMessageLog.Display),
+            ItemsSource = WhatsAppHistory,
+            Height = 130
+        };
+
+        TextBox ScriptBox(string value) => new()
+        {
+            Text = value,
+            Height = 92,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+        };
+
+        Grid TwoColumns(UIElement left, UIElement right)
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            if (left is FrameworkElement leftElement)
+            {
+                leftElement.Margin = new Thickness(0, 0, 8, 0);
+            }
+
+            if (right is FrameworkElement rightElement)
+            {
+                rightElement.Margin = new Thickness(8, 0, 0, 0);
+            }
+
+            grid.Children.Add(left);
+            Grid.SetColumn(right, 1);
+            grid.Children.Add(right);
+            return grid;
+        }
+
+        StackPanel ButtonRow(params Button[] buttons)
+        {
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+            foreach (var button in buttons)
+            {
+                button.Margin = new Thickness(10, 12, 0, 0);
+                row.Children.Add(button);
+            }
+
+            return row;
+        }
+
+        void SaveSendPulseSettingsFromInputs()
+        {
+            settings.Enabled = true;
+            settings.Provider = "META";
+            settings.DefaultCountryCode = "55";
+            settings.SendPulseApiKey = NormalizeSendPulseApiKey(apiKeyBox.Password);
+            settings.SendPulseBotId = botIdBox.Text.Trim();
+            settings.SendPulseSaleClosedScript = saleClosedBox.Text.Trim();
+            settings.SendPulseOrderConfirmedScript = confirmedBox.Text.Trim();
+            settings.SendPulseOrderReadyScript = readyBox.Text.Trim();
+            settings.SendPulseOrderDispatchedScript = dispatchedBox.Text.Trim();
+            NormalizeWhatsAppSendPulseOnlySettings();
+            StopLegacyWhatsAppRuntime(settings);
+            SaveAppSettings();
+        }
+
+        string SelectedTemplate()
+        {
+            return scriptSelector.SelectedIndex switch
+            {
+                1 => confirmedBox.Text,
+                2 => readyBox.Text,
+                3 => dispatchedBox.Text,
+                _ => saleClosedBox.Text
+            };
+        }
+
+        void RefreshPreview()
+        {
+            SaveActiveTicketToCurrentBoard();
+            messageBox.Text = BuildSendPulseMessageFromTemplate(
+                SelectedTemplate(),
+                customerBox.Text,
+                phoneBox.Text,
+                CurrentBoard);
+        }
+
+        var save = DialogButton("Salvar", "#0F766E");
+        save.Click += (_, _) =>
+        {
+            SaveSendPulseSettingsFromInputs();
+            statusText.Foreground = GreenText;
+            statusText.Text = "Configuracao SendPulse salva. O modulo antigo de WhatsApp Web fica desligado.";
+            SetStatus("WhatsApp SendPulse configurado.");
+        };
+
+        var fetchBots = DialogButton("Buscar bots", "#245B91");
+        fetchBots.Click += async (_, _) =>
+        {
+            SaveSendPulseSettingsFromInputs();
+            fetchBots.IsEnabled = false;
+            statusText.Foreground = Solid("#667684");
+            statusText.Text = "Consultando bots do WhatsApp na SendPulse...";
+            var result = await FetchSendPulseBotsAsync(settings);
+            fetchBots.IsEnabled = true;
+            if (!result.Ok)
+            {
+                statusText.Foreground = RedText;
+                statusText.Text = result.Message;
+                return;
+            }
+
+            botsList.ItemsSource = result.Bots;
+            if (result.Bots.Count > 0 && string.IsNullOrWhiteSpace(botIdBox.Text))
+            {
+                botIdBox.Text = result.Bots[0].Id;
+                SaveSendPulseSettingsFromInputs();
+            }
+
+            statusText.Foreground = GreenText;
+            statusText.Text = result.Bots.Count == 0
+                ? "Nenhum bot WhatsApp encontrado nessa conta SendPulse."
+                : $"Bots encontrados: {result.Bots.Count:N0}. Use o Bot ID do WhatsApp conectado.";
+        };
+
+        var applyScript = DialogButton("Aplicar script", "#245B91");
+        applyScript.Click += (_, _) => RefreshPreview();
+        scriptSelector.SelectionChanged += (_, _) => RefreshPreview();
+
+        var sendTest = DialogButton("Enviar mensagem", "#0F766E");
+        sendTest.Click += async (_, _) =>
+        {
+            SaveSendPulseSettingsFromInputs();
+            var phone = NormalizeWhatsAppPhone(phoneBox.Text, settings.DefaultCountryCode);
+            var message = messageBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(phone))
+            {
+                statusText.Foreground = RedText;
+                statusText.Text = "Informe o telefone do cliente com DDD.";
+                phoneBox.Focus();
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                statusText.Foreground = RedText;
+                statusText.Text = "Informe a mensagem antes de enviar.";
+                messageBox.Focus();
+                return;
+            }
+
+            var log = AddWhatsAppInteractionLog(customerBox.Text, phone, message, "ENVIANDO_WHATSAPP");
+            SaveStore();
+            historyList.Items.Refresh();
+            sendTest.IsEnabled = false;
+            statusText.Foreground = Solid("#667684");
+            statusText.Text = "Enviando pela API SendPulse...";
+            await SendWhatsAppLogViaSendPulseAsync(log);
+            sendTest.IsEnabled = true;
+            historyList.Items.Refresh();
+            statusText.Foreground = string.IsNullOrWhiteSpace(log.Error) ? GreenText : RedText;
+            statusText.Text = string.IsNullOrWhiteSpace(log.Error)
+                ? "Mensagem enviada pela SendPulse."
+                : log.Error;
+        };
+
+        RefreshPreview();
+
+        var configCard = BorderCard();
+        configCard.Margin = new Thickness(0, 0, 0, 12);
+        configCard.Child = new StackPanel
+        {
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Conexao SendPulse",
+                    Foreground = Solid("#18222B"),
+                    FontSize = 18,
+                    FontWeight = FontWeights.Bold
+                },
+                DialogHint("Use API key da SendPulse e o Bot ID do WhatsApp conectado. O PDV nao abre WhatsApp Web e nao usa envio por navegador."),
+                TwoColumns(DialogField("API key", apiKeyBox), DialogField("Bot ID WhatsApp", botIdBox)),
+                botsList,
+                ButtonRow(fetchBots, save)
+            }
+        };
+
+        var scriptsCard = BorderCard();
+        scriptsCard.Margin = new Thickness(0, 0, 0, 12);
+        scriptsCard.Child = new StackPanel
+        {
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Mensagens scriptadas",
+                    Foreground = Solid("#18222B"),
+                    FontSize = 18,
+                    FontWeight = FontWeights.Bold
+                },
+                DialogHint("Tokens aceitos: {cliente}, {loja}, {pedido}, {total}, {itens}, {data}, {hora}."),
+                DialogField("Venda finalizada", saleClosedBox),
+                TwoColumns(DialogField("Pedido confirmado", confirmedBox), DialogField("Pedido pronto", readyBox)),
+                DialogField("Saiu para entrega", dispatchedBox)
+            }
+        };
+
+        var sendCard = BorderCard();
+        sendCard.Margin = new Thickness(0, 0, 0, 12);
+        sendCard.Child = new StackPanel
+        {
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Enviar para cliente",
+                    Foreground = Solid("#18222B"),
+                    FontSize = 18,
+                    FontWeight = FontWeights.Bold
+                },
+                TwoColumns(DialogField("Cliente", customerBox), DialogField("Telefone", phoneBox)),
+                DialogField("Script", scriptSelector),
+                DialogField("Mensagem", messageBox),
+                ButtonRow(applyScript, sendTest),
+                statusText
+            }
+        };
+
+        var panel = DialogPanel();
+        panel.Children.Add(configCard);
+        panel.Children.Add(scriptsCard);
+        panel.Children.Add(sendCard);
+        panel.Children.Add(DialogLabel("Historico"));
+        panel.Children.Add(historyList);
+
+        dialog.Content = new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+        dialog.ShowDialog();
+    }
+
+    private void ShowLegacyWhatsAppDialog()
+    {
         if (!RequirePermission(user => IsCashUser(user) || CanOperateDelivery(user), "WhatsApp do cliente"))
         {
             return;
@@ -1386,6 +2145,12 @@ public partial class MainWindow
             return;
         }
 
+        if (ShouldIgnoreDuplicateWhatsAppAutomationMessage(request))
+        {
+            UpdateWhatsAppAutomationStatus("waiting", "Mensagem duplicada ignorada pelo PDV.");
+            return;
+        }
+
         UpdateWhatsAppAutomationStatus("message", string.IsNullOrWhiteSpace(request.Detail) ? request.Message : request.Detail);
         var settings = GetWhatsAppSettings();
         var reply = HandleWhatsAppIncomingMessage(
@@ -1413,6 +2178,37 @@ public partial class MainWindow
             Debug.WriteLine($"WhatsApp reply failed: {ex.Message}");
             UpdateWhatsAppAutomationStatus("error", $"Falha ao enviar resposta: {ex.Message}");
         }
+    }
+
+    private bool ShouldIgnoreDuplicateWhatsAppAutomationMessage(WhatsAppWebViewMessage request)
+    {
+        var now = DateTime.Now;
+        var staleKeys = new List<string>();
+        foreach (var item in _whatsAppIncomingDedupe)
+        {
+            if (now - item.Value > TimeSpan.FromMinutes(10))
+            {
+                staleKeys.Add(item.Key);
+            }
+        }
+
+        foreach (var key in staleKeys)
+        {
+            _whatsAppIncomingDedupe.Remove(key);
+        }
+
+        var customerKey = NormalizeWhatsAppText(string.IsNullOrWhiteSpace(request.CustomerName) ? request.ChatId : request.CustomerName);
+        var phoneKey = NormalizeWhatsAppText(request.Phone);
+        var messageKey = NormalizeWhatsAppText(request.Message);
+        var dedupeKey = $"{customerKey}|{phoneKey}|{messageKey}";
+        if (_whatsAppIncomingDedupe.TryGetValue(dedupeKey, out var lastSeen)
+            && now - lastSeen < TimeSpan.FromSeconds(45))
+        {
+            return true;
+        }
+
+        _whatsAppIncomingDedupe[dedupeKey] = now;
+        return false;
     }
 
     private void UpdateWhatsAppAutomationStatus(string status, string detail)
@@ -1477,6 +2273,737 @@ public partial class MainWindow
         return _appSettings.WhatsApp ??= new WhatsAppSettings();
     }
 
+    private sealed class SendPulseBotOption
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Phone { get; set; } = "";
+        public string Status { get; set; } = "";
+        public bool IsActive { get; set; }
+        public string Display => string.IsNullOrWhiteSpace(Name)
+            ? $"{Id}  {Status}".Trim()
+            : $"{Name}  |  {Phone}  |  {Id}  {Status}".Trim();
+    }
+
+    private sealed class SendPulseBotsResult
+    {
+        public bool Ok { get; set; }
+        public string Message { get; set; } = "";
+        public List<SendPulseBotOption> Bots { get; set; } = [];
+
+        public static SendPulseBotsResult Fail(string message) => new() { Ok = false, Message = message };
+        public static SendPulseBotsResult OkResult(List<SendPulseBotOption> bots) => new() { Ok = true, Bots = bots };
+    }
+
+    private sealed class SendPulseActivationResult
+    {
+        public bool Ok { get; set; }
+        public bool NeedsConnection { get; set; }
+        public string Message { get; set; } = "";
+
+        public static SendPulseActivationResult Success(string message) => new() { Ok = true, Message = message };
+        public static SendPulseActivationResult Fail(string message, bool needsConnection = false) => new()
+        {
+            Ok = false,
+            NeedsConnection = needsConnection,
+            Message = message
+        };
+    }
+
+    private bool NormalizeWhatsAppSendPulseOnlySettings()
+    {
+        var settings = GetWhatsAppSettings();
+        var changed = false;
+
+        if (!settings.Enabled)
+        {
+            settings.Enabled = true;
+            changed = true;
+        }
+
+        if (!string.Equals(settings.Provider, "META", StringComparison.Ordinal))
+        {
+            settings.Provider = "META";
+            changed = true;
+        }
+
+        if (!string.Equals(settings.DefaultCountryCode, "55", StringComparison.Ordinal))
+        {
+            settings.DefaultCountryCode = "55";
+            changed = true;
+        }
+
+        if (settings.AutoPressEnter)
+        {
+            settings.AutoPressEnter = false;
+            changed = true;
+        }
+
+        if (settings.ExtensionInstalledConfirmed)
+        {
+            settings.ExtensionInstalledConfirmed = false;
+            changed = true;
+        }
+
+        if (settings.LocalConnectorEnabled)
+        {
+            settings.LocalConnectorEnabled = false;
+            changed = true;
+        }
+
+        if (settings.AutoReplyConnector)
+        {
+            settings.AutoReplyConnector = false;
+            changed = true;
+        }
+
+        if (settings.AutoCreateConfirmedOrders)
+        {
+            settings.AutoCreateConfirmedOrders = false;
+            changed = true;
+        }
+
+        if (settings.ManagedBrowserProcessId != 0)
+        {
+            settings.ManagedBrowserProcessId = 0;
+            changed = true;
+        }
+
+        if (settings.LocalConnectorPort != WhatsAppConnectorPort)
+        {
+            settings.LocalConnectorPort = WhatsAppConnectorPort;
+            changed = true;
+        }
+        if (string.IsNullOrWhiteSpace(settings.SendPulseSaleClosedScript))
+        {
+            settings.SendPulseSaleClosedScript = DefaultSendPulseScript("SALE_CLOSED");
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.SendPulseOrderConfirmedScript))
+        {
+            settings.SendPulseOrderConfirmedScript = DefaultSendPulseScript("ORDER_CONFIRMED");
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.SendPulseOrderReadyScript))
+        {
+            settings.SendPulseOrderReadyScript = DefaultSendPulseScript("ORDER_READY");
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.SendPulseOrderDispatchedScript))
+        {
+            settings.SendPulseOrderDispatchedScript = DefaultSendPulseScript("ORDER_DISPATCHED");
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static void MergeWhatsAppSendPulseSettings(WhatsAppSettings? source, WhatsAppSettings target)
+    {
+        if (source is null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.SendPulseApiKey))
+        {
+            target.SendPulseApiKey = source.SendPulseApiKey;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.SendPulseBotId))
+        {
+            target.SendPulseBotId = source.SendPulseBotId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.SendPulseStorePhone))
+        {
+            target.SendPulseStorePhone = source.SendPulseStorePhone;
+        }
+
+        if (source.SendPulseLastActivationAt.HasValue)
+        {
+            target.SendPulseLastActivationAt = source.SendPulseLastActivationAt;
+        }
+
+        if (source.SendPulseActivationPending)
+        {
+            target.SendPulseActivationPending = true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.SendPulseSaleClosedScript))
+        {
+            target.SendPulseSaleClosedScript = source.SendPulseSaleClosedScript;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.SendPulseOrderConfirmedScript))
+        {
+            target.SendPulseOrderConfirmedScript = source.SendPulseOrderConfirmedScript;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.SendPulseOrderReadyScript))
+        {
+            target.SendPulseOrderReadyScript = source.SendPulseOrderReadyScript;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.SendPulseOrderDispatchedScript))
+        {
+            target.SendPulseOrderDispatchedScript = source.SendPulseOrderDispatchedScript;
+        }
+    }
+
+    private void StopLegacyWhatsAppRuntime(WhatsAppSettings settings)
+    {
+        settings.Provider = "META";
+        settings.AutoPressEnter = false;
+        settings.ExtensionInstalledConfirmed = false;
+        settings.LocalConnectorEnabled = false;
+        settings.AutoReplyConnector = false;
+        settings.AutoCreateConfirmedOrders = false;
+        CloseManagedWhatsAppBrowser(settings);
+        _ = _whatsAppConnectorServer?.StopAsync();
+        _whatsAppConnectorServer = null;
+        if (_whatsAppAutomationWindow is not null)
+        {
+            try
+            {
+                _whatsAppAutomationWindow.Close();
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+    }
+
+    private static string DefaultSendPulseScript(string kind)
+    {
+        return kind switch
+        {
+            "ORDER_CONFIRMED" => "Ola, {cliente}. Recebemos seu pedido {pedido} no {loja}. Total: {total}. Ja estamos preparando.",
+            "ORDER_READY" => "Ola, {cliente}. Seu pedido {pedido} esta pronto no {loja}.",
+            "ORDER_DISPATCHED" => "Ola, {cliente}. Seu pedido {pedido} saiu para entrega. Total: {total}.",
+            _ => "Ola, {cliente}.\nSeu pedido {pedido} foi finalizado no {loja}.\nTotal: {total}\n\nItens:\n{itens}\n\nObrigado pela preferencia."
+        };
+    }
+
+    private string BuildSendPulseSaleMessage(WhatsAppSaleContext context)
+    {
+        return ApplySendPulseScriptTokens(
+            GetWhatsAppSettings().SendPulseSaleClosedScript,
+            context.CustomerName,
+            context.Phone,
+            context.BoardKind,
+            context.BoardNumber,
+            context.Total,
+            context.Lines);
+    }
+
+    private string BuildSendPulseMessageFromTemplate(string template, string customerName, string phone, TableTile? board)
+    {
+        var lines = board?.Lines ?? new List<TicketLine>();
+        var total = board?.Total ?? lines.Sum(line => line.Total);
+        return ApplySendPulseScriptTokens(
+            template,
+            customerName,
+            phone,
+            board?.Kind ?? "PEDIDO",
+            board?.Number ?? "",
+            total,
+            lines);
+    }
+
+    private string ApplySendPulseScriptTokens(
+        string template,
+        string customerName,
+        string phone,
+        string boardKind,
+        string boardNumber,
+        decimal total,
+        IEnumerable<TicketLine> lines)
+    {
+        var business = string.IsNullOrWhiteSpace(_profile.BusinessName) ? AppReceiptName : _profile.BusinessName.Trim();
+        var customer = string.IsNullOrWhiteSpace(customerName) ? "cliente" : customerName.Trim();
+        var order = $"{boardKind} {boardNumber}".Trim();
+        if (string.IsNullOrWhiteSpace(order))
+        {
+            order = "pedido";
+        }
+
+        var replacements = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["cliente"] = customer,
+            ["loja"] = business,
+            ["pedido"] = order,
+            ["telefone"] = NormalizeWhatsAppPhone(phone, "55"),
+            ["total"] = Money(total),
+            ["itens"] = BuildSendPulseItemsText(lines),
+            ["data"] = DateTime.Now.ToString("dd/MM/yyyy", Brazil),
+            ["hora"] = DateTime.Now.ToString("HH:mm", Brazil)
+        };
+
+        var text = string.IsNullOrWhiteSpace(template) ? DefaultSendPulseScript("SALE_CLOSED") : template;
+        foreach (var item in replacements)
+        {
+            text = Regex.Replace(
+                text,
+                "\\{" + Regex.Escape(item.Key) + "\\}",
+                item.Value.Replace("$", "$$", StringComparison.Ordinal),
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        }
+
+        return text.Trim();
+    }
+
+    private string BuildSendPulseItemsText(IEnumerable<TicketLine> lines)
+    {
+        var visibleLines = lines
+            .Where(line => !IsTableCharge(line))
+            .Take(12)
+            .ToList();
+        if (visibleLines.Count == 0)
+        {
+            return "Itens nao informados";
+        }
+
+        var sb = new StringBuilder();
+        foreach (var line in visibleLines)
+        {
+            sb.AppendLine($"{line.Quantity}x {line.Name} - {Money(line.Total)}");
+        }
+
+        return sb.ToString().Trim();
+    }
+
+    private async Task<SendPulseBotsResult> FetchSendPulseBotsAsync(WhatsAppSettings settings)
+    {
+        if (!TryValidateSendPulseSettings(settings, requireBotId: false, out var error))
+        {
+            return SendPulseBotsResult.Fail(error);
+        }
+
+        try
+        {
+            using var request = CreateSendPulseRequest(HttpMethod.Get, "bots", settings);
+            using var response = await SendPulseWhatsAppHttp.SendAsync(request).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return SendPulseBotsResult.Fail(ExtractSendPulseError(response.StatusCode, body));
+            }
+
+            return SendPulseBotsResult.OkResult(ParseSendPulseBots(body));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            return SendPulseBotsResult.Fail($"Falha ao consultar SendPulse: {ex.Message}");
+        }
+    }
+
+    private async Task<SendPulseActivationResult> ActivateSendPulseStorePhoneAsync(WhatsAppSettings settings, string storePhone)
+    {
+        var phone = NormalizeWhatsAppPhone(storePhone, settings.DefaultCountryCode);
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            return SendPulseActivationResult.Fail("Informe o numero do WhatsApp da loja com DDD.");
+        }
+
+        settings.SendPulseStorePhone = phone;
+        if (string.IsNullOrWhiteSpace(_appSettings.ActivationKey))
+        {
+            await SavePendingSendPulseActivationAsync(settings).ConfigureAwait(false);
+            return SendPulseActivationResult.Fail("Ative a licenca antes de liberar WhatsApp automatico.", needsConnection: true);
+        }
+
+        var endpoint = BuildWhatsAppFunctionUri("/activate");
+        if (endpoint is null)
+        {
+            await SavePendingSendPulseActivationAsync(settings).ConfigureAwait(false);
+            return SendPulseActivationResult.Fail("URL do WhatsApp no Supabase invalida.", needsConnection: true);
+        }
+
+        var basePayload = CreateAdminClientPayload("whatsapp.activate", _appSettings.ActivationKey, _appSettings.ActivationExpiresAt, _appSettings.ActivationPlan);
+        var payload = new AdminWhatsAppActivationPayload
+        {
+            EventName = basePayload.EventName,
+            LicenseKey = basePayload.LicenseKey,
+            MachineHash = basePayload.MachineHash,
+            MachineCode = basePayload.MachineCode,
+            AppVersion = basePayload.AppVersion,
+            LocalExpiresAt = basePayload.LocalExpiresAt,
+            LocalPlan = basePayload.LocalPlan,
+            Profile = basePayload.Profile,
+            Settings = basePayload.Settings,
+            Metrics = basePayload.Metrics,
+            StorePhone = phone,
+            LocalWhen = DateTimeOffset.Now
+        };
+
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            using var content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
+            using var response = await client.PostAsync(endpoint, content).ConfigureAwait(false);
+            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            var result = JsonSerializer.Deserialize<AdminWhatsAppResult>(json, JsonOptions);
+            if (result is null)
+            {
+                await SavePendingSendPulseActivationAsync(settings).ConfigureAwait(false);
+                return SendPulseActivationResult.Fail(response.IsSuccessStatusCode
+                    ? "Supabase nao retornou o status do WhatsApp."
+                    : "Supabase recusou o WhatsApp, mas nao retornou detalhes.", needsConnection: true);
+            }
+
+            settings.SendPulseStorePhone = string.IsNullOrWhiteSpace(result.StorePhone) ? phone : result.StorePhone;
+            settings.Enabled = true;
+            settings.Provider = "META";
+            settings.SendPulseLastActivationAt = DateTime.Now;
+            if (result.Ok)
+            {
+                settings.SendPulseBotId = "CENTRAL";
+                settings.SendPulseActivationPending = false;
+            }
+            else
+            {
+                settings.SendPulseBotId = "";
+                settings.SendPulseActivationPending = true;
+            }
+
+            NormalizeWhatsAppSendPulseOnlySettings();
+            await Dispatcher.InvokeAsync(() =>
+            {
+                SaveAppSettings();
+                SaveStore();
+            }, DispatcherPriority.Background);
+
+            var message = string.IsNullOrWhiteSpace(result.Message)
+                ? result.Ok ? "WhatsApp automatico ativado para esse numero." : "Numero salvo. A ativacao automatica ficou pendente."
+                : result.Message.Trim();
+            return result.Ok
+                ? SendPulseActivationResult.Success(message)
+                : SendPulseActivationResult.Fail(message, needsConnection: result.Pending);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException)
+        {
+            await SavePendingSendPulseActivationAsync(settings).ConfigureAwait(false);
+            Debug.WriteLine($"Supabase WhatsApp activation failed: {ex.Message}");
+            return SendPulseActivationResult.Fail("Supabase indisponivel agora. O numero ficou salvo e sera tentado novamente.", needsConnection: true);
+        }
+    }
+
+    private async Task SavePendingSendPulseActivationAsync(WhatsAppSettings settings)
+    {
+        settings.Enabled = true;
+        settings.Provider = "META";
+        settings.SendPulseBotId = "";
+        settings.SendPulseActivationPending = true;
+        settings.SendPulseLastActivationAt = DateTime.Now;
+        NormalizeWhatsAppSendPulseOnlySettings();
+        await Dispatcher.InvokeAsync(() =>
+        {
+            SaveAppSettings();
+            SaveStore();
+        }, DispatcherPriority.Background);
+    }
+
+    private async Task TryAutoActivatePendingSendPulseAsync()
+    {
+        var settings = GetWhatsAppSettings();
+        if (_sendPulseActivationRunning
+            || !settings.SendPulseActivationPending
+            || string.IsNullOrWhiteSpace(settings.SendPulseStorePhone)
+            || string.IsNullOrWhiteSpace(_appSettings.ActivationKey))
+        {
+            return;
+        }
+
+        _sendPulseActivationRunning = true;
+        try
+        {
+            var result = await ActivateSendPulseStorePhoneAsync(settings, settings.SendPulseStorePhone);
+            if (result.Ok)
+            {
+                SetStatus(result.Message);
+            }
+        }
+        finally
+        {
+            _sendPulseActivationRunning = false;
+        }
+    }
+
+    private static SendPulseBotOption? FindSendPulseBotForPhone(IEnumerable<SendPulseBotOption> bots, string phone)
+    {
+        return bots
+            .Where(bot => !string.IsNullOrWhiteSpace(bot.Phone))
+            .FirstOrDefault(bot => PhoneMatchesBot(phone, bot.Phone));
+    }
+
+    private static bool PhoneMatchesBot(string phone, string botPhone)
+    {
+        var left = new string((phone ?? "").Where(char.IsDigit).ToArray());
+        var right = new string((botPhone ?? "").Where(char.IsDigit).ToArray());
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+        {
+            return false;
+        }
+
+        return string.Equals(left, right, StringComparison.Ordinal)
+            || left.EndsWith(right, StringComparison.Ordinal)
+            || right.EndsWith(left, StringComparison.Ordinal);
+    }
+
+    private async Task SendWhatsAppLogViaSendPulseAsync(WhatsAppMessageLog log)
+    {
+        var settings = GetWhatsAppSettings();
+        if (!TryValidateSendPulseSettings(settings, requireBotId: false, out var validationError))
+        {
+            await UpdateSendPulseLogAsync(log, false, validationError).ConfigureAwait(false);
+            return;
+        }
+
+        var phone = NormalizeWhatsAppPhone(log.Phone, settings.DefaultCountryCode);
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            await UpdateSendPulseLogAsync(log, false, "Cliente sem telefone valido para WhatsApp.").ConfigureAwait(false);
+            return;
+        }
+
+        var endpoint = BuildWhatsAppFunctionUri("/send");
+        if (endpoint is null)
+        {
+            await UpdateSendPulseLogAsync(log, false, "URL do WhatsApp no Supabase invalida.").ConfigureAwait(false);
+            return;
+        }
+
+        var basePayload = CreateAdminClientPayload("whatsapp.send", _appSettings.ActivationKey, _appSettings.ActivationExpiresAt, _appSettings.ActivationPlan);
+        var payload = new AdminWhatsAppSendPayload
+        {
+            EventName = basePayload.EventName,
+            LicenseKey = basePayload.LicenseKey,
+            MachineHash = basePayload.MachineHash,
+            MachineCode = basePayload.MachineCode,
+            AppVersion = basePayload.AppVersion,
+            LocalExpiresAt = basePayload.LocalExpiresAt,
+            LocalPlan = basePayload.LocalPlan,
+            Profile = basePayload.Profile,
+            Settings = basePayload.Settings,
+            Metrics = basePayload.Metrics,
+            StorePhone = settings.SendPulseStorePhone,
+            CustomerName = log.CustomerName,
+            CustomerPhone = phone,
+            Message = log.Message,
+            BoardKind = log.BoardKind,
+            BoardNumber = log.BoardNumber,
+            Total = log.Total,
+            LocalWhen = DateTimeOffset.Now
+        };
+
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            using var content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
+            using var response = await client.PostAsync(endpoint, content).ConfigureAwait(false);
+            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            var result = JsonSerializer.Deserialize<AdminWhatsAppResult>(json, JsonOptions);
+            if (result is null)
+            {
+                await UpdateSendPulseLogAsync(log, false, response.IsSuccessStatusCode
+                    ? "Supabase nao retornou o status do WhatsApp."
+                    : "Supabase recusou o envio do WhatsApp.").ConfigureAwait(false);
+                return;
+            }
+
+            if (!response.IsSuccessStatusCode || !result.Ok)
+            {
+                if (result.Pending)
+                {
+                    settings.SendPulseActivationPending = true;
+                    settings.SendPulseBotId = "";
+                    await Dispatcher.InvokeAsync(SaveAppSettings, DispatcherPriority.Background);
+                }
+
+                await UpdateSendPulseLogAsync(log, false, result.Message).ConfigureAwait(false);
+                return;
+            }
+
+            settings.SendPulseBotId = "CENTRAL";
+            settings.SendPulseActivationPending = false;
+            settings.SendPulseStorePhone = string.IsNullOrWhiteSpace(result.StorePhone) ? settings.SendPulseStorePhone : result.StorePhone;
+            await Dispatcher.InvokeAsync(SaveAppSettings, DispatcherPriority.Background);
+            await UpdateSendPulseLogAsync(log, true, "").ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            await UpdateSendPulseLogAsync(log, false, $"Falha ao enviar pelo Supabase: {ex.Message}").ConfigureAwait(false);
+        }
+    }
+
+    private async Task UpdateSendPulseLogAsync(WhatsAppMessageLog log, bool sent, string error)
+    {
+        await Dispatcher.InvokeAsync(() =>
+        {
+            log.Status = sent ? "ENVIADO_WHATSAPP" : "ERRO_WHATSAPP";
+            log.Error = error;
+            log.SentAt = sent ? DateTime.Now : null;
+            SaveStore();
+            SetStatus(sent
+                ? $"WhatsApp enviado para {log.CustomerName}."
+                : $"WhatsApp falhou: {error}");
+        }, DispatcherPriority.Background);
+    }
+
+    private bool TryValidateSendPulseSettings(WhatsAppSettings settings, bool requireBotId, out string error)
+    {
+        if (string.IsNullOrWhiteSpace(_appSettings.ActivationKey))
+        {
+            error = "Ative a licenca antes de usar WhatsApp automatico.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.SendPulseStorePhone))
+        {
+            error = "Ative o numero da loja no modulo WhatsApp.";
+            return false;
+        }
+
+        if (requireBotId && string.IsNullOrWhiteSpace(settings.SendPulseBotId))
+        {
+            error = "Ative o WhatsApp automatico antes de enviar mensagens.";
+            return false;
+        }
+
+        error = "";
+        return true;
+    }
+
+    private static HttpRequestMessage CreateSendPulseRequest(HttpMethod method, string path, WhatsAppSettings settings, object? payload = null)
+    {
+        var request = new HttpRequestMessage(method, path);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", NormalizeSendPulseApiKey(settings.SendPulseApiKey));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        if (payload is not null)
+        {
+            request.Content = new StringContent(JsonSerializer.Serialize(payload, MainWindowJson.Options), Encoding.UTF8, "application/json");
+        }
+
+        return request;
+    }
+
+    private static string NormalizeSendPulseApiKey(string value)
+    {
+        var key = (value ?? "").Trim();
+        return key.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? key[7..].Trim() : key;
+    }
+
+    private static List<SendPulseBotOption> ParseSendPulseBots(string body)
+    {
+        using var document = JsonDocument.Parse(body);
+        if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return data.EnumerateArray()
+            .Select(item => new SendPulseBotOption
+            {
+                Id = FirstJsonText(item, "id", "bot_id"),
+                Name = item.TryGetProperty("channel_data", out var channelData)
+                    ? FirstJsonText(channelData, "name", "title")
+                    : FirstJsonText(item, "name", "title"),
+                Phone = item.TryGetProperty("channel_data", out channelData)
+                    ? FirstJsonText(channelData, "phone")
+                    : FirstJsonText(item, "phone"),
+                Status = FirstJsonText(item, "status"),
+                IsActive = FirstJsonText(item, "status") is "3" or "active" or "ACTIVE"
+            })
+            .Where(item => !string.IsNullOrWhiteSpace(item.Id))
+            .ToList();
+    }
+
+    private static bool IsSendPulseFailure(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return document.RootElement.TryGetProperty("success", out var success)
+                && success.ValueKind == JsonValueKind.False;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string ExtractSendPulseError(HttpStatusCode statusCode, string body)
+    {
+        var fallback = $"SendPulse retornou {(int)statusCode} {statusCode}.";
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return fallback;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            var message = FirstJsonText(root, "message", "error_description", "error");
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                return message;
+            }
+
+            if (root.TryGetProperty("data", out var data))
+            {
+                message = data.ValueKind == JsonValueKind.String
+                    ? data.GetString() ?? ""
+                    : FirstJsonText(data, "message", "error", "description");
+                if (!string.IsNullOrWhiteSpace(message))
+                {
+                    return message;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        var compact = Regex.Replace(body, @"\s+", " ").Trim();
+        return compact.Length > 260 ? compact[..260] : compact;
+    }
+
+    private static string FirstJsonText(JsonElement element, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!element.TryGetProperty(name, out var value))
+            {
+                continue;
+            }
+
+            var text = value.ValueKind switch
+            {
+                JsonValueKind.String => value.GetString() ?? "",
+                JsonValueKind.Number => value.ToString(),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                _ => ""
+            };
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                return text;
+            }
+        }
+
+        return "";
+    }
+
     private void ResetWhatsAppRuntimeState()
     {
         var settings = GetWhatsAppSettings();
@@ -1489,6 +3016,18 @@ public partial class MainWindow
     private void EnsureWhatsAppConnectorServer()
     {
         var settings = GetWhatsAppSettings();
+        if (NormalizeWhatsAppSendPulseOnlySettings())
+        {
+            SaveAppSettings();
+        }
+
+        if (string.Equals(settings.Provider, "META", StringComparison.OrdinalIgnoreCase))
+        {
+            _ = _whatsAppConnectorServer?.StopAsync();
+            _whatsAppConnectorServer = null;
+            return;
+        }
+
         settings.LocalConnectorPort = WhatsAppConnectorPort;
         if (!settings.ExtensionInstalledConfirmed || !settings.LocalConnectorEnabled)
         {

@@ -1,11 +1,31 @@
 const PDV_ENDPOINT = "http://127.0.0.1:8787/whatsapp/message";
 const seenMessages = new Set();
 const initializedChats = new Set();
+const startupUnreadBaselines = new Map();
 let readyForNewMessages = false;
 let pendingUnreadOpen = null;
+let startupUnreadBaselineCaptured = false;
 
 function textOf(element) {
   return (element?.innerText || element?.textContent || "").replace(/\s+/g, " ").trim();
+}
+
+function plain(value) {
+  return (value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function isUnreadLabel(value) {
+  const label = plain(value);
+  return (
+    label.includes("unread") ||
+    label.includes("unread-count") ||
+    label.includes("nao lida") ||
+    label.includes("nao lidas") ||
+    label.includes("nao lido") ||
+    label.includes("nao lidos") ||
+    label.includes("nova mensagem") ||
+    label.includes("novas mensagens")
+  );
 }
 
 function getChatName() {
@@ -14,6 +34,32 @@ function getChatName() {
     textOf(document.querySelector("header")) ||
     "WhatsApp"
   );
+}
+
+function chatNameFromRow(row) {
+  return (
+    row.querySelector("span[title]")?.getAttribute("title") ||
+    textOf(row).split(/\d{1,2}:\d{2}|Ontem|Yesterday/i)[0]?.trim() ||
+    ""
+  );
+}
+
+function chatRowKey(row) {
+  const title = chatNameFromRow(row);
+  const rowText = textOf(row)
+    .replace(/\d{1,2}:\d{2}.*/g, "")
+    .slice(0, 120);
+  return plain(title || rowText || row.getAttribute("data-id") || "");
+}
+
+function chatRowSignature(row) {
+  const pieces = [
+    chatNameFromRow(row),
+    ...[...row.querySelectorAll("span[title], span[dir='auto'], div[dir='auto']")]
+      .map(textOf)
+      .filter(Boolean)
+  ];
+  return plain([...new Set(pieces)].join("|").slice(0, 240));
 }
 
 function getIncomingMessages() {
@@ -134,6 +180,157 @@ function clickUnreadChat() {
   return true;
 }
 
+function visible(element) {
+  if (!element) return false;
+  const rect = element.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function chatRows() {
+  const listRoots = [
+    document.querySelector("#pane-side"),
+    ...document.querySelectorAll("[data-testid='chat-list'], [aria-label*='Chat' i], [aria-label*='conversa' i], [aria-label*='Lista' i], [role='grid']")
+  ].filter(Boolean);
+
+  const rows = [
+    ...listRoots.flatMap((root) => [
+      ...root.querySelectorAll("[role='row'], [role='listitem'], [data-testid='cell-frame-container'], [tabindex='0'], [tabindex='-1']")
+    ]),
+    ...document.querySelectorAll("#pane-side [role='row'], #pane-side [role='listitem'], #pane-side [data-testid='cell-frame-container'], #pane-side [tabindex='0'], #pane-side [tabindex='-1']")
+  ];
+
+  return [...new Set(rows)].filter((row) => {
+    if (!row || row.closest("footer") || row.closest("header") || row.closest(".message-in, .message-out")) return false;
+    if (!visible(row)) return false;
+    const rect = row.getBoundingClientRect();
+    return rect.width > 180 && rect.height >= 38;
+  });
+}
+
+function unreadMarkerOf(row) {
+  const markers = [
+    row,
+    ...row.querySelectorAll("span[aria-label], div[aria-label], span[data-icon], div[data-icon], [data-testid], span, div")
+  ];
+  const labelMarker = markers.find((marker) => {
+    const label = `${marker.getAttribute("aria-label") || ""} ${marker.getAttribute("data-icon") || ""} ${marker.getAttribute("data-testid") || ""} ${marker.getAttribute("title") || ""}`;
+    return isUnreadLabel(label);
+  });
+  if (labelMarker) return labelMarker;
+
+  const rowRect = row.getBoundingClientRect();
+  return [...row.querySelectorAll("span, div")].find((marker) => {
+    const markerText = textOf(marker);
+    if (!/^\d{1,3}$/.test(markerText) || !visible(marker)) return false;
+    const rect = marker.getBoundingClientRect();
+    return rect.width <= 36
+      && rect.height <= 28
+      && rect.left > rowRect.left + rowRect.width * 0.55;
+  });
+}
+
+function findUnreadChatsRaw() {
+  const found = [];
+  const seenRows = new Set();
+
+  function add(row, marker) {
+    if (!row || seenRows.has(row)) return;
+    if (row.closest("footer") || row.closest("header") || row.closest(".message-in, .message-out")) return;
+    if (!visible(row)) return;
+    seenRows.add(row);
+    found.push({
+      row,
+      count: unreadCountOf(row, marker),
+      name: chatNameFromRow(row),
+      key: chatRowKey(row),
+      signature: chatRowSignature(row)
+    });
+  }
+
+  const directMarkers = [
+    ...document.querySelectorAll("#pane-side span[aria-label], #pane-side div[aria-label], #pane-side span[data-icon], #pane-side div[data-icon], #pane-side [data-testid]")
+  ];
+  for (const marker of directMarkers) {
+    const label = `${marker.getAttribute("aria-label") || ""} ${marker.getAttribute("data-icon") || ""} ${marker.getAttribute("data-testid") || ""} ${marker.getAttribute("title") || ""}`;
+    if (!isUnreadLabel(label)) continue;
+    add(marker.closest("[role='row'], [role='listitem'], [data-testid='cell-frame-container'], #pane-side [tabindex='0'], #pane-side [tabindex='-1']"), marker);
+  }
+
+  for (const row of chatRows()) {
+    const marker = unreadMarkerOf(row);
+    if (marker) add(row, marker);
+  }
+
+  return found;
+}
+
+function captureStartupUnreadBaselines() {
+  startupUnreadBaselines.clear();
+  for (const unread of findUnreadChatsRaw()) {
+    if (!unread.key) continue;
+    startupUnreadBaselines.set(unread.key, {
+      count: unread.count,
+      signature: unread.signature
+    });
+  }
+  startupUnreadBaselineCaptured = true;
+}
+
+function findUnreadChat() {
+  for (const unread of findUnreadChatsRaw()) {
+    const baseline = startupUnreadBaselines.get(unread.key);
+    if (startupUnreadBaselineCaptured && baseline) {
+      if (unread.count <= baseline.count && unread.signature === baseline.signature) {
+        continue;
+      }
+      unread.count = Math.max(1, unread.count - baseline.count);
+    }
+    return unread;
+  }
+
+  return null;
+}
+
+function clickElement(element) {
+  if (!element) return false;
+  const rect = element.getBoundingClientRect();
+  const options = {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    clientX: rect.left + Math.max(4, rect.width / 2),
+    clientY: rect.top + Math.max(4, rect.height / 2)
+  };
+  element.dispatchEvent(new PointerEvent("pointerover", options));
+  element.dispatchEvent(new MouseEvent("mouseover", options));
+  element.dispatchEvent(new PointerEvent("pointerdown", options));
+  element.dispatchEvent(new MouseEvent("mousedown", options));
+  element.dispatchEvent(new PointerEvent("pointerup", options));
+  element.dispatchEvent(new MouseEvent("mouseup", options));
+  element.dispatchEvent(new MouseEvent("click", options));
+  return true;
+}
+
+function clickUnreadChat() {
+  const unread = findUnreadChat();
+  if (!unread) return false;
+
+  const clickable =
+    unread.row.querySelector("[role='gridcell']") ||
+    unread.row.querySelector("[data-testid='cell-frame-container']") ||
+    unread.row;
+
+  clickable.scrollIntoView({ block: "center" });
+  clickElement(clickable);
+  pendingUnreadOpen = {
+    count: Math.max(1, unread.count || 1),
+    clickedAt: Date.now(),
+    chatBefore: getChatName(),
+    targetName: unread.name || ""
+  };
+  return true;
+}
+
 function processMessages(chatName, messages, processLatestCount = 0) {
   let itemsToProcess = messages;
   if (processLatestCount > 0 && messages.length > processLatestCount) {
@@ -208,17 +405,37 @@ async function sendReply(text) {
     document.querySelector("footer button[aria-label*='Send']") ||
     document.querySelector("footer button[aria-label*='Enviar']") ||
     document.querySelector("span[data-icon='send']")?.closest("button");
-  sendButton?.click();
+  if (sendButton) clickElement(sendButton);
+}
+
+function isWhatsAppLoggedIn() {
+  return Boolean(document.querySelector("#pane-side, [data-testid='chat-list'], [aria-label*='Chat' i], [aria-label*='conversa' i], [role='grid'], footer div[contenteditable='true']"));
+}
+
+function armForNewMessages() {
+  if (readyForNewMessages) return true;
+  if (!isWhatsAppLoggedIn()) return false;
+
+  captureStartupUnreadBaselines();
+  const chatName = getChatName();
+  rememberVisibleMessages(chatName, getIncomingMessages());
+  initializedChats.add(chatName);
+  readyForNewMessages = true;
+  return true;
 }
 
 function scan() {
-  if (!readyForNewMessages) {
-    scanCurrentChat();
+  if (!armForNewMessages()) {
     return;
   }
 
   if (pendingUnreadOpen) {
     if (Date.now() - pendingUnreadOpen.clickedAt < 900) return;
+    if (pendingUnreadOpen.chatBefore
+        && getChatName() === pendingUnreadOpen.chatBefore
+        && Date.now() - pendingUnreadOpen.clickedAt < 2200) {
+      return;
+    }
     const latestCount = pendingUnreadOpen.count || 1;
     pendingUnreadOpen = null;
     scanCurrentChat({ processLatestCount: latestCount });
@@ -232,12 +449,9 @@ function scan() {
   }
 }
 
-setTimeout(() => {
-  readyForNewMessages = true;
-  const chatName = getChatName();
-  rememberVisibleMessages(chatName, getIncomingMessages());
-  initializedChats.add(chatName);
-}, 1500);
+const observer = new MutationObserver(() => window.clearTimeout(window.__balcaoLivreScanSoon) || (window.__balcaoLivreScanSoon = window.setTimeout(scan, 300)));
+observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-label", "data-icon", "data-testid", "class"] });
 
-setInterval(scan, 2500);
+setTimeout(scan, 1500);
+setInterval(scan, 1800);
 scan();

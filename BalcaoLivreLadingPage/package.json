@@ -3,13 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "sync:pdv": "node scripts/sync-pdv-assets.mjs",
+    "dev": "npm run sync:pdv && next dev",
+    "build": "npm run sync:pdv && next build",
     "start": "next start"
   },
   "dependencies": {
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "next": "14.2.35",
+    "react": "18.2.0",
+    "react-dom": "18.2.0"
   }
 }

@@ -5,18 +5,6 @@
       "destination": "https://balcaolivrepdv.onrender.com/api/:path*"
     },
     {
-      "source": "/admin",
-      "destination": "/BalcaoLivre.Admin/wwwroot/index.html"
-    },
-    {
-      "source": "/admin/",
-      "destination": "/BalcaoLivre.Admin/wwwroot/index.html"
-    },
-    {
-      "source": "/admin/:path*",
-      "destination": "/BalcaoLivre.Admin/wwwroot/:path*"
-    },
-    {
       "source": "/pdv",
       "destination": "/BalcaoLivre.PDV.Web/index.html"
     },

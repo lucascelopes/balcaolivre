@@ -20,6 +20,18 @@ async function copyLanding() {
     toOutput("index.html")
   );
 
+  await mkdir(toOutput("termos"), { recursive: true });
+  await copyFile(
+    fromRoot("BalcaoLivreLadingPage", "termos.html"),
+    toOutput("termos", "index.html")
+  );
+
+  await mkdir(toOutput("como-usar"), { recursive: true });
+  await copyFile(
+    fromRoot("BalcaoLivreLadingPage", "como-usar.html"),
+    toOutput("como-usar", "index.html")
+  );
+
   await mkdir(toOutput("app"), { recursive: true });
   await copyFile(
     fromRoot("BalcaoLivreLadingPage", "app", "globals.css"),

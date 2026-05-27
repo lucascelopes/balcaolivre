@@ -149,6 +149,16 @@ label {
   border-color: #85d8c9;
   color: var(--teal);
 }
+.storage-badge.pending {
+  background: #fff7d6;
+  border-color: #f2c94c;
+  color: #7a5200;
+}
+.storage-badge.error {
+  background: #ffe8e8;
+  border-color: #f3a4a4;
+  color: var(--red);
+}
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -162,6 +172,9 @@ label {
 .metric {
   padding: 18px;
   border-left: 5px solid var(--teal);
+}
+.metric.support-metric {
+  border-left-color: var(--blue-2);
 }
 .metric span {
   color: var(--muted);
@@ -242,6 +255,18 @@ td:last-child { border-right: 1px solid var(--line); border-radius: 0 9px 9px 0;
   background: #e8f1fa;
   color: var(--blue);
 }
+.status.ABERTO {
+  background: #fff2cb;
+  color: var(--amber);
+}
+.status.EM_ATENDIMENTO {
+  background: #e8f1fa;
+  color: var(--blue);
+}
+.status.RESOLVIDO {
+  background: var(--green-soft);
+  color: var(--teal);
+}
 .key-cell {
   font-family: Consolas, monospace;
   font-weight: 700;
@@ -275,6 +300,113 @@ td:last-child { border-right: 1px solid var(--line); border-radius: 0 9px 9px 0;
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid var(--line);
+}
+.live-badge {
+  display: inline-block;
+  margin-top: 2px;
+  border-radius: 999px;
+  background: var(--green-soft);
+  border: 1px solid #8dd8cb;
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 9px;
+}
+.support-list {
+  display: grid;
+  gap: 12px;
+}
+.support-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--soft);
+  padding: 15px;
+}
+.support-card.urgent {
+  border-color: #efb2a8;
+  background: #fff8f6;
+}
+.support-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.support-top strong {
+  display: block;
+  font-size: 17px;
+}
+.support-top span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.support-card p {
+  margin: 12px 0;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.support-chat {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  max-height: 280px;
+  overflow: auto;
+  padding-right: 4px;
+}
+.chat-line {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: white;
+  max-width: 82%;
+}
+.chat-line.admin {
+  justify-self: end;
+  background: var(--green-soft);
+  border-color: #9fdccd;
+}
+.chat-line.client {
+  justify-self: start;
+  background: #eef5fb;
+}
+.chat-line strong,
+.chat-line span,
+.chat-line small {
+  display: block;
+}
+.chat-line span {
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+.chat-line small {
+  margin-top: 5px;
+  color: var(--muted);
+}
+.support-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.support-meta span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--muted);
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.support-note {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+}
+.reply-box {
+  margin-top: 12px;
+  resize: vertical;
+}
+.support-actions {
+  margin-top: 12px;
 }
 .key-panel { max-width: 760px; }
 .form-grid {

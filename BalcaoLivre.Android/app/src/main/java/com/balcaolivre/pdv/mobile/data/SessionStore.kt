@@ -25,6 +25,7 @@ class SessionStore(context: Context) {
             plan = prefs.getString("plan", "").orEmpty(),
             expiresAt = prefs.getString("expiresAt", null),
             profile = RestaurantProfile(
+                email = prefs.getString("email", "").orEmpty(),
                 ownerName = prefs.getString("ownerName", "").orEmpty(),
                 businessName = prefs.getString("businessName", "").orEmpty(),
                 legalName = prefs.getString("legalName", "").orEmpty(),
@@ -47,6 +48,7 @@ class SessionStore(context: Context) {
             .putString("appVersion", session.appVersion)
             .putString("plan", session.plan)
             .putString("expiresAt", session.expiresAt)
+            .putString("email", session.profile.email)
             .putString("ownerName", session.profile.ownerName)
             .putString("businessName", session.profile.businessName)
             .putString("legalName", session.profile.legalName)

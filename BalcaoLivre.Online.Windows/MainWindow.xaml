@@ -227,7 +227,7 @@
         </DataTemplate>
 
         <DataTemplate x:Key="TableTemplate">
-            <Border x:Name="TableRoot" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="1" CornerRadius="8" Margin="0,0,7,7" Width="74" Height="68" ClipToBounds="True">
+            <Border x:Name="TableRoot" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="1" CornerRadius="8" Margin="0,0,7,7" Width="84" Height="78" ClipToBounds="True">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="5"/>
@@ -237,7 +237,8 @@
                     <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="5,1,5,5">
                         <TextBlock Text="{Binding DisplayTitle}" Foreground="{StaticResource Ink}" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
                         <TextBlock Text="{Binding DisplaySubtitle}" Foreground="{StaticResource Muted}" FontSize="8" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
-                        <Border Background="{Binding TileBrush}" CornerRadius="7" Padding="5,1" HorizontalAlignment="Center" Margin="0,3,0,0">
+                        <TextBlock x:Name="TileTimerText" Text="{Binding TimerText}" Foreground="{Binding TimerBrush}" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+                        <Border Background="{Binding TileBrush}" CornerRadius="7" Padding="5,1" HorizontalAlignment="Center" Margin="0,2,0,0">
                             <TextBlock Text="{Binding Status}" Foreground="#17351F" FontSize="8" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
                         </Border>
                     </StackPanel>
@@ -248,6 +249,9 @@
                     <Setter TargetName="TableRoot" Property="BorderBrush" Value="#1F4E79"/>
                     <Setter TargetName="TableRoot" Property="BorderThickness" Value="2"/>
                     <Setter TargetName="TableRoot" Property="Background" Value="#F7FBFF"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding TimerText}" Value="">
+                    <Setter TargetName="TileTimerText" Property="Visibility" Value="Collapsed"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
@@ -363,9 +367,79 @@
                         <TextBlock x:Name="BrandNameText" Text="Balcão Livre PDV" Foreground="White" FontWeight="Bold" FontSize="16"/>
                         <TextBlock x:Name="BrandMetaText" Text="PDV online com iFood" Foreground="#DDEBFA" FontSize="11"/>
                     </StackPanel>
-                    <Button Grid.Column="1"
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                    <Button
+                        MinWidth="112"
+                        Height="34"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Center"
+                        Background="#0F766E"
+                        BorderBrush="#BDE5DD"
+                        BorderThickness="1"
+                        Foreground="#FFFFFF"
+                        FontWeight="Bold"
+                        FocusVisualStyle="{x:Null}"
+                        Cursor="Hand"
+                        Click="WhatsAppButton_Click"
+                        ToolTip="Ativar WhatsApp automatico">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="12,0">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#0B625B"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border Width="18" Height="18" CornerRadius="9" Background="#E8F7F4" Margin="0,0,7,0">
+                            <TextBlock Text="WA" Foreground="#0F766E" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <TextBlock Text="WhatsApp" FontSize="13" FontWeight="SemiBold"/>
+                    </StackPanel>
+                    </Button>
+                    <Button
+                        MinWidth="104"
+                        Height="34"
+                        Margin="8,0,0,0"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Center"
+                        Background="#E8F7F4"
+                        BorderBrush="#BDE5DD"
+                        BorderThickness="1"
+                        Foreground="#0F766E"
+                        FontWeight="Bold"
+                        FocusVisualStyle="{x:Null}"
+                        Cursor="Hand"
+                        Click="SupportButton_Click"
+                        ToolTip="Suporte em tempo real">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="12,0">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#D8F0EB"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Grid Width="16" Height="16" Margin="0,0,7,0">
+                            <Ellipse Width="14" Height="14" Stroke="#0F766E" StrokeThickness="1.7" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <TextBlock Text="?" Foreground="#0F766E" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0"/>
+                        </Grid>
+                        <TextBlock Text="Suporte" FontSize="13" FontWeight="SemiBold"/>
+                    </StackPanel>
+                    </Button>
+                    <Button
                         MinWidth="92"
                         Height="34"
+                        Margin="8,0,0,0"
                         HorizontalAlignment="Left"
                         VerticalAlignment="Center"
                         Background="#FFFFFF"
@@ -398,6 +472,7 @@
                         <TextBlock Text="Config" FontSize="13" FontWeight="SemiBold"/>
                     </StackPanel>
                     </Button>
+                    </StackPanel>
                 </Grid>
                 <TextBlock Grid.Column="2" Text="Setas navegam  |  Enter confirma  |  Numerico digita codigo  |  F2 incluir  F4 cozinha  F5 fechar  F8 antecipado  F9 receber  F10 abrir/fechar caixa" Foreground="#DDEBFA" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
             </Grid>

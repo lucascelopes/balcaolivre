@@ -3,6 +3,19 @@ import CashierDemo from "./CashierDemo";
 const downloadUrl =
   "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe";
 
+const sellers = [
+  {
+    name: "Vendedor Wender",
+    phone: "+55 27 98126-7551",
+    href: "https://wa.me/5527981267551"
+  },
+  {
+    name: "Vendedor Lucas",
+    phone: "33 99960-9457",
+    href: "https://wa.me/5533999609457"
+  }
+];
+
 const quickFacts = [
   ["Restaurantes", "bares e eventos"],
   ["Windows", "app nativo"],
@@ -43,24 +56,38 @@ const faqs = [
 
 const plans = [
   {
-    id: "mensal",
-    name: "Mensal",
-    price: "R$ 17,00",
-    period: "por mes",
-    text: "Para comecar agora, testar na operacao real e continuar pagando pouco.",
-    badge: "Mais flexivel",
-    cta: "Assinar mensal",
-    features: ["Ativacao por chave", "Instalador Windows", "PDV offline", "Atualizacoes inclusas"]
+    id: "offline",
+    order: "1°",
+    name: "Balcao Livre PDV Offline",
+    badge: "Caixa local",
+    text: "Para restaurante que precisa vender no caixa todos os dias, mesmo quando a internet cai.",
+    monthly: "R$ 17,00",
+    annual: "R$ 200,00",
+    features: [
+      "Venda sem internet no Windows",
+      "Mesas, balcao, delivery e comandas",
+      "Pix, dinheiro, credito e debito",
+      "Impressao local de comprovantes",
+      "Estoque, fechamento e relatorios",
+      "Licenca por computador"
+    ]
   },
   {
-    id: "anual",
-    name: "Anual",
-    price: "R$ 200,00",
-    period: "por ano",
-    text: "Plano para deixar o caixa rodando o ano todo com uma unica renovacao.",
-    badge: "Melhor para loja",
-    cta: "Assinar anual",
-    features: ["12 meses de uso", "Melhor controle da licenca", "PDV offline", "Atualizacoes inclusas"],
+    id: "online",
+    order: "2°",
+    name: "Balcao Livre PDV Online",
+    badge: "Operacao conectada",
+    text: "Para loja que quer integrar atendimento, delivery, garcom no celular e pedidos em tempo real.",
+    monthly: "R$ 34,00",
+    annual: "R$ 400,00",
+    features: [
+      "Pedidos do iFood no sistema",
+      "Entrega por zona e taxa configuravel",
+      "Garcom no celular em tempo real",
+      "Sincronizacao entre caixa e atendimento",
+      "Pedidos online, mesas e comandas",
+      "Visao gerencial para acompanhar a operacao"
+    ],
     featured: true
   }
 ];
@@ -89,7 +116,9 @@ export default function Page() {
           <a href="#operacao">Operacao</a>
           <a href="#preco">Preco</a>
           <a href="#faq">FAQ</a>
-          <a href="/pdv/">Login</a>
+          <a href="/como-usar/">Como usar</a>
+          <a href="/admin/">Admin</a>
+          <a href="/pdv">Login</a>
         </nav>
         <a className="topbarAction" href={downloadUrl}>
           Baixar instalador
@@ -106,17 +135,16 @@ export default function Page() {
             </div>
           </div>
           <p className="eyebrow">Restaurantes, bares, lanchonetes e casas de eventos</p>
-          <h1>PDV simples para restaurante atender mais rapido.</h1>
+          <h1>PDV para restaurante controlar caixa, mesas e delivery.</h1>
           <p className="heroLead">
-            Controle mesa, balcao, delivery, pagamentos, estoque e comprovantes
-            em uma rotina direta para o operador do caixa.
+            Venda no balcao, acompanhe comandas, registre pagamentos e imprima
+            comprovantes em uma rotina feita para operacao real.
           </p>
           <div className="heroBenefit">
-            <strong>Menos fila, menos erro e mais controle no fechamento.</strong>
+            <strong>Caixa offline, atendimento agil e fechamento com controle.</strong>
             <span>
-              O Balcão Livre PDV organiza o atendimento do pedido ate o
-              comprovante, ajudando o restaurante a saber o que vendeu, quem
-              atendeu, quanto recebeu e o que saiu do estoque.
+              O Balcao Livre PDV organiza pedidos, pagamentos, estoque e
+              relatorios em um fluxo direto para equipe e dono.
             </span>
           </div>
           <div className="heroFlow">
@@ -318,45 +346,69 @@ export default function Page() {
       <section className="pricingSection" id="preco">
         <div className="sectionIntro">
           <p className="eyebrow">Preco</p>
-          <h2>Escolha o plano do Balcao Livre PDV.</h2>
+          <h2>Escolha o PDV certo para a sua operacao.</h2>
           <p>
-            Planos simples para usar o PDV no Windows, com pagamento seguro e
-            licenca de ativacao para o computador do cliente.
+            Duas modalidades objetivas: um caixa offline para estabilidade na
+            loja e uma operacao online para delivery, equipe e pedidos em tempo real.
           </p>
         </div>
         <div className="pricingPromise">
-          <strong>Sem taxa de instalacao e sem surpresa no caixa.</strong>
-          <span>O PDV continua vendendo offline depois de ativado.</span>
+          <strong>PDV para rotina real de restaurante, nao tela promocional.</strong>
+          <span>Offline para caixa estavel. Online para operacao conectada.</span>
         </div>
         <div className="pricingGrid">
           {plans.map((plan) => (
-            <article className={plan.featured ? "priceCard featured" : "priceCard"} key={plan.id}>
-              <div className="priceCardTop">
-                <span>{plan.name}</span>
-                <small>{plan.badge}</small>
-              </div>
-              <div className="priceValue">
-                <strong>{plan.price}</strong>
-                <em>{plan.period}</em>
+            <article className={plan.featured ? "priceCard onlinePlan" : "priceCard offlinePlan"} key={plan.id}>
+              <div className="priceCardHeader">
+                <span>{plan.order}</span>
+                <div>
+                  <small>{plan.badge}</small>
+                  <h3>{plan.name}</h3>
+                </div>
               </div>
               <p>{plan.text}</p>
+              <div className="priceOptions" aria-label={`Valores do ${plan.name}`}>
+                <div>
+                  <span>Mensal</span>
+                  <strong>{plan.monthly}</strong>
+                  <em>por mes</em>
+                </div>
+                <div>
+                  <span>Anual</span>
+                  <strong>{plan.annual}</strong>
+                  <em>por ano</em>
+                </div>
+              </div>
               <ul>
                 {plan.features.map((feature) => (
                   <li key={feature}>{feature}</li>
                 ))}
               </ul>
-              <form action="/api/checkout" method="post">
-                <input type="hidden" name="plan" value={plan.id} />
-                <button type="submit">{plan.cta}</button>
+              <form action="/api/checkout" method="post" className="planActions">
+                <button type="submit" name="plan" value={`${plan.id}-mensal`}>
+                  Contratar mensal
+                </button>
+                <button type="submit" name="plan" value={`${plan.id}-anual`} className="secondary">
+                  Contratar anual
+                </button>
               </form>
+              <div className="sellerContacts" aria-label="Comprar pelo WhatsApp">
+                <span>Comprar pelo WhatsApp</span>
+                {sellers.map((seller) => (
+                  <a href={seller.href} key={seller.name} target="_blank" rel="noreferrer">
+                    <strong>{seller.name}</strong>
+                    <b>{seller.phone}</b>
+                  </a>
+                ))}
+              </div>
             </article>
           ))}
         </div>
         <div className="paymentTrust">
-          <span>Checkout seguro Stripe</span>
-          <span>Cartao de credito</span>
-          <span>Licenca por chave</span>
-          <span>Instalador independente</span>
+          <span>Mensal ou anual</span>
+          <span>Ativacao por licenca</span>
+          <span>Atualizacoes inclusas</span>
+          <span>Suporte de implantacao</span>
         </div>
       </section>
 
@@ -386,7 +438,7 @@ export default function Page() {
         </a>
       </section>
 
-      <footer className="siteFooter">
+      <footer className="siteFooter expandedFooter">
         <div className="footerBrand">
           <div>
             <strong>Balcão Livre PDV</strong>
@@ -394,10 +446,21 @@ export default function Page() {
           </div>
         </div>
         <p>2026 Balcão Livre PDV. Caixa simples, rápido e sem complicação.</p>
+        <div className="footerWhatsapp">
+          <strong>Compre no WhatsApp</strong>
+          {sellers.map((seller) => (
+            <a href={seller.href} key={seller.name} target="_blank" rel="noreferrer">
+              <span>{seller.name}</span>
+              <b>{seller.phone}</b>
+            </a>
+          ))}
+        </div>
         <nav aria-label="Links do rodape">
           <a href="#produto">Produto</a>
           <a href="#impressao">Impressao</a>
           <a href="#preco">Planos</a>
+          <a href="/como-usar/">Como usar</a>
+          <a href="/termos/">Termos</a>
         </nav>
       </footer>
     </main>

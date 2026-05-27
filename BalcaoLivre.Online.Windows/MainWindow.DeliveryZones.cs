@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
+using Windows.Devices.Geolocation;
 using CheckBox = System.Windows.Controls.CheckBox;
 using ListBox = System.Windows.Controls.ListBox;
 using TextBox = System.Windows.Controls.TextBox;
@@ -46,32 +47,52 @@ public partial class MainWindow
             return;
         }
 
-        var dialog = CreateDialog("Taxas por raio no mapa", 1160, 720);
+        var dialog = CreateDialog("Taxas por raio", 1080, 680);
         var zonesList = new ListBox
         {
             DisplayMemberPath = nameof(DeliveryZoneFee.Display),
-            MinHeight = 455,
+            Height = 210,
             ItemsSource = _appSettings.DeliveryZones
         };
         var radiusBox = new TextBox();
         var feeBox = new TextBox();
         var minimumBox = new TextBox();
-        var activeBox = new CheckBox { Content = "Ativa", IsChecked = true, Margin = new Thickness(0, 6, 0, 8) };
-        var status = new TextBlock { Foreground = GreenText, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+        var activeBox = new CheckBox { Content = "Ativa", IsChecked = true, Margin = new Thickness(0, 4, 0, 4) };
+        var radiusPreviewCanvas = new Canvas { Width = 250, Height = 150, Margin = new Thickness(0, 10, 0, 6) };
+        var radiusPreviewText = new TextBlock
+        {
+            Foreground = Solid("#667684"),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = TextAlignment.Center
+        };
+        var radiusPreviewCard = new Border
+        {
+            Background = Solid("#F7FAFD"),
+            BorderBrush = Solid("#D8E2EC"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12),
+            Margin = new Thickness(0, 12, 0, 12)
+        };
+        var status = new TextBlock { Foreground = GreenText, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
         var mapStatus = new TextBlock
         {
-            Text = "Local atual: aguardando permissao de localizacao...",
             Foreground = Solid("#667684"),
             FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 8)
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap
         };
-        var currentLatitude = IsValidMapCoordinate(_profile.Latitude, _profile.Longitude) ? _profile.Latitude : -23.55052;
-        var currentLongitude = IsValidMapCoordinate(_profile.Latitude, _profile.Longitude) ? _profile.Longitude : -46.633308;
-        var currentLabel = "Local atual do usuario";
+        var hasSavedLocation = IsValidMapCoordinate(_profile.Latitude, _profile.Longitude);
+        var currentLatitude = hasSavedLocation ? _profile.Latitude : -23.55052;
+        var currentLongitude = hasSavedLocation ? _profile.Longitude : -46.633308;
+        var currentLabel = hasSavedLocation ? "Local salvo" : "Centro temporario";
+        mapStatus.Text = hasSavedLocation
+            ? $"Centro salvo: {currentLatitude:N5}, {currentLongitude:N5}"
+            : "Buscando localizacao do Windows...";
+
         var mapView = new WebView2
         {
-            MinHeight = 510,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch
         };
@@ -102,14 +123,74 @@ public partial class MainWindow
             feeBox.Text = zone.Fee.ToString("N2", Brazil);
             minimumBox.Text = zone.MinimumOrder.ToString("N2", Brazil);
             activeBox.IsChecked = zone.Active;
+            RefreshRadiusPreview();
         }
 
-        async Task RefreshMapAsync(bool requestLiveLocation)
+        void RefreshRadiusPreview()
+        {
+            radiusPreviewCanvas.Children.Clear();
+            var radius = ParseDouble(radiusBox.Text, 0);
+            var fee = ParseMoney(feeBox.Text, 0);
+            var minimum = ParseMoney(minimumBox.Text, 0);
+            var centerX = radiusPreviewCanvas.Width / 2;
+            var centerY = radiusPreviewCanvas.Height / 2;
+
+            void AddRing(double size, System.Windows.Media.Brush stroke, double thickness, double opacity = 1)
+            {
+                var ring = new System.Windows.Shapes.Ellipse
+                {
+                    Width = size,
+                    Height = size,
+                    Stroke = stroke,
+                    StrokeThickness = thickness,
+                    Fill = Solid("#E8F7F4"),
+                    Opacity = opacity
+                };
+                Canvas.SetLeft(ring, centerX - size / 2);
+                Canvas.SetTop(ring, centerY - size / 2);
+                radiusPreviewCanvas.Children.Add(ring);
+            }
+
+            AddRing(132, Solid("#D8E2EC"), 1, 0.52);
+            AddRing(92, Solid("#D8E2EC"), 1, 0.68);
+            AddRing(52, Solid("#D8E2EC"), 1, 0.82);
+
+            var mainSize = radius > 0 ? Math.Clamp(42 + radius * 28, 42, 132) : 42;
+            AddRing(mainSize, Solid("#0F766E"), 4, 0.96);
+
+            var centerDot = new System.Windows.Shapes.Ellipse
+            {
+                Width = 14,
+                Height = 14,
+                Fill = Solid("#245B91"),
+                Stroke = System.Windows.Media.Brushes.White,
+                StrokeThickness = 2
+            };
+            Canvas.SetLeft(centerDot, centerX - 7);
+            Canvas.SetTop(centerDot, centerY - 7);
+            radiusPreviewCanvas.Children.Add(centerDot);
+
+            radiusPreviewText.Text = radius > 0
+                ? $"Previa: ate {radius:N1} km  |  taxa {Money(fee)}" + (minimum > 0 ? $"  |  minimo {Money(minimum)}" : "")
+                : "Digite o raio para ver o circulo.";
+        }
+
+        async Task RefreshMapAsync()
         {
             try
             {
                 await mapView.EnsureCoreWebView2Async();
-                mapView.NavigateToString(BuildDeliveryZonesMapHtml(currentLatitude, currentLongitude, currentLabel, requestLiveLocation));
+                var previewRadius = ParseDouble(radiusBox.Text, 0);
+                var previewFee = ParseMoney(feeBox.Text, 0);
+                var previewMinimum = ParseMoney(minimumBox.Text, 0);
+                mapView.NavigateToString(BuildDeliveryZonesMapHtml(
+                    currentLatitude,
+                    currentLongitude,
+                    currentLabel,
+                    previewRadius,
+                    previewFee,
+                    previewMinimum,
+                    activeBox.IsChecked == true));
             }
             catch (Exception ex)
             {
@@ -117,34 +198,24 @@ public partial class MainWindow
             }
         }
 
-        void HandleMapMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+        async Task UseWindowsLocationAsync()
         {
-            try
+            mapStatus.Text = "Buscando localizacao do Windows...";
+            var location = await TryGetCurrentWindowsLocationAsync();
+            if (!location.Ok)
             {
-                using var document = JsonDocument.Parse(e.WebMessageAsJson);
-                var root = document.RootElement;
-                var type = root.TryGetProperty("type", out var typeElement) ? typeElement.GetString() : "";
-                if (type == "location")
-                {
-                    currentLatitude = root.GetProperty("lat").GetDouble();
-                    currentLongitude = root.GetProperty("lng").GetDouble();
-                    _profile.Latitude = currentLatitude;
-                    _profile.Longitude = currentLongitude;
-                    SaveRestaurantProfile();
-                    mapStatus.Text = $"Local atual em tempo real: {currentLatitude:N5}, {currentLongitude:N5}";
-                    currentLabel = "Local atual do usuario";
-                    return;
-                }
+                mapStatus.Text = location.Message;
+                return;
+            }
 
-                if (type == "location-error")
-                {
-                    mapStatus.Text = "Nao consegui pegar localizacao em tempo real. Libere permissao de localizacao no Windows/navegador.";
-                }
-            }
-            catch
-            {
-                mapStatus.Text = "Nao consegui ler a localizacao enviada pelo mapa.";
-            }
+            currentLatitude = location.Latitude;
+            currentLongitude = location.Longitude;
+            currentLabel = "Local atual";
+            _profile.Latitude = currentLatitude;
+            _profile.Longitude = currentLongitude;
+            SaveRestaurantProfile();
+            mapStatus.Text = location.Message;
+            await RefreshMapAsync();
         }
 
         zonesList.SelectionChanged += (_, _) =>
@@ -155,7 +226,7 @@ public partial class MainWindow
             }
         };
 
-        var newButton = DialogButton("Novo circulo", "#2F6FAE");
+        var newButton = DialogButton("Novo", "#2F6FAE");
         newButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         newButton.Click += (_, _) =>
         {
@@ -164,12 +235,13 @@ public partial class MainWindow
             feeBox.Text = "0,00";
             minimumBox.Text = "0,00";
             activeBox.IsChecked = true;
+            RefreshRadiusPreview();
             radiusBox.Focus();
         };
 
-        var saveButton = DialogButton("Salvar taxa", "#0F766E");
+        var saveButton = DialogButton("Salvar raio", "#0F766E");
         saveButton.HorizontalAlignment = HorizontalAlignment.Stretch;
-        saveButton.Click += async (_, _) =>
+        async Task SaveRadiusAsync()
         {
             var fee = ParseMoney(feeBox.Text, -1);
             if (fee < 0)
@@ -208,73 +280,135 @@ public partial class MainWindow
             SaveAppSettings();
             SaveStore();
             status.Foreground = GreenText;
-            status.Text = $"Taxa salva: {zone.Display}";
+            status.Text = $"Salvo: {zone.Display}";
             SetStatus(status.Text);
-            await RefreshMapAsync(requestLiveLocation: false);
-        };
+            await RefreshMapAsync();
+        }
 
-        var locateButton = DialogButton("Usar local atual", "#99620D");
+        saveButton.Click += async (_, _) => await SaveRadiusAsync();
+
+        void FocusText(TextBox box)
+        {
+            box.Focus();
+            box.SelectAll();
+        }
+
+        void OnEnter(UIElement element, Func<Task> action)
+        {
+            element.PreviewKeyDown += async (_, e) =>
+            {
+                if ((e.Key != System.Windows.Input.Key.Enter && e.Key != System.Windows.Input.Key.Return) ||
+                    System.Windows.Input.Keyboard.Modifiers != System.Windows.Input.ModifierKeys.None)
+                {
+                    return;
+                }
+
+                e.Handled = true;
+                await action();
+            };
+        }
+
+        OnEnter(radiusBox, () =>
+        {
+            FocusText(feeBox);
+            return Task.CompletedTask;
+        });
+        OnEnter(feeBox, () =>
+        {
+            FocusText(minimumBox);
+            return Task.CompletedTask;
+        });
+        OnEnter(minimumBox, SaveRadiusAsync);
+        OnEnter(activeBox, SaveRadiusAsync);
+        OnEnter(saveButton, SaveRadiusAsync);
+        OnEnter(newButton, () =>
+        {
+            newButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            return Task.CompletedTask;
+        });
+
+        async void RefreshPreviewFromInput()
+        {
+            RefreshRadiusPreview();
+            if (mapView.CoreWebView2 is not null)
+            {
+                await RefreshMapAsync();
+            }
+        }
+
+        radiusBox.TextChanged += (_, _) => RefreshPreviewFromInput();
+        feeBox.TextChanged += (_, _) => RefreshPreviewFromInput();
+        minimumBox.TextChanged += (_, _) => RefreshPreviewFromInput();
+        activeBox.Checked += (_, _) => RefreshPreviewFromInput();
+        activeBox.Unchecked += (_, _) => RefreshPreviewFromInput();
+
+        var locateButton = DialogButton("Local do Windows", "#99620D");
         locateButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         locateButton.Click += async (_, _) =>
         {
-            mapStatus.Text = "Pedindo localizacao atual...";
-            await RefreshMapAsync(requestLiveLocation: true);
-            SetStatus("Solicitei a localizacao atual para redesenhar os circulos.");
+            locateButton.IsEnabled = false;
+            await UseWindowsLocationAsync();
+            locateButton.IsEnabled = true;
+            SetStatus("Centro do mapa atualizado pela localizacao do Windows.");
         };
 
-        var grid = new Grid { Margin = new Thickness(18) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var root = new Grid { Margin = new Thickness(18) };
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(360) });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        var left = new StackPanel { Margin = new Thickness(0, 0, 12, 0) };
-        left.Children.Add(new TextBlock
+        var sideCard = BorderCard();
+        sideCard.Padding = new Thickness(16);
+        sideCard.Margin = new Thickness(0, 0, 14, 0);
+        var side = new StackPanel();
+        side.Children.Add(new TextBlock
         {
-            Text = "Regras cadastradas",
+            Text = "Raios de entrega",
             Foreground = Solid("#18222B"),
             FontWeight = FontWeights.Bold,
-            FontSize = 16,
-            Margin = new Thickness(0, 0, 0, 8)
+            FontSize = 17,
+            Margin = new Thickness(0, 0, 0, 2)
         });
-        left.Children.Add(zonesList);
-        left.Children.Add(newButton);
-        grid.Children.Add(left);
-
-        var form = DialogPanel();
-        form.Margin = new Thickness(0, 0, 12, 0);
-        form.Children.Add(DialogHint("Cadastre apenas circulos por km. O centro e a localizacao atual do usuario; cada circulo tem seu proprio valor de entrega."));
-        form.Children.Add(DialogField("Raio do circulo (km)", radiusBox));
-        form.Children.Add(DialogField("Taxa de entrega", feeBox));
-        form.Children.Add(DialogField("Pedido minimo opcional", minimumBox));
-        form.Children.Add(activeBox);
-        form.Children.Add(saveButton);
-        form.Children.Add(locateButton);
-        form.Children.Add(status);
-        Grid.SetColumn(form, 1);
-        grid.Children.Add(form);
+        side.Children.Add(mapStatus);
+        side.Children.Add(locateButton);
+        var previewStack = new StackPanel();
+        previewStack.Children.Add(radiusPreviewCanvas);
+        previewStack.Children.Add(radiusPreviewText);
+        radiusPreviewCard.Child = previewStack;
+        side.Children.Add(radiusPreviewCard);
+        side.Children.Add(new Border { Height = 1, Background = Solid("#E3EBF2"), Margin = new Thickness(0, 12, 0, 12) });
+        side.Children.Add(new TextBlock
+        {
+            Text = "Cadastrados",
+            Foreground = Solid("#667684"),
+            FontWeight = FontWeights.Bold,
+            Margin = new Thickness(0, 0, 0, 6)
+        });
+        side.Children.Add(zonesList);
+        side.Children.Add(newButton);
+        side.Children.Add(new Border { Height = 1, Background = Solid("#E3EBF2"), Margin = new Thickness(0, 12, 0, 12) });
+        side.Children.Add(DialogField("Raio (km)", radiusBox));
+        side.Children.Add(DialogField("Taxa", feeBox));
+        side.Children.Add(DialogField("Pedido minimo", minimumBox));
+        side.Children.Add(activeBox);
+        side.Children.Add(saveButton);
+        side.Children.Add(status);
+        sideCard.Child = new ScrollViewer
+        {
+            Content = side,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            PanningMode = System.Windows.Controls.PanningMode.VerticalOnly
+        };
+        root.Children.Add(sideCard);
 
         var mapCard = BorderCard();
-        mapCard.Padding = new Thickness(12);
-        var mapPanel = new Grid();
-        mapPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        mapPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        var mapHeader = new StackPanel();
-        mapHeader.Children.Add(new TextBlock
-        {
-            Text = "Mapa de circulos por km",
-            Foreground = Solid("#18222B"),
-            FontWeight = FontWeights.Bold,
-            FontSize = 16
-        });
-        mapHeader.Children.Add(mapStatus);
-        mapPanel.Children.Add(mapHeader);
-        Grid.SetRow(mapView, 1);
-        mapPanel.Children.Add(mapView);
-        mapCard.Child = mapPanel;
-        Grid.SetColumn(mapCard, 2);
-        grid.Children.Add(mapCard);
+        mapCard.Padding = new Thickness(0);
+        mapCard.ClipToBounds = true;
+        mapCard.Child = mapView;
+        Grid.SetColumn(mapCard, 1);
+        root.Children.Add(mapCard);
 
-        dialog.Content = grid;
+        dialog.Content = root;
         if (_appSettings.DeliveryZones.Count > 0)
         {
             zonesList.SelectedIndex = 0;
@@ -282,32 +416,52 @@ public partial class MainWindow
         else
         {
             radiusBox.Text = "1,0";
+            feeBox.Text = "0,00";
+            minimumBox.Text = "0,00";
         }
+        RefreshRadiusPreview();
 
         dialog.Loaded += async (_, _) =>
         {
-            await mapView.EnsureCoreWebView2Async();
-            mapView.CoreWebView2.PermissionRequested += HandleMapPermission;
-            mapView.CoreWebView2.WebMessageReceived += HandleMapMessage;
-            await RefreshMapAsync(requestLiveLocation: true);
-        };
-        dialog.Closed += (_, _) =>
-        {
-            if (mapView.CoreWebView2 is not null)
-            {
-                mapView.CoreWebView2.PermissionRequested -= HandleMapPermission;
-                mapView.CoreWebView2.WebMessageReceived -= HandleMapMessage;
-            }
+            await RefreshMapAsync();
+            await UseWindowsLocationAsync();
         };
         dialog.ShowDialog();
+    }
 
-        void HandleMapPermission(object? sender, CoreWebView2PermissionRequestedEventArgs e)
+    private async Task<(bool Ok, double Latitude, double Longitude, string Message)> TryGetCurrentWindowsLocationAsync()
+    {
+        try
         {
-            if (e.PermissionKind == CoreWebView2PermissionKind.Geolocation)
+            var access = await Geolocator.RequestAccessAsync();
+            if (access != GeolocationAccessStatus.Allowed)
             {
-                e.State = CoreWebView2PermissionState.Allow;
-                e.Handled = true;
+                return (false, 0, 0, "Ative a permissao de localizacao do Windows para usar o ponto atual.");
             }
+
+            var locator = new Geolocator
+            {
+                DesiredAccuracyInMeters = 50
+            };
+            var position = await locator.GetGeopositionAsync(
+                maximumAge: TimeSpan.FromSeconds(10),
+                timeout: TimeSpan.FromSeconds(18)).AsTask();
+            var point = position.Coordinate.Point.Position;
+            if (!IsValidMapCoordinate(point.Latitude, point.Longitude))
+            {
+                return (false, 0, 0, "O Windows retornou uma coordenada invalida.");
+            }
+
+            var accuracy = position.Coordinate.Accuracy;
+            return (true, point.Latitude, point.Longitude, $"Centro atual: {point.Latitude:N5}, {point.Longitude:N5}  |  precisao {accuracy:N0}m");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return (false, 0, 0, "Permissao de localizacao negada no Windows.");
+        }
+        catch (Exception ex) when (ex is TimeoutException or InvalidOperationException or TaskCanceledException)
+        {
+            return (false, 0, 0, "Nao consegui pegar a localizacao do Windows agora.");
         }
     }
 
@@ -319,7 +473,14 @@ public partial class MainWindow
                && Math.Abs(longitude) > 0.0001;
     }
 
-    private string BuildDeliveryZonesMapHtml(double latitude, double longitude, string label, bool requestLiveLocation)
+    private string BuildDeliveryZonesMapHtml(
+        double latitude,
+        double longitude,
+        string label,
+        double previewRadiusKm = 0,
+        decimal previewFee = 0,
+        decimal previewMinimum = 0,
+        bool previewActive = true)
     {
         var zones = _appSettings.DeliveryZones
             .Where(zone => zone.Active)
@@ -333,32 +494,40 @@ public partial class MainWindow
                 color = DeliveryZoneColor(index)
             })
             .ToList();
+        object? preview = previewRadiusKm > 0
+            ? new
+            {
+                zone = previewActive ? "PREVIA DIGITADA" : "PREVIA INATIVA",
+                fee = Money(previewFee),
+                minimum = previewMinimum > 0 ? Money(previewMinimum) : "",
+                radiusKm = previewRadiusKm,
+                color = previewActive ? "#111827" : "#A11D1D"
+            }
+            : null;
 
         var centerJson = JsonSerializer.Serialize(new { lat = latitude, lng = longitude, label });
         var zonesJson = JsonSerializer.Serialize(zones);
+        var previewJson = JsonSerializer.Serialize(preview);
         var html = new StringBuilder();
         html.AppendLine("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>");
         html.AppendLine("<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>");
         html.AppendLine("<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>");
-        html.AppendLine("<style>html,body,#map{height:100%;margin:0}body{font-family:Arial,sans-serif}.legend{position:absolute;right:12px;top:12px;z-index:500;background:#fff;border:1px solid #ccd7e2;border-radius:8px;padding:10px 12px;box-shadow:0 8px 24px rgba(24,34,43,.14);max-width:230px}.legend h3{margin:0 0 8px;font-size:14px;color:#18222b}.row{display:flex;gap:7px;align-items:flex-start;margin:6px 0;font-size:12px;color:#465869}.dot{width:11px;height:11px;border-radius:999px;margin-top:2px;flex:0 0 auto}.empty{font-size:12px;color:#667684}.leaflet-popup-content{font-size:13px}</style>");
-        html.AppendLine("</head><body><div id='map'></div><div class='legend'><h3>Circulos de entrega</h3><div id='legendRows'></div></div>");
+        html.AppendLine("<style>html,body,#map{height:100%;margin:0}body{font-family:Segoe UI,Arial,sans-serif;background:#eef3f7}.leaflet-container{background:#eef3f7}.legend{position:absolute;left:14px;bottom:14px;z-index:500;background:#fff;border:1px solid #ccd7e2;border-radius:10px;padding:10px 12px;box-shadow:0 10px 26px rgba(24,34,43,.14);max-width:270px}.legend h3{margin:0 0 7px;font-size:13px;color:#18222b}.row{display:flex;gap:7px;align-items:flex-start;margin:6px 0;font-size:12px;color:#465869}.row.preview{border-top:1px solid #e3ebf2;padding-top:7px;color:#18222b}.dot{width:11px;height:11px;border-radius:999px;margin-top:2px;flex:0 0 auto}.empty{font-size:12px;color:#667684}.leaflet-popup-content{font-size:13px}.center-chip{position:absolute;left:14px;top:14px;z-index:500;background:#fff;border:1px solid #ccd7e2;border-radius:999px;padding:7px 10px;color:#245b91;font-size:12px;font-weight:700;box-shadow:0 8px 22px rgba(24,34,43,.12)}</style>");
+        html.AppendLine("</head><body><div id='map'></div><div class='center-chip'>Centro da loja</div><div class='legend'><h3>Raios cadastrados</h3><div id='legendRows'></div></div>");
         html.AppendLine("<script>");
         html.Append("const center=").Append(centerJson).AppendLine(";");
         html.Append("const zones=").Append(zonesJson).AppendLine(";");
-        html.Append("const requestLiveLocation=").Append(requestLiveLocation ? "true" : "false").AppendLine(";");
-        html.AppendLine("const map=L.map('map',{zoomControl:true}).setView([center.lat,center.lng],12);");
+        html.Append("const preview=").Append(previewJson).AppendLine(";");
+        html.AppendLine("const map=L.map('map',{zoomControl:true,attributionControl:true}).setView([center.lat,center.lng],13);");
         html.AppendLine("L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map);");
         html.AppendLine("const marker=L.marker([center.lat,center.lng]).addTo(map).bindPopup(center.label || 'Local atual');");
         html.AppendLine("const group=L.featureGroup([marker]);");
         html.AppendLine("const rows=document.getElementById('legendRows');");
         html.AppendLine("const circles=[];");
-        html.AppendLine("if(!zones.length){rows.innerHTML='<div class=\"empty\">Cadastre um circulo para desenhar o primeiro raio.</div>'}");
+        html.AppendLine("if(!zones.length && !preview){rows.innerHTML='<div class=\"empty\">Nenhum raio salvo.</div>'}");
         html.AppendLine("zones.forEach(z=>{const circle=L.circle([center.lat,center.lng],{radius:z.radiusKm*1000,color:z.color,fillColor:z.color,fillOpacity:.12,weight:3}).addTo(map).bindPopup(`<b>${z.zone}</b><br>${z.radiusKm.toLocaleString('pt-BR')} km<br>Taxa ${z.fee}${z.minimum?'<br>Min. '+z.minimum:''}`);circles.push(circle);group.addLayer(circle);const row=document.createElement('div');row.className='row';row.innerHTML=`<span class=\"dot\" style=\"background:${z.color}\"></span><span><b>${z.zone}</b><br>${z.radiusKm.toLocaleString('pt-BR')} km | ${z.fee}</span>`;rows.appendChild(row);});");
-        html.AppendLine("if(zones.length){map.fitBounds(group.getBounds().pad(.12));}");
-        html.AppendLine("function updateCenter(lat,lng){const point=[lat,lng];marker.setLatLng(point);circles.forEach(c=>c.setLatLng(point));map.setView(point,map.getZoom()<13?13:map.getZoom());}");
-        html.AppendLine("function post(message){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage(message);}}");
-        html.AppendLine("if(requestLiveLocation&&navigator.geolocation){navigator.geolocation.watchPosition(pos=>{const lat=pos.coords.latitude;const lng=pos.coords.longitude;updateCenter(lat,lng);post({type:'location',lat,lng,accuracy:pos.coords.accuracy||0});},err=>post({type:'location-error',message:err.message||'sem permissao'}),{enableHighAccuracy:true,maximumAge:2000,timeout:12000});}");
-        html.AppendLine("if(requestLiveLocation&&!navigator.geolocation){post({type:'location-error',message:'geolocation indisponivel'});}");
+        html.AppendLine("if(preview){const circle=L.circle([center.lat,center.lng],{radius:preview.radiusKm*1000,color:preview.color,fillColor:preview.color,fillOpacity:.07,weight:4,dashArray:'10 7'}).addTo(map).bindPopup(`<b>${preview.zone}</b><br>${preview.radiusKm.toLocaleString('pt-BR')} km<br>Taxa ${preview.fee}${preview.minimum?'<br>Min. '+preview.minimum:''}`);group.addLayer(circle);const row=document.createElement('div');row.className='row preview';row.innerHTML=`<span class=\"dot\" style=\"background:${preview.color}\"></span><span><b>${preview.zone}</b><br>${preview.radiusKm.toLocaleString('pt-BR')} km | ${preview.fee}</span>`;rows.appendChild(row);}");
+        html.AppendLine("if(zones.length || preview){map.fitBounds(group.getBounds().pad(.14));}");
         html.AppendLine("</script></body></html>");
         return html.ToString();
     }

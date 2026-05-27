@@ -277,7 +277,7 @@ function renderLoginState() {
   const help = qs("#loginHelp");
   const emailInput = qs("#loginEmail");
   if (state.auth.configured) {
-    help.textContent = "Entre com o email e senha do Supabase. Esse login e o mesmo usado no Windows.";
+    help.textContent = "Entre com o email vinculado no Windows. A senha inicial e a propria key de ativacao.";
     emailInput.value = state.auth.user?.email || emailInput.value;
     if (state.auth.session) {
       qs("#loginOverlay").classList.add("hidden");
@@ -304,7 +304,7 @@ async function enterPdv() {
     const email = qs("#loginEmail").value.trim();
     const password = qs("#loginPassword").value;
     if (!email || !password) {
-      qs("#loginMessage").textContent = "Informe email e senha Supabase.";
+      qs("#loginMessage").textContent = "Informe email e a key/senha da conta.";
       return;
     }
 

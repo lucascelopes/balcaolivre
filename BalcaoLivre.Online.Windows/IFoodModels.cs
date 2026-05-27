@@ -81,11 +81,19 @@ public sealed class IFoodImportedOrder
     public string OrderTiming { get; set; } = "";
     public DateTime? PreparationStartDateTime { get; set; }
     public DateTime? ConfirmationDeadlineAt { get; set; }
+    public DateTime? DeliveryExpectedAt { get; set; }
+    public DateTime? DeliveredAt { get; set; }
+    public DateTime? CollectedAt { get; set; }
     public string OrderType { get; set; } = "DELIVERY";
     public string DeliveredBy { get; set; } = "";
     public string PickupCode { get; set; } = "";
     public string DeliveryLocalizer { get; set; } = "";
     public string ShipmentInfo { get; set; } = "";
+    public string PaymentMethod { get; set; } = "";
+    public string PaymentSummary { get; set; } = "";
+    public decimal ChangeFor { get; set; }
+    public string VoucherSummary { get; set; } = "";
+    public string CancellationInfo { get; set; } = "";
     public string CustomerName { get; set; } = "CLIENTE IFOOD";
     public string CustomerDocument { get; set; } = "";
     public string Phone { get; set; } = "";

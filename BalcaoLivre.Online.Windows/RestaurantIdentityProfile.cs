@@ -2,6 +2,7 @@ namespace BalcaoLivre.Online.Windows;
 
 public sealed class RestaurantIdentityProfile
 {
+    public string Email { get; set; } = "";
     public string OwnerName { get; set; } = "";
     public string BusinessName { get; set; } = "";
     public string LegalName { get; set; } = "";
@@ -10,6 +11,8 @@ public sealed class RestaurantIdentityProfile
     public string Address { get; set; } = "";
     public string City { get; set; } = "";
     public string State { get; set; } = "";
+    public string MenuSlug { get; set; } = "";
+    public string MenuPublicUrl { get; set; } = "";
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public string LocalLogoPath { get; set; } = "";

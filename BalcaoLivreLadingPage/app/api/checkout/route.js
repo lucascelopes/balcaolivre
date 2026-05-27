@@ -2,7 +2,11 @@ const STRIPE_CHECKOUT_URL = "https://api.stripe.com/v1/checkout/sessions";
 
 const prices = {
   mensal: "price_1Tb3fcGTOG08DTzfMZxooHqI",
-  anual: "price_1Tb3fcGTOG08DTzfsyFfmjRZ"
+  anual: "price_1Tb3fcGTOG08DTzfsyFfmjRZ",
+  "offline-mensal": process.env.STRIPE_PRICE_OFFLINE_MENSAL || "price_1Tb3fcGTOG08DTzfMZxooHqI",
+  "offline-anual": process.env.STRIPE_PRICE_OFFLINE_ANUAL || "price_1Tb3fcGTOG08DTzfsyFfmjRZ",
+  "online-mensal": process.env.STRIPE_PRICE_ONLINE_MENSAL || "",
+  "online-anual": process.env.STRIPE_PRICE_ONLINE_ANUAL || ""
 };
 
 function planFromRequest(request, formData) {

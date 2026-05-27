@@ -1,0 +1,73 @@
+{
+	email {$CADDY_EMAIL}
+}
+
+{$LANDING_HOST}, www.{$ROOT_DOMAIN} {
+	handle /api/supabase-config {
+		header Content-Type application/json
+		header Cache-Control no-store
+		respond "{\"url\":\"{$SUPABASE_PUBLIC_URL}\",\"anonKey\":\"{$SUPABASE_PUBLISHABLE_KEY}\"}" 200
+	}
+
+	handle /cardapio/config.js {
+		header Content-Type application/javascript
+		header Cache-Control no-store
+		respond "window.BALCAO_CARDAPIO_CONFIG={supabaseUrl:\"{$SUPABASE_PUBLIC_URL}\",publishableKey:\"{$SUPABASE_PUBLISHABLE_KEY}\"};" 200
+	}
+
+	handle_path /pdv* {
+		reverse_proxy pdv-web:80
+	}
+
+	handle_path /cardapio* {
+		reverse_proxy cardapio:80
+	}
+
+	handle /admin-api/* {
+		uri strip_prefix /admin-api
+		reverse_proxy admin-api:10000
+	}
+
+	handle {
+		reverse_proxy landing:3000
+	}
+}
+
+{$PDV_HOST} {
+	handle /api/supabase-config {
+		header Content-Type application/json
+		header Cache-Control no-store
+		respond "{\"url\":\"{$SUPABASE_PUBLIC_URL}\",\"anonKey\":\"{$SUPABASE_PUBLISHABLE_KEY}\"}" 200
+	}
+
+	reverse_proxy pdv-web:80
+}
+
+{$CARDAPIO_HOST} {
+	handle /config.js {
+		header Content-Type application/javascript
+		header Cache-Control no-store
+		respond "window.BALCAO_CARDAPIO_CONFIG={supabaseUrl:\"{$SUPABASE_PUBLIC_URL}\",publishableKey:\"{$SUPABASE_PUBLISHABLE_KEY}\"};" 200
+	}
+
+	reverse_proxy cardapio:80
+}
+
+{$ADMIN_HOST} {
+	handle /admin-api/* {
+		uri strip_prefix /admin-api
+		reverse_proxy admin-api:10000
+	}
+
+	handle / {
+		redir /admin 302
+	}
+
+	handle {
+		reverse_proxy landing:3000
+	}
+}
+
+{$SUPABASE_HOST} {
+	reverse_proxy host.docker.internal:8000
+}

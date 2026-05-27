@@ -113,7 +113,7 @@ async function handleWebhook(req: Request) {
       ackIds.push(eventId);
     }
 
-    if (orderId && isOrderCreatedEvent(event)) {
+    if (orderId) {
       try {
         const accessToken = connection
           ? (await ensureToken(connection)).access_token ?? ""
@@ -126,16 +126,18 @@ async function handleWebhook(req: Request) {
           payload: order,
         }, { onConflict: "order_id" });
       } catch (error) {
-        await supabase.from("bv_ifood_orders").upsert({
-          order_id: orderId,
-          connection_id: connectionId,
-          merchant_id: merchantId || null,
-          payload: {
-            id: orderId,
-            webhookEvent: event,
-            warning: messageFromError(error),
-          },
-        }, { onConflict: "order_id" });
+        if (isOrderCreatedEvent(event)) {
+          await supabase.from("bv_ifood_orders").upsert({
+            order_id: orderId,
+            connection_id: connectionId,
+            merchant_id: merchantId || null,
+            payload: {
+              id: orderId,
+              webhookEvent: event,
+              warning: messageFromError(error),
+            },
+          }, { onConflict: "order_id" });
+        }
       }
     }
   }
@@ -297,23 +299,13 @@ async function handleOrdersSync(req: Request) {
 
       ackIds.push(eventId);
 
-      const { data: existing } = await serviceClient()
-        .from("bv_ifood_orders")
-        .select("order_id")
-        .eq("order_id", orderId)
-        .maybeSingle();
-
-      if (existing?.order_id) {
-        continue;
-      }
-
       const order = await ifoodJson(`/order/v1.0/orders/${encodeURIComponent(orderId)}`, connection.access_token ?? "");
-      await serviceClient().from("bv_ifood_orders").insert({
+      await serviceClient().from("bv_ifood_orders").upsert({
         order_id: orderId,
         connection_id: connection.id,
         merchant_id: connection.merchant_id,
         payload: order,
-      });
+      }, { onConflict: "order_id" });
 
       orders.push(mapOrder(order, orderId));
     }
@@ -694,12 +686,18 @@ function mapOrder(order: Record<string, unknown>, fallbackOrderId: string) {
   const pickupCode = text(delivery?.pickupCode ?? order.pickupCode);
   const deliveryLocalizer = text(phoneObject?.localizer ?? delivery?.deliveryCode ?? order.deliveryCode);
   const scheduled = valueAt(order, ["scheduled", "scheduling"]) as Record<string, unknown> | undefined;
+  const takeout = valueAt(order, ["takeout"]) as Record<string, unknown> | undefined;
+  const preparation = valueAt(order, ["preparation"]) as Record<string, unknown> | undefined;
   const createdAt = text(order.createdAt ?? order.created_at ?? order.createdDate);
   const orderTiming = text(order.orderTiming ?? order.timing ?? order.type).toUpperCase();
   const preparationStartDateTime = text(
     scheduled?.preparationStartDateTime ??
     scheduled?.preparation_start_date_time ??
     scheduled?.preparationStart ??
+    preparation?.start ??
+    preparation?.Start ??
+    preparation?.startDateTime ??
+    preparation?.preparationStartDateTime ??
     order.preparationStartDateTime ??
     order.preparationStart,
   );
@@ -707,11 +705,39 @@ function mapOrder(order: Record<string, unknown>, fallbackOrderId: string) {
     ? preparationStartDateTime
     : createdAt;
   const confirmationDeadlineAt = addMinutesIso(confirmationBase, 8);
+  const deliveryExpectedAt = text(
+    delivery?.estimatedDeliveryDateTime ??
+    delivery?.estimatedDeliveryTime ??
+    delivery?.deliveryEstimateDateTime ??
+    delivery?.deliveryEstimate ??
+    delivery?.deliveryDateTimeStart ??
+    delivery?.deliveryDateTime ??
+    order.estimatedDeliveryDateTime ??
+    order.estimatedDeliveryTime ??
+    order.deliveryDateTimeStart,
+  );
+  const deliveredAt = text(
+    delivery?.deliveredAt ??
+    delivery?.deliveredDateTime ??
+    delivery?.deliveryDateTime ??
+    order.deliveredAt ??
+    order.deliveredDateTime ??
+    order.concludedAt,
+  );
+  const collectedAt = text(
+    delivery?.collectedAt ??
+    delivery?.pickupAt ??
+    delivery?.pickupDateTime ??
+    order.collectedAt,
+  );
   const shipmentInfo = [
     deliveredBy ? deliveredBy === "IFOOD" ? "Entrega iFood" : "Entrega propria" : "",
     pickupCode ? `Codigo coleta ${pickupCode}` : "",
     deliveryLocalizer ? `Localizador ${deliveryLocalizer}` : "",
   ].filter(Boolean).join(" | ");
+  const payment = paymentDetails(order);
+  const voucherSummary = voucherDetails(order);
+  const cancellationInfo = cancellationDetails(order);
   const items = Array.isArray(order.items) ? order.items as Record<string, unknown>[] : [];
   const mappedItems = items.map((item, index) => {
     const quantity = numberAt(item, ["quantity"], 1);
@@ -737,22 +763,30 @@ function mapOrder(order: Record<string, unknown>, fallbackOrderId: string) {
   return {
     orderId: text(order.id ?? fallbackOrderId),
     displayId: text(order.displayId ?? order.shortReference ?? fallbackOrderId.slice(-6)),
-    status: text(order.status ?? order.orderStatus),
+    status: text(order.balcaoLivreStatus ?? order.status ?? order.orderStatus),
     createdAt,
     orderTiming,
     preparationStartDateTime,
     confirmationDeadlineAt,
-    orderType: text(order.orderType ?? order.type ?? "DELIVERY").toUpperCase(),
+    deliveryExpectedAt,
+    deliveredAt,
+    collectedAt,
+    orderType: takeout ? "TAKEOUT" : text(order.orderType ?? order.type ?? "DELIVERY").toUpperCase(),
     deliveredBy,
     pickupCode,
     deliveryLocalizer,
     shipmentInfo,
+    paymentMethod: payment.method,
+    paymentSummary: payment.summary,
+    changeFor: payment.changeFor,
+    voucherSummary,
+    cancellationInfo,
     customerName: text(customer?.name ?? "CLIENTE IFOOD"),
     customerDocument: text(customer?.documentNumber ?? customer?.document),
     phone,
     address: [street, number, complement, city].filter(Boolean).join(", "),
     district,
-    notes: text(order.observations ?? order.note),
+    notes: [text(order.observations ?? order.note), takeout ? `Retirada: ${text(takeout.mode)}` : ""].filter(Boolean).join("\n"),
     total,
     items: mappedItems,
   };
@@ -766,6 +800,151 @@ function normalizeOrderAction(value?: string) {
   if (["dispatch", "despachar", "enviar", "sair"].includes(action)) return "dispatch";
   if (["cancel", "cancelar"].includes(action)) return "cancel";
   return "";
+}
+
+function paymentDetails(order: Record<string, unknown>) {
+  const methods = paymentMethodObjects(order);
+  const parts: string[] = [];
+  let method = "";
+  let changeFor = numberAtPath(order, ["cash", "changeFor", "value"]) ||
+    numberAtPath(order, ["cash", "changeFor"]) ||
+    numberAtPath(order, ["payment", "cash", "changeFor", "value"]) ||
+    numberAtPath(order, ["payments", "cash", "changeFor", "value"]) ||
+    numberAtPath(order, ["payment", "changeFor", "value"]) ||
+    numberAtPath(order, ["payments", "changeFor", "value"]);
+
+  for (const item of methods) {
+    const label = normalizePaymentLabel(text(item.method ?? item.name ?? item.type ?? item.brand ?? item.cardBrand));
+    if (!label) continue;
+    method ||= label;
+    const amount = numberAt(item, ["value", "amount"], 0) || numberAtPath(item, ["price", "value"]);
+    changeFor ||= numberAtPath(item, ["cash", "changeFor", "value"]) ||
+      numberAtPath(item, ["changeFor", "value"]) ||
+      numberAt(item, ["changeFor"], 0);
+    const descriptor = [
+      label,
+      amount > 0 ? moneyText(amount) : "",
+      isPaymentOnDelivery(item) ? "na entrega" : isPrepaidPayment(item) ? "online" : "",
+    ].filter(Boolean).join(" ");
+    if (descriptor) parts.push(descriptor);
+  }
+
+  let summary = [...new Set(parts)].join(" / ");
+  if (changeFor > 0) {
+    summary = summary ? `${summary} | Troco para ${moneyText(changeFor)}` : `Troco para ${moneyText(changeFor)}`;
+  }
+
+  return { method, summary, changeFor };
+}
+
+function paymentMethodObjects(order: Record<string, unknown>) {
+  const result: Record<string, unknown>[] = [];
+  for (const source of [order.payments, order.payment]) {
+    if (Array.isArray(source)) {
+      result.push(...source.filter(isRecord));
+      continue;
+    }
+
+    if (!isRecord(source)) continue;
+    for (const key of ["methods", "paymentMethods", "items"]) {
+      const value = source[key];
+      if (Array.isArray(value)) {
+        result.push(...value.filter(isRecord));
+      }
+    }
+
+    if (result.length === 0) {
+      result.push(source);
+    }
+  }
+  return result;
+}
+
+function normalizePaymentLabel(value: string) {
+  const normalized = value.toUpperCase();
+  if (["CASH", "MONEY", "DINHEIRO"].includes(normalized)) return "DINHEIRO";
+  if (["CREDIT", "CREDIT_CARD", "CARTAO_CREDITO"].includes(normalized)) return "CARTAO CREDITO";
+  if (["DEBIT", "DEBIT_CARD", "CARTAO_DEBITO"].includes(normalized)) return "CARTAO DEBITO";
+  if (["MEAL_VOUCHER", "VOUCHER"].includes(normalized)) return "VOUCHER";
+  return normalized.replaceAll("_", " ");
+}
+
+function isPaymentOnDelivery(item: Record<string, unknown>) {
+  const joined = text(item.paymentType ?? item.prepaid ?? item.liability ?? item.type).toUpperCase();
+  return joined.includes("OFFLINE") || joined.includes("ON_DELIVERY") || joined.includes("NA ENTREGA") || joined.includes("DELIVERY");
+}
+
+function isPrepaidPayment(item: Record<string, unknown>) {
+  const joined = text(item.paymentType ?? item.prepaid ?? item.liability ?? item.type).toUpperCase();
+  return joined.includes("PREPAID") || joined.includes("ONLINE");
+}
+
+function voucherDetails(order: Record<string, unknown>) {
+  const values = new Set<string>();
+  collectVoucherValues(order, values);
+  return [...values].filter(Boolean).slice(0, 6).join(" / ");
+}
+
+function collectVoucherValues(value: unknown, values: Set<string>) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectVoucherValues(item, values);
+    return;
+  }
+
+  if (!isRecord(value)) {
+    const simple = text(value);
+    if (simple.toUpperCase().includes("VOUCHER") || simple.toUpperCase().includes("ENTGRATIS")) {
+      values.add(simple);
+    }
+    return;
+  }
+
+  const code = text(value.code ?? value.voucherCode ?? value.couponCode ?? value.promoCode ?? value.campaignCode ?? value.target);
+  const name = text(value.name ?? value.description ?? value.title);
+  const amount = numberAt(value, ["value", "amount"], 0) || numberAtPath(value, ["amount", "value"]);
+  const joined = `${code} ${name}`.trim();
+  const raw = JSON.stringify(value);
+  if (joined.toUpperCase().includes("VOUCHER") ||
+    joined.toUpperCase().includes("ENTGRATIS") ||
+    (amount > 0 && /benefit|discount|voucher|coupon|promotion/i.test(raw))) {
+    values.add([code, name, amount > 0 ? moneyText(amount) : ""].filter(Boolean).join(" "));
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    if (/benefit|discount|voucher|coupon|promotion/i.test(key)) {
+      collectVoucherValues(child, values);
+    }
+  }
+}
+
+function cancellationDetails(order: Record<string, unknown>) {
+  const cancellation = order.cancellation;
+  if (isRecord(cancellation)) {
+    return [cancellation.requestedBy, cancellation.reason, cancellation.cancellationCode, cancellation.message]
+      .map(text)
+      .filter(Boolean)
+      .join(" - ");
+  }
+
+  return text(order.cancellationReason ?? order.cancelReason ?? order.cancellationMessage);
+}
+
+function numberAtPath(source: unknown, keys: string[]) {
+  let current: unknown = source;
+  for (const key of keys) {
+    if (!isRecord(current)) return 0;
+    current = current[key];
+  }
+  const number = typeof current === "number" ? current : Number(String(current ?? "").replace(",", "."));
+  return Number.isFinite(number) ? number : 0;
+}
+
+function moneyText(value: number) {
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function addMinutesIso(value: string, minutes: number) {
@@ -786,8 +965,8 @@ function buildOrderActionCommand(
       return {
         path: `/order/v1.0/orders/${encoded}/confirm`,
         payload: undefined,
-        status: "CONFIRMADO",
-        message: "Pedido iFood confirmado.",
+        status: "PREPARANDO",
+        message: "Pedido iFood confirmado e em preparo.",
       };
     case "prepare":
       return {

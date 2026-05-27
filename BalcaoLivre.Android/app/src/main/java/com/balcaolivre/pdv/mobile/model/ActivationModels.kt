@@ -3,6 +3,7 @@ package com.balcaolivre.pdv.mobile.model
 import org.json.JSONObject
 
 data class RestaurantProfile(
+    val email: String = "",
     val ownerName: String = "",
     val businessName: String = "",
     val legalName: String = "",
@@ -16,6 +17,7 @@ data class RestaurantProfile(
         get() = businessName.ifBlank { legalName.ifBlank { ownerName.ifBlank { "Restaurante" } } }
 
     fun toJson(): JSONObject = JSONObject()
+        .put("email", email)
         .put("ownerName", ownerName)
         .put("businessName", businessName)
         .put("legalName", legalName)

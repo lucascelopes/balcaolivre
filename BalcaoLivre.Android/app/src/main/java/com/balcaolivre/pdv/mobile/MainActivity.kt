@@ -48,6 +48,7 @@ class MainActivity : Activity() {
 
         val adminUrl = input("URL do admin", DEFAULT_ADMIN_API_URL, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
         val license = input("Chave da licenca", "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
+        val email = input("Email da conta", "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS)
         val businessName = input("Nome fantasia", "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS)
         val ownerName = input("Responsavel", "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS)
         val legalName = input("Razao social", "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS)
@@ -57,7 +58,7 @@ class MainActivity : Activity() {
         val state = input("UF", "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
         val address = input("Endereco", "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
 
-        listOf(adminUrl, license, businessName, ownerName, legalName, cnpj, phone, city, state, address)
+        listOf(adminUrl, license, email, businessName, ownerName, legalName, cnpj, phone, city, state, address)
             .forEach { content.addView(fieldBlock(it)) }
 
         val status = statusText(message.orEmpty(), isError = !message.isNullOrBlank())
@@ -71,6 +72,7 @@ class MainActivity : Activity() {
             if (loading) return@setOnClickListener
             val normalizedKey = normalizeLicenseKey(license.textString())
             val profile = RestaurantProfile(
+                email = email.textString().lowercase(Locale.US),
                 ownerName = ownerName.textString(),
                 businessName = businessName.textString(),
                 legalName = legalName.textString(),
@@ -85,8 +87,16 @@ class MainActivity : Activity() {
                 status.showMessage("Informe a chave da licenca.", true)
                 return@setOnClickListener
             }
+            if (!isReasonableEmail(profile.email)) {
+                status.showMessage("Informe um email valido para vincular a conta.", true)
+                return@setOnClickListener
+            }
             if (profile.businessName.isBlank() && profile.legalName.isBlank() && profile.ownerName.isBlank()) {
                 status.showMessage("Informe o nome da loja.", true)
+                return@setOnClickListener
+            }
+            if (profile.cnpj.isBlank()) {
+                status.showMessage("Informe o CNPJ da loja.", true)
                 return@setOnClickListener
             }
 
@@ -148,6 +158,7 @@ class MainActivity : Activity() {
         val summary = card()
         summary.addView(title("Restaurante"))
         summary.addView(body(session.profile.displayName))
+        summary.addView(body("Email: ${session.profile.email.ifBlank { "nao informado" }}"))
         summary.addView(body("Plano: ${session.plan.ifBlank { "admin" }}"))
         summary.addView(body("Validade: ${session.expiresAt ?: "sem data local"}"))
         summary.addView(body("Aparelho: ${session.machineCode}"))
@@ -387,6 +398,16 @@ class MainActivity : Activity() {
 
     private fun normalizeLicenseKey(value: String): String =
         value.trim().uppercase(Locale.US).replace(" ", "")
+
+    private fun isReasonableEmail(value: String): Boolean {
+        val clean = value.trim()
+        val at = clean.indexOf('@')
+        return at > 0 &&
+            at == clean.lastIndexOf('@') &&
+            at < clean.length - 3 &&
+            clean.substring(at + 1).contains('.') &&
+            clean.none { it.isWhitespace() }
+    }
 
     private fun matchWrap(bottom: Int = 0): LinearLayout.LayoutParams =
         LinearLayout.LayoutParams(

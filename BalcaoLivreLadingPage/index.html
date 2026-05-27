@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Balcão Livre PDV</title>
     <link rel="icon" href="public/balcao-livre-icon.png" />
-    <link rel="stylesheet" href="app/globals.css" />
+    <link rel="stylesheet" href="app/globals.css?v=whatsappguide4" />
   </head>
   <body>
     <main>
@@ -20,7 +20,9 @@
           <a href="#operacao">Operacao</a>
           <a href="#preco">Preco</a>
           <a href="#faq">FAQ</a>
-          <a href="/pdv/">Login</a>
+          <a href="/como-usar/">Como usar</a>
+          <a href="/admin/">Admin</a>
+          <a href="/pdv">Login</a>
         </nav>
         <a class="topbarAction" href="#">Baixar instalador</a>
       </header>
@@ -32,17 +34,16 @@
             <div><span>Balcão Livre</span><b>PDV para restaurante</b></div>
           </div>
           <p class="eyebrow">Restaurantes, bares, lanchonetes e casas de eventos</p>
-          <h1>PDV simples para restaurante atender mais rapido.</h1>
+          <h1>PDV para restaurante controlar caixa, mesas e delivery.</h1>
           <p class="heroLead">
-            Controle mesa, balcao, delivery, pagamentos, estoque e comprovantes
-            em uma rotina direta para o operador do caixa.
+            Venda no balcao, acompanhe comandas, registre pagamentos e imprima
+            comprovantes em uma rotina feita para operacao real.
           </p>
           <div class="heroBenefit">
-            <strong>Menos fila, menos erro e mais controle no fechamento.</strong>
+            <strong>Caixa offline, atendimento agil e fechamento com controle.</strong>
             <span>
-              O Balcão Livre PDV organiza o atendimento do pedido ate o
-              comprovante, ajudando o restaurante a saber o que vendeu, quem
-              atendeu, quanto recebeu e o que saiu do estoque.
+              O Balcao Livre PDV organiza pedidos, pagamentos, estoque e
+              relatorios em um fluxo direto para equipe e dono.
             </span>
           </div>
           <div class="heroFlow">
@@ -159,26 +160,16 @@
               <button class="finishButton" type="button" data-finish>Finalizar venda</button>
               <button class="clearButton" type="button" data-clear>Limpar venda</button>
             </aside>
-            <section class="stockConsole" aria-label="Estoque integrado ao caixa demo">
-              <div class="stockHeader">
-                <div>
-                  <span>Estoque conectado ao PDV</span>
-                  <strong>Venda baixa estoque e mostra lucro previsto.</strong>
-                </div>
-                <b data-stock-alerts>0 alertas de minimo</b>
-              </div>
-              <div class="stockRows" data-stock-rows></div>
-            </section>
           </div>
         <div class="demoStatus">
           <span data-demo-message>Teste o caixa: clique em um produto ou digite 000003 e pressione Enter.</span>
           <b>Comprovante: NAO E DOCUMENTO FISCAL</b>
         </div>
-        <section class="inlineReceiptDemo" id="comprovante-demo">
+        <section class="inlineReceiptDemo finalReceiptDemo isHidden" id="comprovante-demo" data-final-receipt>
           <div class="inlineReceiptCopy">
-            <span>Comprovante demo</span>
-            <strong data-live-receipt-title>A previa acompanha os produtos adicionados.</strong>
-            <p>Adicione produtos no PDV, escolha a forma de pagamento e confirme para ver o comprovante preenchido com a venda testada.</p>
+            <span>Venda finalizada</span>
+            <strong>Comprovante gerado na tela.</strong>
+            <p>Confira os produtos, a forma de pagamento, o valor recebido e o troco calculado.</p>
           </div>
           <div class="receiptPaper liveReceiptPaper" data-live-receipt></div>
         </section>
@@ -342,44 +333,82 @@
       <section class="pricingSection" id="preco">
         <div class="sectionIntro">
           <p class="eyebrow">Preco</p>
-          <h2>Escolha o plano do Balcao Livre PDV.</h2>
-          <p>Planos simples para usar o PDV no Windows, com pagamento seguro e licenca de ativacao para o computador do cliente.</p>
+          <h2>Escolha o PDV certo para a sua operacao.</h2>
+          <p>Duas modalidades objetivas: um caixa offline para estabilidade na loja e uma operacao online para delivery, equipe e pedidos em tempo real.</p>
         </div>
         <div class="pricingPromise">
-          <strong>Sem taxa de instalacao e sem surpresa no caixa.</strong>
-          <span>O PDV continua vendendo offline depois de ativado.</span>
+          <strong>PDV para rotina real de restaurante, nao tela promocional.</strong>
+          <span>Offline para caixa estavel. Online para operacao conectada.</span>
         </div>
         <div class="pricingGrid">
-          <article class="priceCard">
-            <div class="priceCardTop"><span>Mensal</span><small>Mais flexivel</small></div>
-            <div class="priceValue"><strong>R$ 17,00</strong><em>por mes</em></div>
-            <p>Para comecar agora, testar na operacao real e continuar pagando pouco.</p>
+          <article class="priceCard offlinePlan">
+            <div class="priceCardHeader">
+              <span>1°</span>
+              <div>
+                <small>Caixa local</small>
+                <h3>Balcao Livre PDV Offline</h3>
+              </div>
+            </div>
+            <p>Para restaurante que precisa vender no caixa todos os dias, mesmo quando a internet cai.</p>
+            <div class="priceOptions" aria-label="Valores do Balcao Livre PDV Offline">
+              <div><span>Mensal</span><strong>R$ 17,00</strong><em>por mes</em></div>
+              <div><span>Anual</span><strong>R$ 200,00</strong><em>por ano</em></div>
+            </div>
             <ul>
-              <li>Ativacao por chave</li>
-              <li>Instalador Windows</li>
-              <li>PDV offline</li>
-              <li>Atualizacoes inclusas</li>
+              <li>Venda sem internet no Windows</li>
+              <li>Mesas, balcao, delivery e comandas</li>
+              <li>Pix, dinheiro, credito e debito</li>
+              <li>Impressao local de comprovantes</li>
+              <li>Estoque, fechamento e relatorios</li>
+              <li>Licenca por computador</li>
             </ul>
-            <a class="checkoutButton" href="#" data-preview-checkout="mensal">Assinar mensal</a>
+            <div class="planActions">
+              <a class="checkoutButton" href="#" data-preview-checkout="offline-mensal">Contratar mensal</a>
+              <a class="checkoutButton secondary" href="#" data-preview-checkout="offline-anual">Contratar anual</a>
+            </div>
+            <div class="sellerContacts" aria-label="Comprar pelo WhatsApp">
+              <span>Comprar pelo WhatsApp</span>
+              <a href="https://wa.me/5527981267551" target="_blank" rel="noreferrer"><strong>Vendedor Wender</strong><b>+55 27 98126-7551</b></a>
+              <a href="https://wa.me/5533999609457" target="_blank" rel="noreferrer"><strong>Vendedor Lucas</strong><b>33 99960-9457</b></a>
+            </div>
           </article>
-          <article class="priceCard featured">
-            <div class="priceCardTop"><span>Anual</span><small>Melhor para loja</small></div>
-            <div class="priceValue"><strong>R$ 200,00</strong><em>por ano</em></div>
-            <p>Plano para deixar o caixa rodando o ano todo com uma unica renovacao.</p>
+          <article class="priceCard onlinePlan">
+            <div class="priceCardHeader">
+              <span>2°</span>
+              <div>
+                <small>Operacao conectada</small>
+                <h3>Balcao Livre PDV Online</h3>
+              </div>
+            </div>
+            <p>Para loja que quer integrar atendimento, delivery, garcom no celular e pedidos em tempo real.</p>
+            <div class="priceOptions" aria-label="Valores do Balcao Livre PDV Online">
+              <div><span>Mensal</span><strong>R$ 34,00</strong><em>por mes</em></div>
+              <div><span>Anual</span><strong>R$ 400,00</strong><em>por ano</em></div>
+            </div>
             <ul>
-              <li>12 meses de uso</li>
-              <li>Melhor controle da licenca</li>
-              <li>PDV offline</li>
-              <li>Atualizacoes inclusas</li>
+              <li>Pedidos do iFood no sistema</li>
+              <li>Entrega por zona e taxa configuravel</li>
+              <li>Garcom no celular em tempo real</li>
+              <li>Sincronizacao entre caixa e atendimento</li>
+              <li>Pedidos online, mesas e comandas</li>
+              <li>Visao gerencial para acompanhar a operacao</li>
             </ul>
-            <a class="checkoutButton" href="#" data-preview-checkout="anual">Assinar anual</a>
+            <div class="planActions">
+              <a class="checkoutButton" href="#" data-preview-checkout="online-mensal">Contratar mensal</a>
+              <a class="checkoutButton secondary" href="#" data-preview-checkout="online-anual">Contratar anual</a>
+            </div>
+            <div class="sellerContacts" aria-label="Comprar pelo WhatsApp">
+              <span>Comprar pelo WhatsApp</span>
+              <a href="https://wa.me/5527981267551" target="_blank" rel="noreferrer"><strong>Vendedor Wender</strong><b>+55 27 98126-7551</b></a>
+              <a href="https://wa.me/5533999609457" target="_blank" rel="noreferrer"><strong>Vendedor Lucas</strong><b>33 99960-9457</b></a>
+            </div>
           </article>
         </div>
         <div class="paymentTrust">
-          <span>Checkout seguro Stripe</span>
-          <span>Cartao de credito</span>
-          <span>Licenca por chave</span>
-          <span>Instalador independente</span>
+          <span>Mensal ou anual</span>
+          <span>Ativacao por licenca</span>
+          <span>Atualizacoes inclusas</span>
+          <span>Suporte de implantacao</span>
         </div>
       </section>
 
@@ -399,7 +428,7 @@
         <a class="primaryButton" href="#">Baixar instalador</a>
       </section>
 
-      <footer class="siteFooter">
+      <footer class="siteFooter expandedFooter">
         <div class="footerBrand">
           <div>
             <strong>Balcão Livre PDV</strong>
@@ -407,10 +436,17 @@
           </div>
         </div>
         <p>2026 Balcão Livre PDV. Caixa simples, rápido e sem complicação.</p>
+        <div class="footerWhatsapp">
+          <strong>Compre no WhatsApp</strong>
+          <a href="https://wa.me/5527981267551" target="_blank" rel="noreferrer"><span>Vendedor Wender</span><b>+55 27 98126-7551</b></a>
+          <a href="https://wa.me/5533999609457" target="_blank" rel="noreferrer"><span>Vendedor Lucas</span><b>33 99960-9457</b></a>
+        </div>
         <nav aria-label="Links do rodape">
           <a href="#produto">Produto</a>
           <a href="#impressao">Impressao</a>
           <a href="#preco">Planos</a>
+          <a href="/como-usar/">Como usar</a>
+          <a href="/termos/">Termos</a>
         </nav>
       </footer>
     </main>
@@ -455,7 +491,7 @@
         let method = "Dinheiro";
         let receiptReady = false;
 
-        const root = document.querySelector("[data-cashier-demo]");
+        const root = document.querySelector(".cashierDemoSection");
         document.querySelectorAll("[data-preview-checkout]").forEach((link) => {
           link.addEventListener("click", (event) => {
             event.preventDefault();
@@ -464,7 +500,6 @@
         });
         const rows = root.querySelector("[data-ticket-rows]");
         const picker = root.querySelector("[data-product-picker]");
-        const stockRows = root.querySelector("[data-stock-rows]");
         const codeInput = root.querySelector("[data-code-input]");
         const receivedInput = root.querySelector("[data-received-input]");
         const message = root.querySelector("[data-demo-message]");
@@ -475,8 +510,8 @@
         const pixPreview = root.querySelector("[data-pix-preview]");
         const pixQr = root.querySelector("[data-pix-qr]");
         const receiptPaper = root.querySelector("[data-receipt-paper]");
+        const finalReceipt = root.querySelector("[data-final-receipt]");
         const liveReceipt = root.querySelector("[data-live-receipt]");
-        const liveReceiptTitle = root.querySelector("[data-live-receipt-title]");
         const format = (value) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
         const inputFormat = (value) => value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         const parseMoney = (value) => {
@@ -487,15 +522,6 @@
         const itemCount = () => items.reduce((sum, item) => sum + item.qty, 0);
         const soldQty = (code) => items.find((item) => item.code === code)?.qty ?? 0;
         const available = (product) => product.stock - soldQty(product.code);
-        const stockState = () => products.map((product) => {
-          const profit = product.price - product.cost;
-          return {
-            ...product,
-            available: available(product),
-            profit,
-            margin: Math.round((profit / product.price) * 100)
-          };
-        });
 
         function renderProducts() {
           picker.innerHTML = products.map((product) => `
@@ -521,45 +547,34 @@
           pixQr.innerHTML = qrCells.map((cell) => `<i class="${cell ? "on" : ""}"></i>`).join("");
         }
 
-        function renderStock() {
-          const rows = stockState();
-          const lowCount = rows.filter((product) => product.available <= product.min).length;
-          root.querySelector("[data-stock-alerts]").textContent = `${lowCount} alerta${lowCount === 1 ? "" : "s"} de minimo`;
-          stockRows.innerHTML = rows.map((product) => `
-            <div class="stockRow ${product.available <= product.min ? "low" : ""}">
-              <span>${product.code}</span>
-              <strong>${product.name}</strong>
-              <small>Est. ${product.available} / min. ${product.min}</small>
-              <em>Compra ${format(product.cost)}</em>
-              <b>Lucro ${format(product.profit)} | ${product.margin}%</b>
-            </div>
-          `).join("");
+        function flashReceipt() {
+          finalReceipt.classList.remove("receiptFlash");
+          void finalReceipt.offsetWidth;
+          finalReceipt.classList.add("receiptFlash");
+          finalReceipt.scrollIntoView({ behavior: "smooth", block: "start" });
         }
 
-        function renderLiveReceipt() {
-          liveReceiptTitle.textContent = receiptReady
-            ? "Venda finalizada na demo."
-            : "A previa acompanha os produtos adicionados.";
-          liveReceipt.innerHTML = `
+        function receiptHtml() {
+          return `
             <h3>BALCAO LIVRE PDV</h3>
-            <p>${receiptReady ? "COMPROVANTE GERADO" : "PREVIA DA CONTA"}</p>
+            <p>COMPROVANTE GERADO</p>
             <p>COMANDA 000012 | GARCOM 2</p>
             <p>NAO E DOCUMENTO FISCAL</p>
             <div class="receiptLine"></div>
-            ${items.length ? items.map((item) => `
+            ${items.map((item) => `
               <div class="receiptProduct">
                 <span>${item.name}</span>
                 <small>${item.qty},000 x ${format(item.price)}</small>
                 <b>${format(item.price * item.qty)}</b>
               </div>
-            `).join("") : '<p class="emptyReceipt">Adicione produtos no caixa demo para montar o comprovante.</p>'}
+            `).join("")}
             <div class="receiptLine"></div>
             <div class="receiptTotals">
               <span>TOTAL</span><b>${format(total())}</b>
               <span>${method.toUpperCase()}</span><b>${format(parseMoney(receivedInput.value))}</b>
               <span>TROCO</span><b>${format(Math.max(0, parseMoney(receivedInput.value) - total()))}</b>
             </div>
-            ${method === "Pix" && items.length ? `
+            ${method === "Pix" ? `
               <div class="receiptQr">
                 <div class="miniQr large">${qrCells.map((cell) => `<i class="${cell ? "on" : ""}"></i>`).join("")}</div>
                 <span>PIX ${format(total())}</span>
@@ -598,8 +613,10 @@
           renderProducts();
           renderPaymentMethods();
           renderQr();
-          renderStock();
-          renderLiveReceipt();
+          finalReceipt.classList.toggle("isHidden", !receiptReady);
+          if (receiptReady) {
+            liveReceipt.innerHTML = receiptHtml();
+          }
         }
 
         function addProduct(product) {
@@ -619,7 +636,7 @@
           selectedCode = product.code;
           codeInput.value = "";
           receiptReady = false;
-          message.textContent = `${product.name} incluido. Estoque baixou automaticamente na demo.`;
+          message.textContent = `${product.name} incluido na comanda.`;
           render();
         }
 
@@ -639,19 +656,33 @@
             receivedInput.value = inputFormat(total());
           }
           render();
+          if (receiptReady) {
+            message.textContent = `Pagamento alterado para ${option}. Comprovante atualizado.`;
+            flashReceipt();
+          }
+        }
+
+        function finalizeSale(statusText) {
+          if (!items.length) {
+            const fallback = products.find((product) => product.code === selectedCode) || products[0];
+            items = [{ ...fallback, qty: 1 }];
+            selectedCode = fallback.code;
+            codeInput.value = "";
+          }
+
+          if (parseMoney(receivedInput.value) < total()) {
+            receivedInput.value = inputFormat(total());
+          }
+          receiptReady = true;
+          paymentModal.classList.add("isHidden");
+          receiptModal.classList.add("isHidden");
+          message.textContent = statusText;
+          render();
+          flashReceipt();
         }
 
         function openPayment() {
-          if (!items.length) {
-            message.textContent = "Inclua pelo menos um produto antes de finalizar.";
-            return;
-          }
-
-          receiptReady = false;
-          paymentModal.classList.remove("isHidden");
-          receiptModal.classList.add("isHidden");
-          message.textContent = "Escolha a forma de pagamento para gerar o comprovante.";
-          render();
+          finalizeSale(`Venda finalizada em ${method}. Comprovante gerado na tela.`);
         }
 
         function openReceipt() {
@@ -660,39 +691,8 @@
             return;
           }
 
-          receiptPaper.innerHTML = `
-            <h3>BALCAO LIVRE PDV</h3>
-            <p>COMANDA 000012 | GARCOM 2</p>
-            <p>NAO E DOCUMENTO FISCAL</p>
-            <div class="receiptLine"></div>
-            ${items.map((item) => `
-              <div class="receiptProduct">
-                <span>${item.name}</span>
-                <small>${item.qty},000 x ${format(item.price)}</small>
-                <b>${format(item.price * item.qty)}</b>
-              </div>
-            `).join("")}
-            <div class="receiptLine"></div>
-            <div class="receiptTotals">
-              <span>TOTAL</span><b>${format(total())}</b>
-              <span>${method.toUpperCase()}</span><b>${format(parseMoney(receivedInput.value))}</b>
-              <span>TROCO</span><b>${format(Math.max(0, parseMoney(receivedInput.value) - total()))}</b>
-            </div>
-            ${method === "Pix" ? `
-              <div class="receiptQr">
-                <div class="miniQr large">${qrCells.map((cell) => `<i class="${cell ? "on" : ""}"></i>`).join("")}</div>
-                <span>PIX ${format(total())}</span>
-              </div>
-            ` : ""}
-            <strong class="receiptThanks">OBRIGADO PELA PREFERENCIA</strong>
-          `;
-
-          receiptReady = true;
-          paymentModal.classList.add("isHidden");
-          receiptModal.classList.add("isHidden");
-          message.textContent = `Venda finalizada em ${method}. Comprovante gerado na tela.`;
-          renderLiveReceipt();
-          liveReceipt.scrollIntoView({ behavior: "smooth", block: "start" });
+          receiptPaper.innerHTML = receiptHtml();
+          finalizeSale(`Venda finalizada em ${method}. Comprovante gerado na tela.`);
         }
 
         function closeModals() {
@@ -746,7 +746,7 @@
           method = "Dinheiro";
           receiptReady = false;
           closeModals();
-          message.textContent = "Caixa limpo. Comece outra venda com os produtos fake.";
+          message.textContent = "Caixa limpo. Comece outra venda com os produtos da demonstracao.";
           render();
         });
         root.querySelector("[data-new-sale]").addEventListener("click", () => {

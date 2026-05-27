@@ -1,0 +1,68 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - landing
+      - pdv-web
+      - cardapio
+      - admin-api
+
+  landing:
+    build:
+      context: ../..
+      dockerfile: deploy/self-hosted/landing.Dockerfile
+    restart: unless-stopped
+    environment:
+      NEXT_TELEMETRY_DISABLED: "1"
+    expose:
+      - "3000"
+
+  pdv-web:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ../../BalcaoLivre.PDV.Web:/usr/share/nginx/html:ro
+      - ./nginx-spa.conf:/etc/nginx/conf.d/default.conf:ro
+    expose:
+      - "80"
+
+  cardapio:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ../../BalcaoLivre.Cardapio.Web:/usr/share/nginx/html:ro
+      - ./nginx-spa.conf:/etc/nginx/conf.d/default.conf:ro
+    expose:
+      - "80"
+
+  admin-api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      BVPDV_ADMIN_URLS: "http://0.0.0.0:10000"
+      BVPDV_ADMIN_USER: "${BVPDV_ADMIN_USER}"
+      BVPDV_ADMIN_PASSWORD: "${BVPDV_ADMIN_PASSWORD}"
+      BVPDV_SUPABASE_URL: "${SUPABASE_PUBLIC_URL}"
+      BVPDV_SUPABASE_SECRET_KEY: "${SUPABASE_SECRET_KEY}"
+      BVPDV_SUPABASE_BUCKET: "${BVPDV_SUPABASE_BUCKET}"
+      BVPDV_SUPABASE_OBJECT: "${BVPDV_SUPABASE_OBJECT}"
+    expose:
+      - "10000"
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -68,6 +68,7 @@ export default function CashierDemo() {
   const [method, setMethod] = useState("Dinheiro");
   const [modal, setModal] = useState(null);
   const [receiptReady, setReceiptReady] = useState(false);
+  const [receiptVersion, setReceiptVersion] = useState(0);
   const [message, setMessage] = useState("Teste o caixa: clique em um produto ou digite 000003 e pressione Enter.");
 
   const total = useMemo(
@@ -79,14 +80,11 @@ export default function CashierDemo() {
       products.map((product) => {
         const sold = items.find((item) => item.code === product.code)?.qty ?? 0;
         const available = product.stock - sold;
-        const profit = product.price - product.cost;
-        const margin = Math.round((profit / product.price) * 100);
 
-        return { ...product, sold, available, profit, margin };
+        return { ...product, sold, available };
       }),
     [items]
   );
-  const lowStockCount = stockRows.filter((product) => product.available <= product.min).length;
   const receivedValue = parseMoney(received);
   const change = Math.max(0, receivedValue - total);
 
@@ -114,7 +112,7 @@ export default function CashierDemo() {
     setSelectedCode(product.code);
     setCode("");
     setReceiptReady(false);
-    setMessage(`${product.name} incluido. Estoque baixou automaticamente na demo.`);
+    setMessage(`${product.name} incluido na comanda.`);
   }
 
   function addByCode() {
@@ -142,24 +140,44 @@ export default function CashierDemo() {
     setMethod("Dinheiro");
     setModal(null);
     setReceiptReady(false);
-    setMessage("Caixa limpo. Comece outra venda com os produtos fake.");
+    setMessage("Caixa limpo. Comece outra venda com os produtos da demonstracao.");
+  }
+
+  function scrollToReceipt() {
+    window.setTimeout(() => {
+      receiptRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
   }
 
   function finishSale() {
-    if (items.length === 0) {
-      setMessage("Inclua pelo menos um produto antes de finalizar.");
-      return;
-    }
+    const fallbackProduct = products.find((product) => product.code === selectedCode) ?? products[0];
+    const finalItems = items.length > 0 ? items : [{ ...fallbackProduct, qty: 1 }];
+    const finalTotal = finalItems.reduce((sum, item) => sum + item.price * item.qty, 0);
 
-    setModal("payment");
-    setReceiptReady(false);
-    setMessage("Escolha a forma de pagamento para gerar o comprovante.");
+    if (items.length === 0) {
+      setItems(finalItems);
+      setSelectedCode(fallbackProduct.code);
+      setCode("");
+    }
+    if (receivedValue < finalTotal) {
+      setReceived(inputMoney(finalTotal));
+    }
+    setModal(null);
+    setReceiptReady(true);
+    setReceiptVersion((current) => current + 1);
+    setMessage(`Venda finalizada em ${method}. Comprovante gerado na tela.`);
+    scrollToReceipt();
   }
 
   function chooseMethod(option) {
     setMethod(option);
     if (option !== "Dinheiro") {
       setReceived(inputMoney(total));
+    }
+    if (receiptReady) {
+      setReceiptVersion((current) => current + 1);
+      setMessage(`Pagamento alterado para ${option}. Comprovante atualizado.`);
+      scrollToReceipt();
     }
   }
 
@@ -171,10 +189,9 @@ export default function CashierDemo() {
 
     setModal(null);
     setReceiptReady(true);
+    setReceiptVersion((current) => current + 1);
     setMessage(`Venda finalizada em ${method}. Comprovante gerado na tela.`);
-    window.setTimeout(() => {
-      receiptRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 80);
+    scrollToReceipt();
   }
 
   return (
@@ -310,29 +327,6 @@ export default function CashierDemo() {
             </button>
           </aside>
 
-          <section className="stockConsole" aria-label="Estoque integrado ao caixa demo">
-            <div className="stockHeader">
-              <div>
-                <span>Estoque conectado ao PDV</span>
-                <strong>Venda baixa estoque e mostra lucro previsto.</strong>
-              </div>
-              <b>{lowStockCount} alerta{lowStockCount === 1 ? "" : "s"} de minimo</b>
-            </div>
-            <div className="stockRows">
-              {stockRows.map((product) => (
-                <div
-                  className={product.available <= product.min ? "stockRow low" : "stockRow"}
-                  key={product.code}
-                >
-                  <span>{product.code}</span>
-                  <strong>{product.name}</strong>
-                  <small>Est. {product.available} / min. {product.min}</small>
-                  <em>Compra {money(product.cost)}</em>
-                  <b>Lucro {money(product.profit)} | {product.margin}%</b>
-                </div>
-              ))}
-            </div>
-          </section>
         </div>
 
         <div className="demoStatus">
@@ -340,51 +334,46 @@ export default function CashierDemo() {
           <b>Comprovante: NAO E DOCUMENTO FISCAL</b>
         </div>
 
-        <section className="inlineReceiptDemo" ref={receiptRef} id="comprovante-demo">
-          <div className="inlineReceiptCopy">
-            <span>Comprovante demo</span>
-            <strong>{receiptReady ? "Venda finalizada na demo." : "A previa acompanha os produtos adicionados."}</strong>
-            <p>
-              Adicione produtos no PDV, escolha a forma de pagamento e confirme
-              para ver o comprovante preenchido com a venda testada.
-            </p>
-          </div>
-          <div className="receiptPaper liveReceiptPaper">
-            <h3>BALCAO LIVRE PDV</h3>
-            <p>{receiptReady ? "COMPROVANTE GERADO" : "PREVIA DA CONTA"}</p>
-            <p>COMANDA 000012 | GARCOM 2</p>
-            <p>NAO E DOCUMENTO FISCAL</p>
-            <div className="receiptLine" />
-            {items.length === 0 ? (
-              <p className="emptyReceipt">Adicione produtos no caixa demo para montar o comprovante.</p>
-            ) : (
-              items.map((item) => (
+        {receiptReady && (
+          <section className="inlineReceiptDemo finalReceiptDemo receiptFlash" ref={receiptRef} id="comprovante-demo" key={receiptVersion}>
+            <div className="inlineReceiptCopy">
+              <span>Venda finalizada</span>
+              <strong>Comprovante gerado na tela.</strong>
+              <p>Confira os produtos, a forma de pagamento, o valor recebido e o troco calculado.</p>
+            </div>
+            <div className="receiptPaper liveReceiptPaper">
+              <h3>BALCAO LIVRE PDV</h3>
+              <p>COMPROVANTE GERADO</p>
+              <p>COMANDA 000012 | GARCOM 2</p>
+              <p>NAO E DOCUMENTO FISCAL</p>
+              <div className="receiptLine" />
+              {items.map((item) => (
                 <div className="receiptProduct" key={item.code}>
                   <span>{item.name}</span>
                   <small>{item.qty},000 x {money(item.price)}</small>
                   <b>{money(item.price * item.qty)}</b>
                 </div>
-              ))
-            )}
-            <div className="receiptLine" />
-            <div className="receiptTotals">
-              <span>TOTAL</span><b>{money(total)}</b>
-              <span>{method.toUpperCase()}</span><b>{money(receivedValue)}</b>
-              <span>TROCO</span><b>{money(change)}</b>
-            </div>
-            {method === "Pix" && items.length > 0 && (
-              <div className="receiptQr">
-                <div className="miniQr large" aria-label="QR Pix demonstrativo">
-                  {qrCells.map((cell, index) => (
-                    <i className={cell ? "on" : undefined} key={index} />
-                  ))}
-                </div>
-                <span>PIX {money(total)}</span>
+              ))}
+              <div className="receiptLine" />
+              <div className="receiptTotals">
+                <span>TOTAL</span><b>{money(total)}</b>
+                <span>{method.toUpperCase()}</span><b>{money(receivedValue)}</b>
+                <span>TROCO</span><b>{money(change)}</b>
               </div>
-            )}
-            <strong className="receiptThanks">OBRIGADO PELA PREFERENCIA</strong>
-          </div>
-        </section>
+              {method === "Pix" && (
+                <div className="receiptQr">
+                  <div className="miniQr large" aria-label="QR Pix demonstrativo">
+                    {qrCells.map((cell, index) => (
+                      <i className={cell ? "on" : undefined} key={index} />
+                    ))}
+                  </div>
+                  <span>PIX {money(total)}</span>
+                </div>
+              )}
+              <strong className="receiptThanks">OBRIGADO PELA PREFERENCIA</strong>
+            </div>
+          </section>
+        )}
       </div>
 
       {modal === "payment" && (
@@ -450,53 +439,6 @@ export default function CashierDemo() {
         </div>
       )}
 
-      {modal === "receipt" && (
-        <div className="demoModalBackdrop" role="dialog" aria-modal="true" aria-label="Comprovante demo">
-          <div className="demoModal receiptDialog">
-            <div className="demoModalHeader">
-              <div>
-                <span>PDV</span>
-                <strong>Comprovante gerado</strong>
-              </div>
-              <button type="button" onClick={() => setModal(null)}>X</button>
-            </div>
-            <div className="receiptPaper">
-              <h3>BALCAO LIVRE PDV</h3>
-              <p>COMANDA 000012 | GARCOM 2</p>
-              <p>NAO E DOCUMENTO FISCAL</p>
-              <div className="receiptLine" />
-              {items.map((item) => (
-                <div className="receiptProduct" key={item.code}>
-                  <span>{item.name}</span>
-                  <small>{item.qty},000 x {money(item.price)}</small>
-                  <b>{money(item.price * item.qty)}</b>
-                </div>
-              ))}
-              <div className="receiptLine" />
-              <div className="receiptTotals">
-                <span>TOTAL</span><b>{money(total)}</b>
-                <span>{method.toUpperCase()}</span><b>{money(receivedValue)}</b>
-                <span>TROCO</span><b>{money(change)}</b>
-              </div>
-              {method === "Pix" && (
-                <div className="receiptQr">
-                  <div className="miniQr large" aria-label="QR Pix demonstrativo">
-                    {qrCells.map((cell, index) => (
-                      <i className={cell ? "on" : undefined} key={index} />
-                    ))}
-                  </div>
-                  <span>PIX {money(total)}</span>
-                </div>
-              )}
-              <strong className="receiptThanks">OBRIGADO PELA PREFERENCIA</strong>
-            </div>
-            <div className="receiptActions">
-              <button type="button" onClick={() => setModal("payment")}>Voltar pagamento</button>
-              <button className="finishButton" type="button" onClick={clearSale}>Nova venda</button>
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   );
 }

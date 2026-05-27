@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
@@ -93,17 +94,71 @@ public sealed class WaiterLocalServer : IAsyncDisposable
     {
         try
         {
+            var networkAddress = NetworkInterface.GetAllNetworkInterfaces()
+                .Where(IsUsableWaiterNetworkInterface)
+                .SelectMany(adapter =>
+                {
+                    var properties = adapter.GetIPProperties();
+                    var hasGateway = properties.GatewayAddresses.Any(gateway =>
+                        gateway.Address.AddressFamily == AddressFamily.InterNetwork &&
+                        !gateway.Address.Equals(IPAddress.Any) &&
+                        !gateway.Address.Equals(IPAddress.None));
+
+                    return properties.UnicastAddresses
+                        .Where(address =>
+                            address.Address.AddressFamily == AddressFamily.InterNetwork &&
+                            !IPAddress.IsLoopback(address.Address) &&
+                            !address.Address.ToString().StartsWith("169.254.", StringComparison.Ordinal))
+                        .Select(address => new
+                        {
+                            Adapter = adapter,
+                            Address = address.Address,
+                            HasGateway = hasGateway
+                        });
+                })
+                .OrderByDescending(item => item.HasGateway)
+                .ThenByDescending(item => item.Adapter.NetworkInterfaceType == NetworkInterfaceType.Wireless80211)
+                .ThenByDescending(item => item.Adapter.NetworkInterfaceType == NetworkInterfaceType.Ethernet)
+                .Select(item => item.Address.ToString())
+                .FirstOrDefault();
+
+            if (!string.IsNullOrWhiteSpace(networkAddress))
+            {
+                return networkAddress;
+            }
+
             return Dns.GetHostEntry(Dns.GetHostName())
                 .AddressList
                 .FirstOrDefault(address =>
                     address.AddressFamily == AddressFamily.InterNetwork &&
-                    !IPAddress.IsLoopback(address))?
+                    !IPAddress.IsLoopback(address) &&
+                    !address.ToString().StartsWith("169.254.", StringComparison.Ordinal))?
                 .ToString() ?? "127.0.0.1";
         }
         catch
         {
             return "127.0.0.1";
         }
+    }
+
+    private static bool IsUsableWaiterNetworkInterface(NetworkInterface adapter)
+    {
+        if (adapter.OperationalStatus != OperationalStatus.Up ||
+            adapter.NetworkInterfaceType == NetworkInterfaceType.Loopback ||
+            adapter.NetworkInterfaceType == NetworkInterfaceType.Tunnel)
+        {
+            return false;
+        }
+
+        var name = $"{adapter.Name} {adapter.Description}".ToLowerInvariant();
+        return !name.Contains("virtual", StringComparison.Ordinal) &&
+               !name.Contains("docker", StringComparison.Ordinal) &&
+               !name.Contains("hyper-v", StringComparison.Ordinal) &&
+               !name.Contains("vmware", StringComparison.Ordinal) &&
+               !name.Contains("virtualbox", StringComparison.Ordinal) &&
+               !name.Contains("wsl", StringComparison.Ordinal) &&
+               !name.Contains("tailscale", StringComparison.Ordinal) &&
+               !name.Contains("zerotier", StringComparison.Ordinal);
     }
 }
 
