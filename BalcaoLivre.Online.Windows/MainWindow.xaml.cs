@@ -9620,7 +9620,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var dialog = CreateDialog("Cardapio com QR Code", 920, 640);
+        var dialog = CreateDialog("Cardapio com QR Code", 920, 700);
         var linkBox = new TextBox
         {
             MinHeight = 42,
@@ -9805,10 +9805,8 @@ public partial class MainWindow : Window
 
         var publish = DialogButton("Publicar/atualizar", "#0F766E");
         var print = DialogButton("Imprimir POS58", "#0F766E");
-        var poster = DialogButton("Abrir cartaz", "#A36A05");
         var copy = DialogButton("Copiar QR/link", "#667684");
         var open = DialogButton("Abrir cardapio", "#2F6FAE");
-        var html = DialogButton("Gerar HTML do menu", "#667684");
 
         async Task PublishCurrentMenuAsync(bool automatic)
         {
@@ -9865,17 +9863,6 @@ public partial class MainWindow : Window
             SetStatus("QR Code do cardapio enviado para a impressora.");
         };
 
-        poster.Click += (_, _) =>
-        {
-            if (!TryGetPublicMenuUrl(out var menuUrl))
-            {
-                return;
-            }
-
-            OpenMenuQrPoster(menuUrl, compact: false, autoPrint: false);
-            SetStatus("Cartaz do cardapio aberto para impressao.");
-        };
-
         copy.Click += (_, _) =>
         {
             if (!TryGetPublicMenuUrl(out var menuUrl))
@@ -9895,14 +9882,6 @@ public partial class MainWindow : Window
             }
 
             Process.Start(new ProcessStartInfo(menuUrl) { UseShellExecute = true });
-        };
-
-        html.Click += (_, _) =>
-        {
-            var path = Path.Combine(ExportDir, "cardapio-publico.html");
-            File.WriteAllText(path, BuildMenuHtml(), Encoding.UTF8);
-            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
-            SetStatus($"HTML do cardapio gerado: {path}");
         };
 
         var left = new StackPanel { Margin = new Thickness(0, 0, 18, 0) };
@@ -9949,9 +9928,10 @@ public partial class MainWindow : Window
         });
 
         var actions = new WrapPanel { Margin = new Thickness(0, 16, 0, 0) };
-        foreach (var button in new[] { publish, print, poster, copy, open, html })
+        foreach (var button in new[] { publish, print, copy, open })
         {
             button.Margin = new Thickness(0, 0, 8, 8);
+            button.MinWidth = 152;
             actions.Children.Add(button);
         }
 
@@ -10015,7 +9995,12 @@ public partial class MainWindow : Window
         var panel = DialogPanel();
         panel.Children.Add(layout);
         panel.Children.Add(DialogHint("Depois de publicar, mudancas em nome, logo, produtos, preco e estoque entram na fila automatica e sao republicadas quando o app salvar esses dados."));
-        dialog.Content = panel;
+        dialog.Content = new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
         RefreshGeneratedLink(save: true);
         RefreshPreview();
         dialog.Loaded += async (_, _) => await PublishCurrentMenuAsync(automatic: true);

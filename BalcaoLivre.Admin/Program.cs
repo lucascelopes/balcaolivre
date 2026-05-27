@@ -403,9 +403,9 @@ app.MapPost("/api/app/menu/publish", async (HttpContext context, AdminStoreServi
         return Results.Json(AppPublicMenuPublishResponse.Fail("Slug do cardapio obrigatorio."), statusCode: StatusCodes.Status400BadRequest);
     }
 
-    if (!MarkAppPayloadSeen(store, request, "menu.publish", "Cardapio publico recebido"))
+    if (!MarkAppPayloadSeenWithReason(store, request, "menu.publish", "Cardapio publico recebido", out var denyMessage))
     {
-        return Results.Json(AppPublicMenuPublishResponse.Fail("Licenca sem permissao para publicar cardapio."), statusCode: StatusCodes.Status401Unauthorized);
+        return Results.Json(AppPublicMenuPublishResponse.Fail(denyMessage), statusCode: StatusCodes.Status401Unauthorized);
     }
 
     var response = store.PublishPublicMenu(request);
@@ -682,18 +682,26 @@ static string NormalizePublicMenuSlug(string? value)
 
 static bool MarkAppPayloadSeen(AdminStoreService store, AppClientPayload request, string eventType, string eventMessage)
 {
+    return MarkAppPayloadSeenWithReason(store, request, eventType, eventMessage, out _);
+}
+
+static bool MarkAppPayloadSeenWithReason(AdminStoreService store, AppClientPayload request, string eventType, string eventMessage, out string denyMessage)
+{
     if (!HasValidAccountEmail(request, out _))
     {
+        denyMessage = "Email da conta invalido. Abra Configuracoes e confirme o email usado na licenca.";
         return false;
     }
 
-    return store.Update(data =>
+    var reason = "";
+    var accepted = store.Update(data =>
     {
         var now = DateTimeOffset.UtcNow;
         var license = data.Licenses.FirstOrDefault(item => string.Equals(item.Key, request.LicenseKey, StringComparison.OrdinalIgnoreCase));
         if (license is null)
         {
             data.Events.Add(AdminEvent.Device($"{eventType}.denied", $"{eventMessage}: chave nao encontrada", request));
+            reason = "Chave de licenca nao encontrada no admin. Gere ou ative essa licenca antes de publicar o cardapio.";
             return false;
         }
 
@@ -701,6 +709,9 @@ static bool MarkAppPayloadSeen(AdminStoreService store, AppClientPayload request
         if (license.Status == LicenseStatus.Blocked || license.Status == LicenseStatus.Expired)
         {
             data.Events.Add(AdminEvent.License($"{eventType}.blocked", $"{eventMessage}: chave {license.Status}", license.Key));
+            reason = license.Status == LicenseStatus.Expired
+                ? "Licenca expirada no admin. Renove ou gere uma nova licenca antes de publicar o cardapio."
+                : "Licenca bloqueada no admin. Desbloqueie essa licenca antes de publicar o cardapio.";
             return false;
         }
 
@@ -709,6 +720,7 @@ static bool MarkAppPayloadSeen(AdminStoreService store, AppClientPayload request
             !IsMobileClient(request))
         {
             data.Events.Add(AdminEvent.License($"{eventType}.other_pc", $"{eventMessage}: computador diferente", license.Key));
+            reason = "Essa licenca ja esta vinculada a outro computador no admin.";
             return false;
         }
 
@@ -736,6 +748,9 @@ static bool MarkAppPayloadSeen(AdminStoreService store, AppClientPayload request
         data.Events.Add(AdminEvent.Device(eventType, $"{eventMessage}: {request.Profile.BusinessName.TrimOrDefault(request.MachineCode)}", request));
         return true;
     });
+
+    denyMessage = accepted ? "" : reason.TrimOrDefault("Admin recusou a publicacao do cardapio. Confira email, chave e computador da licenca.");
+    return accepted;
 }
 
 static async Task WriteSseAsync(HttpContext context, string eventName, object payload, CancellationToken cancellation)
