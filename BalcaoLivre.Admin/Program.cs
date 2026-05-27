@@ -771,8 +771,12 @@ static void UpsertDevice(AdminStore data, AppClientPayload request, DateTimeOffs
 
 static bool IsMobileClient(AppClientPayload request)
 {
-    return string.Equals(NormalizeClientKind(request.ClientKind), "android", StringComparison.Ordinal)
-        || request.MachineCode.StartsWith("AND-", StringComparison.OrdinalIgnoreCase);
+    var kind = NormalizeClientKind(request.ClientKind);
+    return string.Equals(kind, "android", StringComparison.Ordinal)
+        || string.Equals(kind, "web", StringComparison.Ordinal)
+        || string.Equals(kind, "browser", StringComparison.Ordinal)
+        || request.MachineCode.StartsWith("AND-", StringComparison.OrdinalIgnoreCase)
+        || request.MachineCode.StartsWith("WEB-", StringComparison.OrdinalIgnoreCase);
 }
 
 static string NormalizeClientKind(string? value)
@@ -1241,12 +1245,14 @@ sealed class AdminStoreService
             lock (_gate)
             {
                 var now = DateTimeOffset.UtcNow;
-                var slug = NormalizePublicMenuSlug(request.Slug);
-                var logoUrl = ResolvePublicMenuLogoUnsafe(request, slug);
+                var baseSlug = NormalizePublicMenuSlug(request.Slug).TrimOrDefault("loja");
+                var existingMenuId = FindPublicMenuIdByStoreIdUnsafe(request.LicenseKey);
+                var slug = "";
+                var menuId = "";
+                var logoUrl = ResolvePublicMenuLogoUnsafe(request, baseSlug);
                 var menuPayload = new Dictionary<string, object?>
                 {
                     ["store_id"] = request.LicenseKey,
-                    ["slug"] = slug,
                     ["name"] = request.Profile.BusinessName.TrimOrDefault(request.Profile.LegalName.TrimOrDefault(request.Profile.OwnerName.TrimOrDefault("Balcao Livre"))),
                     ["description"] = request.Description.TrimOrDefault("Cardapio digital."),
                     ["phone"] = request.Profile.Phone,
@@ -1259,20 +1265,38 @@ sealed class AdminStoreService
                     ["updated_at"] = now
                 };
 
-                using var upsert = CreateSupabaseAuthRequest(HttpMethod.Post, "/rest/v1/bv_public_menus?on_conflict=slug");
-                upsert.Headers.TryAddWithoutValidation("Prefer", "resolution=merge-duplicates,return=representation");
-                upsert.Content = new StringContent(JsonSerializer.Serialize(new[] { menuPayload }, AdminJson.Options), Encoding.UTF8, "application/json");
-                using var upsertResponse = _httpClient.Send(upsert);
-                var upsertBody = upsertResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-                if (!upsertResponse.IsSuccessStatusCode)
+                foreach (var candidate in PublicMenuSlugCandidates(baseSlug))
                 {
-                    return AppPublicMenuPublishResponse.Fail($"Supabase recusou menu: {upsertBody.TrimOrDefault(upsertResponse.StatusCode.ToString())}");
+                    menuPayload["slug"] = candidate;
+                    var path = string.IsNullOrWhiteSpace(existingMenuId)
+                        ? "/rest/v1/bv_public_menus"
+                        : $"/rest/v1/bv_public_menus?id=eq.{Uri.EscapeDataString(existingMenuId)}";
+                    using var write = CreateSupabaseAuthRequest(string.IsNullOrWhiteSpace(existingMenuId) ? HttpMethod.Post : HttpMethod.Patch, path);
+                    write.Headers.TryAddWithoutValidation("Prefer", "return=representation");
+                    var writeJson = string.IsNullOrWhiteSpace(existingMenuId)
+                        ? JsonSerializer.Serialize(new[] { menuPayload }, AdminJson.Options)
+                        : JsonSerializer.Serialize(menuPayload, AdminJson.Options);
+                    write.Content = new StringContent(writeJson, Encoding.UTF8, "application/json");
+                    using var writeResponse = _httpClient.Send(write);
+                    var writeBody = writeResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                    if (writeResponse.IsSuccessStatusCode)
+                    {
+                        slug = candidate;
+                        menuId = ReadFirstJsonProperty(writeBody, "id");
+                        break;
+                    }
+
+                    if (IsPublicMenuSlugConflict(writeResponse, writeBody))
+                    {
+                        continue;
+                    }
+
+                    return AppPublicMenuPublishResponse.Fail($"Supabase recusou menu: {writeBody.TrimOrDefault(writeResponse.StatusCode.ToString())}");
                 }
 
-                var menuId = ReadFirstJsonProperty(upsertBody, "id");
                 if (string.IsNullOrWhiteSpace(menuId))
                 {
-                    return AppPublicMenuPublishResponse.Fail("Supabase nao retornou o ID do cardapio.");
+                    return AppPublicMenuPublishResponse.Fail("Nao foi possivel gerar um link unico para esse cardapio.");
                 }
 
                 using (var delete = CreateSupabaseAuthRequest(HttpMethod.Delete, $"/rest/v1/bv_public_menu_items?menu_id=eq.{Uri.EscapeDataString(menuId)}"))
@@ -1321,7 +1345,7 @@ sealed class AdminStoreService
                     }
                 }
 
-                return AppPublicMenuPublishResponse.Success(slug, request.PublicUrl, items.Count, "Cardapio publicado.");
+                return AppPublicMenuPublishResponse.Success(slug, BuildPublicMenuUrl(slug), items.Count, "Cardapio publicado.");
             }
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException or TaskCanceledException or InvalidOperationException or FormatException)
@@ -1595,6 +1619,54 @@ sealed class AdminStoreService
 
         var first = doc.RootElement[0];
         return first.TryGetProperty(propertyName, out var property) ? property.ToString() : "";
+    }
+
+    private string FindPublicMenuIdByStoreIdUnsafe(string storeId)
+    {
+        using var lookup = CreateSupabaseAuthRequest(
+            HttpMethod.Get,
+            $"/rest/v1/bv_public_menus?store_id=eq.{Uri.EscapeDataString(storeId)}&select=id&order=updated_at.desc&limit=1");
+        using var response = _httpClient.Send(lookup);
+        var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"Supabase recusou consulta de cardapio: {body.TrimOrDefault(response.StatusCode.ToString())}");
+        }
+
+        return ReadFirstJsonProperty(body, "id");
+    }
+
+    private static IEnumerable<string> PublicMenuSlugCandidates(string baseSlug)
+    {
+        var cleanBase = NormalizePublicMenuSlug(baseSlug).TrimOrDefault("loja");
+        yield return cleanBase;
+        for (var index = 1; index <= 999; index++)
+        {
+            yield return $"{index:000}-{cleanBase}";
+        }
+    }
+
+    private static bool IsPublicMenuSlugConflict(HttpResponseMessage response, string body)
+    {
+        return response.StatusCode == System.Net.HttpStatusCode.Conflict
+            || body.Contains("duplicate key", StringComparison.OrdinalIgnoreCase)
+            || body.Contains("23505", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildPublicMenuUrl(string slug)
+    {
+        return $"https://cardapio.balcaolivrepdv.com.br/{BuildPublicMenuPath(slug)}";
+    }
+
+    private static string BuildPublicMenuPath(string slug)
+    {
+        var normalized = NormalizePublicMenuSlug(slug);
+        if (normalized.Length > 4 && normalized[3] == '-' && normalized[..3].All(char.IsDigit))
+        {
+            return $"{normalized[..3]}/{normalized[4..]}";
+        }
+
+        return normalized;
     }
 
     private void EnsureSupabaseBucketUnsafe()

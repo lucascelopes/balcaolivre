@@ -21,6 +21,10 @@ function currentSlug() {
     .replace(/^\/cardapio\/?/i, "")
     .split("/")
     .filter(Boolean);
+  if (cleanPath.length >= 2 && /^\d{3}$/.test(cleanPath[0])) {
+    return `${cleanPath[0]}-${cleanPath[1]}`;
+  }
+
   return cleanPath[0] || "demo";
 }
 

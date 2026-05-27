@@ -9620,23 +9620,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var dialog = CreateDialog("Cardapio com QR Code", 960, 690);
-        var baseBox = new TextBox
-        {
-            Text = NormalizePublicMenuBaseUrl(_appSettings.PublicMenuBaseUrl),
-            MinHeight = 42,
-            FontSize = 15,
-            Padding = new Thickness(10, 8, 10, 8),
-            ToolTip = "Dominio publico do cardapio. O Balcao Livre gera o slug da loja automaticamente."
-        };
-        var slugBox = new TextBox
-        {
-            MinHeight = 42,
-            IsReadOnly = true,
-            Background = Solid("#F7FAFD"),
-            FontSize = 15,
-            Padding = new Thickness(10, 8, 10, 8)
-        };
+        var dialog = CreateDialog("Cardapio com QR Code", 920, 640);
         var linkBox = new TextBox
         {
             MinHeight = 42,
@@ -9670,21 +9654,77 @@ public partial class MainWindow : Window
             Height = 238,
             HorizontalAlignment = HorizontalAlignment.Center
         };
+        var activeProducts = Products
+            .Where(product => product.Active)
+            .OrderBy(product => product.Category)
+            .ThenBy(product => product.Name)
+            .ThenBy(product => product.Code)
+            .ToList();
+
+        TextBlock ProductCell(string text, double fontSize = 12, FontWeight? weight = null, string color = "#18222B")
+        {
+            return new TextBlock
+            {
+                Text = text,
+                FontSize = fontSize,
+                FontWeight = weight ?? FontWeights.Normal,
+                Foreground = Solid(color),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+
+        var productRows = new StackPanel();
+        foreach (var product in activeProducts.Take(80))
+        {
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(88) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(70) });
+
+            var code = ProductCell(string.IsNullOrWhiteSpace(product.Code) ? "-" : product.Code, 11, FontWeights.SemiBold, "#667684");
+            var name = ProductCell(product.Name, 13, FontWeights.SemiBold);
+            var price = ProductCell(Money(product.Price), 12, FontWeights.SemiBold, "#0F766E");
+            var stock = ProductCell(product.StockQuantity.ToString("N0", Brazil), 11, FontWeights.SemiBold, product.StockQuantity < 0 ? "#A11D1D" : "#667684");
+
+            row.Children.Add(code);
+            Grid.SetColumn(name, 1);
+            row.Children.Add(name);
+            Grid.SetColumn(price, 2);
+            row.Children.Add(price);
+            Grid.SetColumn(stock, 3);
+            row.Children.Add(stock);
+
+            productRows.Children.Add(new Border
+            {
+                Background = Solid("#F7FAFD"),
+                BorderBrush = Solid("#D8E2EC"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(10, 8, 10, 8),
+                Child = row
+            });
+        }
+
+        if (activeProducts.Count == 0)
+        {
+            productRows.Children.Add(new TextBlock
+            {
+                Text = "Nenhum produto ativo no cadastro.",
+                Foreground = Solid("#667684"),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 8, 0, 0)
+            });
+        }
 
         string RefreshGeneratedLink(bool save)
         {
-            var baseUrl = NormalizePublicMenuBaseUrl(baseBox.Text);
-            if (!IsValidPublicMenuUrl(baseUrl))
-            {
-                baseUrl = DefaultPublicMenuBaseUrl;
-                baseBox.Text = baseUrl;
-            }
-
+            var baseUrl = DefaultPublicMenuBaseUrl;
             _appSettings.PublicMenuBaseUrl = baseUrl;
             var slug = EnsurePublicMenuSlug();
             var menuUrl = BuildPublicMenuUrl(slug);
             _profile.MenuPublicUrl = menuUrl;
-            slugBox.Text = slug;
             linkBox.Text = menuUrl;
 
             if (save)
@@ -9713,10 +9753,8 @@ public partial class MainWindow : Window
                 return true;
             }
 
-            statusText.Text = "Configure a base publica do cardapio. O QR precisa abrir fora do Wi-Fi do restaurante.";
+            statusText.Text = "Nao foi possivel gerar o link do cardapio.";
             statusText.Foreground = RedText;
-            baseBox.Focus();
-            baseBox.SelectAll();
             return false;
         }
 
@@ -9727,7 +9765,7 @@ public partial class MainWindow : Window
             {
                 qrHost.Child = new TextBlock
                 {
-                    Text = "Configure a base publica para gerar o QR Code.",
+                    Text = "Nao foi possivel gerar o QR Code.",
                     TextWrapping = TextWrapping.Wrap,
                     TextAlignment = TextAlignment.Center,
                     Foreground = Solid("#667684"),
@@ -9856,23 +9894,41 @@ public partial class MainWindow : Window
             SetStatus($"HTML do cardapio gerado: {path}");
         };
 
-        baseBox.TextChanged += (_, _) => RefreshPreview();
-
         var left = new StackPanel { Margin = new Thickness(0, 0, 18, 0) };
-        left.Children.Add(SectionTitle("Link gerado"));
+        left.Children.Add(SectionTitle("Cardapio online"));
         left.Children.Add(new TextBlock
         {
-            Text = "O operador nao cola link manual. O Balcao Livre gera o link da loja, publica restaurante/produtos/estoque no Supabase e o QR abre fora do Wi-Fi da loja.",
+            Text = "O link e fixo do Balcao Livre. Os produtos abaixo saem direto do cadastro e estoque da loja.",
             TextWrapping = TextWrapping.Wrap,
             Foreground = Solid("#18222B"),
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 10)
         });
-        left.Children.Add(DialogField("Dominio publico do cardapio", baseBox));
-        left.Children.Add(DialogField("Slug gerado", slugBox));
-        left.Children.Add(DialogField("Link final para cliente", linkBox));
+        left.Children.Add(DialogField("Link do cliente", linkBox));
         left.Children.Add(statusText);
         left.Children.Add(linkPreview);
+        left.Children.Add(new TextBlock
+        {
+            Text = $"{activeProducts.Count:N0} produto(s) ativo(s) no sistema da loja",
+            FontWeight = FontWeights.Bold,
+            Foreground = Solid("#18222B"),
+            Margin = new Thickness(0, 16, 0, 6)
+        });
+        left.Children.Add(new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#D8E2EC"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(10),
+            Child = new ScrollViewer
+            {
+                Height = 210,
+                Content = productRows,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            }
+        });
         left.Children.Add(new TextBlock
         {
             Text = "Texto para o cliente: abra a camera do celular, aponte para o QR Code e veja o cardapio atualizado com produtos, precos e disponibilidade.",
@@ -10015,26 +10071,30 @@ public partial class MainWindow : Window
 
     private string EnsurePublicMenuSlug()
     {
+        var baseSlug = BuildPublicMenuBaseSlug();
         var slug = NormalizePublicMenuSlug(_profile.MenuSlug);
-        if (string.IsNullOrWhiteSpace(slug))
+        if (IsNumberedPublicMenuSlugForBase(slug, baseSlug))
         {
-            var nameSlug = NormalizePublicMenuSlug(ResolveWaiterRestaurantName());
-            if (string.IsNullOrWhiteSpace(nameSlug))
-            {
-                nameSlug = "loja";
-            }
-
-            var suffixSource = string.Join('|',
-                NormalizeActivationKey(_appSettings.ActivationKey),
-                GetMachineCode(),
-                _profile.Cnpj,
-                _profile.Email);
-            var suffix = Sha256Hex(suffixSource)[..6];
-            slug = $"{nameSlug}-{suffix}";
+            return slug;
         }
 
+        slug = baseSlug;
         _profile.MenuSlug = slug;
         return slug;
+    }
+
+    private string BuildPublicMenuBaseSlug()
+    {
+        var nameSlug = NormalizePublicMenuSlug(ResolveWaiterRestaurantName());
+        return string.IsNullOrWhiteSpace(nameSlug) ? "loja" : nameSlug;
+    }
+
+    private static bool IsNumberedPublicMenuSlugForBase(string slug, string baseSlug)
+    {
+        return slug.Length > baseSlug.Length + 4
+            && slug[3] == '-'
+            && slug[..3].All(char.IsDigit)
+            && slug[4..].Equals(baseSlug, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizePublicMenuSlug(string value)
@@ -10085,10 +10145,21 @@ public partial class MainWindow : Window
         if (Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
             && (IsPublicMenuApexHost(uri) || IsPublicMenuHost(uri)))
         {
-            return $"{uri.Scheme}://{PublicMenuHost}/{normalizedSlug}";
+            return $"{uri.Scheme}://{PublicMenuHost}/{BuildPublicMenuPath(normalizedSlug)}";
         }
 
-        return $"{baseUrl.TrimEnd('/')}/cardapio/{normalizedSlug}";
+        return $"{baseUrl.TrimEnd('/')}/cardapio/{BuildPublicMenuPath(normalizedSlug)}";
+    }
+
+    private static string BuildPublicMenuPath(string slug)
+    {
+        var normalized = NormalizePublicMenuSlug(slug);
+        if (normalized.Length > 4 && normalized[3] == '-' && normalized[..3].All(char.IsDigit))
+        {
+            return $"{normalized[..3]}/{normalized[4..]}";
+        }
+
+        return normalized;
     }
 
     private void QueuePublicMenuPublish()
@@ -10231,10 +10302,21 @@ public partial class MainWindow : Window
 
             if (result.Ok)
             {
+                var publishedSlug = NormalizePublicMenuSlug(result.Slug);
+                if (!string.IsNullOrWhiteSpace(publishedSlug))
+                {
+                    _profile.MenuSlug = publishedSlug;
+                }
+
+                _profile.MenuPublicUrl = IsValidPublicMenuUrl(result.PublicUrl)
+                    ? result.PublicUrl
+                    : BuildPublicMenuUrl(_profile.MenuSlug);
                 _lastPublishedPublicMenuSignature = BuildPublicMenuSignature();
                 _pendingPublicMenuSignature = "";
                 _appSettings.LastPublicMenuPublishAt = DateTime.Now;
                 SaveAppSettings();
+                SaveRestaurantProfile();
+                SaveStore();
                 if (!silent)
                 {
                     SetStatus($"Cardapio publicado: {result.ItemsPublished:N0} produto(s).");
