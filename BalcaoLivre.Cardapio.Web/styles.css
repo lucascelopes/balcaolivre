@@ -3443,18 +3443,18 @@ h1 {
 
 @media (max-width: 760px) {
   .app {
-    width: min(100%, 390px) !important;
-    max-width: 390px !important;
-    margin-left: 0 !important;
-    margin-right: 0 !important;
+    width: 100% !important;
+    max-width: 760px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
   }
 
   .restaurant-actions {
-    grid-template-columns: 1fr !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 
   .restaurant-actions .action-link:nth-child(n + 3) {
-    grid-column: auto !important;
+    grid-column: 1 / -1 !important;
   }
 
   .action-link {
@@ -3470,10 +3470,20 @@ h1 {
   }
 
   .bottom-nav {
-    width: min(100%, 390px) !important;
-    max-width: 390px !important;
+    width: 100% !important;
+    max-width: 760px !important;
     left: 0 !important;
-    right: auto !important;
+    right: 0 !important;
     transform: none !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .restaurant-actions {
+    grid-template-columns: 1fr !important;
+  }
+
+  .restaurant-actions .action-link:nth-child(n + 3) {
+    grid-column: auto !important;
   }
 }
