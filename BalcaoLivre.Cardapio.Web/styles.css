@@ -3487,3 +3487,30 @@ h1 {
     grid-column: auto !important;
   }
 }
+
+.footer {
+  border: 0 !important;
+  border-top: 1px solid rgba(96, 114, 132, .20) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  margin-top: 26px !important;
+  margin-bottom: 96px !important;
+  padding: 18px 12px 8px !important;
+  color: #607284 !important;
+  text-align: center !important;
+}
+
+.footer strong {
+  display: block !important;
+  color: #17212b !important;
+  font-size: 14px !important;
+  font-weight: 900 !important;
+}
+
+.footer span {
+  display: block !important;
+  margin-top: 4px !important;
+  font-size: 13px !important;
+  line-height: 1.35 !important;
+}
