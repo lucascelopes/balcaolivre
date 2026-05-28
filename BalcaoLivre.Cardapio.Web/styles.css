@@ -1684,6 +1684,1180 @@ h1 {
   }
 }
 
+/* Final live menu overrides. Keep at EOF so previous visual passes cannot override it. */
+.app {
+  width: min(100%, 760px) !important;
+  max-width: 760px !important;
+  padding-left: 12px !important;
+  padding-right: 12px !important;
+  overflow-x: hidden !important;
+}
+
+.app-page {
+  min-width: 0 !important;
+}
+
+.restaurant-header {
+  border-radius: 22px !important;
+  border: 1px solid rgba(15, 118, 110, .12) !important;
+  background: #fff !important;
+  box-shadow: 0 18px 42px rgba(22, 34, 45, .10) !important;
+}
+
+.restaurant-title,
+.restaurant-title h1,
+.restaurant-title .info {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow-wrap: anywhere !important;
+}
+
+.restaurant-actions {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)) !important;
+  gap: 10px !important;
+  width: 100% !important;
+}
+
+.action-link {
+  min-width: 0 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  border-radius: 999px !important;
+}
+
+.store-strip,
+.coupon-card,
+.menu-toolbar,
+.featured-section,
+.menu-list,
+.footer,
+.page-title,
+.simple-list,
+.profile-panel {
+  width: auto !important;
+  max-width: calc(100% - 20px) !important;
+  margin-left: 10px !important;
+  margin-right: 10px !important;
+}
+
+.store-strip {
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  overflow: hidden !important;
+}
+
+.store-strip span,
+.store-strip button {
+  min-width: 0 !important;
+}
+
+.coupon-card {
+  grid-template-columns: 64px minmax(0, 1fr) 28px !important;
+  align-items: stretch !important;
+  overflow: hidden !important;
+  border: 1px solid rgba(36, 91, 145, .12) !important;
+  border-radius: 18px !important;
+  background: linear-gradient(135deg, #ffffff 0%, #edf6ff 100%) !important;
+}
+
+.coupon-icon {
+  min-height: 88px !important;
+  width: 64px !important;
+  background: #245b91 !important;
+}
+
+.coupon-card div:nth-child(2) {
+  min-width: 0 !important;
+  padding: 12px 10px 12px 14px !important;
+  gap: 2px !important;
+}
+
+.coupon-card div:nth-child(2) span,
+.coupon-card strong,
+.coupon-card .coupon-amount {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.coupon-card strong {
+  font-size: clamp(16px, 5vw, 21px) !important;
+  line-height: 1.05 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+.coupon-card div:nth-child(2) span {
+  font-size: 12px !important;
+  line-height: 1.25 !important;
+}
+
+.coupon-card .coupon-amount {
+  display: inline-flex !important;
+  width: fit-content !important;
+  margin-top: 2px !important;
+  padding: 3px 8px !important;
+  border-radius: 999px !important;
+  background: rgba(15, 118, 110, .10) !important;
+  color: #0f766e !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+}
+
+.coupon-card b {
+  display: grid !important;
+  place-items: center !important;
+  min-width: 28px !important;
+  width: 28px !important;
+  padding: 0 !important;
+  color: #245b91 !important;
+  font-size: 24px !important;
+  line-height: 1 !important;
+}
+
+.categories {
+  max-width: 100% !important;
+  margin-left: 10px !important;
+  padding-right: 10px !important;
+  overflow-x: auto !important;
+  scrollbar-width: none !important;
+}
+
+.categories::-webkit-scrollbar {
+  display: none !important;
+}
+
+.categories a {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-width: max-content !important;
+}
+
+.category-icon,
+.action-link .app-icon,
+.nav-icon svg,
+.status-icon {
+  flex: 0 0 auto !important;
+}
+
+.item.no-image {
+  grid-template-columns: 94px minmax(0, 1fr) !important;
+  min-height: 112px !important;
+}
+
+.item-placeholder {
+  width: 100% !important;
+  height: 100% !important;
+  display: grid !important;
+  place-items: center !important;
+  gap: 5px !important;
+  padding: 10px !important;
+  background: linear-gradient(135deg, rgba(15, 118, 110, .15), rgba(36, 91, 145, .10)) !important;
+  color: #0f766e !important;
+}
+
+.placeholder-icon {
+  width: 23px !important;
+  height: 23px !important;
+}
+
+.item-placeholder b {
+  font-size: 12px !important;
+  letter-spacing: .04em !important;
+}
+
+@media (max-width: 760px) {
+  .app {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  .restaurant-header {
+    margin: 0 !important;
+    border-left: 0 !important;
+    border-right: 0 !important;
+    border-radius: 0 0 24px 24px !important;
+  }
+
+  .brand-row {
+    padding: 18px 16px 16px !important;
+  }
+
+  .restaurant-title h1 {
+    font-size: clamp(28px, 9vw, 38px) !important;
+  }
+
+  .restaurant-title .info {
+    display: none !important;
+  }
+
+  .restaurant-actions {
+    grid-template-columns: 1fr !important;
+    padding: 12px 16px 16px !important;
+    margin-top: 0 !important;
+    border-top: 0 !important;
+  }
+
+  .restaurant-actions .action-link:nth-child(n + 3) {
+    grid-column: auto !important;
+  }
+
+  .action-link {
+    min-height: 46px !important;
+  }
+
+  .store-strip {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+  }
+
+  .store-strip button {
+    display: none !important;
+  }
+
+  .coupon-card {
+    grid-template-columns: 58px minmax(0, 1fr) 24px !important;
+  }
+
+  .coupon-icon {
+    width: 58px !important;
+  }
+
+  .coupon-card div:nth-child(2) {
+    padding: 11px 8px 11px 12px !important;
+  }
+
+  .coupon-card strong {
+    font-size: clamp(16px, 5vw, 20px) !important;
+  }
+
+  .item.no-image {
+    grid-template-columns: 96px minmax(0, 1fr) !important;
+  }
+}
+
+/* Final cardapio polish overrides. Older redesign blocks above repeat selectors. */
+.app {
+  width: min(100%, 760px) !important;
+  max-width: 760px !important;
+  padding-left: 12px !important;
+  padding-right: 12px !important;
+  overflow-x: hidden !important;
+}
+
+.app-page {
+  min-width: 0 !important;
+}
+
+.restaurant-header {
+  border-radius: 22px !important;
+  border: 1px solid rgba(15, 118, 110, .12) !important;
+  background: #fff !important;
+  box-shadow: 0 18px 42px rgba(22, 34, 45, .10) !important;
+}
+
+.restaurant-title,
+.restaurant-title h1,
+.restaurant-title .info {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow-wrap: anywhere !important;
+}
+
+.restaurant-actions {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)) !important;
+  gap: 10px !important;
+  width: 100% !important;
+}
+
+.action-link {
+  min-width: 0 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  border-radius: 999px !important;
+}
+
+.store-strip,
+.coupon-card,
+.menu-toolbar,
+.featured-section,
+.menu-list,
+.footer,
+.page-title,
+.simple-list,
+.profile-panel {
+  width: auto !important;
+  max-width: calc(100% - 20px) !important;
+  margin-left: 10px !important;
+  margin-right: 10px !important;
+}
+
+.store-strip {
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  overflow: hidden !important;
+}
+
+.store-strip span,
+.store-strip button {
+  min-width: 0 !important;
+}
+
+.coupon-card {
+  grid-template-columns: 64px minmax(0, 1fr) 28px !important;
+  align-items: stretch !important;
+  overflow: hidden !important;
+  border: 1px solid rgba(36, 91, 145, .12) !important;
+  border-radius: 18px !important;
+  background: linear-gradient(135deg, #ffffff 0%, #edf6ff 100%) !important;
+}
+
+.coupon-icon {
+  min-height: 88px !important;
+  width: 64px !important;
+  background: #245b91 !important;
+}
+
+.coupon-card div:nth-child(2) {
+  min-width: 0 !important;
+  padding: 12px 10px 12px 14px !important;
+  gap: 2px !important;
+}
+
+.coupon-card div:nth-child(2) span,
+.coupon-card strong,
+.coupon-card .coupon-amount {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.coupon-card strong {
+  font-size: clamp(16px, 5vw, 21px) !important;
+  line-height: 1.05 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+.coupon-card div:nth-child(2) span {
+  font-size: 12px !important;
+  line-height: 1.25 !important;
+}
+
+.coupon-card .coupon-amount {
+  display: inline-flex !important;
+  width: fit-content !important;
+  margin-top: 2px !important;
+  padding: 3px 8px !important;
+  border-radius: 999px !important;
+  background: rgba(15, 118, 110, .10) !important;
+  color: #0f766e !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+}
+
+.coupon-card b {
+  display: grid !important;
+  place-items: center !important;
+  min-width: 28px !important;
+  width: 28px !important;
+  padding: 0 !important;
+  color: #245b91 !important;
+  font-size: 24px !important;
+  line-height: 1 !important;
+}
+
+.categories {
+  max-width: 100% !important;
+  margin-left: 10px !important;
+  padding-right: 10px !important;
+  overflow-x: auto !important;
+  scrollbar-width: none !important;
+}
+
+.categories::-webkit-scrollbar {
+  display: none !important;
+}
+
+.categories a {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-width: max-content !important;
+}
+
+.category-icon,
+.action-link .app-icon,
+.nav-icon svg,
+.status-icon {
+  flex: 0 0 auto !important;
+}
+
+.item.no-image {
+  grid-template-columns: 94px minmax(0, 1fr) !important;
+  min-height: 112px !important;
+}
+
+.item-placeholder {
+  width: 100% !important;
+  height: 100% !important;
+  display: grid !important;
+  place-items: center !important;
+  gap: 5px !important;
+  padding: 10px !important;
+  background: linear-gradient(135deg, rgba(15, 118, 110, .15), rgba(36, 91, 145, .10)) !important;
+  color: #0f766e !important;
+}
+
+.placeholder-icon {
+  width: 23px !important;
+  height: 23px !important;
+}
+
+.item-placeholder b {
+  font-size: 12px !important;
+  letter-spacing: .04em !important;
+}
+
+@media (max-width: 430px) {
+  .app {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  .restaurant-header {
+    margin: 0 !important;
+    border-left: 0 !important;
+    border-right: 0 !important;
+    border-radius: 0 0 24px 24px !important;
+  }
+
+  .brand-row {
+    padding: 18px 16px 16px !important;
+  }
+
+  .restaurant-title h1 {
+    font-size: clamp(28px, 9vw, 38px) !important;
+  }
+
+  .restaurant-title .info {
+    display: none !important;
+  }
+
+  .restaurant-actions {
+    grid-template-columns: 1fr !important;
+    padding: 12px 16px 16px !important;
+    margin-top: 0 !important;
+    border-top: 0 !important;
+  }
+
+  .restaurant-actions .action-link:nth-child(n + 3) {
+    grid-column: auto !important;
+  }
+
+  .action-link {
+    min-height: 46px !important;
+  }
+
+  .store-strip {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+  }
+
+  .store-strip button {
+    display: none !important;
+  }
+
+  .coupon-card {
+    grid-template-columns: 58px minmax(0, 1fr) 24px !important;
+  }
+
+  .coupon-icon {
+    width: 58px !important;
+  }
+
+  .coupon-card div:nth-child(2) {
+    padding: 11px 8px 11px 12px !important;
+  }
+
+  .coupon-card strong {
+    font-size: clamp(16px, 5vw, 20px) !important;
+  }
+
+  .item.no-image {
+    grid-template-columns: 96px minmax(0, 1fr) !important;
+  }
+}
+
+/* Last-mile cardapio overrides. Keep this block last because older visual passes above repeat selectors. */
+.coupon-card {
+  grid-template-columns: 60px minmax(0, 1fr) 30px !important;
+}
+
+.coupon-card b {
+  min-width: 0 !important;
+  padding: 0 12px 0 0 !important;
+  font-size: 28px !important;
+  line-height: 1 !important;
+  color: #245b91 !important;
+  text-align: right !important;
+  white-space: nowrap !important;
+}
+
+.coupon-card .coupon-amount {
+  color: #245b91;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.item.no-image {
+  grid-template-columns: 96px minmax(0, 1fr) !important;
+  min-height: 116px !important;
+}
+
+.item.no-image .item-body {
+  padding: 12px 12px 12px 14px !important;
+}
+
+.item-placeholder {
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  color: var(--accent);
+  background:
+    radial-gradient(circle at 50% 35%, rgba(255, 255, 255, .75), transparent 38%),
+    linear-gradient(135deg, rgba(15, 118, 110, .13), rgba(36, 91, 145, .10));
+}
+
+.placeholder-icon {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.item-placeholder b {
+  font-size: 13px;
+  letter-spacing: .04em;
+}
+
+@media (max-width: 430px) {
+  .coupon-card {
+    grid-template-columns: 56px minmax(0, 1fr) 26px !important;
+  }
+
+  .coupon-card b {
+    display: block !important;
+    padding-right: 10px !important;
+    font-size: 24px !important;
+  }
+
+  .item,
+  .item.no-image {
+    grid-template-columns: 88px minmax(0, 1fr) !important;
+  }
+}
+
+/* Menu polish: denser list, real icons and cleaner customer-app rhythm */
+.app-icon,
+.nav-icon svg,
+.page-icon svg,
+.coupon-svg,
+.category-icon,
+.status-icon,
+.quick-add svg,
+.theme-button svg {
+  width: 1.15em;
+  height: 1.15em;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+body {
+  background:
+    linear-gradient(180deg, rgba(15, 118, 110, .08) 0, rgba(238, 243, 246, 0) 180px),
+    #eef3f6;
+}
+
+.app {
+  width: min(860px, 100vw);
+}
+
+.restaurant-header {
+  border-radius: 0 0 24px 24px;
+  box-shadow: 0 14px 38px rgba(24, 34, 43, .10);
+  overflow: hidden;
+}
+
+.cover-media {
+  height: 170px;
+}
+
+body:not(.has-cover-image) .cover-media {
+  height: 7px;
+  background: linear-gradient(90deg, var(--accent), #245b91);
+}
+
+.brand-row {
+  padding: 22px 26px 18px;
+}
+
+.restaurant-header.has-logo .brand-row {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.brand-shell,
+.brand-mark,
+.restaurant-logo {
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+}
+
+.restaurant-logo {
+  object-fit: cover;
+}
+
+.restaurant-title .eyebrow {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 950;
+}
+
+h1 {
+  font-size: clamp(30px, 5vw, 42px);
+  line-height: 1;
+}
+
+.restaurant-actions {
+  display: flex;
+  margin: 0 24px 20px;
+  padding: 14px 0 0;
+  border-top-color: #edf2f6;
+}
+
+.action-link {
+  min-height: 42px;
+  border-radius: 999px;
+  gap: 8px;
+  padding: 0 15px;
+  box-shadow: none;
+}
+
+.store-strip {
+  margin: 12px 16px 0;
+  min-height: 54px;
+  border-radius: 16px;
+  grid-template-columns: 1fr auto auto;
+  font-size: 14px;
+}
+
+.store-strip span {
+  gap: 7px;
+}
+
+.store-strip button {
+  color: var(--muted);
+  gap: 6px;
+}
+
+.status-icon {
+  color: var(--accent);
+  width: 18px;
+  height: 18px;
+}
+
+.dot {
+  display: none;
+}
+
+.coupon-card {
+  grid-template-columns: 68px minmax(0, 1fr) minmax(76px, auto);
+  border: 1px solid rgba(36, 91, 145, .14);
+  background: linear-gradient(135deg, #ffffff, #edf6ff);
+}
+
+.coupon-icon {
+  min-height: 78px;
+  background: #245b91;
+}
+
+.coupon-svg {
+  width: 30px;
+  height: 30px;
+}
+
+.coupon-card div:nth-child(2) {
+  min-width: 0;
+  padding: 12px 14px;
+  gap: 1px;
+}
+
+.coupon-card div:nth-child(2) span {
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.coupon-card strong {
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.coupon-card b {
+  min-width: 76px;
+  padding: 0 14px 0 6px;
+  font-size: 21px;
+  line-height: 1.05;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.menu-toolbar {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.status {
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  padding: 0 2px;
+  color: #516579;
+  font-size: 13px;
+}
+
+.search-box {
+  min-height: 54px;
+  border-radius: 16px;
+  box-shadow: 0 10px 24px rgba(24, 34, 43, .06);
+}
+
+.search-box span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0;
+}
+
+.search-box span::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  display: block;
+  background: currentColor;
+  color: #6d7f8f;
+  mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.2-3.2'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.search-box input::placeholder {
+  color: #9aa6b2;
+}
+
+.categories {
+  gap: 8px;
+}
+
+.categories a {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 999px;
+  padding: 0 12px;
+  color: #24313d;
+  background: #fff;
+  font-size: 13px;
+}
+
+.categories a.active,
+.categories a:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.category-icon {
+  width: 16px;
+  height: 16px;
+  opacity: .9;
+}
+
+.categories small {
+  margin-left: 0;
+  border-radius: 999px;
+  background: rgba(20, 31, 42, .08);
+  padding: 2px 7px;
+  font-size: 11px;
+}
+
+.categories a.active small,
+.categories a:hover small {
+  background: rgba(255, 255, 255, .20);
+}
+
+.featured-section {
+  margin-top: 8px;
+  margin-bottom: 18px;
+}
+
+.featured-title,
+.category h2 {
+  font-size: 20px;
+  color: #18222b;
+}
+
+.featured-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.featured-card {
+  position: relative;
+  min-height: 186px;
+  grid-template-rows: 116px auto;
+  border-radius: 16px;
+  border-color: #e0e8ef;
+}
+
+.featured-card .item-media {
+  min-height: 116px;
+}
+
+.quick-add {
+  position: absolute;
+  right: 9px;
+  top: 9px;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--accent);
+  box-shadow: 0 8px 18px rgba(15, 118, 110, .22);
+}
+
+.items {
+  gap: 10px;
+}
+
+.item {
+  min-height: 116px;
+  grid-template-columns: 96px minmax(0, 1fr);
+  border-radius: 16px;
+  border-color: #dfe7ee;
+  background: rgba(255, 255, 255, .98);
+  box-shadow: 0 8px 22px rgba(24, 34, 43, .06);
+}
+
+.item:hover {
+  transform: none;
+}
+
+.item-media {
+  min-height: 116px;
+  font-size: 24px;
+}
+
+.item-placeholder {
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  color: var(--accent);
+  background:
+    radial-gradient(circle at 50% 35%, rgba(255, 255, 255, .75), transparent 38%),
+    linear-gradient(135deg, rgba(15, 118, 110, .13), rgba(36, 91, 145, .10));
+}
+
+.placeholder-icon {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.item-placeholder b {
+  font-size: 13px;
+  letter-spacing: .04em;
+}
+
+.item-body {
+  padding: 12px 12px 12px 14px;
+  gap: 7px;
+}
+
+.item-top {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+.item h3 {
+  font-size: 17px;
+  line-height: 1.18;
+}
+
+.item p {
+  color: #647586;
+  font-size: 13px;
+  line-height: 1.32;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.price {
+  font-size: 17px;
+  color: #0b625b;
+}
+
+.item-bottom {
+  align-items: end;
+}
+
+.item-meta {
+  min-width: 0;
+  gap: 5px;
+}
+
+.code,
+.stock {
+  padding: 5px 8px;
+  font-size: 11px;
+}
+
+.stock {
+  max-width: 100%;
+}
+
+.item-action {
+  flex: 0 0 auto;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  border-radius: 14px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  box-shadow: 0 10px 20px rgba(15, 118, 110, .18);
+}
+
+.item-action span {
+  display: none;
+}
+
+.item-action.in-cart {
+  position: relative;
+  background: #18222b;
+}
+
+.item-action.in-cart span {
+  position: absolute;
+  right: -5px;
+  top: -7px;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #fff;
+  color: #18222b;
+  border: 1px solid #dfe7ee;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.item-action:disabled {
+  width: auto;
+  min-width: 92px;
+  padding: 0 12px;
+  box-shadow: none;
+  background: #d9e1e8;
+  color: #657686;
+}
+
+.page-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.page-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.bottom-nav {
+  min-height: 76px;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.bottom-nav button {
+  gap: 4px;
+  font-size: 12px;
+}
+
+.bottom-nav button span {
+  font-size: inherit;
+}
+
+.nav-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+}
+
+.nav-icon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.bottom-nav button.active .nav-icon {
+  background: var(--accent-soft);
+}
+
+.cart-bar {
+  bottom: calc(82px + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 761px) {
+  .menu-list,
+  .featured-section,
+  .menu-toolbar,
+  .coupon-card,
+  .store-strip,
+  .footer,
+  .page-title,
+  .simple-list,
+  .profile-panel {
+    margin-left: 22px;
+    margin-right: 22px;
+  }
+
+  .items {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 430px) {
+  .restaurant-actions {
+    margin: 0 18px 16px;
+    gap: 8px;
+  }
+
+  .action-link {
+    flex: 1 1 120px;
+    min-width: 0;
+    font-size: 13px;
+  }
+
+  .restaurant-header.has-logo .brand-row {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .brand-shell,
+  .brand-mark,
+  .restaurant-logo {
+    width: 64px;
+    height: 64px;
+  }
+
+  .store-strip {
+    grid-template-columns: 1fr auto;
+    min-height: 50px;
+    border-radius: 15px;
+  }
+
+  .coupon-card {
+    grid-template-columns: 56px minmax(0, 1fr) minmax(68px, auto);
+  }
+
+  .coupon-icon {
+    min-height: 72px;
+  }
+
+  .coupon-svg {
+    width: 25px;
+    height: 25px;
+  }
+
+  .coupon-card b {
+    display: block;
+    min-width: 68px;
+    padding-right: 10px;
+    font-size: 18px;
+  }
+
+  .featured-row {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .featured-card {
+    flex: 0 0 178px;
+  }
+
+  .item {
+    grid-template-columns: 88px minmax(0, 1fr);
+  }
+
+  .item.no-image {
+    grid-template-columns: 88px minmax(0, 1fr);
+  }
+
+  .item-media {
+    min-height: 112px;
+  }
+
+  .item-body {
+    padding: 11px;
+  }
+
+  .item h3 {
+    font-size: 16px;
+  }
+
+  .price {
+    font-size: 16px;
+  }
+
+  .code {
+    display: none;
+  }
+
+  .stock {
+    max-width: 132px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 /* Final visual pass: compact, clean restaurant app surface */
 body {
   background: #eef3f6;
@@ -1890,11 +3064,12 @@ h1 {
 }
 
 .item.no-image {
-  min-height: 104px;
+  grid-template-columns: 96px minmax(0, 1fr);
+  min-height: 116px;
 }
 
 .item.no-image .item-body {
-  padding: 15px;
+  padding: 12px 12px 12px 14px;
 }
 
 .item-action {
@@ -2024,5 +3199,281 @@ h1 {
 @media (max-width: 430px) {
   .restaurant-header .info {
     display: none !important;
+  }
+}
+/* Final live menu overrides. Keep at EOF so previous visual passes cannot override it. */
+.app {
+  width: min(100%, 760px) !important;
+  max-width: 760px !important;
+  padding-left: 12px !important;
+  padding-right: 12px !important;
+  overflow-x: hidden !important;
+}
+
+.app-page {
+  min-width: 0 !important;
+}
+
+.restaurant-header {
+  border-radius: 22px !important;
+  border: 1px solid rgba(15, 118, 110, .12) !important;
+  background: #fff !important;
+  box-shadow: 0 18px 42px rgba(22, 34, 45, .10) !important;
+}
+
+.restaurant-title,
+.restaurant-title h1,
+.restaurant-title .info {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow-wrap: anywhere !important;
+}
+
+.restaurant-actions {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)) !important;
+  gap: 10px !important;
+  width: 100% !important;
+}
+
+.action-link {
+  min-width: 0 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  border-radius: 999px !important;
+}
+
+.store-strip,
+.coupon-card,
+.menu-toolbar,
+.featured-section,
+.menu-list,
+.footer,
+.page-title,
+.simple-list,
+.profile-panel {
+  width: auto !important;
+  max-width: calc(100% - 20px) !important;
+  margin-left: 10px !important;
+  margin-right: 10px !important;
+}
+
+.store-strip {
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  overflow: hidden !important;
+}
+
+.store-strip span,
+.store-strip button {
+  min-width: 0 !important;
+}
+
+.coupon-card {
+  grid-template-columns: 64px minmax(0, 1fr) 28px !important;
+  align-items: stretch !important;
+  overflow: hidden !important;
+  border: 1px solid rgba(36, 91, 145, .12) !important;
+  border-radius: 18px !important;
+  background: linear-gradient(135deg, #ffffff 0%, #edf6ff 100%) !important;
+}
+
+.coupon-icon {
+  min-height: 88px !important;
+  width: 64px !important;
+  background: #245b91 !important;
+}
+
+.coupon-card div:nth-child(2) {
+  min-width: 0 !important;
+  padding: 12px 10px 12px 14px !important;
+  gap: 2px !important;
+}
+
+.coupon-card div:nth-child(2) span,
+.coupon-card strong,
+.coupon-card .coupon-amount {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.coupon-card strong {
+  font-size: clamp(16px, 5vw, 21px) !important;
+  line-height: 1.05 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+.coupon-card div:nth-child(2) span {
+  font-size: 12px !important;
+  line-height: 1.25 !important;
+}
+
+.coupon-card .coupon-amount {
+  display: inline-flex !important;
+  width: fit-content !important;
+  margin-top: 2px !important;
+  padding: 3px 8px !important;
+  border-radius: 999px !important;
+  background: rgba(15, 118, 110, .10) !important;
+  color: #0f766e !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+}
+
+.coupon-card b {
+  display: grid !important;
+  place-items: center !important;
+  min-width: 28px !important;
+  width: 28px !important;
+  padding: 0 !important;
+  color: #245b91 !important;
+  font-size: 24px !important;
+  line-height: 1 !important;
+}
+
+.categories {
+  max-width: 100% !important;
+  margin-left: 10px !important;
+  padding-right: 10px !important;
+  overflow-x: auto !important;
+  scrollbar-width: none !important;
+}
+
+.categories::-webkit-scrollbar {
+  display: none !important;
+}
+
+.categories a {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-width: max-content !important;
+}
+
+.category-icon,
+.action-link .app-icon,
+.nav-icon svg,
+.status-icon {
+  flex: 0 0 auto !important;
+}
+
+.item.no-image {
+  grid-template-columns: 94px minmax(0, 1fr) !important;
+  min-height: 112px !important;
+}
+
+.item-placeholder {
+  width: 100% !important;
+  height: 100% !important;
+  display: grid !important;
+  place-items: center !important;
+  gap: 5px !important;
+  padding: 10px !important;
+  background: linear-gradient(135deg, rgba(15, 118, 110, .15), rgba(36, 91, 145, .10)) !important;
+  color: #0f766e !important;
+}
+
+.placeholder-icon {
+  width: 23px !important;
+  height: 23px !important;
+}
+
+.item-placeholder b {
+  font-size: 12px !important;
+  letter-spacing: .04em !important;
+}
+
+@media (max-width: 760px) {
+  .app {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  .restaurant-header {
+    margin: 0 !important;
+    border-left: 0 !important;
+    border-right: 0 !important;
+    border-radius: 0 0 24px 24px !important;
+  }
+
+  .brand-row {
+    padding: 18px 16px 16px !important;
+  }
+
+  .restaurant-title h1 {
+    font-size: clamp(28px, 9vw, 38px) !important;
+  }
+
+  .restaurant-title .info {
+    display: none !important;
+  }
+
+  .restaurant-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    padding: 12px 16px 16px !important;
+    margin-top: 0 !important;
+    border-top: 0 !important;
+  }
+
+  .restaurant-actions .action-link:nth-child(n + 3) {
+    grid-column: 1 / -1 !important;
+  }
+
+  .coupon-card {
+    grid-template-columns: 58px minmax(0, 1fr) 24px !important;
+  }
+
+  .coupon-icon {
+    width: 58px !important;
+  }
+
+  .coupon-card div:nth-child(2) {
+    padding: 11px 8px 11px 12px !important;
+  }
+
+  .coupon-card strong {
+    font-size: clamp(16px, 5vw, 20px) !important;
+  }
+
+  .item.no-image {
+    grid-template-columns: 96px minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .app {
+    width: min(100%, 390px) !important;
+    max-width: 390px !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  .restaurant-actions {
+    grid-template-columns: 1fr !important;
+  }
+
+  .restaurant-actions .action-link:nth-child(n + 3) {
+    grid-column: auto !important;
+  }
+
+  .action-link {
+    min-height: 46px !important;
+  }
+
+  .store-strip {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+  }
+
+  .store-strip button {
+    display: none !important;
+  }
+
+  .bottom-nav {
+    width: min(100%, 390px) !important;
+    max-width: 390px !important;
+    left: 0 !important;
+    right: auto !important;
+    transform: none !important;
   }
 }

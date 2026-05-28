@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0f766e">
   <title>Cardapio Digital</title>
-  <link rel="stylesheet" href="./styles.css?v=compact-2">
+  <link rel="stylesheet" href="./styles.css?v=menu-polish2">
   <script src="./config.js"></script>
 </head>
 <body>
@@ -13,7 +13,9 @@
     <section id="pageHome" class="app-page active" data-page-panel="home">
     <header class="restaurant-header">
       <div class="cover-media">
-        <button type="button" class="theme-button" aria-label="Alternar tema">☾</button>
+        <button type="button" class="theme-button" aria-label="Alternar tema">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.7A8 8 0 1 1 11.3 3a6.2 6.2 0 1 0 9.7 9.7Z"/></svg>
+        </button>
       </div>
       <div class="brand-row">
         <div class="brand-shell">
@@ -32,7 +34,10 @@
     <section class="store-strip" aria-label="Status da loja">
       <span id="storeOpenText"><b class="dot"></b> Loja aberta</span>
       <span id="waitTimeText">30 a 60 min</span>
-      <button type="button" data-nav-page="profile">Info</button>
+      <button type="button" data-nav-page="profile">
+        <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></svg>
+        Info
+      </button>
     </section>
 
     <section class="notice-card">
@@ -41,13 +46,16 @@
     </section>
 
     <section class="coupon-card" data-nav-page="discounts">
-      <div class="coupon-icon">%</div>
+      <div class="coupon-icon">
+        <svg class="coupon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5A2.5 2.5 0 1 1 12 4.5V7Z"/><path d="M12 7h4.5A2.5 2.5 0 1 0 12 4.5V7Z"/></svg>
+      </div>
       <div>
         <span>Descontos da loja</span>
         <strong>Carregando</strong>
+        <span class="coupon-amount">Veja as ofertas</span>
         <span>Veja os cupons disponiveis</span>
       </div>
-      <b>›</b>
+      <b aria-hidden="true">›</b>
     </section>
 
     <section class="menu-toolbar">
@@ -70,7 +78,7 @@
 
     <section id="pageHistory" class="app-page" data-page-panel="history">
       <header class="page-title">
-        <span>↺</span>
+        <span class="page-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v6h6"/></svg></span>
         <h2>Historico de Pedidos</h2>
       </header>
       <div id="historyList" class="simple-list"></div>
@@ -92,7 +100,7 @@
 
     <section id="pageProfile" class="app-page" data-page-panel="profile">
       <header class="page-title">
-        <span>●</span>
+        <span class="page-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="4"/></svg></span>
         <h2>Minha conta</h2>
       </header>
       <div id="profilePanel" class="profile-panel"></div>
@@ -136,13 +144,25 @@
     </aside>
 
     <nav class="bottom-nav" aria-label="Menu principal">
-      <button type="button" class="active" data-nav-page="home"><span>⌂</span>Inicio</button>
-      <button type="button" data-nav-page="history"><span>▤</span>Historico</button>
-      <button type="button" data-nav-page="discounts"><span>◇</span>Descontos</button>
-      <button type="button" data-nav-page="profile"><span>●</span>Perfil</button>
+      <button type="button" class="active" data-nav-page="home">
+        <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg></span>
+        Inicio
+      </button>
+      <button type="button" data-nav-page="history">
+        <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span>
+        Historico
+      </button>
+      <button type="button" data-nav-page="discounts">
+        <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 12-8 8-8-8 8-8 8 8Z"/><path d="m9 15 6-6"/><circle cx="9" cy="9" r="1"/><circle cx="15" cy="15" r="1"/></svg></span>
+        Descontos
+      </button>
+      <button type="button" data-nav-page="profile">
+        <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="4"/></svg></span>
+        Perfil
+      </button>
     </nav>
   </main>
 
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./app.js?v=menu-polish2"></script>
 </body>
 </html>

@@ -101,6 +101,42 @@ function validImageUrl(value) {
   return /^https?:\/\//i.test(url) ? url : "";
 }
 
+function iconSvg(name, className = "app-icon") {
+  const icons = {
+    home: '<path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/>',
+    receipt: '<path d="M5 4h14v16l-2-1-2 1-2-1-2 1-2-1-2 1V4Z"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+    tag: '<path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5A2.5 2.5 0 1 1 12 4.5V7Z"/><path d="M12 7h4.5A2.5 2.5 0 1 0 12 4.5V7Z"/>',
+    percent: '<path d="m19 5-14 14"/><circle cx="7" cy="7" r="2"/><circle cx="17" cy="17" r="2"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    check: '<path d="m5 12 4 4L19 6"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/>',
+    store: '<path d="M4 10h16l-1-5H5l-1 5Z"/><path d="M6 10v9h12v-9"/><path d="M9 19v-5h6v5"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/>',
+    phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.6a2 2 0 0 1-.5 2.1L8 9.6a16 16 0 0 0 6.4 6.4l1.2-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.5 2.6.6a2 2 0 0 1 1.7 2Z"/>',
+    whatsapp: '<path d="M20 11.8a8 8 0 0 1-11.7 7.1L4 20l1.1-4.1A8 8 0 1 1 20 11.8Z"/><path d="M9 8.7c.2 3 2.4 5.1 5.3 5.6l1.1-1.2-2-.9-.9.8c-1.1-.5-1.9-1.3-2.4-2.4l.8-.9-.9-2-1 .9Z"/>',
+    map: '<path d="m9 18-6 3V6l6-3 6 3 6-3v15l-6 3-6-3Z"/><path d="M9 3v15M15 6v15"/>',
+    drink: '<path d="M8 3h8l-1 9a3 3 0 0 1-6 0L8 3Z"/><path d="M12 15v6M9 21h6"/>',
+    pizza: '<path d="M4 20 20 4c-6-1-12 1-16 16Z"/><path d="M8 13h.01M12 9h.01M11 16h.01"/>',
+    burger: '<path d="M4 11c1-4 15-4 16 0H4Z"/><path d="M5 15h14"/><path d="M6 18h12"/><path d="M5 13h14"/>',
+    dessert: '<path d="M7 9h10l-1 9H8L7 9Z"/><path d="M9 9V7a3 3 0 0 1 6 0v2"/><path d="M8 13h8"/>',
+    delivery: '<path d="M3 7h10v9H3z"/><path d="M13 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
+    food: '<path d="M7 3v8M4 3v8M10 3v8M4 11h6"/><path d="M7 11v10"/><path d="M17 3v18"/><path d="M14 3h6v8h-6z"/>'
+  };
+  const paths = icons[name] || icons.food;
+  return `<svg class="${escapeHtml(className)}" viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
+}
+
+function categoryIcon(category) {
+  const text = normalizeText(category);
+  if (text.includes("bebida") || text.includes("drink") || text.includes("suco") || text.includes("bar")) return "drink";
+  if (text.includes("pizza")) return "pizza";
+  if (text.includes("lanche") || text.includes("burger") || text.includes("hamb")) return "burger";
+  if (text.includes("sobremesa") || text.includes("doce")) return "dessert";
+  if (text.includes("delivery") || text.includes("entrega")) return "delivery";
+  return "food";
+}
+
 function phoneDigits(value) {
   return String(value || "").replace(/\D/g, "");
 }
@@ -355,13 +391,13 @@ function renderActions(menu) {
   const links = [];
   if (digits.length >= 10) {
     const whatsappDigits = digits.startsWith("55") ? digits : `55${digits}`;
-    links.push(`<a class="action-link primary" href="https://wa.me/${whatsappDigits}" target="_blank" rel="noopener">Chamar no WhatsApp</a>`);
-    links.push(`<a class="action-link" href="tel:+${whatsappDigits}">Ligar</a>`);
+    links.push(`<a class="action-link primary" href="https://wa.me/${whatsappDigits}" target="_blank" rel="noopener">${iconSvg("whatsapp")}<span>WhatsApp</span></a>`);
+    links.push(`<a class="action-link" href="tel:+${whatsappDigits}">${iconSvg("phone")}<span>Ligar</span></a>`);
   }
 
   const address = [menu.address, menu.city, menu.state].filter(Boolean).join(", ");
   if (address) {
-    links.push(`<a class="action-link" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}" target="_blank" rel="noopener">Ver endereco</a>`);
+    links.push(`<a class="action-link" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}" target="_blank" rel="noopener">${iconSvg("map")}<span>Endereco</span></a>`);
   }
 
   actions.innerHTML = links.join("");
@@ -376,13 +412,14 @@ function renderCouponCard(menu) {
   if (!discount) return;
 
   card.innerHTML = `
-    <div class="coupon-icon">%</div>
+    <div class="coupon-icon">${iconSvg("tag", "coupon-svg")}</div>
     <div>
       <span>Aplique o cupom</span>
       <strong>${escapeHtml(discount.code)}</strong>
+      <span class="coupon-amount">${escapeHtml(money(discount.amount))} de desconto</span>
       <span>${escapeHtml(discount.description)}</span>
     </div>
-    <b>${escapeHtml(money(discount.amount))}</b>
+    <b aria-hidden="true">›</b>
   `;
 }
 
@@ -411,6 +448,7 @@ function renderFeatured(items) {
               ${imageUrl
                 ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(item.name)}" loading="lazy">`
                 : `<span>${escapeHtml(firstLetters(item.name))}</span>`}
+              <span class="quick-add">${iconSvg("plus")}</span>
             </div>
             <div class="featured-body">
               <strong>${escapeHtml(item.name)}</strong>
@@ -559,7 +597,7 @@ function renderMenu(menu, items) {
   const isOpen = menu.store_open !== false;
   const openText = qs("#storeOpenText");
   if (openText) {
-    openText.innerHTML = `<b class="dot"></b> ${isOpen ? "Loja aberta" : "Loja fechada"}`;
+    openText.innerHTML = `${iconSvg("store", "status-icon")}<b class="dot"></b> ${isOpen ? "Loja aberta" : "Loja fechada"}`;
     openText.classList.toggle("closed", !isOpen);
   }
   const waitText = qs("#waitTimeText");
@@ -583,7 +621,7 @@ function renderMenu(menu, items) {
     const link = document.createElement("a");
     link.href = `#${id}`;
     link.className = firstCategory ? "active" : "";
-    link.innerHTML = `${escapeHtml(category)} <small>${categoryItems.length}</small>`;
+    link.innerHTML = `${iconSvg(categoryIcon(category), "category-icon")}<span>${escapeHtml(category)}</span><small>${categoryItems.length}</small>`;
     nav.appendChild(link);
     firstCategory = false;
   }
@@ -621,11 +659,13 @@ function renderMenu(menu, items) {
       const card = document.createElement("article");
       card.className = `item${available ? "" : " unavailable"}${imageUrl ? "" : " no-image"}`;
       card.innerHTML = `
-        ${imageUrl ? `
-          <div class="item-media">
+        <div class="item-media">
+          ${imageUrl
+            ? `
             <img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(item.name)}" loading="lazy">
-          </div>
-        ` : ""}
+          `
+            : `<span class="item-placeholder">${iconSvg(categoryIcon(item.category), "placeholder-icon")}<b>${escapeHtml(firstLetters(item.name))}</b></span>`}
+        </div>
         <div class="item-body">
           <div class="item-top">
             <h3>${escapeHtml(item.name)}</h3>
@@ -638,7 +678,9 @@ function renderMenu(menu, items) {
               <span class="stock ${available ? "ok" : "out"}">${available ? "Disponivel" : "Indisponivel"}${stockText ? ` - ${escapeHtml(stockText)}` : ""}</span>
             </div>
             <button type="button" class="item-action${quantity ? " in-cart" : ""}" data-add-item="${escapeHtml(key)}" ${available ? "" : "disabled"}>
-              ${available ? (quantity ? `Adicionado ${quantity}` : "Adicionar") : "Indisponivel"}
+              ${available
+                ? `${iconSvg(quantity ? "check" : "plus")}<span>${quantity ? escapeHtml(quantity) : "Adicionar"}</span>`
+                : "Indisponivel"}
             </button>
           </div>
         </div>
