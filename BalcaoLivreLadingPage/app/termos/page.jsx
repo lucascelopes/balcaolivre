@@ -1,3 +1,5 @@
+import SiteHeader from "../SiteHeader";
+
 export const metadata = {
   title: "Termos, condicoes e privacidade | Balcao Livre PDV",
   description:
@@ -7,22 +9,7 @@ export const metadata = {
 export default function TermsPage() {
   return (
     <main className="lpPage legalPage">
-      <header className="lpHeader">
-        <a className="lpBrand" href="/" aria-label="Balcao Livre PDV">
-          <img className="lpBrandLogo" src="/balcao-livre-logo-v2.png" alt="Balcao Livre PDV" />
-        </a>
-        <nav className="lpNav" aria-label="Navegacao principal">
-          <a href="/">Produto</a>
-          <a href="/#impressao">Impressao</a>
-          <a href="/#planos">Planos</a>
-          <a href="/como-usar/">Como usar</a>
-          <a href="/termos/" aria-current="page">Termos</a>
-        </nav>
-        <div className="lpHeaderActions">
-          <a className="lpGhostButton" href="/#planos">Planos</a>
-          <a className="lpSolidButton" href="https://wa.me/5527981267551?text=Ola%2C%20quero%20conhecer%20o%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%20com%20planos%2C%20valores%20e%20personalizacao%3F">WhatsApp</a>
-        </div>
-      </header>
+      <SiteHeader />
 
       <section className="infoPage legalTermsPage">
         <div className="infoHero">

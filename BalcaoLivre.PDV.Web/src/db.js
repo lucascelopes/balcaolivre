@@ -111,7 +111,7 @@ export async function count(storeName) {
 
 export async function seedIfEmpty(initialProducts, initialSettings) {
   const productCount = await count("products");
-  if (productCount === 0) {
+  if (productCount === 0 && initialProducts.length > 0) {
     await putMany("products", initialProducts);
   }
 

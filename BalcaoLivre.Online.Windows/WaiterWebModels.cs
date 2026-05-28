@@ -17,6 +17,7 @@ public sealed class WaiterBoardDto
     public string Title { get; set; } = "";
     public string Status { get; set; } = "";
     public string CustomerName { get; set; } = "";
+    public string Notes { get; set; } = "";
     public int Waiter { get; set; }
     public decimal Total { get; set; }
     public string TotalText { get; set; } = "";
@@ -68,6 +69,14 @@ public sealed class WaiterAddProductRequest
     public string WaiterNumber { get; set; } = "";
     public string ProductCode { get; set; } = "";
     public int Quantity { get; set; } = 1;
+    public string Note { get; set; } = "";
+}
+
+public sealed class WaiterBoardNoteRequest
+{
+    public string Kind { get; set; } = "MESA";
+    public string BoardNumber { get; set; } = "";
+    public string WaiterNumber { get; set; } = "";
     public string Note { get; set; } = "";
 }
 

@@ -28,6 +28,7 @@ supabase/.temp/
 # Codex/local research artifacts
 .agents/
 screenshots/
+evidence/
 yt_lechef/
 youtube_polyvan_videos.json
 lechef_filtered.json

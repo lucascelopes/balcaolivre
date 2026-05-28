@@ -21,10 +21,15 @@ public static class IFoodOrderMapper
 
         if (order.TryGetProperty("scheduled", out var scheduled) || order.TryGetProperty("scheduling", out scheduled))
         {
+            imported.OrderTiming = "SCHEDULED";
+
             imported.PreparationStartDateTime = FirstDateTime(
                 GetDateTime(scheduled, "preparationStartDateTime"),
                 GetDateTime(scheduled, "preparation_start_date_time"),
-                GetDateTime(scheduled, "preparationStart"));
+                GetDateTime(scheduled, "preparationStart"),
+                GetDateTime(scheduled, "deliveryDateTimeStart"),
+                GetDateTime(scheduled, "startDateTime"),
+                GetDateTime(scheduled, "scheduledDateTime"));
         }
 
         if (order.TryGetProperty("preparation", out var preparation))
@@ -71,7 +76,13 @@ public static class IFoodOrderMapper
         if (order.TryGetProperty("customer", out var customer))
         {
             imported.CustomerName = GetString(customer, "name", "CLIENTE IFOOD").ToUpperInvariant();
-            imported.CustomerDocument = GetString(customer, "documentNumber");
+            imported.CustomerDocument = FirstNotEmpty(
+                GetString(customer, "documentNumber"),
+                GetString(customer, "document"),
+                GetString(customer, "cpf"),
+                GetString(customer, "cnpj"),
+                GetString(customer, "taxPayerIdentificationNumber"),
+                GetString(customer, "taxpayerIdentificationNumber"));
             if (customer.TryGetProperty("phone", out var phone))
             {
                 var number = GetString(phone, "number");
@@ -96,6 +107,10 @@ public static class IFoodOrderMapper
             imported.Notes = AppendLine(imported.Notes, $"Retirada: {GetString(takeout, "mode")}");
         }
 
+        imported.Notes = AppendLine(imported.Notes, FirstNotEmpty(
+            GetString(order, "observations"),
+            GetString(order, "observation"),
+            GetString(order, "note")));
         imported.Notes = AppendLine(imported.Notes, GetString(order, "extraInfo"));
         imported.PaymentMethod = BuildPaymentMethod(order);
         imported.PaymentSummary = BuildPaymentSummary(order);
@@ -110,10 +125,19 @@ public static class IFoodOrderMapper
                 var quantity = Math.Max(1, (int)Math.Round(GetDecimal(item, "quantity", 1m), MidpointRounding.AwayFromZero));
                 var total = FirstPositive(
                     GetNestedDecimal(item, "totalPrice", "value"),
+                    GetNestedDecimal(item, "totalPrice"),
                     GetNestedDecimal(item, "price", "value"),
-                    GetNestedDecimal(item, "unitPrice", "value") * quantity);
-                var unit = quantity > 0 ? total / quantity : total;
-                var notes = GetString(item, "observations");
+                    GetNestedDecimal(item, "price"),
+                    GetNestedDecimal(item, "unitPrice", "value") * quantity,
+                    GetNestedDecimal(item, "unitPrice") * quantity);
+                var unit = FirstPositive(
+                    GetNestedDecimal(item, "unitPrice", "value"),
+                    GetNestedDecimal(item, "unitPrice"),
+                    quantity > 0 ? total / quantity : total);
+                var notes = FirstNotEmpty(
+                    GetString(item, "observations"),
+                    GetString(item, "observation"),
+                    GetString(item, "note"));
 
                 if (item.TryGetProperty("options", out var options) && options.ValueKind == JsonValueKind.Array)
                 {

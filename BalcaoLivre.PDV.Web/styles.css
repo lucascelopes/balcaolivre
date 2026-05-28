@@ -16,7 +16,11 @@
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
+html, body {
+  height: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
 body {
   margin: 0;
   background: var(--shell);
@@ -790,7 +794,33 @@ label {
 }
 .login-body .primary {
   height: 50px;
-  margin-top: 12px;
+}
+.login-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, .45fr);
+  gap: 10px;
+  margin-top: 8px;
+}
+.login-buy-link {
+  min-height: 50px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+}
+.login-buy-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.login-hint {
+  color: var(--muted);
+  font-weight: 700;
+  line-height: 1.35;
 }
 .message {
   min-height: 20px;
@@ -838,15 +868,18 @@ label {
 /* Responsive shell refresh for the web PDV. */
 body {
   overflow: auto;
+  overflow-x: hidden;
   background: #eef3f7;
 }
 
 .app-shell {
   width: 100%;
+  max-width: 100vw;
   min-width: 0;
   height: 100vh;
   min-height: 720px;
   grid-template-rows: auto auto minmax(0, 1fr);
+  overflow-x: hidden;
 }
 
 .titlebar {
@@ -861,6 +894,10 @@ body {
 .brand {
   min-width: 0;
   gap: 12px;
+}
+
+.brand > div {
+  min-width: 0;
 }
 
 .brand-token {
@@ -913,6 +950,9 @@ body {
 
 .ribbon {
   gap: 8px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100vw;
   min-height: 0;
   padding: 10px clamp(12px, 2vw, 20px);
   scrollbar-width: thin;
@@ -953,10 +993,15 @@ body {
 
 .workspace {
   min-height: 0;
+  min-width: 0;
+  max-width: 100vw;
   grid-template-rows: auto minmax(0, 1fr);
 }
 
 .mode-tabs {
+  width: 100%;
+  min-width: 0;
+  max-width: 100vw;
   min-height: 50px;
   padding: 8px clamp(12px, 2vw, 20px) 0;
   overflow-x: auto;
@@ -974,6 +1019,8 @@ body {
 
 .panels {
   min-height: 0;
+  min-width: 0;
+  max-width: 100vw;
   grid-template-columns: minmax(300px, .9fr) minmax(260px, .72fr) minmax(360px, 1.1fr) minmax(258px, .64fr);
   gap: 10px;
   padding: 10px clamp(12px, 2vw, 20px) 16px;
@@ -1145,16 +1192,53 @@ body {
   }
 
   .panels {
-    grid-template-columns: minmax(0, 1fr) minmax(280px, .82fr);
+    grid-template-columns: 1fr;
   }
 
+  .ticket-panel,
+  .pay-panel,
   .products-panel,
   .boards-panel {
-    grid-column: 1 / -1;
+    grid-column: auto;
+  }
+
+  .ticket-panel { order: 1; }
+  .products-panel { order: 2; }
+  .pay-panel { order: 3; }
+  .boards-panel { order: 4; }
+
+  .ticket-panel {
+    grid-template-rows: auto auto auto auto minmax(120px, 180px) auto;
+  }
+
+  .ticket-panel .form-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .ticket-panel .form-grid .wide {
+    grid-column: span 2;
+  }
+
+  .ticket-panel .ticket-actions {
+    grid-template-columns: 130px 110px;
+    justify-content: end;
+  }
+
+  .products-panel {
+    grid-template-rows: auto auto auto minmax(240px, 340px);
+  }
+
+  .pay-panel {
+    grid-template-rows: auto auto auto auto auto auto auto auto;
+  }
+
+  .pay-panel .receipt-preview {
+    max-height: 220px;
   }
 
   .boards-panel {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
   }
 
   .boards-panel .section-header {
@@ -1213,7 +1297,8 @@ body {
 
   .ticket-actions,
   .state-grid,
-  .pay-methods {
+  .pay-methods,
+  .login-actions {
     grid-template-columns: 1fr;
   }
 

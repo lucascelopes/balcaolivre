@@ -81,6 +81,7 @@ async function copyCardapio() {
   const config = {
     supabaseUrl: publicMenuSupabaseUrl,
     publishableKey: publicMenuPublishableKey,
+    licenseFunctionUrl: `${publicMenuSupabaseUrl.replace(/\/$/, "")}/functions/v1/license`,
     apexDomain: publicApexDomain
   };
 

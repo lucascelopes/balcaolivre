@@ -1,12 +1,12 @@
-const CACHE_NAME = "balcao-livre-pdv-web-v10";
+const CACHE_NAME = "balcao-livre-pdv-web-v13";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=10",
-  "./src/app.js?v=10",
-  "./src/db.js?v=10",
-  "./src/data.js?v=10",
-  "./src/supabaseAuth.js?v=10",
+  "./styles.css?v=13",
+  "./src/app.js?v=13",
+  "./src/db.js?v=13",
+  "./src/data.js?v=13",
+  "./src/supabaseAuth.js?v=13",
   "./manifest.webmanifest",
   "./assets/balcao-livre-icon.png",
   "./assets/balcao-livre-logo.png"

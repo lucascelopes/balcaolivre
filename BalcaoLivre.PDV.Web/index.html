@@ -7,7 +7,7 @@
   <title>Balcao Livre PDV Web</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./assets/balcao-livre-icon.png">
-  <link rel="stylesheet" href="./styles.css?v=10">
+  <link rel="stylesheet" href="./styles.css?v=13">
 </head>
 <body>
   <div id="app" class="app-shell">
@@ -125,20 +125,24 @@
   </div>
 
   <div id="loginOverlay" class="modal-overlay">
-    <section class="login-modal" role="dialog" aria-modal="true" aria-label="Entrada no PDV">
+    <section class="login-modal" role="dialog" aria-modal="true" aria-label="Liberar PDV Web">
       <header>
         <div class="modal-title">
           <span>PDV</span>
-          <strong>Entrada no PDV</strong>
+          <strong>Liberar PDV Web</strong>
         </div>
         <button id="closeLoginButton" class="icon-button" type="button">X</button>
       </header>
       <div class="login-body">
-        <p id="loginHelp">Entre com o email vinculado no Windows. A senha inicial e a key de ativacao.</p>
+        <p id="loginHelp">Digite o email e a chave. Se o email ja estiver habilitado no Supabase, entra direto; se for chave nova, validamos no admin.</p>
         <label>Email da conta<input id="loginEmail" type="email" autocomplete="username" placeholder="usuario@empresa.com"></label>
-        <label>Operador local<input id="loginOperator" autocomplete="username"></label>
-        <label>Senha<input id="loginPassword" type="password" autocomplete="current-password"></label>
-        <button id="enterPdvButton" class="primary" type="button">Entrar</button>
+        <label>Chave de ativacao<input id="loginPassword" type="text" autocomplete="off" placeholder="BLV-..."></label>
+        <label>Operador local<input id="loginOperator" autocomplete="username" placeholder="1"></label>
+        <div class="login-actions">
+          <button id="enterPdvButton" class="primary" type="button">Liberar PDV Web</button>
+          <a class="login-buy-link" href="https://wa.me/5527981267551?text=Ola%2C%20quero%20comprar%20uma%20chave%20do%20PDV%20Web%20Balcao%20Livre.%20Pode%20me%20ajudar%3F" target="_blank" rel="noopener">Comprar outra chave</a>
+        </div>
+        <small class="login-hint">A chave e conferida no painel admin antes de liberar o caixa.</small>
         <div id="loginMessage" class="message"></div>
       </div>
     </section>
@@ -214,7 +218,7 @@
           <button id="checkUpdateButton" type="button" class="secondary">Verificar atualizacao agora</button>
           <h2>Admin</h2>
           <label class="toggle-card"><input id="adminSyncEnabledInput" type="checkbox"> <span><b>Sincronizacao admin</b><small>Envia lotes pendentes quando houver conexao.</small></span></label>
-          <label>URL do admin<input id="syncEndpointInput" placeholder="https://balcaolivrepdv.onrender.com"></label>
+          <label>URL do admin<input id="syncEndpointInput" placeholder="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/license"></label>
           <h2>Login Supabase</h2>
           <label class="toggle-card"><input id="supabaseAuthEnabledInput" type="checkbox"> <span><b>Login Supabase</b><small>Usa o mesmo usuario no PDV Web e no app Windows.</small></span></label>
           <label>Supabase URL<input id="supabaseUrlInput" placeholder="https://projeto.supabase.co"></label>
@@ -250,6 +254,6 @@
   </dialog>
 
   <div id="toast" class="toast" hidden></div>
-  <script type="module" src="./src/app.js?v=10"></script>
+  <script type="module" src="./src/app.js?v=13"></script>
 </body>
 </html>

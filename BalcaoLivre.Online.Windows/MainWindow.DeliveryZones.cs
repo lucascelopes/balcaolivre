@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
@@ -47,11 +48,11 @@ public partial class MainWindow
             return;
         }
 
-        var dialog = CreateDialog("Taxas por raio", 1080, 680);
+        var dialog = CreateDialog("Taxas de entrega", 1140, 720);
         var zonesList = new ListBox
         {
             DisplayMemberPath = nameof(DeliveryZoneFee.Display),
-            Height = 210,
+            Height = 185,
             ItemsSource = _appSettings.DeliveryZones
         };
         var radiusBox = new TextBox();
@@ -88,8 +89,8 @@ public partial class MainWindow
         var currentLongitude = hasSavedLocation ? _profile.Longitude : -46.633308;
         var currentLabel = hasSavedLocation ? "Local salvo" : "Centro temporario";
         mapStatus.Text = hasSavedLocation
-            ? $"Centro salvo: {currentLatitude:N5}, {currentLongitude:N5}"
-            : "Buscando localizacao do Windows...";
+            ? $"Centro da loja salvo: {currentLatitude:N5}, {currentLongitude:N5}"
+            : "Centro ainda nao salvo. Use o local do Windows para posicionar a loja.";
 
         var mapView = new WebView2
         {
@@ -115,6 +116,19 @@ public partial class MainWindow
                 .DefaultIfEmpty(0)
                 .Max();
             return Math.Max(1, Math.Ceiling(max + 1));
+        }
+
+        void RefreshZonesList(DeliveryZoneFee? selected = null)
+        {
+            _appSettings.DeliveryZones = _appSettings.DeliveryZones
+                .OrderBy(zone => zone.RadiusKm <= 0 ? double.MaxValue : zone.RadiusKm)
+                .ThenBy(zone => zone.Fee)
+                .ToList();
+            zonesList.ItemsSource = null;
+            zonesList.ItemsSource = _appSettings.DeliveryZones;
+            zonesList.SelectedItem = selected is not null && _appSettings.DeliveryZones.Contains(selected)
+                ? selected
+                : _appSettings.DeliveryZones.FirstOrDefault();
         }
 
         void LoadZone(DeliveryZoneFee zone)
@@ -276,7 +290,7 @@ public partial class MainWindow
             zone.Fee = fee;
             zone.MinimumOrder = Math.Max(0, ParseMoney(minimumBox.Text, 0));
             zone.Active = activeBox.IsChecked == true;
-            zonesList.Items.Refresh();
+            RefreshZonesList(zone);
             SaveAppSettings();
             SaveStore();
             status.Foreground = GreenText;
@@ -286,6 +300,27 @@ public partial class MainWindow
         }
 
         saveButton.Click += async (_, _) => await SaveRadiusAsync();
+
+        var deleteButton = DialogButton("Excluir selecionado", "#A11D1D");
+        deleteButton.HorizontalAlignment = HorizontalAlignment.Stretch;
+        deleteButton.Click += async (_, _) =>
+        {
+            if (zonesList.SelectedItem is not DeliveryZoneFee zone)
+            {
+                status.Foreground = AmberText;
+                status.Text = "Selecione um raio salvo para excluir.";
+                return;
+            }
+
+            _appSettings.DeliveryZones.Remove(zone);
+            RefreshZonesList();
+            SaveAppSettings();
+            SaveStore();
+            status.Foreground = GreenText;
+            status.Text = "Raio removido.";
+            SetStatus(status.Text);
+            await RefreshMapAsync();
+        };
 
         void FocusText(TextBox box)
         {
@@ -342,7 +377,7 @@ public partial class MainWindow
         activeBox.Checked += (_, _) => RefreshPreviewFromInput();
         activeBox.Unchecked += (_, _) => RefreshPreviewFromInput();
 
-        var locateButton = DialogButton("Local do Windows", "#99620D");
+        var locateButton = DialogButton("Usar local atual", "#99620D");
         locateButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         locateButton.Click += async (_, _) =>
         {
@@ -353,45 +388,65 @@ public partial class MainWindow
         };
 
         var root = new Grid { Margin = new Thickness(18) };
-        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(360) });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(410) });
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
+        Border Separator()
+        {
+            return new Border { Height = 1, Background = Solid("#E3EBF2"), Margin = new Thickness(0, 14, 0, 14) };
+        }
+
+        TextBlock MutedText(string text)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                Foreground = Solid("#667684"),
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, -4, 0, 10)
+            };
+        }
+
+        var actionGrid = new UniformGrid { Columns = 2, Rows = 1, Margin = new Thickness(0, 4, 0, 0) };
+        saveButton.Margin = new Thickness(0, 0, 8, 0);
+        newButton.Margin = new Thickness(0, 0, 0, 0);
+        actionGrid.Children.Add(saveButton);
+        actionGrid.Children.Add(newButton);
+
         var sideCard = BorderCard();
-        sideCard.Padding = new Thickness(16);
+        sideCard.Padding = new Thickness(18);
         sideCard.Margin = new Thickness(0, 0, 14, 0);
         var side = new StackPanel();
-        side.Children.Add(new TextBlock
-        {
-            Text = "Raios de entrega",
-            Foreground = Solid("#18222B"),
-            FontWeight = FontWeights.Bold,
-            FontSize = 17,
-            Margin = new Thickness(0, 0, 0, 2)
-        });
+        side.Children.Add(SectionTitle("Taxas de entrega"));
+        side.Children.Add(MutedText("Cadastre faixas por distancia. Na venda delivery, o PDV usa a menor faixa ativa que atende o pedido e sugere a taxa."));
+
+        side.Children.Add(SectionTitle("Centro da loja"));
         side.Children.Add(mapStatus);
+        side.Children.Add(MutedText("Use a localizacao do Windows uma vez e confira o pino no mapa."));
         side.Children.Add(locateButton);
-        var previewStack = new StackPanel();
-        previewStack.Children.Add(radiusPreviewCanvas);
-        previewStack.Children.Add(radiusPreviewText);
-        radiusPreviewCard.Child = previewStack;
-        side.Children.Add(radiusPreviewCard);
-        side.Children.Add(new Border { Height = 1, Background = Solid("#E3EBF2"), Margin = new Thickness(0, 12, 0, 12) });
-        side.Children.Add(new TextBlock
-        {
-            Text = "Cadastrados",
-            Foreground = Solid("#667684"),
-            FontWeight = FontWeights.Bold,
-            Margin = new Thickness(0, 0, 0, 6)
-        });
-        side.Children.Add(zonesList);
-        side.Children.Add(newButton);
-        side.Children.Add(new Border { Height = 1, Background = Solid("#E3EBF2"), Margin = new Thickness(0, 12, 0, 12) });
+
+        side.Children.Add(Separator());
+
+        side.Children.Add(SectionTitle("Cadastrar faixa"));
+        side.Children.Add(MutedText("Exemplo: 1 km = R$ 5,00; 3 km = R$ 8,00; 5 km = R$ 12,00."));
         side.Children.Add(DialogField("Raio (km)", radiusBox));
         side.Children.Add(DialogField("Taxa", feeBox));
         side.Children.Add(DialogField("Pedido minimo", minimumBox));
         side.Children.Add(activeBox);
-        side.Children.Add(saveButton);
+        radiusPreviewCard.Padding = new Thickness(10, 8, 10, 8);
+        radiusPreviewCard.Margin = new Thickness(0, 2, 0, 10);
+        radiusPreviewCard.Child = radiusPreviewText;
+        side.Children.Add(radiusPreviewCard);
+        side.Children.Add(actionGrid);
         side.Children.Add(status);
+
+        side.Children.Add(Separator());
+
+        side.Children.Add(SectionTitle("Raios salvos"));
+        side.Children.Add(MutedText("Clique em uma faixa para editar. Mantenha os raios em ordem crescente."));
+        side.Children.Add(zonesList);
+        side.Children.Add(deleteButton);
         sideCard.Child = new ScrollViewer
         {
             Content = side,
@@ -404,11 +459,13 @@ public partial class MainWindow
         var mapCard = BorderCard();
         mapCard.Padding = new Thickness(0);
         mapCard.ClipToBounds = true;
+        mapCard.Margin = new Thickness(0);
         mapCard.Child = mapView;
         Grid.SetColumn(mapCard, 1);
         root.Children.Add(mapCard);
 
         dialog.Content = root;
+        RefreshZonesList();
         if (_appSettings.DeliveryZones.Count > 0)
         {
             zonesList.SelectedIndex = 0;
@@ -424,7 +481,10 @@ public partial class MainWindow
         dialog.Loaded += async (_, _) =>
         {
             await RefreshMapAsync();
-            await UseWindowsLocationAsync();
+            if (!hasSavedLocation)
+            {
+                await UseWindowsLocationAsync();
+            }
         };
         dialog.ShowDialog();
     }
@@ -497,11 +557,11 @@ public partial class MainWindow
         object? preview = previewRadiusKm > 0
             ? new
             {
-                zone = previewActive ? "PREVIA DIGITADA" : "PREVIA INATIVA",
+                zone = previewActive ? "RAIO EM EDICAO" : "RAIO INATIVO",
                 fee = Money(previewFee),
                 minimum = previewMinimum > 0 ? Money(previewMinimum) : "",
                 radiusKm = previewRadiusKm,
-                color = previewActive ? "#111827" : "#A11D1D"
+                color = previewActive ? "#0F766E" : "#A11D1D"
             }
             : null;
 
@@ -512,8 +572,8 @@ public partial class MainWindow
         html.AppendLine("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>");
         html.AppendLine("<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>");
         html.AppendLine("<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>");
-        html.AppendLine("<style>html,body,#map{height:100%;margin:0}body{font-family:Segoe UI,Arial,sans-serif;background:#eef3f7}.leaflet-container{background:#eef3f7}.legend{position:absolute;left:14px;bottom:14px;z-index:500;background:#fff;border:1px solid #ccd7e2;border-radius:10px;padding:10px 12px;box-shadow:0 10px 26px rgba(24,34,43,.14);max-width:270px}.legend h3{margin:0 0 7px;font-size:13px;color:#18222b}.row{display:flex;gap:7px;align-items:flex-start;margin:6px 0;font-size:12px;color:#465869}.row.preview{border-top:1px solid #e3ebf2;padding-top:7px;color:#18222b}.dot{width:11px;height:11px;border-radius:999px;margin-top:2px;flex:0 0 auto}.empty{font-size:12px;color:#667684}.leaflet-popup-content{font-size:13px}.center-chip{position:absolute;left:14px;top:14px;z-index:500;background:#fff;border:1px solid #ccd7e2;border-radius:999px;padding:7px 10px;color:#245b91;font-size:12px;font-weight:700;box-shadow:0 8px 22px rgba(24,34,43,.12)}</style>");
-        html.AppendLine("</head><body><div id='map'></div><div class='center-chip'>Centro da loja</div><div class='legend'><h3>Raios cadastrados</h3><div id='legendRows'></div></div>");
+        html.AppendLine("<style>html,body,#map{height:100%;margin:0}body{font-family:Segoe UI,Arial,sans-serif;background:#eef3f7}.leaflet-container{background:#eef3f7}.legend{position:absolute;left:16px;bottom:16px;z-index:500;background:#fff;border:1px solid #ccd7e2;border-radius:8px;padding:12px 14px;box-shadow:0 10px 26px rgba(24,34,43,.14);max-width:300px}.legend h3{margin:0 0 7px;font-size:13px;color:#18222b}.row{display:flex;gap:8px;align-items:flex-start;margin:7px 0;font-size:12px;color:#465869}.row.preview{border-top:1px solid #e3ebf2;padding-top:8px;color:#18222b}.dot{width:11px;height:11px;border-radius:999px;margin-top:2px;flex:0 0 auto}.empty{font-size:12px;color:#667684}.leaflet-popup-content{font-size:13px}.center-chip{position:absolute;left:16px;top:16px;z-index:500;background:#fff;border:1px solid #ccd7e2;border-radius:999px;padding:8px 11px;color:#245b91;font-size:12px;font-weight:800;box-shadow:0 8px 22px rgba(24,34,43,.12)}</style>");
+        html.AppendLine("</head><body><div id='map'></div><div class='center-chip'>Pino da loja</div><div class='legend'><h3>Mapa de entrega</h3><div id='legendRows'></div></div>");
         html.AppendLine("<script>");
         html.Append("const center=").Append(centerJson).AppendLine(";");
         html.Append("const zones=").Append(zonesJson).AppendLine(";");
@@ -526,8 +586,8 @@ public partial class MainWindow
         html.AppendLine("const circles=[];");
         html.AppendLine("if(!zones.length && !preview){rows.innerHTML='<div class=\"empty\">Nenhum raio salvo.</div>'}");
         html.AppendLine("zones.forEach(z=>{const circle=L.circle([center.lat,center.lng],{radius:z.radiusKm*1000,color:z.color,fillColor:z.color,fillOpacity:.12,weight:3}).addTo(map).bindPopup(`<b>${z.zone}</b><br>${z.radiusKm.toLocaleString('pt-BR')} km<br>Taxa ${z.fee}${z.minimum?'<br>Min. '+z.minimum:''}`);circles.push(circle);group.addLayer(circle);const row=document.createElement('div');row.className='row';row.innerHTML=`<span class=\"dot\" style=\"background:${z.color}\"></span><span><b>${z.zone}</b><br>${z.radiusKm.toLocaleString('pt-BR')} km | ${z.fee}</span>`;rows.appendChild(row);});");
-        html.AppendLine("if(preview){const circle=L.circle([center.lat,center.lng],{radius:preview.radiusKm*1000,color:preview.color,fillColor:preview.color,fillOpacity:.07,weight:4,dashArray:'10 7'}).addTo(map).bindPopup(`<b>${preview.zone}</b><br>${preview.radiusKm.toLocaleString('pt-BR')} km<br>Taxa ${preview.fee}${preview.minimum?'<br>Min. '+preview.minimum:''}`);group.addLayer(circle);const row=document.createElement('div');row.className='row preview';row.innerHTML=`<span class=\"dot\" style=\"background:${preview.color}\"></span><span><b>${preview.zone}</b><br>${preview.radiusKm.toLocaleString('pt-BR')} km | ${preview.fee}</span>`;rows.appendChild(row);}");
-        html.AppendLine("if(zones.length || preview){map.fitBounds(group.getBounds().pad(.14));}");
+        html.AppendLine("if(preview){const circle=L.circle([center.lat,center.lng],{radius:preview.radiusKm*1000,color:preview.color,fillColor:preview.color,fillOpacity:.10,weight:3,dashArray:'8 6'}).addTo(map).bindPopup(`<b>${preview.zone}</b><br>${preview.radiusKm.toLocaleString('pt-BR')} km<br>Taxa ${preview.fee}${preview.minimum?'<br>Min. '+preview.minimum:''}`);group.addLayer(circle);const row=document.createElement('div');row.className='row preview';row.innerHTML=`<span class=\"dot\" style=\"background:${preview.color}\"></span><span><b>${preview.zone}</b><br>${preview.radiusKm.toLocaleString('pt-BR')} km | ${preview.fee}</span>`;rows.appendChild(row);}");
+        html.AppendLine("if(zones.length || preview){map.fitBounds(group.getBounds().pad(.22));}");
         html.AppendLine("</script></body></html>");
         return html.ToString();
     }

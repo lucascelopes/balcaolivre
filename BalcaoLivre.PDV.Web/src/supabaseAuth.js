@@ -81,7 +81,9 @@ export async function signInSupabase(auth, email, password) {
       expiresAt: new Date(Date.now() + Math.max(60, expiresIn - 30) * 1000).toISOString(),
       user: {
         id: data.user?.id || "",
-        email: data.user?.email || email
+        email: data.user?.email || email,
+        appMetadata: data.user?.app_metadata || {},
+        userMetadata: data.user?.user_metadata || {}
       }
     };
     saveSession(session);

@@ -154,7 +154,7 @@ export default function AdminPage() {
     <>
       <link rel="stylesheet" href="/admin-assets/styles.css" />
       <div dangerouslySetInnerHTML={{ __html: adminMarkup }} />
-      <script src="/admin-assets/app.js?v=5" />
+      <script src="/admin-assets/app.js?v=6" />
     </>
   );
 }

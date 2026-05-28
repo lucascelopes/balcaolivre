@@ -1,20 +1,6 @@
 import CashierDemo from "./CashierDemo";
-
-const downloadUrl =
-  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe";
-
-const sellers = [
-  {
-    name: "Wender",
-    phone: "(27) 98126-7551",
-    href: "https://wa.me/5527981267551?text=Ola%2C%20quero%20conhecer%20o%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%20com%20planos%2C%20valores%20e%20personalizacao%3F"
-  },
-  {
-    name: "Lucas",
-    phone: "(33) 99960-9457",
-    href: "https://wa.me/5533999609457?text=Ola%2C%20quero%20conhecer%20o%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%20com%20planos%2C%20valores%20e%20personalizacao%3F"
-  }
-];
+import SiteHeader from "./SiteHeader";
+import { downloadUrl, sellers } from "./siteLinks";
 
 const modules = [
   ["01", "Caixa e pagamentos", "Venda por codigo, quantidade, desconto, Pix, dinheiro, credito, debito e troco calculado."],
@@ -103,23 +89,7 @@ function SellerLinks() {
 export default function Page() {
   return (
     <main className="lpPage">
-      <header className="lpHeader" id="inicio">
-        <a className="lpBrand" href="#inicio" aria-label="Balcao Livre PDV">
-          <img className="lpBrandLogo" src="/balcao-livre-logo-v2.png" alt="Balcao Livre PDV" />
-        </a>
-        <nav className="lpNav" aria-label="Navegacao principal">
-          <a href="#produto">Produto</a>
-          <a href="#demo-pdv">Demo PDV</a>
-          <a href="#impressao">Impressao</a>
-          <a href="#operacao">Operacao</a>
-          <a href="#planos">Planos</a>
-          <a href="https://pdv.balcaolivrepdv.com.br">Login</a>
-        </nav>
-        <div className="lpHeaderActions">
-          <a className="lpGhostButton" href={sellers[0].href}>WhatsApp</a>
-          <a className="lpSolidButton" href={downloadUrl}>Baixar Windows</a>
-        </div>
-      </header>
+      <SiteHeader id="inicio" />
 
       <section className="lpHero lpHeroProduct">
         <div className="lpHeroCopy">

@@ -20,7 +20,8 @@ const dateTime = (value) => value ? new Date(value).toLocaleString("pt-BR") : "-
 const adminApiBase = (() => {
   const configured = window.BALCAO_ADMIN_API_BASE || "";
   if (configured) return configured.replace(/\/$/, "");
-  return location.pathname.startsWith("/admin") ? "/admin-api" : "";
+  const adminSubdomain = location.hostname === "admin.balcaolivrepdv.com.br" || location.hostname.startsWith("admin.");
+  return location.pathname.startsWith("/admin") || adminSubdomain ? "/admin-api" : "";
 })();
 
 function adminApiPath(path) {

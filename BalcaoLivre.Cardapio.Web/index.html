@@ -5,29 +5,142 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0f766e">
   <title>Cardapio Digital</title>
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=compact-2">
   <script src="./config.js"></script>
 </head>
 <body>
   <main class="app">
-    <header class="hero">
-      <div class="brand-shell">
-        <img id="restaurantLogo" class="restaurant-logo" alt="">
-        <div id="brandFallback" class="brand-mark">BL</div>
+    <section id="pageHome" class="app-page active" data-page-panel="home">
+    <header class="restaurant-header">
+      <div class="cover-media">
+        <button type="button" class="theme-button" aria-label="Alternar tema">☾</button>
       </div>
-      <p class="eyebrow">Cardapio digital</p>
-      <h1 id="restaurantName">Carregando cardapio...</h1>
-      <p id="restaurantInfo" class="info">Veja os produtos e chame a equipe para pedir.</p>
+      <div class="brand-row">
+        <div class="brand-shell">
+          <img id="restaurantLogo" class="restaurant-logo" alt="">
+          <div id="brandFallback" class="brand-mark">BL</div>
+        </div>
+        <div class="restaurant-title">
+          <p class="eyebrow">Cardapio digital</p>
+          <h1 id="restaurantName">Carregando cardapio...</h1>
+          <p id="restaurantInfo" class="info">Veja os produtos e chame a equipe para pedir.</p>
+        </div>
+      </div>
+      <div id="restaurantActions" class="restaurant-actions" hidden></div>
     </header>
 
-    <section id="status" class="status" aria-live="polite">Buscando produtos...</section>
+    <section class="store-strip" aria-label="Status da loja">
+      <span id="storeOpenText"><b class="dot"></b> Loja aberta</span>
+      <span id="waitTimeText">30 a 60 min</span>
+      <button type="button" data-nav-page="profile">Info</button>
+    </section>
+
+    <section class="notice-card">
+      <strong>Entrega rapida</strong>
+      <span>Consulte as condicoes para seu bairro antes de finalizar.</span>
+    </section>
+
+    <section class="coupon-card" data-nav-page="discounts">
+      <div class="coupon-icon">%</div>
+      <div>
+        <span>Descontos da loja</span>
+        <strong>Carregando</strong>
+        <span>Veja os cupons disponiveis</span>
+      </div>
+      <b>›</b>
+    </section>
+
+    <section class="menu-toolbar">
+      <div id="status" class="status" aria-live="polite">Buscando produtos...</div>
+      <label class="search-box" for="menuSearch">
+        <span>Buscar</span>
+        <input id="menuSearch" type="search" autocomplete="off" placeholder="Produto, categoria ou codigo">
+      </label>
+    </section>
+
     <nav id="categoryNav" class="categories" aria-label="Categorias"></nav>
-    <section id="menuList" class="menu-list"></section>
+    <section id="featuredSection" class="featured-section"></section>
+    <section id="menuList" class="menu-list" aria-live="polite"></section>
 
     <footer class="footer">
-      <strong>Como usar</strong>
-      <span>Escolha os itens no celular e informe seu pedido para a equipe do restaurante.</span>
+      <strong>Escolha no celular</strong>
+      <span>Selecione os itens, confira o resumo e realize o pedido direto no PDV.</span>
     </footer>
+    </section>
+
+    <section id="pageHistory" class="app-page" data-page-panel="history">
+      <header class="page-title">
+        <span>↺</span>
+        <h2>Historico de Pedidos</h2>
+      </header>
+      <div id="historyList" class="simple-list"></div>
+    </section>
+
+    <section id="pageDiscounts" class="app-page" data-page-panel="discounts">
+      <header class="discount-hero">
+        <h2>Descontos</h2>
+        <div class="loyalty-card">
+          <div>
+            <strong>Fidelidade</strong>
+            <span id="loyaltyProgressText">0 / 20</span>
+          </div>
+          <div class="progress"><span id="loyaltyProgress"></span></div>
+        </div>
+      </header>
+      <div id="discountList" class="simple-list"></div>
+    </section>
+
+    <section id="pageProfile" class="app-page" data-page-panel="profile">
+      <header class="page-title">
+        <span>●</span>
+        <h2>Minha conta</h2>
+      </header>
+      <div id="profilePanel" class="profile-panel"></div>
+    </section>
+
+    <section id="cartBar" class="cart-bar" hidden>
+      <div>
+        <strong id="cartBarTotal">R$ 0,00</strong>
+        <span id="cartBarCount">0 item</span>
+      </div>
+      <button type="button" id="openCart">Ver pedido</button>
+    </section>
+
+    <aside id="checkoutOverlay" class="checkout-overlay" hidden>
+      <div class="checkout-panel" role="dialog" aria-modal="true" aria-labelledby="checkoutTitle">
+        <div class="checkout-head">
+          <div>
+            <p class="eyebrow">Conferencia</p>
+            <h2 id="checkoutTitle">Seu pedido</h2>
+          </div>
+          <button type="button" class="icon-button" data-close-cart aria-label="Fechar">X</button>
+        </div>
+        <div id="cartItems" class="cart-items"></div>
+        <section class="checkout-order">
+          <h3>Como vai receber?</h3>
+          <div class="mode-grid compact" role="group" aria-label="Tipo de pedido">
+            <button type="button" data-order-mode="delivery">Entrega</button>
+            <button type="button" data-order-mode="pickup">Retirada</button>
+            <button type="button" data-order-mode="table">Mesa/local</button>
+          </div>
+          <div id="orderFields" class="order-fields"></div>
+        </section>
+        <label class="field wide">
+          <span>Observacao do pedido</span>
+          <textarea id="orderNotes" rows="3" placeholder="Ex.: tirar cebola, entregar na portaria"></textarea>
+        </label>
+        <div id="checkoutSummary" class="checkout-summary"></div>
+        <button type="button" id="sendOrder" class="send-order">Enviar pedido</button>
+        <button type="button" class="secondary-action" data-close-cart>Continuar escolhendo</button>
+      </div>
+    </aside>
+
+    <nav class="bottom-nav" aria-label="Menu principal">
+      <button type="button" class="active" data-nav-page="home"><span>⌂</span>Inicio</button>
+      <button type="button" data-nav-page="history"><span>▤</span>Historico</button>
+      <button type="button" data-nav-page="discounts"><span>◇</span>Descontos</button>
+      <button type="button" data-nav-page="profile"><span>●</span>Perfil</button>
+    </nav>
   </main>
 
   <script type="module" src="./app.js"></script>

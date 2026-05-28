@@ -7,11 +7,13 @@ import {
   put,
   saveSaleBundle,
   seedIfEmpty
-} from "./db.js?v=10";
-import { categories, initialProducts, initialSettings, paymentMethods } from "./data.js?v=10";
-import { createSupabaseAuth, signInSupabase } from "./supabaseAuth.js?v=10";
+} from "./db.js?v=13";
+import { categories, initialProducts, initialSettings, paymentMethods } from "./data.js?v=13";
+import { createSupabaseAuth, signInSupabase } from "./supabaseAuth.js?v=13";
 
 const boardCount = 24;
+const webLicenseKey = "blpdv_web_license";
+const webDeviceKey = "blpdv_web_device_id";
 const initialUsers = [
   { id: "user_master", number: "1", name: "ADMINISTRADOR", role: "GERENTE", pin: "1", canCash: true, canDiscount: true, canProducts: true, active: true },
   { id: "user_cashier", number: "2", name: "CAIXA 2", role: "CAIXA", pin: "2", canCash: true, canDiscount: false, canProducts: false, active: true }
@@ -28,6 +30,7 @@ const state = {
   cashMovements: [],
   settings: initialSettings,
   auth: { enabled: true, configured: false, session: null, user: null },
+  license: loadWebLicense(),
   tickets: loadTickets(),
   ticketMeta: loadTicketMeta(),
   lastReceipt: null,
@@ -86,6 +89,150 @@ function loadJson(key, fallback) {
     return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
   } catch {
     return fallback;
+  }
+}
+
+function normalizeActivationKey(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replaceAll(" ", "")
+    .replaceAll("_", "-");
+}
+
+function loadWebLicense() {
+  const stored = loadJson(webLicenseKey, null);
+  if (!stored?.key || !stored?.expiresAt) return null;
+  if (new Date(stored.expiresAt).getTime() <= Date.now() + 120000) return null;
+  return stored;
+}
+
+function saveWebLicense(license) {
+  state.license = license;
+  localStorage.setItem(webLicenseKey, JSON.stringify(license));
+}
+
+function licenseFromSupabaseSession(session, fallbackKey = "") {
+  const metadata = session?.user?.appMetadata || {};
+  const licenseKey = normalizeActivationKey(metadata.license_key || fallbackKey);
+  const expiresAt = metadata.license_expires_at || session?.expiresAt || "";
+  return {
+    ok: true,
+    source: "supabase",
+    key: licenseKey,
+    email: session?.user?.email || "",
+    plan: "Conta Supabase",
+    expiresAt,
+    validatedAt: nowIso()
+  };
+}
+
+function hasValidWebLicense() {
+  if (!state.license?.key || !state.license?.expiresAt) return false;
+  return new Date(state.license.expiresAt).getTime() > Date.now() + 120000;
+}
+
+function requireWebLicense(action = "usar o PDV") {
+  if (hasValidWebLicense()) return true;
+  renderLoginState();
+  qs("#loginMessage").textContent = `Informe uma chave valida para ${action}.`;
+  return false;
+}
+
+function adminApiUrl(path) {
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  return `/admin-api${cleanPath}`;
+}
+
+function remoteAdminApiUrl(path) {
+  const base = String(state.settings.syncEndpoint || initialSettings.syncEndpoint || "").trim().replace(/\/+$/, "");
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  return `${base}${cleanPath}`;
+}
+
+function ensureWebDeviceId() {
+  let deviceId = localStorage.getItem(webDeviceKey);
+  if (!deviceId) {
+    deviceId = crypto.randomUUID();
+    localStorage.setItem(webDeviceKey, deviceId);
+  }
+  return deviceId;
+}
+
+async function sha256Hex(value) {
+  const bytes = new TextEncoder().encode(value);
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(hash))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function createWebActivationPayload(licenseKey, email) {
+  const deviceId = ensureWebDeviceId();
+  const machineHash = await sha256Hex(`balcao-livre-web|${location.origin}|${deviceId}`);
+  return {
+    licenseKey,
+    machineHash,
+    machineCode: `WEB-${machineHash.slice(0, 10).toUpperCase()}`,
+    clientKind: "web",
+    appVersion: "PDV Web 1.1",
+    profile: {
+      email,
+      ownerName: state.settings.ownerName || "",
+      businessName: state.settings.businessName || initialSettings.businessName,
+      legalName: state.settings.legalName || initialSettings.legalName,
+      cnpj: state.settings.cnpj || "",
+      phone: state.settings.phone || "",
+      address: state.settings.address || "",
+      city: state.settings.city || "",
+      state: state.settings.state || ""
+    },
+    settings: {
+      adminSyncEnabled: Boolean(state.settings.adminSyncEnabled),
+      syncEndpoint: state.settings.syncEndpoint || initialSettings.syncEndpoint,
+      terminalId: state.settings.terminalId || initialSettings.terminalId,
+      storeId: state.settings.storeId || initialSettings.storeId
+    },
+    metrics: {
+      totalProducts: state.products.length,
+      openTickets: openBoards().length
+    }
+  };
+}
+
+async function postActivation(url, payload) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) {
+    return { ok: false, status: response.status, message: data.message || "Chave recusada pelo servidor." };
+  }
+  return data;
+}
+
+async function activateWebLicense(licenseKey, email) {
+  const payload = await createWebActivationPayload(licenseKey, email);
+  let localError = null;
+  try {
+    const localResult = await postActivation(adminApiUrl("/app/activate"), payload);
+    if (localResult.ok) {
+      return localResult;
+    }
+    localError = localResult;
+  } catch {
+    // Fall back below for standalone/static previews without /admin-api rewrites.
+  }
+
+  try {
+    return await postActivation(remoteAdminApiUrl("/api/app/activate"), payload);
+  } catch (error) {
+    return {
+      ok: false,
+      message: localError?.message || `Nao foi possivel validar a chave agora. ${error.message}`
+    };
   }
 }
 
@@ -206,6 +353,9 @@ async function boot() {
     state.settings.supabaseAnonKey = state.auth.anonKey;
     await put("terminal_settings", state.settings);
   }
+  if (state.auth.configured && state.auth.session?.user?.email && !hasValidWebLicense()) {
+    saveWebLicense(licenseFromSupabaseSession(state.auth.session));
+  }
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register(new URL("../sw.js", import.meta.url)).catch(() => {});
@@ -219,7 +369,7 @@ async function boot() {
 
   window.addEventListener("online", () => {
     updateOnlineState();
-    syncNow();
+    if (hasValidWebLicense()) syncNow();
   });
   window.addEventListener("offline", updateOnlineState);
 }
@@ -246,6 +396,7 @@ function bindEvents() {
 
   qsa(".mode-tabs button").forEach((button) => {
     button.addEventListener("click", () => {
+      if (!requireWebLicense("trocar de modulo")) return;
       state.mode = button.dataset.mode;
       if (state.mode === "counter") state.activeBoard = "BALCAO";
       if (state.mode === "delivery") state.activeBoard = "DELIVERY";
@@ -271,6 +422,8 @@ function bindEvents() {
 }
 
 async function handleRibbon(action) {
+  if (!requireWebLicense("usar as funcoes do PDV")) return;
+
   const handlers = {
     search: openSearchDialog,
     transfer: openTransferDialog,
@@ -298,27 +451,28 @@ function renderLoginState() {
   const help = qs("#loginHelp");
   const emailInput = qs("#loginEmail");
   const message = qs("#loginMessage");
-  if (state.auth.configured) {
-    help.textContent = "Entre com o email e senha da conta para liberar o PDV Online.";
-    emailInput.value = state.auth.user?.email || emailInput.value;
-    if (state.auth.session) {
-      overlay.classList.add("hidden");
-    } else {
-      overlay.classList.remove("hidden");
-    }
+  if (hasValidWebLicense()) {
+    help.textContent = `PDV Web liberado${state.license.plan ? ` - ${state.license.plan}` : ""}.`;
+    emailInput.value = state.license.email || emailInput.value;
+    overlay.classList.add("hidden");
+    requestAnimationFrame(() => qs("#productCode")?.focus());
     return;
   }
 
-  help.textContent = "Modo local ativo.";
-  message.textContent = "";
-  overlay.classList.add("hidden");
+  help.textContent = "Digite o email e a chave. Se o email ja estiver habilitado no Supabase, entra direto; se for chave nova, validamos no admin.";
+  if (state.license?.expiresAt) {
+    message.textContent = "A chave salva expirou. Valide uma chave ativa para continuar.";
+  } else {
+    message.textContent = "";
+  }
+  overlay.classList.remove("hidden");
   qs("#loginOperator").value = qs("#loginOperator").value || qs("#operatorNumber").value || "1";
-  requestAnimationFrame(() => qs("#productCode")?.focus());
+  requestAnimationFrame(() => qs("#loginEmail")?.focus());
 }
 
 function closeLogin() {
-  if (state.auth.configured && !state.auth.session) {
-    qs("#loginMessage").textContent = "Login Supabase obrigatorio para abrir o PDV.";
+  if (!hasValidWebLicense()) {
+    qs("#loginMessage").textContent = "O PDV Web so abre com uma chave comprada e validada.";
     return;
   }
   qs("#loginOverlay").classList.add("hidden");
@@ -326,26 +480,43 @@ function closeLogin() {
 }
 
 async function enterPdv() {
-  qs("#loginMessage").textContent = "";
+  const message = qs("#loginMessage");
+  const button = qs("#enterPdvButton");
+  message.textContent = "";
+  const email = qs("#loginEmail").value.trim().toLowerCase();
+  const licenseKey = normalizeActivationKey(qs("#loginPassword").value);
+  if (!email || !email.includes("@") || !email.includes(".")) {
+    message.textContent = "Informe o email usado na compra ou na ativacao do Windows.";
+    return;
+  }
+  if (!licenseKey) {
+    message.textContent = "Informe a chave de ativacao comprada.";
+    return;
+  }
 
+  button.disabled = true;
+  button.textContent = state.auth.configured ? "Entrando..." : "Validando chave...";
   if (state.auth.configured) {
-    const email = qs("#loginEmail").value.trim();
-    const password = qs("#loginPassword").value;
-    if (!email || !password) {
-      qs("#loginMessage").textContent = "Informe email e a key/senha da conta.";
+    const login = await signInSupabase(state.auth, email, licenseKey);
+    if (login.ok) {
+      const operator = qs("#loginOperator").value.trim() || email.split("@")[0].slice(0, 18) || "1";
+      qs("#operatorNumber").value = operator;
+      saveWebLicense(licenseFromSupabaseSession(login.session, licenseKey));
+      button.disabled = false;
+      button.textContent = "Liberar PDV Web";
+      renderLoginState();
+      showToast("PDV Web liberado pelo Supabase.");
       return;
     }
+    message.textContent = "Login Supabase nao encontrado. Conferindo a chave no admin...";
+  }
 
-    const result = await signInSupabase(state.auth, email, password);
-    if (!result.ok) {
-      qs("#loginMessage").textContent = result.message;
-      return;
-    }
-
-    const operator = email.split("@")[0].slice(0, 18) || "supabase";
-    qs("#operatorNumber").value = operator;
-    closeLogin();
-    showToast(`Login Supabase conectado: ${email}.`);
+  button.textContent = "Validando chave...";
+  const result = await activateWebLicense(licenseKey, email);
+  button.disabled = false;
+  button.textContent = "Liberar PDV Web";
+  if (!result.ok) {
+    message.textContent = result.message || "Chave recusada.";
     return;
   }
 
@@ -353,7 +524,20 @@ async function enterPdv() {
   if (operator) {
     qs("#operatorNumber").value = operator;
   }
-  closeLogin();
+  saveWebLicense({
+    ok: true,
+    source: "admin",
+    key: licenseKey,
+    email,
+    plan: result.plan || "",
+    expiresAt: result.expiresAt || "",
+    validatedAt: nowIso()
+  });
+  if (state.auth.configured) {
+    await signInSupabase(state.auth, email, licenseKey);
+  }
+  renderLoginState();
+  showToast("PDV Web liberado com chave validada.");
 }
 
 function renderAll() {
@@ -584,6 +768,7 @@ function updateProductPrice() {
 }
 
 function addCurrentProduct() {
+  if (!requireWebLicense("vender")) return;
   const product = activeProduct();
   if (!product) {
     showToast("Produto nao encontrado.");
@@ -622,6 +807,7 @@ function addCurrentProduct() {
 }
 
 function clearCurrentTicket() {
+  if (!requireWebLicense("limpar a venda")) return;
   state.tickets[state.activeBoard] = [];
   qs("#amountReceived").value = "0,00";
   saveTickets();
@@ -629,6 +815,7 @@ function clearCurrentTicket() {
 }
 
 async function finishSale() {
+  if (!requireWebLicense("finalizar venda")) return;
   const ticket = currentTicket();
   const meta = currentMeta();
   const subtotal = currentSubtotal(ticket);
@@ -760,6 +947,7 @@ function updateOnlineState() {
 }
 
 async function syncNow() {
+  if (!requireWebLicense("sincronizar")) return;
   await refreshLocalCounters();
   const events = await pendingEvents(20);
   if (events.length === 0) {

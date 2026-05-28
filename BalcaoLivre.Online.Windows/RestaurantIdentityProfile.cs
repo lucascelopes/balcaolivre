@@ -16,6 +16,7 @@ public sealed class RestaurantIdentityProfile
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public string LocalLogoPath { get; set; } = "";
+    public string LocalCoverPath { get; set; } = "";
 
     public string DisplayName => !string.IsNullOrWhiteSpace(BusinessName) ? BusinessName : "Balcão Livre PDV";
 }

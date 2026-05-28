@@ -682,6 +682,9 @@ function mapOrder(order: Record<string, unknown>, fallbackOrderId: string) {
   const phone = typeof phoneValue === "object" && phoneValue !== null
     ? text((phoneValue as Record<string, unknown>).number)
     : text(phoneValue);
+  const phoneWithLocalizer = phoneObject?.localizer
+    ? `${phone} cod. ${text(phoneObject.localizer)}`.trim()
+    : phone;
   const deliveredBy = text(delivery?.deliveredBy ?? order.deliveredBy).toUpperCase();
   const pickupCode = text(delivery?.pickupCode ?? order.pickupCode);
   const deliveryLocalizer = text(phoneObject?.localizer ?? delivery?.deliveryCode ?? order.deliveryCode);
@@ -689,11 +692,16 @@ function mapOrder(order: Record<string, unknown>, fallbackOrderId: string) {
   const takeout = valueAt(order, ["takeout"]) as Record<string, unknown> | undefined;
   const preparation = valueAt(order, ["preparation"]) as Record<string, unknown> | undefined;
   const createdAt = text(order.createdAt ?? order.created_at ?? order.createdDate);
-  const orderTiming = text(order.orderTiming ?? order.timing ?? order.type).toUpperCase();
+  const orderTiming = scheduled
+    ? "SCHEDULED"
+    : text(order.orderTiming ?? order.timing ?? order.type).toUpperCase();
   const preparationStartDateTime = text(
     scheduled?.preparationStartDateTime ??
     scheduled?.preparation_start_date_time ??
     scheduled?.preparationStart ??
+    scheduled?.deliveryDateTimeStart ??
+    scheduled?.startDateTime ??
+    scheduled?.scheduledDateTime ??
     preparation?.start ??
     preparation?.Start ??
     preparation?.startDateTime ??
@@ -741,19 +749,37 @@ function mapOrder(order: Record<string, unknown>, fallbackOrderId: string) {
   const items = Array.isArray(order.items) ? order.items as Record<string, unknown>[] : [];
   const mappedItems = items.map((item, index) => {
     const quantity = numberAt(item, ["quantity"], 1);
-    const total = numberAt(item, ["totalPrice", "price", "unitPrice"], 0);
-    const unitPrice = numberAt(item, ["unitPrice"], quantity > 0 ? total / quantity : total);
+    const total = firstNumber(
+      numberAtPath(item, ["totalPrice", "value"]),
+      numberAt(item, ["totalPrice"], 0),
+      numberAtPath(item, ["price", "value"]),
+      numberAt(item, ["price"], 0),
+      numberAtPath(item, ["unitPrice", "value"]) * quantity,
+      numberAt(item, ["unitPrice"], 0) * quantity,
+    );
+    const unitPrice = firstNumber(
+      numberAtPath(item, ["unitPrice", "value"]),
+      numberAt(item, ["unitPrice"], 0),
+      quantity > 0 ? total / quantity : total,
+    );
     return {
       code: text(item.externalCode ?? item.ean ?? String(index + 1).padStart(6, "0")),
       productId: text(item.productId ?? item.catalogItemId ?? item.id),
       name: text(item.name ?? "ITEM IFOOD").toUpperCase(),
       quantity: Math.max(1, Math.round(quantity)),
       unitPrice,
-      notes: text(item.observations ?? item.note),
+      notes: text(item.observations ?? item.observation ?? item.note),
     };
   });
 
-  const total = numberAt(order, ["total", "totalPrice", "orderAmount"], mappedItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0));
+  const total = firstNumber(
+    numberAtPath(order, ["total", "orderAmount", "value"]),
+    numberAtPath(order, ["total", "subTotal", "value"]),
+    numberAtPath(order, ["total", "totalPrice", "value"]),
+    numberAt(recordAt(order, "total"), ["orderAmount", "subTotal", "totalPrice"], 0),
+    numberAt(order, ["totalPrice", "orderAmount"], 0),
+    mappedItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
+  );
   const street = text(deliveryAddress?.streetName ?? deliveryAddress?.street);
   const number = text(deliveryAddress?.streetNumber ?? deliveryAddress?.number);
   const complement = text(deliveryAddress?.complement);
@@ -782,11 +808,18 @@ function mapOrder(order: Record<string, unknown>, fallbackOrderId: string) {
     voucherSummary,
     cancellationInfo,
     customerName: text(customer?.name ?? "CLIENTE IFOOD"),
-    customerDocument: text(customer?.documentNumber ?? customer?.document),
-    phone,
-    address: [street, number, complement, city].filter(Boolean).join(", "),
+    customerDocument: text(
+      customer?.documentNumber ??
+      customer?.document ??
+      customer?.cpf ??
+      customer?.cnpj ??
+      customer?.taxPayerIdentificationNumber ??
+      customer?.taxpayerIdentificationNumber,
+    ),
+    phone: phoneWithLocalizer,
+    address: text(deliveryAddress?.formattedAddress) || [street, number, complement, city].filter(Boolean).join(", "),
     district,
-    notes: [text(order.observations ?? order.note), takeout ? `Retirada: ${text(takeout.mode)}` : ""].filter(Boolean).join("\n"),
+    notes: [text(order.observations ?? order.observation ?? order.note), takeout ? `Retirada: ${text(takeout.mode)}` : ""].filter(Boolean).join("\n"),
     total,
     items: mappedItems,
   };
@@ -937,6 +970,15 @@ function numberAtPath(source: unknown, keys: string[]) {
   }
   const number = typeof current === "number" ? current : Number(String(current ?? "").replace(",", "."));
   return Number.isFinite(number) ? number : 0;
+}
+
+function recordAt(source: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = source[key];
+  return isRecord(value) ? value : {};
+}
+
+function firstNumber(...values: number[]) {
+  return values.find((value) => Number.isFinite(value) && value > 0) ?? 0;
 }
 
 function moneyText(value: number) {

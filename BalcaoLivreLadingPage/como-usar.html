@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Como usar o app Windows | Balcao Livre PDV</title>
     <link rel="icon" href="/public/balcao-livre-icon.png" />
-    <link rel="stylesheet" href="/app/globals.css?v=whatsappguide4" />
+    <link rel="stylesheet" href="/app/globals.css?v=windows-guide-2026" />
   </head>
   <body>
     <main>
@@ -24,96 +24,109 @@
         <a class="topbarAction" href="/#preco">Contratar</a>
       </header>
 
-      <section class="infoPage">
+      <section class="infoPage guidePage">
         <div class="infoHero">
           <p class="eyebrow">Como usar</p>
-          <h1>Guia rapido do Balcao Livre PDV no Windows.</h1>
-          <p>Passo a passo para abrir o caixa, vender em mesas, balcao ou delivery, receber pagamento, imprimir comprovante e fechar o dia.</p>
+          <h1>Guia visual do Balcao Livre PDV no Windows.</h1>
+          <p>Fluxo completo com exemplos reais de cardapio, estoque, mesas, balcao, delivery, pagamento e fechamento de caixa.</p>
         </div>
 
         <div class="guideNotice">
-          Use este guia durante a implantacao. Os passos seguem a rotina principal do app Windows.
+          Este guia usa uma loja exemplo com hamburguers, pizzas, bebidas, fichas de balcao e pedidos delivery para mostrar como o PDV fica em uso real.
+        </div>
+
+        <div class="guideSnapshotGrid" aria-label="Resumo rapido">
+          <div><strong>24</strong><span>produtos ativos com estoque</span></div>
+          <div><strong>12</strong><span>mesas de atendimento</span></div>
+          <div><strong>5</strong><span>pedidos delivery de exemplo</span></div>
+          <div><strong>R$ 250,00</strong><span>caixa aberto com troco inicial</span></div>
         </div>
 
         <div class="infoLayout">
           <aside class="infoAside" aria-label="Indice do guia">
-            <a href="#entrar">Entrar</a>
-            <a href="#caixa">Caixa</a>
-            <a href="#mesas">Mesas</a>
-            <a href="#venda">Venda</a>
-            <a href="#pagamento">Pagamento</a>
+            <a href="#comandas">Comandas</a>
+            <a href="#balcao">Balcao</a>
             <a href="#delivery">Delivery</a>
-            <a href="#configuracoes">Configuracoes</a>
-            <a href="#fechamento">Fechamento</a>
+            <a href="#modulos">Modulos</a>
+            <a href="#rotina">Rotina</a>
           </aside>
 
           <div class="infoContent">
-            <section class="guideStep" id="entrar">
-              <h2>1. Entrar no sistema</h2>
-              <ul>
-                <li>Abra o Balcao Livre PDV no Windows.</li>
-                <li>Informe usuario/senha quando o login estiver ativo.</li>
-                <li>Confira se o status mostra o caixa e a area atual do atendimento.</li>
-              </ul>
+            <section class="guideStep guideStepWithImage" id="comandas">
+              <div>
+                <h2>1. Comandas e mesas</h2>
+                <p>Tela principal do atendimento em mesa, com caixa aberto, comandas, venda rapida e estoque do cardapio.</p>
+                <ul>
+                  <li>Use a coluna Comanda para ativar mesa, informar operador/garcom e incluir produtos por codigo.</li>
+                  <li>O painel Comandas / Mesas mostra mesa livre, ocupada ou em conta. O operador clica na mesa e continua o pedido.</li>
+                  <li>A Venda rapida lista os produtos ativos com estoque, preco, grupo e quantidade disponivel.</li>
+                  <li>O total da comanda fica sempre no rodape esquerdo antes de fechar ou receber pagamento.</li>
+                </ul>
+              </div>
+              <figure class="guideScreenshot">
+                <img src="/public/guide/windows-pdv/01-comandas-mesas.png" alt="Tela de comandas e mesas do Balcao Livre PDV" loading="lazy" />
+              </figure>
             </section>
-            <section class="guideStep" id="caixa">
-              <h2>2. Abrir ou fechar caixa</h2>
-              <ul>
-                <li>Use <kbd>F10</kbd> para abrir ou fechar o caixa.</li>
-                <li>Ao abrir, informe o dinheiro vivo inicial.</li>
-                <li>Ao fechar, confira vendas, retiradas, suprimentos e pendencias abertas.</li>
-              </ul>
+
+            <section class="guideStep guideStepWithImage" id="balcao">
+              <div>
+                <h2>2. Balcao e fichas rapidas</h2>
+                <p>Exemplo de venda de ficha no balcao com produtos ja lancados e total calculado.</p>
+                <ul>
+                  <li>Use Balcao para venda rapida sem mesa: ficha F00001, F00002 e assim por diante.</li>
+                  <li>Produtos entram na ficha pelo codigo ou pela lista da Venda rapida.</li>
+                  <li>O caixa consegue excluir uma linha antes de receber, sem mexer nas outras fichas.</li>
+                  <li>F5 fecha a conta, F8 registra pagamento antecipado e F9 recebe pagamento.</li>
+                </ul>
+              </div>
+              <figure class="guideScreenshot">
+                <img src="/public/guide/windows-pdv/02-balcao-fichas.png" alt="Tela de fichas de balcao do Balcao Livre PDV" loading="lazy" />
+              </figure>
             </section>
-            <section class="guideStep" id="mesas">
-              <h2>3. Trabalhar com mesas e comandas</h2>
-              <ul>
-                <li>Escolha a area Comandas/Mesas.</li>
-                <li>Selecione a mesa ou ficha do cliente.</li>
-                <li>Informe garcom quando a loja controlar atendimento por funcionario.</li>
-              </ul>
+
+            <section class="guideStep guideStepWithImage" id="delivery">
+              <div>
+                <h2>3. Delivery, WhatsApp e iFood</h2>
+                <p>Fila de delivery com pedidos WhatsApp, iFood, retirada e rota, todos usando o mesmo estoque.</p>
+                <ul>
+                  <li>Pedidos aparecem em cards com status: novo, confirmado, preparo, rota ou aguardando confirmacao.</li>
+                  <li>O pedido selecionado mostra cliente, itens, total e acoes de atendimento.</li>
+                  <li>WhatsApp e cardapio digital usam os produtos ativos do estoque; produto sem estoque nao entra no cardapio.</li>
+                  <li>Quando iFood estiver ligado em producao, os pedidos integrados entram nessa mesma fila de Delivery.</li>
+                </ul>
+              </div>
+              <figure class="guideScreenshot">
+                <img src="/public/guide/windows-pdv/03-delivery-pedidos.png" alt="Tela de pedidos delivery do Balcao Livre PDV" loading="lazy" />
+              </figure>
             </section>
-            <section class="guideStep" id="venda">
-              <h2>4. Incluir produtos</h2>
-              <ul>
-                <li>Digite o codigo do produto e pressione <kbd>Enter</kbd>.</li>
-                <li>Use <kbd>F2</kbd> para incluir pelo fluxo rapido quando disponivel.</li>
-                <li>Use <kbd>F3</kbd> para abrir catalogo/pesquisa de produtos.</li>
-                <li>Para corrigir, selecione a linha e use o botao de excluir ou ajuste a quantidade.</li>
-              </ul>
+
+            <section class="guideStep" id="modulos">
+              <h2>4. O que cada modulo do topo faz</h2>
+              <div class="moduleGrid">
+                <div class="moduleCard"><span>CP</span><strong>Cadastro Produtos</strong><p>Cria categorias, precos, estoque minimo, codigo WhatsApp, adicionais e ficha tecnica.</p></div>
+                <div class="moduleCard"><span>CX</span><strong>Caixa Movimentos</strong><p>Mostra abertura, suprimento, sangria, pagamentos e saldo do caixa.</p></div>
+                <div class="moduleCard"><span>F10</span><strong>Abrir/Fechar Caixa</strong><p>Abre o dia com troco inicial e fecha com conferencia profissional.</p></div>
+                <div class="moduleCard"><span>DL</span><strong>Novo Delivery</strong><p>Cria pedido manual com cliente, telefone, endereco, bairro, taxa e observacao.</p></div>
+                <div class="moduleCard"><span>IF</span><strong>iFood Pedidos</strong><p>Liga a integracao e acompanha pedidos importados quando a loja estiver homologada.</p></div>
+                <div class="moduleCard"><span>WA</span><strong>Ativar WhatsApp</strong><p>Atendimento automatico por cardapio: cliente chama, recebe cardapio e confirma por mensagem.</p></div>
+                <div class="moduleCard"><span>GW</span><strong>Garcom Web</strong><p>Abre o atendimento do garcom no celular para lancar pedidos direto no caixa.</p></div>
+                <div class="moduleCard"><span>TZ</span><strong>Taxas Delivery</strong><p>Configura taxa por bairro, zona ou regra de entrega.</p></div>
+                <div class="moduleCard"><span>ES</span><strong>Estoque Receitas</strong><p>Controla estoque, entradas, saidas, alerta minimo e ficha tecnica.</p></div>
+                <div class="moduleCard"><span>QR</span><strong>Cardapio Digital</strong><p>Publica um cardapio online com os mesmos produtos ativos do PDV.</p></div>
+                <div class="moduleCard"><span>BI</span><strong>Relatorios</strong><p>Acompanha vendas, produtos mais vendidos, margem e movimento por periodo.</p></div>
+                <div class="moduleCard"><span>BK</span><strong>Backup Dados</strong><p>Gera copia local/nuvem para reduzir risco de perda de informacao.</p></div>
+              </div>
             </section>
-            <section class="guideStep" id="pagamento">
-              <h2>5. Receber pagamento e imprimir</h2>
-              <ul>
-                <li>Confira o total da comanda.</li>
-                <li>Escolha Dinheiro, Pix, Credito, Debito ou outra forma configurada.</li>
-                <li>Em dinheiro, informe o valor recebido para calcular troco.</li>
-                <li>Finalize para gerar o comprovante e imprimir na impressora configurada.</li>
-              </ul>
-            </section>
-            <section class="guideStep" id="delivery">
-              <h2>6. Usar delivery, iFood e garcom no celular</h2>
-              <ul>
-                <li>Use a area Delivery para pedidos com cliente, telefone, endereco, bairro, taxa e observacao.</li>
-                <li>Configure taxas por zona quando a entrega variar por bairro ou distancia.</li>
-                <li>No plano online, pedidos integrados podem aparecer em tempo real no sistema.</li>
-                <li>O garcom no celular usa a rede/local configurada para lancar pedidos direto no caixa.</li>
-              </ul>
-            </section>
-            <section class="guideStep" id="configuracoes">
-              <h2>7. Configurar loja, usuarios e impressao</h2>
-              <ul>
-                <li>Cadastre produtos, categorias, precos e estoque minimo.</li>
-                <li>Configure usuarios, permissoes de caixa, garcom, gerente e delivery.</li>
-                <li>Selecione a impressora preferida do Windows e teste a impressao.</li>
-              </ul>
-            </section>
-            <section class="guideStep" id="fechamento">
-              <h2>8. Fechar o dia</h2>
-              <ul>
-                <li>Antes de fechar, resolva mesas, fichas ou deliveries com movimento.</li>
-                <li>Confira o resumo do caixa, pagamentos e retiradas.</li>
-                <li>Imprima ou salve o fechamento para controle da loja.</li>
-              </ul>
+
+            <section class="guideStep" id="rotina">
+              <h2>5. Rotina recomendada no dia a dia</h2>
+              <div class="guideTimeline">
+                <div><strong>1</strong><span>Abrir caixa no F10 e conferir troco inicial.</span></div>
+                <div><strong>2</strong><span>Atender em Comandas, Balcao ou Delivery conforme o canal do pedido.</span></div>
+                <div><strong>3</strong><span>Lancar produtos pelo codigo, pesquisa ou lista de venda rapida.</span></div>
+                <div><strong>4</strong><span>Receber em dinheiro, Pix, credito, debito ou pagamento antecipado.</span></div>
+                <div><strong>5</strong><span>Resolver pendencias abertas e fechar o caixa com conferencia.</span></div>
+              </div>
             </section>
           </div>
         </div>

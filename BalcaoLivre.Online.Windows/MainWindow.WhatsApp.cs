@@ -1480,7 +1480,7 @@ public partial class MainWindow
 
             activate.IsEnabled = false;
             RenderState("Conectando WhatsApp na Meta...", null);
-            var result = await ActivateSendPulseStorePhoneAsync(settings, settings.SendPulseStorePhone);
+            var result = await ActivateSendPulseStorePhoneAsync(settings, settings.SendPulseStorePhone, openOnboardingUrl: true);
             activate.IsEnabled = true;
             historyList.Items.Refresh();
             RenderState(result.Message, result.Ok);
@@ -2603,7 +2603,7 @@ public partial class MainWindow
         }
     }
 
-    private async Task<SendPulseActivationResult> ActivateSendPulseStorePhoneAsync(WhatsAppSettings settings, string storePhone)
+    private async Task<SendPulseActivationResult> ActivateSendPulseStorePhoneAsync(WhatsAppSettings settings, string storePhone, bool openOnboardingUrl = false)
     {
         var phone = NormalizeWhatsAppPhone(storePhone, settings.DefaultCountryCode);
         if (string.IsNullOrWhiteSpace(phone))
@@ -2670,7 +2670,7 @@ public partial class MainWindow
             {
                 settings.SendPulseBotId = "";
                 settings.SendPulseActivationPending = true;
-                if (!string.IsNullOrWhiteSpace(result.OnboardingUrl))
+                if (openOnboardingUrl && !string.IsNullOrWhiteSpace(result.OnboardingUrl))
                 {
                     OpenWhatsAppOnboardingUrl(result.OnboardingUrl);
                 }
@@ -2745,7 +2745,7 @@ public partial class MainWindow
         _sendPulseActivationRunning = true;
         try
         {
-            var result = await ActivateSendPulseStorePhoneAsync(settings, settings.SendPulseStorePhone);
+            var result = await ActivateSendPulseStorePhoneAsync(settings, settings.SendPulseStorePhone, openOnboardingUrl: false);
             if (result.Ok)
             {
                 SetStatus(result.Message);

@@ -16,6 +16,7 @@ public sealed class WaiterLocalServer : IAsyncDisposable
     private readonly Func<Task<WaiterStateDto>> _getState;
     private readonly Func<WaiterOpenBoardRequest, Task<WaiterActionResult>> _openBoard;
     private readonly Func<WaiterAddProductRequest, Task<WaiterActionResult>> _addProduct;
+    private readonly Func<WaiterBoardNoteRequest, Task<WaiterActionResult>> _saveBoardNote;
     private readonly Func<WaiterRemoveLineRequest, Task<WaiterActionResult>> _removeLine;
     private readonly Func<WaiterBoardRequest, Task<WaiterActionResult>> _requestBill;
     private WebApplication? _app;
@@ -25,6 +26,7 @@ public sealed class WaiterLocalServer : IAsyncDisposable
         Func<Task<WaiterStateDto>> getState,
         Func<WaiterOpenBoardRequest, Task<WaiterActionResult>> openBoard,
         Func<WaiterAddProductRequest, Task<WaiterActionResult>> addProduct,
+        Func<WaiterBoardNoteRequest, Task<WaiterActionResult>> saveBoardNote,
         Func<WaiterRemoveLineRequest, Task<WaiterActionResult>> removeLine,
         Func<WaiterBoardRequest, Task<WaiterActionResult>> requestBill)
     {
@@ -32,6 +34,7 @@ public sealed class WaiterLocalServer : IAsyncDisposable
         _getState = getState;
         _openBoard = openBoard;
         _addProduct = addProduct;
+        _saveBoardNote = saveBoardNote;
         _removeLine = removeLine;
         _requestBill = requestBill;
     }
@@ -67,6 +70,7 @@ public sealed class WaiterLocalServer : IAsyncDisposable
         app.MapGet("/api/waiter/state", async () => Results.Json(await _getState()));
         app.MapPost("/api/waiter/open", async (WaiterOpenBoardRequest request) => Results.Json(await _openBoard(request)));
         app.MapPost("/api/waiter/add", async (WaiterAddProductRequest request) => Results.Json(await _addProduct(request)));
+        app.MapPost("/api/waiter/note", async (WaiterBoardNoteRequest request) => Results.Json(await _saveBoardNote(request)));
         app.MapPost("/api/waiter/remove", async (WaiterRemoveLineRequest request) => Results.Json(await _removeLine(request)));
         app.MapPost("/api/waiter/bill", async (WaiterBoardRequest request) => Results.Json(await _requestBill(request)));
         await app.StartAsync();
@@ -225,6 +229,12 @@ internal static class WaiterWebAssets
           </div>
           <strong id="ticketTotal">R$ 0,00</strong>
         </div>
+        <div class="board-note-row">
+          <label>Observacao da mesa
+            <textarea id="boardNoteInput" rows="2" placeholder="Ex.: cliente com pressa, sem taxa, aniversario..."></textarea>
+          </label>
+          <button id="saveNoteBtn" class="light" type="button">Salvar obs</button>
+        </div>
         <div id="ticketLines" class="ticket-lines"></div>
         <button id="billBtn" class="bill">Pedir conta</button>
       </section>
@@ -302,7 +312,7 @@ internal static class WaiterWebAssets
 * { box-sizing:border-box; letter-spacing:0; }
 html,body { height:100%; overflow:hidden; }
 body { margin:0; background:var(--bg); color:var(--ink); }
-button,input,select { font:inherit; min-width:0; max-width:100%; }
+button,input,select,textarea { font:inherit; min-width:0; max-width:100%; }
 button { border:0; border-radius:8px; min-height:44px; padding:0 16px; font-weight:850; background:var(--green); color:white; cursor:pointer; }
 button:active { transform:translateY(1px); }
 .shell { height:100vh; height:100dvh; padding:12px; display:grid; grid-template-rows:auto auto auto minmax(0,1fr); gap:10px; overflow:hidden; }
@@ -318,13 +328,15 @@ button:active { transform:translateY(1px); }
 .operator { display:grid; grid-template-columns:minmax(180px,1.15fr) 130px minmax(160px,1fr) 150px; gap:10px; align-items:end; min-height:0; }
 .operator > *, .mobile-tabs > *, .layout, .panel { min-width:0; }
 label { display:grid; gap:5px; color:var(--muted); font-weight:850; font-size:12px; }
-input,select { width:100%; min-height:46px; border:1px solid var(--line); border-radius:8px; padding:0 12px; background:white; color:var(--ink); font-weight:780; outline:none; text-overflow:ellipsis; }
-input:focus,select:focus { border-color:var(--green); box-shadow:0 0 0 3px rgba(15,130,118,.13); }
+input,select,textarea { width:100%; min-height:46px; border:1px solid var(--line); border-radius:8px; padding:0 12px; background:white; color:var(--ink); font-weight:780; outline:none; text-overflow:ellipsis; }
+select { padding-right:34px; white-space:nowrap; overflow:hidden; }
+textarea { min-height:58px; padding:10px 12px; resize:none; line-height:1.25; text-overflow:clip; }
+input:focus,select:focus,textarea:focus { border-color:var(--green); box-shadow:0 0 0 3px rgba(15,130,118,.13); }
 .mobile-tabs { display:none; }
 .layout { min-height:0; display:grid; grid-template-columns:minmax(280px,330px) minmax(320px,400px) minmax(420px,1fr); gap:12px; }
 .panel { min-height:0; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; box-shadow:var(--shadow); display:grid; }
 .tables-panel { grid-template-rows:auto minmax(0,1fr); }
-.order-panel { grid-template-rows:auto minmax(0,1fr) auto; }
+.order-panel { grid-template-rows:auto auto minmax(0,1fr) auto; }
 .products-panel { grid-template-rows:auto auto auto auto minmax(0,1fr); }
 .panel-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; border-bottom:1px solid var(--line); padding-bottom:10px; margin-bottom:10px; }
 h1 { margin:0; font-size:21px; line-height:1.1; }
@@ -344,6 +356,8 @@ h1 { margin:0; font-size:21px; line-height:1.1; }
 .line strong { font-size:15px; }
 .line .remove { min-height:34px; padding:0 10px; border-radius:8px; background:var(--red); }
 #ticketTotal { color:var(--red); font-size:28px; }
+.board-note-row { display:grid; grid-template-columns:minmax(0,1fr) 126px; gap:8px; align-items:end; margin-bottom:10px; }
+.board-note-row button { min-height:58px; padding:0 10px; }
 .bill { width:100%; margin-top:12px; background:var(--blue2); }
 .quick-add { display:grid; grid-template-columns:1fr 74px; gap:10px; }
 .note { margin-top:10px; }
@@ -355,8 +369,8 @@ h1 { margin:0; font-size:21px; line-height:1.1; }
 .product strong { display:block; font-size:16px; line-height:1.15; }
 .product small { color:var(--muted); font-weight:800; }
 .product b { color:var(--green); font-size:18px; }
-.toast { position:fixed; left:14px; right:14px; bottom:14px; transform:translateY(120%); transition:.18s; background:var(--green); color:white; border-radius:8px; padding:14px 16px; font-weight:850; box-shadow:0 16px 40px rgba(0,0,0,.22); z-index:9; }
-.toast.show { transform:translateY(0); }
+.toast { position:fixed; left:14px; right:14px; bottom:14px; transform:translateY(calc(100% + 28px)); opacity:0; visibility:hidden; pointer-events:none; transition:transform .18s, opacity .18s, visibility 0s linear .18s; background:var(--green); color:white; border-radius:8px; padding:14px 16px; font-weight:850; box-shadow:0 16px 40px rgba(0,0,0,.22); z-index:9; }
+.toast.show { transform:translateY(0); opacity:1; visibility:visible; pointer-events:auto; transition:transform .18s, opacity .18s; }
 .toast.error { background:var(--red); }
 .payment-sheet { position:fixed; inset:0; z-index:20; display:grid; place-items:end center; padding:14px; background:rgba(8,24,38,.34); }
 .payment-sheet[hidden] { display:none; }
@@ -395,7 +409,9 @@ h1 { margin:0; font-size:21px; line-height:1.1; }
   .operator label:nth-child(3) { grid-column:1 / 2; }
   .operator button { grid-column:2 / 3; min-height:42px; padding:0 10px; align-self:end; }
   label { font-size:11px; gap:4px; }
-  input,select { min-height:42px; padding:0 10px; font-size:15px; }
+  input,select,textarea { min-height:42px; padding:0 10px; font-size:15px; }
+  textarea { min-height:54px; padding-top:9px; padding-bottom:9px; }
+  #staffSelect { padding-right:28px; font-size:14px; font-weight:850; }
   .mobile-tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; min-height:42px; }
   .mobile-tabs button { min-height:42px; background:white; color:var(--blue); border:1px solid var(--line); }
   .mobile-tabs button.active { background:var(--blue); border-color:var(--blue); color:white; }
@@ -405,6 +421,8 @@ h1 { margin:0; font-size:21px; line-height:1.1; }
   .panel-head { padding-bottom:8px; margin-bottom:8px; }
   h1 { font-size:19px; }
   .panel-head span { font-size:12px; }
+  .board-note-row { grid-template-columns:minmax(0,1fr) 112px; gap:8px; margin-bottom:8px; }
+  .board-note-row button { min-height:54px; font-size:13px; padding:0 8px; }
   .tables-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
   .table-card { min-height:84px; padding:8px 4px; }
   .table-card strong { font-size:18px; }
@@ -428,6 +446,8 @@ h1 { margin:0; font-size:21px; line-height:1.1; }
   .operator { grid-template-columns:minmax(0,1fr) 92px; }
   .operator button { font-size:14px; padding:0 8px; }
   .mobile-tabs button { padding:0 8px; font-size:15px; }
+  .board-note-row { grid-template-columns:1fr; }
+  .board-note-row button { min-height:42px; }
   .tables-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 """;
@@ -508,6 +528,36 @@ function currentBoard() {
   return state?.boards?.find(b => b.number === selectedBoard) || null;
 }
 
+function compactStaffLabel(staff) {
+  const number = String(staff?.number || '').trim();
+  const name = String(staff?.name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).join(' ');
+  return [number, name].filter(Boolean).join(' - ') || number || name || 'Garcom';
+}
+
+function fullStaffLabel(staff) {
+  const number = String(staff?.number || '').trim();
+  const name = String(staff?.name || '').trim();
+  const role = String(staff?.role || '').trim();
+  return `${number}${name ? ' - ' + name : ''}${role ? ' (' + role + ')' : ''}`;
+}
+
+function isMobileView() {
+  return window.matchMedia('(max-width: 760px)').matches;
+}
+
+function preferredBoardView(board) {
+  if (!board) return 'tables';
+  const status = String(board.status || '').toUpperCase();
+  const hasLines = Array.isArray(board.lines) && board.lines.length > 0;
+  if (hasLines || status.includes('CONTA') || status.includes('FECH')) return 'order';
+  if (status && status !== 'LIVRE') return 'products';
+  return 'tables';
+}
+
+function setSmartBoardView(board = currentBoard()) {
+  if (isMobileView()) setView(preferredBoardView(board));
+}
+
 function render() {
   if (!state) return;
   const restaurantName = state.restaurantName || 'Balcao Livre PDV';
@@ -526,7 +576,7 @@ function renderStaff() {
   const previous = select.value || localStorage.getItem('bl_waiter_staff') || '';
   const signature = state.staff.map(s => `${s.number}:${s.name}:${s.role}`).join('|');
   if (select.dataset.signature !== signature) {
-    select.innerHTML = state.staff.map(s => `<option value="${escapeHtml(s.number)}">${escapeHtml(s.number)} - ${escapeHtml(s.name)} (${escapeHtml(s.role)})</option>`).join('');
+    select.innerHTML = state.staff.map(s => `<option value="${escapeHtml(s.number)}" title="${escapeHtml(fullStaffLabel(s))}">${escapeHtml(compactStaffLabel(s))}</option>`).join('');
     select.dataset.signature = signature;
   }
   if (previous && [...select.options].some(o => o.value === previous)) select.value = previous;
@@ -557,11 +607,13 @@ function renderTicket() {
     $('ticketTitle').textContent = 'Selecione uma mesa';
     $('ticketStatus').textContent = 'Toque em uma mesa ou digite o numero.';
     $('ticketTotal').textContent = money(0);
+    if (document.activeElement !== $('boardNoteInput')) $('boardNoteInput').value = '';
     $('ticketLines').innerHTML = '<div class="empty">Sem mesa selecionada.</div>';
     return;
   }
 
   if (document.activeElement !== $('tableInput')) $('tableInput').value = board.number;
+  if (document.activeElement !== $('boardNoteInput')) $('boardNoteInput').value = board.notes || '';
   $('ticketTitle').textContent = `${board.kind} ${board.number}`;
   $('ticketStatus').textContent = `${board.status}${board.waiter ? ' | garcom ' + board.waiter : ''}`;
   $('ticketTotal').textContent = board.totalText || money(board.total);
@@ -624,7 +676,7 @@ function selectBoard(number) {
   selectedBoard = number;
   localStorage.setItem('bl_waiter_board', selectedBoard);
   render();
-  if (window.matchMedia('(max-width: 760px)').matches) setView('order');
+  setSmartBoardView();
 }
 
 function setView(view) {
@@ -653,12 +705,24 @@ async function addProduct(code) {
   if (!result) return;
   $('noteInput').value = '';
   $('qtyInput').value = '1';
+  if (result.ok) setSmartBoardView();
+}
+
+async function saveBoardNote() {
+  const board = currentBoard();
+  if (!board) return toast('Selecione ou abra uma mesa primeiro.', true);
+  const staff = $('staffSelect').value;
+  localStorage.setItem('bl_waiter_staff', staff);
+  const note = $('boardNoteInput').value.trim();
+  const result = await runAction('/api/waiter/note', { kind:'MESA', boardNumber:board.number, waiterNumber:staff, note });
+  if (result?.ok) setView('order');
 }
 
 async function removeLine(index) {
   const board = currentBoard();
   if (!board) return;
-  await runAction('/api/waiter/remove', { kind:'MESA', boardNumber:board.number, lineIndex:index });
+  const result = await runAction('/api/waiter/remove', { kind:'MESA', boardNumber:board.number, lineIndex:index });
+  if (result?.ok) setSmartBoardView();
 }
 
 async function requestBill() {
@@ -799,6 +863,7 @@ function toast(message, error = false) {
 
 $('openBtn').onclick = openBoard;
 $('billBtn').onclick = requestBill;
+$('saveNoteBtn').onclick = saveBoardNote;
 $('cancelPaymentBtn').onclick = closePaymentSheet;
 $('confirmBillBtn').onclick = confirmBill;
 $('paidToggle').onclick = () => {
@@ -810,6 +875,7 @@ $('paymentAmount').addEventListener('input', refreshPaymentPreview);
 $('productSearch').addEventListener('input', renderProducts);
 $('staffSelect').addEventListener('change', () => localStorage.setItem('bl_waiter_staff', $('staffSelect').value));
 $('tableInput').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') openBoard(); });
+$('boardNoteInput').addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) saveBoardNote(); });
 $('productSearch').addEventListener('keydown', (ev) => {
   if (ev.key !== 'Enter') return;
   if (!state) return;
