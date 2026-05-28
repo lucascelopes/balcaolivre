@@ -266,7 +266,7 @@ function displayImageUrl(value) {
 }
 
 function setCoverImage(menu, items) {
-  const image = displayImageUrl(menu?.cover_image_url) || validImageUrl(items.find((item) => validImageUrl(item.image_url))?.image_url);
+  const image = displayImageUrl(menu?.cover_image_url) || displayImageUrl(items.find((item) => displayImageUrl(item.image_url))?.image_url);
   document.documentElement.style.setProperty("--cover-image", image ? `url("${image.replaceAll('"', "%22")}")` : "none");
   document.body.classList.toggle("has-cover-image", Boolean(image));
 }
@@ -391,7 +391,7 @@ function renderFeatured(items) {
   if (!host) return;
   const featured = items
     .filter((item) => item.is_in_stock !== false)
-    .filter((item) => validImageUrl(item.image_url))
+    .filter((item) => displayImageUrl(item.image_url))
     .slice(0, 4);
   if (!featured.length) {
     host.innerHTML = "";
@@ -404,7 +404,7 @@ function renderFeatured(items) {
       ${featured.map((item) => {
         const index = currentItems.indexOf(item);
         const key = itemKey(item, index);
-        const imageUrl = validImageUrl(item.image_url);
+        const imageUrl = displayImageUrl(item.image_url);
         return `
           <button type="button" class="featured-card" data-add-item="${escapeHtml(key)}">
             <div class="item-media">
@@ -617,7 +617,7 @@ function renderMenu(menu, items) {
       const stockText = Number.isFinite(Number(item.stock_quantity))
         ? `Estoque ${Number(item.stock_quantity).toLocaleString("pt-BR", { maximumFractionDigits: 3 })}`
         : "";
-      const imageUrl = validImageUrl(item.image_url);
+      const imageUrl = displayImageUrl(item.image_url);
       const card = document.createElement("article");
       card.className = `item${available ? "" : " unavailable"}${imageUrl ? "" : " no-image"}`;
       card.innerHTML = `

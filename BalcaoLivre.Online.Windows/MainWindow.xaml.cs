@@ -4998,6 +4998,30 @@ public partial class MainWindow : Window
         var priceBox = new TextBox();
         var stockBox = new TextBox();
         var minBox = new TextBox();
+        var imagePath = "";
+        var imageText = new TextBlock
+        {
+            Foreground = Solid("#667684"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        var imagePreview = new System.Windows.Controls.Image
+        {
+            Width = 104,
+            Height = 84,
+            Stretch = Stretch.UniformToFill
+        };
+        var imagePreviewFrame = new Border
+        {
+            Width = 112,
+            Height = 92,
+            Background = Brushes.White,
+            BorderBrush = Solid("#D8E2EC"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(4),
+            Child = imagePreview
+        };
         var groupBox = new ComboBox
         {
             ItemsSource = Categories.Select(category => category.Name).ToList(),
@@ -5036,6 +5060,8 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
+        var chooseImageButton = DialogButton("Escolher foto", "#2F6FAE");
+        var clearImageButton = DialogButton("Remover foto", "#667684");
 
         void FocusAndSelect(Control control)
         {
@@ -5090,6 +5116,29 @@ public partial class MainWindow : Window
             grid.Children.Add(left);
             Grid.SetColumn(right, 1);
             grid.Children.Add(right);
+            return grid;
+        }
+
+        Grid ProductPhotoEditor()
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            imagePreviewFrame.Margin = new Thickness(0, 0, 14, 0);
+            grid.Children.Add(imagePreviewFrame);
+
+            var actions = new StackPanel();
+            actions.Children.Add(imageText);
+            chooseImageButton.HorizontalAlignment = HorizontalAlignment.Stretch;
+            chooseImageButton.Width = double.NaN;
+            chooseImageButton.Margin = new Thickness(0, 0, 0, 0);
+            clearImageButton.HorizontalAlignment = HorizontalAlignment.Stretch;
+            clearImageButton.Width = double.NaN;
+            actions.Children.Add(chooseImageButton);
+            actions.Children.Add(clearImageButton);
+            actions.Children.Add(DialogHint("A foto aparece no cardapio digital. Se nao tiver foto, o produto fica sem imagem."));
+            Grid.SetColumn(actions, 1);
+            grid.Children.Add(actions);
             return grid;
         }
 
@@ -5196,6 +5245,41 @@ public partial class MainWindow : Window
             marginText.Foreground = profit < 0 ? RedText : profit == 0 ? Solid("#667684") : GreenText;
         }
 
+        void RefreshProductImagePreview()
+        {
+            imagePreview.Source = null;
+            var path = (imagePath ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                imageText.Text = "Sem foto cadastrada.";
+                clearImageButton.IsEnabled = false;
+                return;
+            }
+
+            imageText.Text = Path.GetFileName(path);
+            clearImageButton.IsEnabled = true;
+            if (!File.Exists(path))
+            {
+                imageText.Text = "Foto nao encontrada nesta maquina.";
+                return;
+            }
+
+            try
+            {
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.UriSource = new Uri(path, UriKind.Absolute);
+                bitmap.EndInit();
+                bitmap.Freeze();
+                imagePreview.Source = bitmap;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NotSupportedException or FileFormatException)
+            {
+                imageText.Text = "Nao consegui abrir esta foto.";
+            }
+        }
+
         void StartNewProduct()
         {
             productsList.SelectedIndex = -1;
@@ -5209,6 +5293,7 @@ public partial class MainWindow : Window
             sectorBox.Text = "COZINHA";
             pizzaBox.IsChecked = false;
             activeBox.IsChecked = true;
+            imagePath = "";
             ifoodCompositionBox.IsChecked = false;
             modifiersBox.Text = "";
             recipeBox.Text = "";
@@ -5216,6 +5301,7 @@ public partial class MainWindow : Window
             formSubtitle.Text = "Informe compra, venda e estoque. A margem calcula sozinha.";
             statusText.Text = "";
             RefreshMarginPreview();
+            RefreshProductImagePreview();
             RefreshIFoodCompositionState();
             FocusAndSelect(nameBox);
             SetStatus("Novo produto.");
@@ -5233,14 +5319,16 @@ public partial class MainWindow : Window
             sectorBox.Text = NormalizeSectorName(product.Sector);
             pizzaBox.IsChecked = product.IsPizza;
             activeBox.IsChecked = product.Active;
+            imagePath = product.ImagePath ?? "";
             ifoodCompositionBox.IsChecked = product.IFoodCompositionEnabled;
             modifiersBox.Text = FormatModifiers(product.Modifiers);
             recipeBox.Text = FormatRecipeItems(product.RecipeItems);
             formTitle.Text = product.Name;
             var ifoodSummary = ifoodCompositionVisible ? $"  |  {product.IFoodCompositionText}" : "";
-            formSubtitle.Text = $"{product.Code}  |  {product.Category}  |  venda {product.PriceText}  |  {product.ProfitMarginText}{ifoodSummary}";
+            formSubtitle.Text = $"{product.Code}  |  {product.Category}  |  venda {product.PriceText}  |  {product.ProfitMarginText}  |  {product.ImageStatusText}{ifoodSummary}";
             statusText.Text = "";
             RefreshMarginPreview();
+            RefreshProductImagePreview();
             RefreshIFoodCompositionState();
         }
 
@@ -5309,6 +5397,7 @@ public partial class MainWindow : Window
             product.Sector = NormalizeSectorName(sectorBox.Text);
             product.IsPizza = pizzaBox.IsChecked == true;
             product.Active = activeBox.IsChecked == true;
+            product.ImagePath = (imagePath ?? "").Trim();
             product.WhatsAppCode = "";
             product.WhatsAppAliases = "";
             if (ifoodCompositionVisible)
@@ -5325,7 +5414,7 @@ public partial class MainWindow : Window
             statusText.Text = $"Produto salvo: {product.Name}";
             formTitle.Text = product.Name;
             var ifoodSummary = ifoodCompositionVisible ? $"  |  {product.IFoodCompositionText}" : "";
-            formSubtitle.Text = $"{product.Code}  |  {product.Category}  |  venda {product.PriceText}  |  {product.ProfitMarginText}{ifoodSummary}";
+            formSubtitle.Text = $"{product.Code}  |  {product.Category}  |  venda {product.PriceText}  |  {product.ProfitMarginText}  |  {product.ImageStatusText}{ifoodSummary}";
             RefreshMarginPreview();
             SetStatus($"Produto salvo: {product.Code} {product.Name}");
             QueueIFoodStockSync(product, "Cadastro de produto");
@@ -5339,6 +5428,39 @@ public partial class MainWindow : Window
         saveButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         saveButton.Width = double.NaN;
         saveButton.Click += (_, _) => SaveProduct();
+
+        chooseImageButton.Click += (_, _) =>
+        {
+            var fileDialog = new OpenFileDialog
+            {
+                Title = "Escolher foto do produto",
+                Filter = "Imagens|*.png;*.jpg;*.jpeg;*.webp;*.bmp|Todos os arquivos|*.*"
+            };
+
+            if (fileDialog.ShowDialog(this) != true)
+            {
+                return;
+            }
+
+            var codeForFile = NormalizeProductCode(codeBox.Text);
+            if (string.IsNullOrWhiteSpace(codeForFile))
+            {
+                codeForFile = DateTime.Now.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
+            }
+
+            imagePath = CopyImageToAppIdentityFolder(fileDialog.FileName, $"product-{SafeFileName(codeForFile)}");
+            RefreshProductImagePreview();
+            statusText.Foreground = GreenText;
+            statusText.Text = "Foto aplicada. Clique em Salvar produto.";
+        };
+
+        clearImageButton.Click += (_, _) =>
+        {
+            imagePath = "";
+            RefreshProductImagePreview();
+            statusText.Foreground = Solid("#667684");
+            statusText.Text = "Foto removida. Clique em Salvar produto.";
+        };
 
         void OnEnter(UIElement element, Action action)
         {
@@ -5427,6 +5549,7 @@ public partial class MainWindow : Window
         var basicSection = FormSection("Produto",
             TwoColumns(DialogField("Codigo", codeBox), DialogField("Nome do produto", nameBox)),
             DialogField("Categoria", groupBox));
+        var photoSection = FormSection("Foto do produto", ProductPhotoEditor());
 
         var saleSection = FormSection("Compra e venda",
             TwoColumns(DialogField("Preco de compra", costBox), DialogField("Preco de venda", priceBox)),
@@ -5446,6 +5569,7 @@ public partial class MainWindow : Window
         var form = new StackPanel();
         form.Children.Add(formHeader);
         form.Children.Add(basicSection);
+        form.Children.Add(photoSection);
         form.Children.Add(saleSection);
         form.Children.Add(stockSection);
         if (ifoodCompositionVisible)
@@ -11467,6 +11591,7 @@ public partial class MainWindow : Window
                 .Append(product.Category).Append('|')
                 .Append(product.Price.ToString("0.00", CultureInfo.InvariantCulture)).Append('|')
                 .Append(product.StockQuantity.ToString("0.###", CultureInfo.InvariantCulture)).Append('|')
+                .Append(GetPublicMenuImageStamp(product.ImagePath)).Append('|')
                 .Append(product.Active).AppendLine();
         }
 
@@ -11496,7 +11621,7 @@ public partial class MainWindow : Window
             var info = new FileInfo(logoPath);
             return info.Exists ? $"{info.FullName}|{info.Length}|{info.LastWriteTimeUtc:O}" : logoPath;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NotSupportedException or FileFormatException)
         {
             return logoPath;
         }
@@ -11662,6 +11787,7 @@ public partial class MainWindow : Window
                 StockQuantity = product.StockQuantity,
                 IsInStock = product.StockQuantity >= 0,
                 IsActive = product.Active,
+                ImageUrl = BuildPublicMenuProductImageUrl(product),
                 SortOrder = index++ * 10
             })
             .ToList();
@@ -11694,6 +11820,98 @@ public partial class MainWindow : Window
                 payload.CoverImageBase64 = base64;
             },
             "Public menu cover payload failed");
+    }
+
+    private static string BuildPublicMenuProductImageUrl(ProductTile product)
+    {
+        return BuildPublicMenuInlineImageUrl(product.ImagePath, $"Public menu product image payload failed ({product.Code})");
+    }
+
+    private static string BuildPublicMenuInlineImageUrl(string path, string debugPrefix)
+    {
+        var imagePath = (path ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(imagePath))
+        {
+            return "";
+        }
+
+        if (IsValidPublicMenuUrl(imagePath))
+        {
+            return imagePath;
+        }
+
+        try
+        {
+            var info = new FileInfo(imagePath);
+            if (!info.Exists || info.Length <= 0)
+            {
+                return "";
+            }
+
+            var compressed = TryCreateCompressedImageDataUrl(info.FullName);
+            if (!string.IsNullOrWhiteSpace(compressed))
+            {
+                return compressed;
+            }
+
+            if (info.Length <= 700_000)
+            {
+                return $"data:{GetLogoContentType(info.Extension)};base64,{Convert.ToBase64String(File.ReadAllBytes(info.FullName))}";
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NotSupportedException or FileFormatException)
+        {
+            Debug.WriteLine($"{debugPrefix}: {ex.Message}");
+        }
+
+        return "";
+    }
+
+    private static string TryCreateCompressedImageDataUrl(string path)
+    {
+        try
+        {
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+            bitmap.UriSource = new Uri(path, UriKind.Absolute);
+            bitmap.EndInit();
+            bitmap.Freeze();
+
+            BitmapSource source = bitmap;
+            const int maxPixel = 640;
+            if (source.PixelWidth > maxPixel || source.PixelHeight > maxPixel)
+            {
+                var scale = Math.Min((double)maxPixel / source.PixelWidth, (double)maxPixel / source.PixelHeight);
+                var scaled = new TransformedBitmap(source, new ScaleTransform(scale, scale));
+                scaled.Freeze();
+                source = scaled;
+            }
+
+            byte[] bytes = [];
+            foreach (var quality in new[] { 78, 64, 50 })
+            {
+                using var stream = new MemoryStream();
+                var encoder = new JpegBitmapEncoder { QualityLevel = quality };
+                encoder.Frames.Add(BitmapFrame.Create(source));
+                encoder.Save(stream);
+                bytes = stream.ToArray();
+                if (bytes.Length <= 120_000)
+                {
+                    break;
+                }
+            }
+
+            return bytes.Length > 0
+                ? $"data:image/jpeg;base64,{Convert.ToBase64String(bytes)}"
+                : "";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NotSupportedException or FileFormatException)
+        {
+            Debug.WriteLine($"Product image compression failed: {ex.Message}");
+            return "";
+        }
     }
 
     private static void FillPublicMenuImage(string path, Action<string> setUrl, Action<string, string, string> setFile, string debugPrefix)
@@ -18093,6 +18311,7 @@ public partial class MainWindow : Window
         public bool IsPizza { get; set; }
         public string WhatsAppCode { get; set; } = "";
         public string WhatsAppAliases { get; set; } = "";
+        public string ImagePath { get; set; } = "";
         public string IFoodProductId { get; set; } = "";
         public string IFoodExternalCode { get; set; } = "";
         public bool IFoodCompositionEnabled { get; set; }
@@ -18110,6 +18329,8 @@ public partial class MainWindow : Window
         [JsonIgnore] public decimal ProfitMargin => Price > 0 ? ProfitAmount / Price * 100m : 0m;
         [JsonIgnore] public string ProfitMarginText => $"Margem {ProfitMargin:N2}%";
         [JsonIgnore] public string ProfitSummary => $"Compra {CostPriceText}  Venda {PriceText}  Lucro {Money(ProfitAmount)}";
+        [JsonIgnore] public bool HasImage => !string.IsNullOrWhiteSpace(ImagePath);
+        [JsonIgnore] public string ImageStatusText => HasImage ? "Com foto" : "Sem foto";
         [JsonIgnore] public string IFoodCompositionText => IFoodCompositionEnabled
             ? $"iFood: {Modifiers.Count:N0} adicional(is), ficha {RecipeItems.Count:N0} item(ns)"
             : "iFood: sem composicao";
