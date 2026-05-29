@@ -28,7 +28,7 @@ public partial class MainWindow
             differenceText.Foreground = difference == 0 ? GreenText : RedText;
         }
 
-        var confirm = DialogButton("Confirmar fechamento", "#0F766E");
+        var confirm = DialogButton("Confirmar fechamento", "#08A99B");
         confirm.HorizontalAlignment = HorizontalAlignment.Stretch;
         confirm.Click += (_, _) =>
         {
@@ -68,8 +68,8 @@ public partial class MainWindow
         countedBox.TextChanged += (_, _) => RefreshDifference();
 
         var panel = DialogPanel();
-        panel.Children.Add(CreateMetricCard("Dinheiro esperado", Money(expectedCash), "saldo vivo registrado no caixa", "#245B91"));
-        panel.Children.Add(CreateMetricCard("Pix", Money(totals.Pix), "pagamentos Pix finalizados hoje", "#0F766E"));
+        panel.Children.Add(CreateMetricCard("Dinheiro esperado", Money(expectedCash), "saldo vivo registrado no caixa", "#0B3A52"));
+        panel.Children.Add(CreateMetricCard("Pix", Money(totals.Pix), "pagamentos Pix finalizados hoje", "#08A99B"));
         panel.Children.Add(CreateMetricCard("Credito", Money(totals.Credit), "cartoes de credito finalizados hoje", "#99620D"));
         panel.Children.Add(CreateMetricCard("Debito", Money(totals.Debit), "cartoes de debito finalizados hoje", "#99620D"));
         panel.Children.Add(DialogField("Dinheiro contado na gaveta", countedBox));

@@ -1,12 +1,16 @@
+import { getPlan } from "./licensing";
+
 const STRIPE_CHECKOUT_URL = "https://api.stripe.com/v1/checkout/sessions";
 
 const prices = {
-  mensal: "price_1Tb3fcGTOG08DTzfMZxooHqI",
-  anual: "price_1Tb3fcGTOG08DTzfsyFfmjRZ",
-  "offline-mensal": process.env.STRIPE_PRICE_OFFLINE_MENSAL || "price_1Tb3fcGTOG08DTzfMZxooHqI",
-  "offline-anual": process.env.STRIPE_PRICE_OFFLINE_ANUAL || "price_1Tb3fcGTOG08DTzfsyFfmjRZ",
+  mensal: process.env.STRIPE_PRICE_OFFLINE_MENSAL || "",
+  anual: process.env.STRIPE_PRICE_OFFLINE_ANUAL || "",
+  "offline-mensal": process.env.STRIPE_PRICE_OFFLINE_MENSAL || "",
+  "offline-anual": process.env.STRIPE_PRICE_OFFLINE_ANUAL || "",
   "online-mensal": process.env.STRIPE_PRICE_ONLINE_MENSAL || "",
-  "online-anual": process.env.STRIPE_PRICE_ONLINE_ANUAL || ""
+  "online-anual": process.env.STRIPE_PRICE_ONLINE_ANUAL || "",
+  "complete-mensal": process.env.STRIPE_PRICE_COMPLETE_MENSAL || "",
+  "complete-anual": process.env.STRIPE_PRICE_COMPLETE_ANUAL || ""
 };
 
 function planFromRequest(request, formData) {
@@ -20,8 +24,9 @@ function planFromRequest(request, formData) {
 async function createCheckout(request, formData) {
   const plan = planFromRequest(request, formData);
   const price = prices[plan];
+  const dynamicPlan = getPlan(plan);
 
-  if (!price) {
+  if (!price && !dynamicPlan) {
     return Response.json({ error: "Plano invalido." }, { status: 400 });
   }
 
@@ -37,13 +42,22 @@ async function createCheckout(request, formData) {
   const origin = request.headers.get("origin") || new URL(request.url).origin;
   const params = new URLSearchParams({
     mode: "subscription",
-    "line_items[0][price]": price,
     "line_items[0][quantity]": "1",
-    "automatic_payment_methods[enabled]": "true",
     allow_promotion_codes: "true",
-    success_url: `${origin}/?checkout=sucesso&plano=${plan}`,
-    cancel_url: `${origin}/#preco`
+    client_reference_id: plan,
+    "metadata[plan]": plan,
+    success_url: `${origin}/?checkout=sucesso&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}/#planos`
   });
+
+  if (price) {
+    params.set("line_items[0][price]", price);
+  } else {
+    params.set("line_items[0][price_data][currency]", "brl");
+    params.set("line_items[0][price_data][unit_amount]", String(dynamicPlan.amount));
+    params.set("line_items[0][price_data][recurring][interval]", dynamicPlan.interval);
+    params.set("line_items[0][price_data][product_data][name]", dynamicPlan.name);
+  }
 
   const stripeResponse = await fetch(STRIPE_CHECKOUT_URL, {
     method: "POST",

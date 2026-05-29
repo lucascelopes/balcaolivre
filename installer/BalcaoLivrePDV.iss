@@ -1,5 +1,5 @@
 #define MyAppName "Balcao Livre PDV Online"
-#define MyAppVersion "1.0.2026"
+#define MyAppVersion "1.6.2026"
 #define MyAppPublisher "Balcao Livre"
 #define MyAppExeName "BalcaoLivrePDVOnline.exe"
 #define ProjectRoot AddBackslash(SourcePath) + ".."
@@ -7,14 +7,14 @@
 #define OutputRoot ProjectRoot + "\dist"
 
 [Setup]
-AppId={{7F47A4D7-5B79-4C22-A0B0-D0E3A3D4E3DD}
+AppId={{A45F7540-0C8D-4BEA-A42A-A4F73C5E8261}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={localappdata}\Programs\Balcao Livre PDV
+DefaultDirName={localappdata}\Programs\Balcao Livre PDV Online
 DefaultGroupName={#MyAppName}
 OutputDir={#OutputRoot}
-OutputBaseFilename=BalcaoLivrePDV-Setup-{#MyAppVersion}
+OutputBaseFilename=BalcaoLivrePDVOnline-Setup-{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -40,7 +40,7 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "BalcaoLivrePDV"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "BalcaoLivrePDVOnline"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Abrir {#MyAppName}"; Flags: nowait postinstall skipifsilent

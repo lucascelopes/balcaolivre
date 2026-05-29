@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -112,4 +113,46 @@ public sealed class IFoodImportedItem
     public int Quantity { get; set; }
     public decimal UnitPrice { get; set; }
     public string Notes { get; set; } = "";
+}
+
+internal sealed class EmptyStringNullableDateTimeConverter : JsonConverter<DateTime?>
+{
+    public override DateTime? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType is JsonTokenType.Null)
+        {
+            return null;
+        }
+
+        if (reader.TokenType is JsonTokenType.String)
+        {
+            var value = reader.GetString();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            if (DateTime.TryParse(
+                    value,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.RoundtripKind,
+                    out var parsed))
+            {
+                return parsed;
+            }
+        }
+
+        throw new JsonException("Data iFood invalida.");
+    }
+
+    public override void Write(Utf8JsonWriter writer, DateTime? value, JsonSerializerOptions options)
+    {
+        if (value.HasValue)
+        {
+            writer.WriteStringValue(value.Value);
+            return;
+        }
+
+        writer.WriteNullValue();
+    }
 }

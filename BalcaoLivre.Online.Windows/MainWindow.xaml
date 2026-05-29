@@ -8,23 +8,23 @@
         MinHeight="720"
         WindowStartupLocation="CenterScreen"
         WindowState="Maximized"
-        Background="#EEF2F5"
+        Background="#EEF4F6"
         FontFamily="Segoe UI"
         Icon="Assets/app.ico"
         PreviewKeyDown="Window_PreviewKeyDown"
         PreviewTextInput="Window_PreviewTextInput">
     <Window.Resources>
-        <SolidColorBrush x:Key="Ink" Color="#18222B"/>
-        <SolidColorBrush x:Key="Muted" Color="#667684"/>
-        <SolidColorBrush x:Key="Line" Color="#D5DEE7"/>
+        <SolidColorBrush x:Key="Ink" Color="#071A2C"/>
+        <SolidColorBrush x:Key="Muted" Color="#5B6B7A"/>
+        <SolidColorBrush x:Key="Line" Color="#CAD6E2"/>
         <SolidColorBrush x:Key="Panel" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="Blue" Color="#2F6FAE"/>
-        <SolidColorBrush x:Key="BlueDark" Color="#245B91"/>
-        <SolidColorBrush x:Key="Green" Color="#7FD39B"/>
-        <SolidColorBrush x:Key="GreenSoft" Color="#EAF8EF"/>
+        <SolidColorBrush x:Key="Blue" Color="#0B3A52"/>
+        <SolidColorBrush x:Key="BlueDark" Color="#03151F"/>
+        <SolidColorBrush x:Key="Green" Color="#73E7DE"/>
+        <SolidColorBrush x:Key="GreenSoft" Color="#E6FBF8"/>
         <SolidColorBrush x:Key="AmberSoft" Color="#FFF2CB"/>
         <SolidColorBrush x:Key="RedSoft" Color="#FFE2DF"/>
-        <SolidColorBrush x:Key="Accent" Color="#0F766E"/>
+        <SolidColorBrush x:Key="Accent" Color="#08A99B"/>
 
         <Style x:Key="PanelCard" TargetType="Border">
             <Setter Property="Background" Value="{StaticResource Panel}"/>
@@ -44,7 +44,7 @@
             <Setter Property="Height" Value="94"/>
             <Setter Property="Margin" Value="0,0,8,0"/>
             <Setter Property="Background" Value="#FFFFFF"/>
-            <Setter Property="BorderBrush" Value="#D5DEE7"/>
+            <Setter Property="BorderBrush" Value="#CAD6E2"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -56,12 +56,12 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#F3F9FF"/>
-                                <Setter Property="BorderBrush" Value="#8AB7E6"/>
+                                <Setter Property="Background" Value="#EAF8FA"/>
+                                <Setter Property="BorderBrush" Value="#73E7DE"/>
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter Property="Background" Value="#F3F9FF"/>
-                                <Setter Property="BorderBrush" Value="#2F6FAE"/>
+                                <Setter Property="Background" Value="#EAF8FA"/>
+                                <Setter Property="BorderBrush" Value="#08A99B"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -74,7 +74,7 @@
             <Setter Property="Height" Value="94"/>
             <Setter Property="Margin" Value="0,0,8,0"/>
             <Setter Property="Background" Value="#FFFFFF"/>
-            <Setter Property="BorderBrush" Value="#D5DEE7"/>
+            <Setter Property="BorderBrush" Value="#CAD6E2"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -89,12 +89,12 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#F3F9FF"/>
-                                <Setter Property="BorderBrush" Value="#8AB7E6"/>
+                                <Setter Property="Background" Value="#EAF8FA"/>
+                                <Setter Property="BorderBrush" Value="#73E7DE"/>
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter Property="Background" Value="#F3F9FF"/>
-                                <Setter Property="BorderBrush" Value="#2F6FAE"/>
+                                <Setter Property="Background" Value="#EAF8FA"/>
+                                <Setter Property="BorderBrush" Value="#08A99B"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.36"/>
@@ -175,8 +175,8 @@
                     ToolTip="{Binding Title}"
                     AutomationProperties.Name="{Binding Title}">
                 <StackPanel>
-                    <Border x:Name="ShortcutBadge" Width="34" Height="30" CornerRadius="6" Background="#E8F1FA" HorizontalAlignment="Center" Margin="0,0,0,6">
-                        <TextBlock x:Name="ShortcutText" Text="{Binding KeyText}" Foreground="#245B91" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <Border x:Name="ShortcutBadge" Width="34" Height="30" CornerRadius="6" Background="#EAF8FA" HorizontalAlignment="Center" Margin="0,0,0,6">
+                        <TextBlock x:Name="ShortcutText" Text="{Binding KeyText}" Foreground="#0B3A52" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <TextBlock Text="{Binding Title}" Foreground="{StaticResource Ink}" FontSize="12" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap"/>
                     <TextBlock Text="{Binding Subtitle}" Foreground="{StaticResource Muted}" FontSize="10" TextAlignment="Center"/>
@@ -185,32 +185,32 @@
         </DataTemplate>
 
         <DataTemplate x:Key="TransferBoardTemplate">
-            <Border x:Name="TransferCard" Background="#F8FBFE" BorderBrush="#D8E2EC" BorderThickness="1" CornerRadius="9" Padding="12">
+            <Border x:Name="TransferCard" Background="#F8FBFE" BorderBrush="#CAD6E2" BorderThickness="1" CornerRadius="9" Padding="12">
                 <DockPanel LastChildFill="True">
                     <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Margin="12,0,0,0">
-                        <TextBlock Text="{Binding TransferTotalText}" Foreground="#0F766E" FontSize="15" FontWeight="Bold" HorizontalAlignment="Right"/>
+                        <TextBlock Text="{Binding TransferTotalText}" Foreground="#08A99B" FontSize="15" FontWeight="Bold" HorizontalAlignment="Right"/>
                         <Border Background="{Binding TileBrush}" CornerRadius="7" Padding="7,2" Margin="0,6,0,0" HorizontalAlignment="Right">
                             <TextBlock Text="{Binding Status}" Foreground="#17351F" FontSize="10" FontWeight="Bold"/>
                         </Border>
                     </StackPanel>
                     <StackPanel>
-                        <TextBlock Text="{Binding DisplayTitle}" Foreground="#18222B" FontSize="15" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="{Binding TransferSubtitle}" Foreground="#667684" FontSize="12" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="{Binding TransferHint}" Foreground="#245B91" FontSize="11" FontWeight="SemiBold" Margin="0,5,0,0"/>
+                        <TextBlock Text="{Binding DisplayTitle}" Foreground="#071A2C" FontSize="15" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding TransferSubtitle}" Foreground="#5B6B7A" FontSize="12" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding TransferHint}" Foreground="#0B3A52" FontSize="11" FontWeight="SemiBold" Margin="0,5,0,0"/>
                     </StackPanel>
                 </DockPanel>
             </Border>
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsSelected}" Value="True">
                     <Setter TargetName="TransferCard" Property="Background" Value="#EAF4FF"/>
-                    <Setter TargetName="TransferCard" Property="BorderBrush" Value="#245B91"/>
+                    <Setter TargetName="TransferCard" Property="BorderBrush" Value="#0B3A52"/>
                     <Setter TargetName="TransferCard" Property="BorderThickness" Value="2"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
 
         <DataTemplate x:Key="ModeTemplate">
-            <Border x:Name="ModeRoot" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="1" CornerRadius="9" Padding="20,0" Height="34" MinWidth="110">
+            <Border x:Name="ModeRoot" Background="#FFFFFF" BorderBrush="#CAD6E2" BorderThickness="1" CornerRadius="9" Padding="20,0" Height="34" MinWidth="110">
                 <TextBlock x:Name="ModeText" Text="{Binding}" Foreground="{StaticResource Ink}" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <DataTemplate.Triggers>
@@ -219,36 +219,36 @@
                     <Setter TargetName="ModeRoot" Property="BorderBrush" Value="#BFD8EF"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsSelected}" Value="True">
-                    <Setter TargetName="ModeRoot" Property="Background" Value="#245B91"/>
-                    <Setter TargetName="ModeRoot" Property="BorderBrush" Value="#245B91"/>
+                    <Setter TargetName="ModeRoot" Property="Background" Value="#03151F"/>
+                    <Setter TargetName="ModeRoot" Property="BorderBrush" Value="#03151F"/>
                     <Setter TargetName="ModeText" Property="Foreground" Value="White"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
 
         <DataTemplate x:Key="TableTemplate">
-            <Border x:Name="TableRoot" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="1" CornerRadius="8" Margin="0,0,7,7" Width="84" Height="78" ClipToBounds="True">
+            <Border x:Name="TableRoot" Background="#FFFFFF" BorderBrush="#CAD6E2" BorderThickness="1" CornerRadius="8" Margin="0,0,7,7" Width="84" Height="78" ClipToBounds="True">
                 <Grid>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="5"/>
+                        <RowDefinition Height="6"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     <Border Background="{Binding TileBrush}" CornerRadius="8,8,0,0"/>
-                    <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="5,1,5,5">
-                        <TextBlock Text="{Binding DisplayTitle}" Foreground="{StaticResource Ink}" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="{Binding DisplaySubtitle}" Foreground="{StaticResource Muted}" FontSize="8" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+                    <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="5,2,5,5">
+                        <TextBlock Text="{Binding DisplayTitle}" Foreground="{StaticResource Ink}" FontSize="13" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding DisplaySubtitle}" Foreground="{StaticResource Muted}" FontSize="8.5" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
                         <TextBlock x:Name="TileTimerText" Text="{Binding TimerText}" Foreground="{Binding TimerBrush}" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
                         <Border Background="{Binding TileBrush}" CornerRadius="7" Padding="5,1" HorizontalAlignment="Center" Margin="0,2,0,0">
-                            <TextBlock Text="{Binding Status}" Foreground="#17351F" FontSize="8" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding Status}" Foreground="#17351F" FontSize="8" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
                         </Border>
                     </StackPanel>
                 </Grid>
             </Border>
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                    <Setter TargetName="TableRoot" Property="BorderBrush" Value="#1F4E79"/>
+                    <Setter TargetName="TableRoot" Property="BorderBrush" Value="#08A99B"/>
                     <Setter TargetName="TableRoot" Property="BorderThickness" Value="2"/>
-                    <Setter TargetName="TableRoot" Property="Background" Value="#F7FBFF"/>
+                    <Setter TargetName="TableRoot" Property="Background" Value="#F3FFFD"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding TimerText}" Value="">
                     <Setter TargetName="TileTimerText" Property="Visibility" Value="Collapsed"/>
@@ -257,20 +257,20 @@
         </DataTemplate>
 
         <DataTemplate x:Key="CategoryTemplate">
-            <Border x:Name="CategoryRoot" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="1" CornerRadius="8" Padding="14,0" Margin="0,0,8,8" Width="126" Height="46">
+            <Border x:Name="CategoryRoot" Background="#FFFFFF" BorderBrush="#CAD6E2" BorderThickness="1" CornerRadius="8" Padding="14,0" Margin="0,0,8,8" Width="126" Height="46">
                 <TextBlock x:Name="CategoryText" Text="{Binding Name}" Foreground="{StaticResource Ink}" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
             </Border>
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                    <Setter TargetName="CategoryRoot" Property="Background" Value="#E8F1FA"/>
-                    <Setter TargetName="CategoryRoot" Property="BorderBrush" Value="#2F6FAE"/>
-                    <Setter TargetName="CategoryText" Property="Foreground" Value="#245B91"/>
+                    <Setter TargetName="CategoryRoot" Property="Background" Value="#E6FBF8"/>
+                    <Setter TargetName="CategoryRoot" Property="BorderBrush" Value="#08A99B"/>
+                    <Setter TargetName="CategoryText" Property="Foreground" Value="#03151F"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
 
         <DataTemplate x:Key="ProductTemplate">
-            <Border x:Name="ProductRoot" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="1" CornerRadius="7" Margin="0,0,0,6" Height="48" ClipToBounds="True">
+            <Border x:Name="ProductRoot" Background="#FFFFFF" BorderBrush="#CAD6E2" BorderThickness="1" CornerRadius="7" Margin="0,0,0,6" Height="48" ClipToBounds="True">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="4"/>
@@ -290,9 +290,9 @@
             </Border>
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                    <Setter TargetName="ProductRoot" Property="BorderBrush" Value="#0F766E"/>
+                    <Setter TargetName="ProductRoot" Property="BorderBrush" Value="#08A99B"/>
                     <Setter TargetName="ProductRoot" Property="Background" Value="#F5FFFC"/>
-                    <Setter TargetName="ProductAccent" Property="Background" Value="#0F766E"/>
+                    <Setter TargetName="ProductAccent" Property="Background" Value="#08A99B"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
@@ -351,8 +351,8 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <Grid Width="38" Height="38" Margin="0,0,10,0" VerticalAlignment="Center">
-                    <Border x:Name="BrandLogoFallback" Background="#FFFFFF" CornerRadius="8">
-                        <TextBlock Text="RP" Foreground="{StaticResource BlueDark}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <Border x:Name="BrandLogoFallback" Background="{StaticResource BlueDark}" BorderBrush="#1F4B5C" BorderThickness="1" CornerRadius="8">
+                        <TextBlock Text="BL" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <Border CornerRadius="8" ClipToBounds="True">
                         <Image x:Name="BrandLogoImage" Stretch="UniformToFill" Visibility="Collapsed"/>
@@ -369,12 +369,12 @@
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                     <Button
-                        MinWidth="112"
-                        Height="34"
+                        MinWidth="108"
+                        Height="32"
                         HorizontalAlignment="Left"
                         VerticalAlignment="Center"
-                        Background="#0F766E"
-                        BorderBrush="#BDE5DD"
+                        Background="#08A99B"
+                        BorderBrush="#08A99B"
                         BorderThickness="1"
                         Foreground="#FFFFFF"
                         FontWeight="Bold"
@@ -384,33 +384,34 @@
                         ToolTip="Ativar WhatsApp automatico">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
-                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="12,0">
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7" Padding="12,0">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#0B625B"/>
+                                    <Setter Property="Background" Value="#10BFB1"/>
+                                    <Setter Property="BorderBrush" Value="#10BFB1"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Button.Template>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Border Width="18" Height="18" CornerRadius="9" Background="#E8F7F4" Margin="0,0,7,0">
-                            <TextBlock Text="WA" Foreground="#0F766E" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Border Width="20" Height="20" CornerRadius="10" Background="#DFFBF8" Margin="0,0,7,0">
+                            <TextBlock Text="WA" Foreground="#067E76" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
-                        <TextBlock Text="WhatsApp" FontSize="13" FontWeight="SemiBold"/>
+                        <TextBlock Text="WhatsApp" FontSize="13" FontWeight="Bold"/>
                     </StackPanel>
                     </Button>
                     <Button
                         MinWidth="104"
-                        Height="34"
+                        Height="32"
                         Margin="8,0,0,0"
                         HorizontalAlignment="Left"
                         VerticalAlignment="Center"
-                        Background="#E8F7F4"
-                        BorderBrush="#BDE5DD"
+                        Background="#0B2633"
+                        BorderBrush="#255665"
                         BorderThickness="1"
-                        Foreground="#0F766E"
+                        Foreground="#DFFBFA"
                         FontWeight="Bold"
                         FocusVisualStyle="{x:Null}"
                         Cursor="Hand"
@@ -418,34 +419,35 @@
                         ToolTip="Suporte em tempo real">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
-                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="12,0">
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7" Padding="12,0">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#D8F0EB"/>
+                                    <Setter Property="Background" Value="#103746"/>
+                                    <Setter Property="BorderBrush" Value="#3D7481"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Button.Template>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <Grid Width="16" Height="16" Margin="0,0,7,0">
-                            <Ellipse Width="14" Height="14" Stroke="#0F766E" StrokeThickness="1.7" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            <TextBlock Text="?" Foreground="#0F766E" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0"/>
+                            <Ellipse Width="14" Height="14" Stroke="#73E7DE" StrokeThickness="1.7" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <TextBlock Text="?" Foreground="#73E7DE" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0"/>
                         </Grid>
-                        <TextBlock Text="Suporte" FontSize="13" FontWeight="SemiBold"/>
+                        <TextBlock Text="Suporte" FontSize="13" FontWeight="Bold"/>
                     </StackPanel>
                     </Button>
                     <Button
                         MinWidth="92"
-                        Height="34"
+                        Height="32"
                         Margin="8,0,0,0"
                         HorizontalAlignment="Left"
                         VerticalAlignment="Center"
-                        Background="#FFFFFF"
-                        BorderBrush="#DDEBFA"
+                        Background="#0B2633"
+                        BorderBrush="#255665"
                         BorderThickness="1"
-                        Foreground="{StaticResource BlueDark}"
+                        Foreground="#DFFBFA"
                         FontWeight="Bold"
                         FocusVisualStyle="{x:Null}"
                         Cursor="Hand"
@@ -453,23 +455,24 @@
                         ToolTip="Configuracoes do sistema">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
-                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="12,0">
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7" Padding="12,0">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#E8F1FA"/>
+                                    <Setter Property="Background" Value="#103746"/>
+                                    <Setter Property="BorderBrush" Value="#3D7481"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Button.Template>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <Grid Width="16" Height="16" Margin="0,0,7,0">
-                            <Ellipse Width="12" Height="12" Stroke="{StaticResource BlueDark}" StrokeThickness="1.7" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            <Ellipse Width="4" Height="4" Fill="{StaticResource BlueDark}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            <Path Stroke="{StaticResource BlueDark}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M8,0 L8,3 M8,13 L8,16 M0,8 L3,8 M13,8 L16,8 M2.4,2.4 L4.5,4.5 M11.5,11.5 L13.6,13.6 M13.6,2.4 L11.5,4.5 M4.5,11.5 L2.4,13.6"/>
+                            <Ellipse Width="12" Height="12" Stroke="#73E7DE" StrokeThickness="1.7" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Ellipse Width="4" Height="4" Fill="#73E7DE" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Path Stroke="#73E7DE" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M8,0 L8,3 M8,13 L8,16 M0,8 L3,8 M13,8 L16,8 M2.4,2.4 L4.5,4.5 M11.5,11.5 L13.6,13.6 M13.6,2.4 L11.5,4.5 M4.5,11.5 L2.4,13.6"/>
                         </Grid>
-                        <TextBlock Text="Config" FontSize="13" FontWeight="SemiBold"/>
+                        <TextBlock Text="Config" FontSize="13" FontWeight="Bold"/>
                     </StackPanel>
                     </Button>
                     </StackPanel>
@@ -553,7 +556,7 @@
                     </ItemsPanelTemplate>
                 </ListBox.ItemsPanel>
             </ListBox>
-            <Border Grid.Column="1" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="1" CornerRadius="8" Padding="12,5" Margin="0,6,10,6">
+            <Border Grid.Column="1" Background="#FFFFFF" BorderBrush="#CAD6E2" BorderThickness="1" CornerRadius="8" Padding="12,5" Margin="0,6,10,6">
                 <TextBlock x:Name="ActiveAreaText" Text="Area: Produtos" Foreground="{StaticResource Ink}" FontWeight="SemiBold"/>
             </Border>
         </Grid>
@@ -829,7 +832,7 @@
                 <Border Grid.Column="1"
                         Width="34"
                         Height="34"
-                        Background="#E8F7F4"
+                        Background="#E6FBF8"
                         CornerRadius="7"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center">

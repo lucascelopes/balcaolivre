@@ -9,7 +9,7 @@ const execFileAsync = promisify(execFile);
 const outputDir = process.argv[2]
   ? path.resolve(root, process.argv[2])
   : path.join(root, "dist", "cloudflare-site");
-const netlifyOutput = path.join(root, "dist", "netlify-site");
+const netlifyOutput = path.join(root, "dist", "cloudflare-netlify-stage");
 const publicApexDomain = process.env.BALCAO_PUBLIC_APEX_DOMAIN || "balcaolivrepdv.com.br";
 const adminApiOrigin = process.env.BALCAO_ADMIN_API_ORIGIN || "https://balcaolivrepdv.onrender.com";
 
@@ -19,7 +19,7 @@ const toOutput = (...parts) => path.join(outputDir, ...parts);
 await rm(outputDir, { recursive: true, force: true });
 await mkdir(outputDir, { recursive: true });
 
-await execFileAsync(process.execPath, [fromRoot("scripts", "build-netlify-site.mjs")], { cwd: root });
+await execFileAsync(process.execPath, [fromRoot("scripts", "build-netlify-site.mjs"), netlifyOutput], { cwd: root });
 await cp(netlifyOutput, outputDir, { recursive: true, force: true });
 
 await writeFile(toOutput("_worker.js"), cloudflareWorker(publicApexDomain, adminApiOrigin), "utf8");

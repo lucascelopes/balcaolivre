@@ -62,7 +62,7 @@ public partial class MainWindow
         var radiusPreviewCanvas = new Canvas { Width = 250, Height = 150, Margin = new Thickness(0, 10, 0, 6) };
         var radiusPreviewText = new TextBlock
         {
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
             TextAlignment = TextAlignment.Center
@@ -70,7 +70,7 @@ public partial class MainWindow
         var radiusPreviewCard = new Border
         {
             Background = Solid("#F7FAFD"),
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(12),
@@ -79,7 +79,7 @@ public partial class MainWindow
         var status = new TextBlock { Foreground = GreenText, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
         var mapStatus = new TextBlock
         {
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap
@@ -157,7 +157,7 @@ public partial class MainWindow
                     Height = size,
                     Stroke = stroke,
                     StrokeThickness = thickness,
-                    Fill = Solid("#E8F7F4"),
+                    Fill = Solid("#E6FBF8"),
                     Opacity = opacity
                 };
                 Canvas.SetLeft(ring, centerX - size / 2);
@@ -165,18 +165,18 @@ public partial class MainWindow
                 radiusPreviewCanvas.Children.Add(ring);
             }
 
-            AddRing(132, Solid("#D8E2EC"), 1, 0.52);
-            AddRing(92, Solid("#D8E2EC"), 1, 0.68);
-            AddRing(52, Solid("#D8E2EC"), 1, 0.82);
+            AddRing(132, Solid("#CAD6E2"), 1, 0.52);
+            AddRing(92, Solid("#CAD6E2"), 1, 0.68);
+            AddRing(52, Solid("#CAD6E2"), 1, 0.82);
 
             var mainSize = radius > 0 ? Math.Clamp(42 + radius * 28, 42, 132) : 42;
-            AddRing(mainSize, Solid("#0F766E"), 4, 0.96);
+            AddRing(mainSize, Solid("#08A99B"), 4, 0.96);
 
             var centerDot = new System.Windows.Shapes.Ellipse
             {
                 Width = 14,
                 Height = 14,
-                Fill = Solid("#245B91"),
+                Fill = Solid("#0B3A52"),
                 Stroke = System.Windows.Media.Brushes.White,
                 StrokeThickness = 2
             };
@@ -240,7 +240,7 @@ public partial class MainWindow
             }
         };
 
-        var newButton = DialogButton("Novo", "#2F6FAE");
+        var newButton = DialogButton("Novo", "#0B3A52");
         newButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         newButton.Click += (_, _) =>
         {
@@ -253,7 +253,7 @@ public partial class MainWindow
             radiusBox.Focus();
         };
 
-        var saveButton = DialogButton("Salvar raio", "#0F766E");
+        var saveButton = DialogButton("Salvar raio", "#08A99B");
         saveButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         async Task SaveRadiusAsync()
         {
@@ -401,7 +401,7 @@ public partial class MainWindow
             return new TextBlock
             {
                 Text = text,
-                Foreground = Solid("#667684"),
+                Foreground = Solid("#5B6B7A"),
                 FontSize = 12,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, -4, 0, 10)
@@ -561,7 +561,7 @@ public partial class MainWindow
                 fee = Money(previewFee),
                 minimum = previewMinimum > 0 ? Money(previewMinimum) : "",
                 radiusKm = previewRadiusKm,
-                color = previewActive ? "#0F766E" : "#A11D1D"
+                color = previewActive ? "#08A99B" : "#A11D1D"
             }
             : null;
 
@@ -572,7 +572,7 @@ public partial class MainWindow
         html.AppendLine("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>");
         html.AppendLine("<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>");
         html.AppendLine("<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>");
-        html.AppendLine("<style>html,body,#map{height:100%;margin:0}body{font-family:Segoe UI,Arial,sans-serif;background:#eef3f7}.leaflet-container{background:#eef3f7}.legend{position:absolute;left:16px;bottom:16px;z-index:500;background:#fff;border:1px solid #ccd7e2;border-radius:8px;padding:12px 14px;box-shadow:0 10px 26px rgba(24,34,43,.14);max-width:300px}.legend h3{margin:0 0 7px;font-size:13px;color:#18222b}.row{display:flex;gap:8px;align-items:flex-start;margin:7px 0;font-size:12px;color:#465869}.row.preview{border-top:1px solid #e3ebf2;padding-top:8px;color:#18222b}.dot{width:11px;height:11px;border-radius:999px;margin-top:2px;flex:0 0 auto}.empty{font-size:12px;color:#667684}.leaflet-popup-content{font-size:13px}.center-chip{position:absolute;left:16px;top:16px;z-index:500;background:#fff;border:1px solid #ccd7e2;border-radius:999px;padding:8px 11px;color:#245b91;font-size:12px;font-weight:800;box-shadow:0 8px 22px rgba(24,34,43,.12)}</style>");
+        html.AppendLine("<style>html,body,#map{height:100%;margin:0}body{font-family:Segoe UI,Arial,sans-serif;background:#eef3f7}.leaflet-container{background:#eef3f7}.legend{position:absolute;left:16px;bottom:16px;z-index:500;background:#fff;border:1px solid #ccd7e2;border-radius:8px;padding:12px 14px;box-shadow:0 10px 26px rgba(24,34,43,.14);max-width:300px}.legend h3{margin:0 0 7px;font-size:13px;color:#18222b}.row{display:flex;gap:8px;align-items:flex-start;margin:7px 0;font-size:12px;color:#465869}.row.preview{border-top:1px solid #e3ebf2;padding-top:8px;color:#18222b}.dot{width:11px;height:11px;border-radius:999px;margin-top:2px;flex:0 0 auto}.empty{font-size:12px;color:#5B6B7A}.leaflet-popup-content{font-size:13px}.center-chip{position:absolute;left:16px;top:16px;z-index:500;background:#fff;border:1px solid #ccd7e2;border-radius:999px;padding:8px 11px;color:#245b91;font-size:12px;font-weight:800;box-shadow:0 8px 22px rgba(24,34,43,.12)}</style>");
         html.AppendLine("</head><body><div id='map'></div><div class='center-chip'>Pino da loja</div><div class='legend'><h3>Mapa de entrega</h3><div id='legendRows'></div></div>");
         html.AppendLine("<script>");
         html.Append("const center=").Append(centerJson).AppendLine(";");
@@ -594,7 +594,7 @@ public partial class MainWindow
 
     private static string DeliveryZoneColor(int index)
     {
-        var colors = new[] { "#0F766E", "#245B91", "#99620D", "#A11D1D", "#6D28D9", "#047857", "#B45309" };
+        var colors = new[] { "#08A99B", "#0B3A52", "#99620D", "#A11D1D", "#6D28D9", "#047857", "#B45309" };
         return colors[index % colors.Length];
     }
 

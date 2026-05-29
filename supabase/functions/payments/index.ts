@@ -595,7 +595,10 @@ async function createMercadoPagoWebCharge(req: Request) {
 
   const method = stringValue(payload.method).toUpperCase();
   const localReference = sanitizeReference(payload.localReference || crypto.randomUUID());
-  const description = stringValue(payload.description) || "Balcao Livre PDV";
+  const requestedDescription = stringValue(payload.description) || "Balcao Livre PDV";
+  const description = method === "PIX"
+    ? clipText(requestedDescription.split(" - ")[0] || "Balcao Livre PDV", 40)
+    : requestedDescription;
   const chargeItems = normalizeChargeItems(payload.items);
 
   if (method === "PIX") {
@@ -611,18 +614,6 @@ async function createMercadoPagoWebCharge(req: Request) {
         first_name: safePayerName(payload.payerName),
       },
     };
-    if (chargeItems.length > 0) {
-      paymentBody.additional_info = {
-        items: chargeItems.map((item) => ({
-          id: item.id,
-          title: item.title,
-          description: item.description,
-          category_id: "food",
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-        })),
-      };
-    }
 
     const payment = await mpFetch(token.accessToken, "/v1/payments", {
       method: "POST",

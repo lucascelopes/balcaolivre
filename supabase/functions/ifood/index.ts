@@ -72,6 +72,14 @@ Deno.serve(async (req) => {
       return await handleStockSync(req);
     }
 
+    if (route === "/catalog/sync") {
+      return await handleCatalogSync(req);
+    }
+
+    if (route === "/merchant/status") {
+      return await handleMerchantStatus(req);
+    }
+
     return json({ ok: false, message: "Rota iFood nao encontrada." }, 404);
   } catch (error) {
     return json({ ok: false, message: messageFromError(error) }, 500);
@@ -291,7 +299,7 @@ async function handleOrdersSync(req: Request) {
   let pollingWarning = "";
 
   try {
-    const events = await pollEvents(connection);
+    const events = await pollEventsWithFreshToken(connection);
     for (const event of events) {
       const orderId = text(event.orderId ?? event.metadata?.orderId);
       const eventId = text(event.id);
@@ -397,12 +405,29 @@ async function handleStockSync(req: Request) {
 
   let ifoodResponse: Record<string, unknown> = {};
   let mode = "inventory";
+  let statusWarning = "";
   if (productId) {
-    ifoodResponse = await ifoodPost(
+    const inventoryResponse = await ifoodPost(
       `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/inventory`,
       connection.access_token ?? "",
       { productId, amount },
     );
+    mode = "inventory+status";
+    try {
+      const statusResponse = await ifoodPatch(
+        `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/products/status`,
+        connection.access_token ?? "",
+        [{
+          productId,
+          status: amount > 0 ? "AVAILABLE" : "UNAVAILABLE",
+          resources: ["ITEM", "OPTION"],
+        }],
+      );
+      ifoodResponse = { inventory: inventoryResponse, status: statusResponse };
+    } catch (error) {
+      statusWarning = messageFromError(error);
+      ifoodResponse = { inventory: inventoryResponse, statusWarning };
+    }
   } else {
     mode = "status";
     ifoodResponse = await ifoodPatch(
@@ -436,6 +461,115 @@ async function handleStockSync(req: Request) {
     externalCode,
     amount,
     mode,
+    statusWarning,
+  });
+}
+
+type CatalogProduct = {
+  productId: string;
+  itemId: string;
+  externalCode: string;
+  name: string;
+  category: string;
+  price: number;
+  stockQuantity: number | null;
+  isAvailable: boolean | null;
+};
+
+async function handleCatalogSync(req: Request) {
+  const body = await readJson(req) as StoreContext & { connectionId?: string };
+  let connection = await findConnection(body);
+  connection = await ensureToken(connection);
+  const merchantId = text(connection.merchant_id);
+  if (!merchantId) {
+    return json({ ok: false, message: "Loja iFood nao identificada no vinculo." }, 400);
+  }
+
+  const accessToken = connection.access_token ?? "";
+  const warnings: string[] = [];
+  const products = new Map<string, CatalogProduct>();
+  const catalogPath = `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/catalogs`;
+  const catalogs = await ifoodJson(catalogPath, accessToken)
+    .then(catalogsFromResponse)
+    .catch((error) => {
+      warnings.push(`Catalogos: ${messageFromError(error)}`);
+      return [] as Record<string, unknown>[];
+    });
+
+  for (const catalog of catalogs) {
+    const catalogId = firstText(catalog.catalogId, catalog.id, catalog.groupId);
+    const groupId = firstText(catalog.groupId, catalog.id, catalog.catalogId);
+    if (!catalogId && !groupId) continue;
+
+    if (groupId) {
+      for (const path of [
+        `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/catalogs/${encodeURIComponent(groupId)}/sellableItems`,
+        `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/catalogs/${encodeURIComponent(groupId)}/unsellableItems`,
+      ]) {
+        await appendCatalogProductsFromPath(path, accessToken, products, warnings);
+      }
+    }
+
+    if (catalogId) {
+      await appendCatalogProductsFromPath(
+        `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/catalogs/${encodeURIComponent(catalogId)}/categories`,
+        accessToken,
+        products,
+        warnings,
+      );
+    }
+  }
+
+  const items = [...products.values()]
+    .filter((product) => product.name)
+    .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+
+  return json({
+    ok: true,
+    message: items.length === 0
+      ? warnings.length > 0
+        ? "Nao consegui ler produtos do catalogo iFood agora."
+        : "Nenhum produto encontrado no catalogo iFood."
+      : `${items.length} produto(s) do iFood sincronizado(s) para o estoque.`,
+    syncedAt: new Date().toISOString(),
+    warnings,
+    products: items,
+  });
+}
+
+async function handleMerchantStatus(req: Request) {
+  const body = await readJson(req) as StoreContext & { connectionId?: string };
+  let connection = await findConnection(body);
+  connection = await ensureToken(connection);
+
+  const merchantId = text(connection.merchant_id);
+  if (!merchantId) {
+    return json({ ok: false, message: "Loja iFood nao vinculada a esta conexao." }, 400);
+  }
+
+  const accessToken = connection.access_token ?? "";
+  const status = await ifoodJson(`/merchant/v1.0/merchants/${encodeURIComponent(merchantId)}/status`, accessToken);
+  const diagnostics: Record<string, unknown> = {};
+
+  try {
+    diagnostics.interruptions = await ifoodJson(`/merchant/v1.0/merchants/${encodeURIComponent(merchantId)}/interruptions`, accessToken);
+  } catch (error) {
+    diagnostics.interruptionsWarning = messageFromError(error);
+  }
+
+  try {
+    diagnostics.openingHours = await ifoodJson(`/merchant/v1.0/merchants/${encodeURIComponent(merchantId)}/opening-hours`, accessToken);
+  } catch (error) {
+    diagnostics.openingHoursWarning = messageFromError(error);
+  }
+
+  return json({
+    ok: true,
+    merchantId,
+    merchantName: connection.merchant_name,
+    status,
+    ...diagnostics,
+    syncedAt: new Date().toISOString(),
   });
 }
 
@@ -459,8 +593,11 @@ async function findConnection(body: StoreContext & { connectionId?: string }): P
   return data as ConnectionRow;
 }
 
-async function ensureToken(connection: ConnectionRow): Promise<ConnectionRow> {
-  if (connection.access_token && connection.token_expires_at && new Date(connection.token_expires_at).getTime() > Date.now() + 120000) {
+async function ensureToken(connection: ConnectionRow, forceRefresh = false): Promise<ConnectionRow> {
+  if (!forceRefresh
+    && connection.access_token
+    && connection.token_expires_at
+    && new Date(connection.token_expires_at).getTime() > Date.now() + 120000) {
     return connection;
   }
 
@@ -524,6 +661,195 @@ async function listMerchants(accessToken: string) {
   return [];
 }
 
+async function appendCatalogProductsFromPath(
+  path: string,
+  accessToken: string,
+  products: Map<string, CatalogProduct>,
+  warnings: string[],
+) {
+  try {
+    const data = await ifoodJson(path, accessToken);
+    for (const product of extractCatalogProducts(data)) {
+      upsertCatalogProduct(products, product);
+    }
+  } catch (error) {
+    warnings.push(`${path}: ${messageFromError(error)}`);
+  }
+}
+
+function catalogsFromResponse(data: unknown) {
+  if (Array.isArray(data)) return data.filter(isRecord);
+  if (isRecord(data)) {
+    for (const key of ["catalogs", "items", "data", "results"]) {
+      const value = data[key];
+      if (Array.isArray(value)) return value.filter(isRecord);
+    }
+  }
+
+  return [];
+}
+
+function extractCatalogProducts(data: unknown) {
+  const result: CatalogProduct[] = [];
+  const source = recordsFromAny(data);
+  for (const item of source) {
+    const categoryName = text(item.categoryName ?? item.name ?? item.title);
+    const childItems = nestedCatalogItems(item);
+    if (childItems.length > 0) {
+      for (const child of childItems) {
+        const product = normalizeCatalogProduct(child, categoryName);
+        if (product.name) result.push(product);
+      }
+      continue;
+    }
+
+    const product = normalizeCatalogProduct(item, "");
+    if (product.name) result.push(product);
+  }
+
+  return result;
+}
+
+function recordsFromAny(data: unknown) {
+  if (Array.isArray(data)) return data.filter(isRecord);
+  if (!isRecord(data)) return [];
+  for (const key of ["items", "categories", "products", "data", "results", "content"]) {
+    const value = data[key];
+    if (Array.isArray(value)) return value.filter(isRecord);
+  }
+  return [data];
+}
+
+function nestedCatalogItems(category: Record<string, unknown>) {
+  const result: Record<string, unknown>[] = [];
+  for (const key of ["items", "itens", "products", "children"]) {
+    const value = category[key];
+    if (Array.isArray(value)) {
+      result.push(...value.filter(isRecord));
+    }
+  }
+  return result;
+}
+
+function normalizeCatalogProduct(item: Record<string, unknown>, categoryName: string): CatalogProduct {
+  const itemNode = isRecord(item.item) ? item.item : {};
+  const products = Array.isArray(item.products) ? item.products.filter(isRecord) : [];
+  const productNode = isRecord(item.product) ? item.product : products[0] ?? {};
+  const itemId = firstText(
+    item.itemId,
+    item.id,
+    item.catalogItemId,
+    item.contextItemId,
+    itemNode.id,
+  );
+  const productId = firstText(
+    item.productId,
+    item.itemProductId,
+    itemNode.productId,
+    productNode.id,
+    productNode.productId,
+    itemId,
+  );
+  const externalCode = firstText(
+    item.itemExternalCode,
+    item.externalCode,
+    item.ean,
+    itemNode.externalCode,
+    productNode.externalCode,
+    productNode.ean,
+  );
+  const name = firstText(
+    item.itemName,
+    item.name,
+    item.productName,
+    item.description,
+    productNode.name,
+    productNode.productName,
+    itemNode.name,
+  ).toUpperCase();
+  const category = firstText(
+    item.categoryName,
+    categoryName,
+    item.category,
+    item.groupName,
+  ).toUpperCase();
+
+  return {
+    productId,
+    itemId,
+    externalCode,
+    name,
+    category,
+    price: firstPositiveNumber(
+      numberAtPath(item, ["itemPrice", "value"]),
+      numberAtPath(item, ["price", "value"]),
+      numberAtPath(item, ["unitPrice", "value"]),
+      numberAt(item, ["itemPrice", "price", "unitPrice", "value"], 0),
+      numberAtPath(itemNode, ["price", "value"]),
+    ),
+    stockQuantity: firstNullableNumber(
+      nullableNumberAt(item, ["itemQuantity", "stockQuantity", "quantity", "stock", "inventory", "amount"]),
+      nullableNumberAt(productNode, ["quantity", "stock", "inventory", "amount"]),
+      nullableNumberAt(itemNode, ["quantity", "stock", "inventory", "amount"]),
+    ),
+    isAvailable: availabilityFromStatus(firstText(item.status, item.itemStatus, itemNode.status, productNode.status, item.available, item.isAvailable)),
+  };
+}
+
+function upsertCatalogProduct(products: Map<string, CatalogProduct>, incoming: CatalogProduct) {
+  const key = incoming.productId || incoming.itemId || incoming.externalCode || `${incoming.category}|${incoming.name}`;
+  if (!key) return;
+
+  const current = products.get(key);
+  if (!current) {
+    products.set(key, incoming);
+    return;
+  }
+
+  products.set(key, {
+    productId: current.productId || incoming.productId,
+    itemId: current.itemId || incoming.itemId,
+    externalCode: current.externalCode || incoming.externalCode,
+    name: current.name || incoming.name,
+    category: current.category || incoming.category,
+    price: current.price > 0 ? current.price : incoming.price,
+    stockQuantity: current.stockQuantity ?? incoming.stockQuantity,
+    isAvailable: current.isAvailable ?? incoming.isAvailable,
+  });
+}
+
+function firstText(...values: unknown[]) {
+  for (const value of values) {
+    const content = text(value);
+    if (content) return content;
+  }
+  return "";
+}
+
+function firstPositiveNumber(...values: number[]) {
+  return values.find((value) => Number.isFinite(value) && value > 0) ?? 0;
+}
+
+function firstNullableNumber(...values: Array<number | null>) {
+  return values.find((value) => value !== null && Number.isFinite(value)) ?? null;
+}
+
+function nullableNumberAt(source: Record<string, unknown>, keys: string[]) {
+  const value = valueAt(source, keys);
+  if (value === undefined || value === null || value === "") return null;
+  const number = typeof value === "number" ? value : Number(String(value).replace(",", "."));
+  return Number.isFinite(number) ? number : null;
+}
+
+function availabilityFromStatus(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  const status = text(value).toUpperCase();
+  if (!status) return null;
+  if (["AVAILABLE", "ATIVO", "ACTIVE", "TRUE", "DISPONIVEL"].includes(status)) return true;
+  if (["UNAVAILABLE", "PAUSED", "INACTIVE", "FALSE", "INDISPONIVEL", "PAUSADO"].includes(status)) return false;
+  return null;
+}
+
 async function latestWebhookMerchant() {
   const { data } = await serviceClient()
     .from("bv_ifood_webhook_events")
@@ -545,22 +871,51 @@ async function pollEvents(connection: ConnectionRow) {
     headers["x-polling-merchants"] = connection.merchant_id;
   }
 
-  try {
-    const response = await fetch(`${IFOOD_API_BASE}/order/v1.0/orders:polling?limit=50`, { headers });
-    if (response.status === 204) return [];
-    const data = await parseIfoodResponse(response);
-    if (Array.isArray(data)) return data;
-    if (Array.isArray(data?.events)) return data.events;
-    return [];
-  } catch (error) {
-    console.error("iFood order polling fallback", messageFromError(error));
-    const response = await fetch(`${IFOOD_API_BASE}/events/v1.0/events:polling?categories=FOOD&groups=ORDER_STATUS&limit=50`, { headers });
-    if (response.status === 204) return [];
-    const data = await parseIfoodResponse(response);
-    if (Array.isArray(data)) return data;
-    if (Array.isArray(data?.events)) return data.events;
-    return [];
+  const paths = [
+    "/events/v1.0/events:polling?category=FOOD",
+    "/events/v1.0/events:polling?category=FOOD&limit=50",
+    "/events/v1.0/events:polling?limit=50",
+    "/events/v1.0/events:polling",
+    "/events/v1.0/events:polling?category=FOOD&groups=ORDER_STATUS",
+    "/events/v1.0/events:polling?groups=ORDER_STATUS&limit=50",
+    "/order/v1.0/orders:polling?limit=50",
+  ];
+  let lastError = "";
+
+  for (const path of paths) {
+    try {
+      const response = await fetch(`${IFOOD_API_BASE}${path}`, { headers });
+      const events = await eventsFromPollingResponse(response);
+      return events;
+    } catch (error) {
+      lastError = `${path}: ${messageFromError(error)}`;
+      console.error(`iFood polling failed ${path}`, lastError);
+    }
   }
+
+  throw new Error(lastError || "iFood nao retornou eventos agora.");
+}
+
+async function pollEventsWithFreshToken(connection: ConnectionRow) {
+  try {
+    return await pollEvents(connection);
+  } catch (error) {
+    const message = messageFromError(error);
+    if (!/bad request|forbidden|unauthorized|token|permission|permiss/i.test(message)) {
+      throw error;
+    }
+
+    const refreshed = await ensureToken(connection, true);
+    return await pollEvents(refreshed);
+  }
+}
+
+async function eventsFromPollingResponse(response: Response) {
+    if (response.status === 204) return [];
+    const data = await parseIfoodResponse(response);
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.events)) return data.events;
+    return [];
 }
 
 async function acknowledgeEventIds(accessToken: string, ids: string[]) {
@@ -727,7 +1082,6 @@ function mapOrder(order: Record<string, unknown>, fallbackOrderId: string) {
   const deliveredAt = text(
     delivery?.deliveredAt ??
     delivery?.deliveredDateTime ??
-    delivery?.deliveryDateTime ??
     order.deliveredAt ??
     order.deliveredDateTime ??
     order.concludedAt,

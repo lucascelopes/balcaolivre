@@ -4,17 +4,23 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Balcao Livre PDV</title>
-    <link rel="icon" href="public/balcao-livre-icon.png" />
-    <link rel="stylesheet" href="app/globals.css?v=customplan1" />
+    <link rel="icon" type="image/png" href="public/brand/bl-modern-icon.png" />
+    <link rel="preload" as="image" href="/public/guide/windows-pdv/01-comandas-mesas.png" />
+    <link rel="stylesheet" href="app/globals.css?v=instabrand2" />
   </head>
   <body>
     <main class="lpPage">
       <header class="lpHeader" id="inicio">
         <a class="lpBrand" href="#inicio" aria-label="Balcao Livre PDV">
-          <img class="lpBrandLogo" src="public/balcao-livre-logo-v2.png" alt="Balcao Livre PDV" />
+          <img class="lpBrandIcon" src="public/brand/bl-modern-icon.png" alt="" aria-hidden="true" />
+          <span class="lpBrandText">
+            <strong>Balcao Livre</strong>
+            <small>PDV Online</small>
+          </span>
         </a>
         <nav class="lpNav" aria-label="Navegacao principal">
           <a href="#produto">Produto</a>
+          <a href="#instaladores">Instaladores</a>
           <a href="#demo-pdv">Demo PDV</a>
           <a href="#impressao">Impressao</a>
           <a href="#operacao">Operacao</a>
@@ -23,68 +29,48 @@
         </nav>
         <div class="lpHeaderActions">
           <a class="lpGhostButton" href="https://wa.me/5527981267551?text=Ola%2C%20quero%20conhecer%20o%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%20com%20planos%2C%20valores%20e%20personalizacao%3F">WhatsApp</a>
-          <a class="lpSolidButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe">Baixar Windows</a>
+          <a class="lpSolidButton" href="#instaladores">Instaladores</a>
         </div>
       </header>
 
-      <section class="lpHero lpHeroProduct">
+      <section class="lpHero lpHeroProduct lpHeroDark">
         <div class="lpHeroCopy">
-          <p class="lpKicker">PDV Windows e online para restaurante, bar e delivery</p>
-          <h1>Balcao Livre PDV para caixa, comandas e delivery.</h1>
+          <p class="lpKicker">PDV online e offline para restaurante</p>
+          <h1>O PDV que coloca seu restaurante no controle.</h1>
           <p class="lpLead">
-            Venda no Windows, controle mesas e estoque, receba no Pix ou cartao e acompanhe a operacao sem depender de planilha.
+            Caixa, mesas, delivery, estoque, garcom web, iFood, WhatsApp e Mercado Pago em uma rotina so.
           </p>
           <div class="lpHeroActions">
-            <a class="lpSolidButton lpLargeButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe">Baixar Windows</a>
+            <a class="lpSolidButton lpLargeButton" href="#instaladores">Baixar Windows</a>
+            <a class="lpGhostButton lpLargeButton" href="https://wa.me/5527981267551?text=Ola%2C%20quero%20uma%20demonstracao%20do%20Balcao%20Livre%20PDV.">Pedir demonstracao</a>
             <a class="lpGhostButton lpLargeButton" href="#demo-pdv">Testar demo</a>
           </div>
           <dl class="lpHeroStats" aria-label="Resumo do produto">
-            <div><dt>Offline</dt><dd>caixa vendendo mesmo sem internet</dd></div>
-            <div><dt>Online</dt><dd>iFood, WhatsApp, web e garcom</dd></div>
-            <div><dt>Instalador</dt><dd>pronto para computador Windows</dd></div>
+            <div><dt>Offline e online</dt><dd>caixa local com operacao conectada quando precisar</dd></div>
+            <div><dt>Restaurantes</dt><dd>feito para bar, lanchonete, pizzaria, acai e delivery</dd></div>
+            <div><dt>Venda clara</dt><dd>pedido, pagamento, estoque e comprovante no mesmo fluxo</dd></div>
           </dl>
         </div>
 
-        <div class="lpSystemPanel lpHeroConsole" aria-label="Previa visual do sistema">
-          <div class="lpConsoleBar">
-            <span>Caixa aberto</span>
-            <strong>R$ 184,00</strong>
+        <div class="lpHeroVisual" aria-label="Tela real do Balcao Livre PDV">
+          <div class="lpVisualGlow" aria-hidden="true"></div>
+          <div class="lpLaptopMock">
+            <div class="lpLaptopTop">
+              <span>Balcao Livre PDV Online</span>
+              <b>Caixa aberto</b>
+            </div>
+            <div class="lpLaptopScreen" role="img" aria-label="Tela atual do modo guia do Balcao Livre PDV" style="--screen-image: url('/public/guide/windows-pdv/01-comandas-mesas.png')"></div>
           </div>
-          <div class="lpConsoleBody">
-            <section class="lpOrderPane">
-              <div class="lpOrderHeader">
-                <span>Comanda 000012</span>
-                <b>Mesa 12 | Garcom 02</b>
-              </div>
-              <div class="lpOrderRows">
-                <p><span>000003</span><strong>X-Burger</strong><b>R$ 18,00</b></p>
-                <p><span>000005</span><strong>Batata frita</strong><b>R$ 14,00</b></p>
-                <p><span>000004</span><strong>Suco natural</strong><b>R$ 9,00</b></p>
-              </div>
-              <div class="lpOrderTotal">
-                <span>Total</span>
-                <strong>R$ 41,00</strong>
-              </div>
-            </section>
-            <section class="lpCheckoutPane">
-              <div>
-                <span>Pagamento</span>
-                <strong>Pix</strong>
-              </div>
-              <div>
-                <span>Recebido</span>
-                <strong>R$ 41,00</strong>
-              </div>
-              <div>
-                <span>Troco</span>
-                <strong>R$ 0,00</strong>
-              </div>
-              <button type="button">Finalizar venda</button>
-            </section>
+          <div class="lpPhoneMock" aria-label="Resumo no celular">
+            <span>Pedidos</span>
+            <strong>Mesa 03</strong>
+            <p>Pedido enviado para o caixa em tempo real.</p>
+            <b>Garcom web</b>
           </div>
-          <div class="lpConsoleFooter">
-            <span>Estoque baixado automaticamente</span>
-            <b>Comprovante pronto para imprimir</b>
+          <div class="lpHeroTiles" aria-label="Modulos principais">
+            <span><b>iFood</b>pedido no fluxo</span>
+            <span><b>WhatsApp</b>atendimento comercial</span>
+            <span><b>Mercado Pago</b>Pix e cartao</span>
           </div>
         </div>
       </section>
@@ -94,6 +80,45 @@
         <span><b>Fechamento claro</b>dinheiro, Pix, cartao e retiradas</span>
         <span><b>Comanda simples</b>mesa, balcao, delivery e fiado</span>
         <span><b>Estoque controlado</b>baixa automatica e alerta de minimo</span>
+      </section>
+
+      <section class="lpSection lpInstallerSection" id="instaladores">
+        <div class="lpSectionHead">
+          <p class="lpKicker">Instaladores e teste</p>
+          <h2>Baixe o instalador e teste o PDV por 7 dias.</h2>
+          <p>Teste caixa, mesas, estoque, impressao e Mercado Pago. WhatsApp e iFood entram somente no plano pago.</p>
+        </div>
+
+        <div class="lpInstallerGrid">
+          <article class="lpInstallerCard">
+            <div class="lpInstallerTop">
+              <span>Offline</span>
+              <b>Caixa local</b>
+            </div>
+            <h3>Instalador PDV Offline</h3>
+            <p>Para testar o caixa Windows local, vendas, mesas, estoque, pagamentos e impressao sem depender da internet.</p>
+            <a class="lpSolidButton lpLargeButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/trial-download?plan=offline">Baixar instalador Offline</a>
+            <div class="lpTrialFlow">
+              <span>Teste completo do caixa</span>
+              <p>Venda no Windows, imprima comprovante, controle estoque e teste Mercado Pago no fluxo do PDV.</p>
+            </div>
+          </article>
+
+          <article class="lpInstallerCard lpInstallerCardOnline">
+            <div class="lpInstallerTop">
+              <span>Online</span>
+              <b>Conectado</b>
+            </div>
+            <h3>Instalador PDV Online</h3>
+            <p>Para testar PDV conectado, cardapio, web, sincronizacao e equipe. iFood e WhatsApp sao liberados somente em plano pago.</p>
+            <a class="lpSolidButton lpLargeButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/trial-download?plan=online">Baixar instalador Online</a>
+            <div class="lpTrialFlow">
+              <span>Teste conectado</span>
+              <p>Use PDV web, cardapio, sincronizacao e Mercado Pago. WhatsApp e iFood ficam para contratacao paga.</p>
+            </div>
+            <p class="lpPaidOnlyNote">Mercado Pago disponivel para teste no PDV. WhatsApp, iFood, homologacao e automacoes conectadas entram apenas depois da contratacao paga.</p>
+          </article>
+        </div>
       </section>
 
       <section class="appDemo cashierDemoSection lpDemoReturn" id="demo-pdv" aria-label="Teste do caixa do Balcao Livre PDV">
@@ -356,8 +381,8 @@
               <strong>Se sua operacao precisa de algo diferente, montamos o fluxo com voce. Valores sob consulta.</strong>
             </div>
             <ul>
-              <li>Pedidos do iFood entrando no sistema</li>
-              <li>Atendimento e pedidos pelo WhatsApp</li>
+              <li>Pedidos do iFood entrando no sistema somente no plano pago</li>
+              <li>Atendimento e pedidos pelo WhatsApp somente no plano pago</li>
               <li>Pode usar tambem pela web</li>
               <li>Entrega por zona com taxa configuravel</li>
               <li>Cardapio, atendimento, entrega e impressao ajustados ao seu jeito</li>
@@ -411,7 +436,7 @@
           </article>
           <article>
             <h3>Tem WhatsApp, iFood e garcom?</h3>
-            <p>No Online, sim, conforme contratacao e configuracao das contas. Algumas integracoes dependem de aprovacao e credenciais do terceiro.</p>
+            <p>Garcom e web entram no Online conforme configuracao. WhatsApp e iFood sao recursos de plano pago e dependem de aprovacao e credenciais do terceiro.</p>
           </article>
           <article>
             <h3>Posso usar em mais de um computador?</h3>
@@ -430,11 +455,15 @@
 
       <footer class="lpFooter">
         <div class="lpFooterBrand">
-          <img class="lpBrandLogo lpFooterBrandLogo" src="public/balcao-livre-logo-v2.png" alt="Balcao Livre PDV" />
+          <img class="lpBrandIcon" src="public/brand/bl-modern-icon.png" alt="" aria-hidden="true" />
+          <span class="lpBrandText">
+            <strong>Balcao Livre</strong>
+            <small>PDV Online</small>
+          </span>
         </div>
         <div class="lpFooterPitch">
           <b>PDV Windows para restaurante vender, imprimir e fechar caixa sem depender de gambiarra.</b>
-          <span>Offline para caixa local. Online para iFood, WhatsApp, web, zonas e garcom em tempo real.</span>
+          <span>Offline para caixa local. Online para web, zonas e garcom. iFood e WhatsApp somente no plano pago.</span>
         </div>
         <div class="lpFooterColumn">
           <b>Produto</b>

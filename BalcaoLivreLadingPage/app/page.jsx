@@ -1,6 +1,7 @@
 import CashierDemo from "./CashierDemo";
+import PaymentSuccess from "./PaymentSuccess";
 import SiteHeader from "./SiteHeader";
-import { downloadUrl, sellers } from "./siteLinks";
+import { downloadUrl, onlineDownloadUrl, sellers } from "./siteLinks";
 
 const modules = [
   ["01", "Caixa e pagamentos", "Venda por codigo, quantidade, desconto, Pix, dinheiro, credito, debito e troco calculado."],
@@ -38,36 +39,75 @@ const plans = [
   {
     id: "online",
     order: "Plano 2",
-    label: "Online",
-    title: "Balcao Livre PDV Online",
-    description: "Para restaurante que quer PDV, web, WhatsApp, delivery e equipe conectados, com ajustes para a rotina da loja.",
+    label: "Hibrido Online",
+    title: "Balcao Livre PDV Hibrido Online",
+    description: "Para restaurante que quer caixa local, PDV web, cardapio, garcom e integracoes sem WhatsApp.",
+    monthly: "R$ 139,00",
+    annual: "R$ 1.390,00",
+    features: [
+      "PDV Windows local com sincronizacao em nuvem",
+      "PDV web e acesso por dispositivos moveis",
+      "Cardapio digital e pedidos online",
+      "Garcom no celular em tempo real",
+      "Entrega por zona com taxa configuravel",
+      "iFood e Mercado Pago conforme escopo",
+      "Sincronizacao entre caixa, web, atendimento e cozinha",
+      "Nao inclui atendimento/pedidos por WhatsApp"
+    ],
+    featured: true
+  },
+  {
+    id: "complete",
+    order: "Plano 3",
+    label: "Completo",
+    title: "Completo com Integracoes",
+    description: "Mesmo pacote do Hibrido Online, adicionando atendimento e pedidos pelo WhatsApp.",
+    monthly: "R$ 179,00",
+    annual: "R$ 1.790,00",
+    features: [
+      "PDV Windows local com sincronizacao em nuvem",
+      "PDV web e acesso por dispositivos moveis",
+      "Cardapio digital e pedidos online",
+      "Garcom no celular em tempo real",
+      "Entrega por zona com taxa configuravel",
+      "iFood e Mercado Pago conforme escopo",
+      "Sincronizacao entre caixa, web, atendimento e cozinha",
+      "Inclui atendimento e pedidos pelo WhatsApp"
+    ],
+    featured: true
+  },
+  {
+    id: "custom",
+    order: "Plano 4",
+    label: "Consultar",
+    title: "Personalizado",
+    description: "Para loja que precisa de fluxo especial, multiplas unidades, migracao, relatorios ou integracoes sob medida.",
     monthly: "Consultar",
-    annual: "Menos de R$ 999,00",
+    annual: "Consultar",
     custom: {
-      label: "Configuravel e personalizavel",
-      text: "Se sua operacao precisa de algo diferente, montamos o fluxo com voce. Valores sob consulta."
+      label: "Projeto sob medida",
+      text: "Avaliamos o escopo no WhatsApp e fechamos o melhor formato para sua operacao."
     },
     features: [
-      "Pedidos do iFood entrando no sistema",
-      "Atendimento e pedidos pelo WhatsApp",
-      "Pode usar tambem pela web",
-      "Entrega por zona com taxa configuravel",
-      "Cardapio, atendimento, entrega e impressao ajustados ao seu jeito",
-      "Garcom no celular em tempo real",
-      "Sincronizacao entre caixa, web, atendimento e cozinha",
-      "Pedidos online, mesas, comandas e visao gerencial"
+      "Configuracoes especiais para a rotina da loja",
+      "Multiloja ou operacao com varias unidades",
+      "Migracao maior de dados e cadastros",
+      "Relatorios customizados",
+      "Integracao fiscal conforme necessidade",
+      "Cardapio amplo e regras especificas",
+      "Automacoes e fluxos especiais sob escopo",
+      "Implantacao combinada com o vendedor"
     ],
-    featured: true,
     whatsappOnly: true
   }
 ];
 
 const faqs = [
-  ["Qual plano eu escolho?", "Offline e para caixa local no Windows. Online e para quem quer web, WhatsApp, iFood, garcom no celular e sincronizacao."],
+  ["Qual plano eu escolho?", "Offline e para caixa local no Windows. Hibrido Online inclui web, cardapio, garcom, iFood e Mercado Pago sem WhatsApp. Completo adiciona WhatsApp."],
   ["Funciona sem internet?", "No Offline, sim: o caixa continua vendendo localmente. Recursos online, nuvem e integracoes precisam de internet."],
   ["O sistema emite nota fiscal?", "O comprovante do PDV e operacional e nao substitui documento fiscal. Emissao fiscal ou integracao fiscal deve ser consultada conforme sua cidade e estado."],
   ["Da para personalizar?", "Sim. Fluxo, cardapio, entregas, impressao, usuarios e relatorios podem ser ajustados. Personalizacoes tem valores sob consulta."],
-  ["Tem WhatsApp, iFood e garcom?", "No Online, sim, conforme contratacao e configuracao das contas. Algumas integracoes dependem de aprovacao e credenciais do terceiro."],
+  ["Tem WhatsApp, iFood e garcom?", "Garcom, web, iFood e Mercado Pago entram no Hibrido Online conforme escopo. WhatsApp entra no plano Completo."],
   ["Posso usar em mais de um computador?", "Offline e licenca por computador. Online pode conectar equipe, web e dispositivos conforme plano e configuracao combinada."],
   ["Como funciona instalacao e suporte?", "Orientamos instalacao Windows, ativacao, primeiros cadastros, impressora, pagamentos e uso do caixa. Migracoes e integracoes especiais sao combinadas."],
   ["Posso testar antes de contratar?", "Sim. A pagina tem demo do caixa e o instalador Windows para conhecer o fluxo. Para Online, chame no WhatsApp e alinhamos seu cenario."]
@@ -86,69 +126,60 @@ function SellerLinks() {
   );
 }
 
-export default function Page() {
+export default function Page({ searchParams }) {
+  const checkoutSessionId = searchParams?.checkout === "sucesso" ? searchParams?.session_id : "";
+
+  if (checkoutSessionId) {
+    return <PaymentSuccess sessionId={checkoutSessionId} />;
+  }
+
   return (
     <main className="lpPage">
       <SiteHeader id="inicio" />
 
-      <section className="lpHero lpHeroProduct">
+      <section className="lpHero lpHeroProduct lpHeroDark">
         <div className="lpHeroCopy">
-          <p className="lpKicker">PDV Windows e online para restaurante, bar e delivery</p>
-          <h1>Balcao Livre PDV para caixa, comandas e delivery.</h1>
+          <p className="lpKicker">PDV online e offline para restaurante</p>
+          <h1>O PDV que coloca seu restaurante no controle.</h1>
           <p className="lpLead">
-            Venda no Windows, controle mesas e estoque, receba no Pix ou cartao e acompanhe a operacao sem depender de planilha.
+            Caixa, mesas, delivery, estoque, garcom web, iFood, WhatsApp e Mercado Pago em uma rotina so.
           </p>
           <div className="lpHeroActions">
-            <a className="lpSolidButton lpLargeButton" href={downloadUrl}>Baixar Windows</a>
+            <a className="lpSolidButton lpLargeButton" href="#instaladores">Baixar Windows</a>
+            <a className="lpGhostButton lpLargeButton" href={sellers[0].href}>Pedir demonstracao</a>
             <a className="lpGhostButton lpLargeButton" href="#demo-pdv">Testar demo</a>
           </div>
           <dl className="lpHeroStats" aria-label="Resumo do produto">
-            <div><dt>Offline</dt><dd>caixa vendendo mesmo sem internet</dd></div>
-            <div><dt>Online</dt><dd>iFood, WhatsApp, web e garcom</dd></div>
-            <div><dt>Instalador</dt><dd>pronto para computador Windows</dd></div>
+            <div><dt>Offline e online</dt><dd>caixa local com operacao conectada quando precisar</dd></div>
+            <div><dt>Restaurantes</dt><dd>feito para bar, lanchonete, pizzaria, acai e delivery</dd></div>
+            <div><dt>Venda clara</dt><dd>pedido, pagamento, estoque e comprovante no mesmo fluxo</dd></div>
           </dl>
         </div>
 
-        <div className="lpSystemPanel lpHeroConsole" aria-label="Previa visual do sistema">
-          <div className="lpConsoleBar">
-            <span>Caixa aberto</span>
-            <strong>R$ 184,00</strong>
+        <div className="lpHeroVisual" aria-label="Tela real do Balcao Livre PDV">
+          <div className="lpVisualGlow" aria-hidden="true"></div>
+          <div className="lpLaptopMock">
+            <div className="lpLaptopTop">
+              <span>Balcao Livre PDV Online</span>
+              <b>Caixa aberto</b>
+            </div>
+            <div
+              className="lpLaptopScreen"
+              role="img"
+              aria-label="Tela atual do modo guia do Balcao Livre PDV"
+              style={{ "--screen-image": "url('/guide/windows-pdv/01-comandas-mesas.png')" }}
+            />
           </div>
-          <div className="lpConsoleBody">
-            <section className="lpOrderPane">
-              <div className="lpOrderHeader">
-                <span>Comanda 000012</span>
-                <b>Mesa 12 | Garcom 02</b>
-              </div>
-              <div className="lpOrderRows">
-                <p><span>000003</span><strong>X-Burger</strong><b>R$ 18,00</b></p>
-                <p><span>000005</span><strong>Batata frita</strong><b>R$ 14,00</b></p>
-                <p><span>000004</span><strong>Suco natural</strong><b>R$ 9,00</b></p>
-              </div>
-              <div className="lpOrderTotal">
-                <span>Total</span>
-                <strong>R$ 41,00</strong>
-              </div>
-            </section>
-            <section className="lpCheckoutPane">
-              <div>
-                <span>Pagamento</span>
-                <strong>Pix</strong>
-              </div>
-              <div>
-                <span>Recebido</span>
-                <strong>R$ 41,00</strong>
-              </div>
-              <div>
-                <span>Troco</span>
-                <strong>R$ 0,00</strong>
-              </div>
-              <button type="button">Finalizar venda</button>
-            </section>
+          <div className="lpPhoneMock" aria-label="Resumo no celular">
+            <span>Pedidos</span>
+            <strong>Mesa 03</strong>
+            <p>Pedido enviado para o caixa em tempo real.</p>
+            <b>Garcom web</b>
           </div>
-          <div className="lpConsoleFooter">
-            <span>Estoque baixado automaticamente</span>
-            <b>Comprovante pronto para imprimir</b>
+          <div className="lpHeroTiles" aria-label="Modulos principais">
+            <span><b>iFood</b>pedido no fluxo</span>
+            <span><b>WhatsApp</b>atendimento comercial</span>
+            <span><b>Mercado Pago</b>Pix e cartao</span>
           </div>
         </div>
       </section>
@@ -158,6 +189,37 @@ export default function Page() {
         <span><b>Fechamento claro</b>dinheiro, Pix, cartao e retiradas</span>
         <span><b>Comanda simples</b>mesa, balcao, delivery e fiado</span>
         <span><b>Estoque controlado</b>baixa automatica e alerta de minimo</span>
+      </section>
+
+      <section className="lpSection lpInstallerSection" id="instaladores">
+        <div className="lpSectionHead">
+          <p className="lpKicker">Instaladores e teste</p>
+          <h2>Baixe o instalador e teste o PDV por 7 dias.</h2>
+          <p>Teste caixa, mesas, estoque, impressao e Mercado Pago. WhatsApp e iFood entram somente no plano pago.</p>
+        </div>
+        <div className="lpInstallerGrid">
+          <article className="lpInstallerCard">
+            <div className="lpInstallerTop"><span>Offline</span><b>Caixa local</b></div>
+            <h3>Instalador PDV Offline</h3>
+            <p>Para testar o caixa Windows local, vendas, mesas, estoque, pagamentos e impressao sem depender da internet.</p>
+            <a className="lpSolidButton lpLargeButton" href={downloadUrl}>Baixar instalador Offline</a>
+            <div className="lpTrialFlow">
+              <span>Teste completo do caixa</span>
+              <p>Venda no Windows, imprima comprovante, controle estoque e teste Mercado Pago no fluxo do PDV.</p>
+            </div>
+          </article>
+          <article className="lpInstallerCard lpInstallerCardOnline">
+            <div className="lpInstallerTop"><span>Online</span><b>Conectado</b></div>
+            <h3>Instalador PDV Online</h3>
+            <p>Para testar PDV conectado, cardapio, web, sincronizacao e equipe. iFood e WhatsApp sao liberados somente em plano pago.</p>
+            <a className="lpSolidButton lpLargeButton" href={onlineDownloadUrl}>Baixar instalador Online</a>
+            <div className="lpTrialFlow">
+              <span>Teste conectado</span>
+              <p>Use PDV web, cardapio, sincronizacao e Mercado Pago. WhatsApp e iFood ficam para contratacao paga.</p>
+            </div>
+            <p className="lpPaidOnlyNote">Mercado Pago disponivel para teste no PDV. WhatsApp, iFood, homologacao e automacoes conectadas entram apenas depois da contratacao paga.</p>
+          </article>
+        </div>
       </section>
 
       <div id="demo-pdv" className="lpDemoReturn">
@@ -261,50 +323,42 @@ export default function Page() {
           <p>Os dois planos mantem o foco no PDV. A diferenca esta no nivel de integracao e acompanhamento em tempo real.</p>
         </div>
 
-        <div className="lpPlans">
+        <div className="lpPlanCompare">
           {plans.map((plan) => (
-            <article className={`lpPlan ${plan.featured ? "lpPlanFeatured" : ""}`} key={plan.id}>
-              <div className="lpPlanTop">
+            <article className={`lpPlanColumn ${plan.featured ? "lpPlanColumnFeatured" : ""}`} key={plan.id}>
+              <div className="lpPlanColumnHead">
                 <span>{plan.order}</span>
                 <b>{plan.label}</b>
+                <h3>{plan.title}</h3>
+                <p>{plan.description}</p>
               </div>
-              <h3>{plan.title}</h3>
-              <p>{plan.description}</p>
-            <div className="lpPriceRows">
-              <div><span>Mensal</span><strong>{plan.monthly}</strong></div>
-              <div><span>Anual</span><strong>{plan.annual}</strong></div>
-            </div>
-            {plan.custom ? (
-              <div className="lpPlanCustom">
-                <span>{plan.custom.label}</span>
-                <strong>{plan.custom.text}</strong>
+              <div className="lpPlanColumnPrice">
+                <div><span>Mensal</span><strong>{plan.monthly}</strong></div>
+                <div><span>Anual</span><strong>{plan.annual}</strong></div>
               </div>
-            ) : null}
-            <ul>
-              {plan.features.map((feature) => <li key={feature}>{feature}</li>)}
-            </ul>
+              {plan.custom ? (
+                <div className="lpPlanCustom">
+                  <span>{plan.custom.label}</span>
+                  <strong>{plan.custom.text}</strong>
+                </div>
+              ) : null}
+              <ul>
+                {plan.features.slice(0, 6).map((feature) => <li key={feature}>{feature}</li>)}
+              </ul>
               {plan.whatsappOnly ? (
-                <>
-                  <div className="lpPlanActions">
-                    <a className="lpPlanButton" href={sellers[0].href}>Consultar no WhatsApp</a>
-                  </div>
-                  <div className="lpPlanActions">
-                    <a className="lpPlanButton lpPlanButtonMuted" href={sellers[1].href}>Falar com Lucas</a>
-                  </div>
-                </>
+                <a className="lpPlanButton" href={sellers[0].href}>Consultar no WhatsApp</a>
               ) : (
-                <>
-                  <form action="/api/checkout" method="post" className="lpPlanActions">
+                <div className="lpPlanActions">
+                  <form action="/api/checkout" method="post">
                     <input type="hidden" name="plan" value={`${plan.id}-mensal`} />
-                    <button className="lpPlanButton" type="submit">Pagar mensal na Stripe</button>
+                    <button className="lpPlanButton" type="submit">Comprar mensal</button>
                   </form>
-                  <form action="/api/checkout" method="post" className="lpPlanActions">
+                  <form action="/api/checkout" method="post">
                     <input type="hidden" name="plan" value={`${plan.id}-anual`} />
-                    <button className="lpPlanButton lpPlanButtonMuted" type="submit">Pagar anual na Stripe</button>
+                    <button className="lpPlanButton lpPlanButtonSecondary" type="submit">Comprar anual</button>
                   </form>
-                </>
+                </div>
               )}
-              <SellerLinks />
             </article>
           ))}
         </div>
@@ -336,11 +390,15 @@ export default function Page() {
 
       <footer className="lpFooter">
         <div className="lpFooterBrand">
-          <img className="lpBrandLogo lpFooterBrandLogo" src="/balcao-livre-logo-v2.png" alt="Balcao Livre PDV" />
+          <img className="lpBrandIcon" src="/brand/bl-modern-icon.png" alt="" aria-hidden="true" />
+          <span className="lpBrandText">
+            <strong>Balcao Livre</strong>
+            <small>PDV Online</small>
+          </span>
         </div>
         <div className="lpFooterPitch">
           <b>PDV Windows para restaurante vender, imprimir e fechar caixa sem depender de gambiarra.</b>
-          <span>Offline para caixa local. Online para iFood, WhatsApp, web, zonas e garcom em tempo real.</span>
+          <span>Offline para caixa local. Online para web, zonas e garcom. iFood e WhatsApp somente no plano pago.</span>
         </div>
         <div className="lpFooterColumn">
           <b>Produto</b>

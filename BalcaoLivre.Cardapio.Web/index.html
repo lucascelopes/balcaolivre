@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0f766e">
   <title>Cardapio Digital</title>
-  <link rel="stylesheet" href="./styles.css?v=menu-polish4">
+  <link rel="stylesheet" href="./styles.css?v=discount-tab2">
   <script src="./config.js"></script>
 </head>
 <body>
@@ -45,7 +45,7 @@
       <span>Consulte as condicoes para seu bairro antes de finalizar.</span>
     </section>
 
-    <section class="coupon-card" data-nav-page="discounts">
+    <section class="coupon-card" data-nav-page="discounts" hidden>
       <div class="coupon-icon">
         <svg class="coupon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5A2.5 2.5 0 1 1 12 4.5V7Z"/><path d="M12 7h4.5A2.5 2.5 0 1 0 12 4.5V7Z"/></svg>
       </div>
@@ -87,7 +87,7 @@
     <section id="pageDiscounts" class="app-page" data-page-panel="discounts">
       <header class="discount-hero">
         <h2>Descontos</h2>
-        <div class="loyalty-card">
+        <div class="loyalty-card" hidden>
           <div>
             <strong>Fidelidade</strong>
             <span id="loyaltyProgressText">0 / 20</span>
@@ -167,6 +167,6 @@
     </nav>
   </main>
 
-  <script type="module" src="./app.js?v=menu-polish4"></script>
+  <script type="module" src="./app.js?v=discount-tab2"></script>
 </body>
 </html>

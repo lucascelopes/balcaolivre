@@ -1,13 +1,13 @@
-# Balcao Livre PDV - instalador e atualizacao
+# Balcao Livre PDV Online - instalador e atualizacao
 
-Este projeto publica o PDV como instalador independente `.exe`. O app consulta um `version.json`; se a versao publicada for maior que a instalada, ele baixa o instalador, instala em modo silencioso e reabre o PDV atualizado.
+Este projeto publica o PDV Online como instalador independente `.exe`. Ele usa nome, pasta, AppId e manifesto separados do RestaurantePro/offline, entao os dois podem ficar instalados na mesma maquina.
 
 ## Fluxo recomendado
 
 1. Gerar publish do app:
 
 ```powershell
-dotnet publish .\RestaurantePro.Windows\RestaurantePro.Windows.csproj -c Release -r win-x64 --self-contained true -o .\RestaurantePro.Windows\bin\Release\net9.0-windows\win-x64\publish-cliente-limpo-self-contained
+dotnet publish .\BalcaoLivre.Online.Windows\BalcaoLivre.Online.Windows.csproj -c Release -r win-x64 --self-contained true -o .\BalcaoLivre.Online.Windows\bin\Release\net9.0-windows\win-x64\publish-online-self-contained
 ```
 
 2. Gerar o instalador com Inno Setup:
@@ -21,8 +21,8 @@ winget install --id JRSoftware.InnoSetup -e --silent --accept-package-agreements
 
 ```text
 bucket: balcao-livre-updates
-path: windows/version.json
-path: windows/BalcaoLivrePDV-Setup-1.2.2026.exe
+path: windows-online/version.json
+path: windows-online/BalcaoLivrePDVOnline-Setup-1.6.2026.exe
 ```
 
 Ou publicar direto pelo script, usando a service role apenas no seu terminal:
@@ -35,7 +35,7 @@ $env:SUPABASE_SERVICE_ROLE_KEY = "sua-service-role-key"
 4. No app, a URL padrao de atualizacao fica em:
 
 ```text
-https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/version.json
+https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/version.json
 ```
 
 ## Como publicar uma nova versao

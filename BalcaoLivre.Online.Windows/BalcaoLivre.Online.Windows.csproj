@@ -13,10 +13,10 @@
     <AssemblyTitle>Balcão Livre PDV Online</AssemblyTitle>
     <Company>Nagazaki Software</Company>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
-    <Version>1.0.2026</Version>
-    <AssemblyVersion>1.0.2026.0</AssemblyVersion>
-    <FileVersion>1.0.2026.0</FileVersion>
-    <InformationalVersion>1.0.2026</InformationalVersion>
+    <Version>1.6.2026</Version>
+    <AssemblyVersion>1.6.2026.0</AssemblyVersion>
+    <FileVersion>1.6.2026.0</FileVersion>
+    <InformationalVersion>1.6.2026</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
@@ -32,6 +32,18 @@
     </Content>
     <Content Include="Assets\ifood-order-alert.mp3">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="PlugPag\x64\BTSerial.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>BTSerial.dll</Link>
+    </Content>
+    <Content Include="PlugPag\x64\PlugPag.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>PlugPag.dll</Link>
+    </Content>
+    <Content Include="PlugPag\x64\PPPagSeguro.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>PPPagSeguro.dll</Link>
     </Content>
     <Content Include="..\BalcaoLivre.WhatsAppExtension\**\*">
       <Link>BalcaoLivre.WhatsAppExtension\%(RecursiveDir)%(Filename)%(Extension)</Link>

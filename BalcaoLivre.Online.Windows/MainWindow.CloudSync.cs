@@ -118,6 +118,7 @@ public partial class MainWindow
             {
                 _appSettings.LastCentralSyncAt = DateTime.Now;
                 SaveAppSettings();
+                ApplyRestaurantIdentity();
                 if (showStatus)
                 {
                     SetStatus("Sync central atualizado.");

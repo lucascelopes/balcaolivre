@@ -1389,7 +1389,7 @@ public partial class MainWindow
         {
             FontSize = 20,
             FontWeight = FontWeights.Bold,
-            Foreground = Solid("#18222B")
+            Foreground = Solid("#071A2C")
         };
         var status = new TextBlock
         {
@@ -1400,7 +1400,7 @@ public partial class MainWindow
         var hint = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             Margin = new Thickness(0, 8, 0, 0)
         };
         var badgeText = new TextBlock
@@ -1451,14 +1451,14 @@ public partial class MainWindow
                 && !settings.SendPulseActivationPending
                 && !string.IsNullOrWhiteSpace(phone);
             title.Text = active ? "WhatsApp conectado" : "WhatsApp precisa conectar";
-            badge.Background = Solid(active ? "#E8F7F4" : "#FFF2CB");
+            badge.Background = Solid(active ? "#E6FBF8" : "#FFF2CB");
             badge.BorderBrush = Solid(active ? "#BDE5DD" : "#F7D87A");
             badge.BorderThickness = new Thickness(1);
             badgeText.Foreground = active ? GreenText : AmberText;
             badgeText.Text = active ? "ATIVO" : "PENDENTE";
             status.Foreground = ok.HasValue
                 ? ok.Value ? GreenText : AmberText
-                : active ? GreenText : Solid("#667684");
+                : active ? GreenText : Solid("#5B6B7A");
             status.Text = message ?? (active
                 ? "Numero conectado na Meta. O PDV envia mensagens automaticas por esse WhatsApp."
                 : "Informe o numero da loja e conecte pela Meta. Depois disso os scripts saem pelo WhatsApp desse restaurante.");
@@ -1467,7 +1467,7 @@ public partial class MainWindow
                 : "O navegador vai abrir a tela segura da Meta Business. O PDV nao mostra chave, token ou mensagens scriptadas para o usuario.";
         }
 
-        var activate = DialogButton("Conectar numero", "#0F766E");
+        var activate = DialogButton("Conectar numero", "#08A99B");
         activate.Click += async (_, _) =>
         {
             SavePhone();
@@ -1511,7 +1511,7 @@ public partial class MainWindow
                 new TextBlock
                 {
                     Text = "Numero da loja",
-                    Foreground = Solid("#18222B"),
+                    Foreground = Solid("#071A2C"),
                     FontSize = 18,
                     FontWeight = FontWeights.Bold
                 },
@@ -1530,7 +1530,7 @@ public partial class MainWindow
                 new TextBlock
                 {
                     Text = "Ultimos envios",
-                    Foreground = Solid("#18222B"),
+                    Foreground = Solid("#071A2C"),
                     FontSize = 18,
                     FontWeight = FontWeights.Bold
                 },
@@ -1605,7 +1605,7 @@ public partial class MainWindow
         };
         var statusText = new TextBlock
         {
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 10, 0, 0)
@@ -1705,7 +1705,7 @@ public partial class MainWindow
                 CurrentBoard);
         }
 
-        var save = DialogButton("Salvar", "#0F766E");
+        var save = DialogButton("Salvar", "#08A99B");
         save.Click += (_, _) =>
         {
             SaveSendPulseSettingsFromInputs();
@@ -1714,12 +1714,12 @@ public partial class MainWindow
             SetStatus("WhatsApp SendPulse configurado.");
         };
 
-        var fetchBots = DialogButton("Buscar bots", "#245B91");
+        var fetchBots = DialogButton("Buscar bots", "#0B3A52");
         fetchBots.Click += async (_, _) =>
         {
             SaveSendPulseSettingsFromInputs();
             fetchBots.IsEnabled = false;
-            statusText.Foreground = Solid("#667684");
+            statusText.Foreground = Solid("#5B6B7A");
             statusText.Text = "Consultando bots do WhatsApp na SendPulse...";
             var result = await FetchSendPulseBotsAsync(settings);
             fetchBots.IsEnabled = true;
@@ -1743,11 +1743,11 @@ public partial class MainWindow
                 : $"Bots encontrados: {result.Bots.Count:N0}. Use o Bot ID do WhatsApp conectado.";
         };
 
-        var applyScript = DialogButton("Aplicar script", "#245B91");
+        var applyScript = DialogButton("Aplicar script", "#0B3A52");
         applyScript.Click += (_, _) => RefreshPreview();
         scriptSelector.SelectionChanged += (_, _) => RefreshPreview();
 
-        var sendTest = DialogButton("Enviar mensagem", "#0F766E");
+        var sendTest = DialogButton("Enviar mensagem", "#08A99B");
         sendTest.Click += async (_, _) =>
         {
             SaveSendPulseSettingsFromInputs();
@@ -1773,7 +1773,7 @@ public partial class MainWindow
             SaveStore();
             historyList.Items.Refresh();
             sendTest.IsEnabled = false;
-            statusText.Foreground = Solid("#667684");
+            statusText.Foreground = Solid("#5B6B7A");
             statusText.Text = "Enviando pela API SendPulse...";
             await SendWhatsAppLogViaSendPulseAsync(log);
             sendTest.IsEnabled = true;
@@ -1795,7 +1795,7 @@ public partial class MainWindow
                 new TextBlock
                 {
                     Text = "Conexao SendPulse",
-                    Foreground = Solid("#18222B"),
+                    Foreground = Solid("#071A2C"),
                     FontSize = 18,
                     FontWeight = FontWeights.Bold
                 },
@@ -1815,7 +1815,7 @@ public partial class MainWindow
                 new TextBlock
                 {
                     Text = "Mensagens scriptadas",
-                    Foreground = Solid("#18222B"),
+                    Foreground = Solid("#071A2C"),
                     FontSize = 18,
                     FontWeight = FontWeights.Bold
                 },
@@ -1835,7 +1835,7 @@ public partial class MainWindow
                 new TextBlock
                 {
                     Text = "Enviar para cliente",
-                    Foreground = Solid("#18222B"),
+                    Foreground = Solid("#071A2C"),
                     FontSize = 18,
                     FontWeight = FontWeights.Bold
                 },
@@ -1950,7 +1950,7 @@ public partial class MainWindow
             RefreshExtensionState();
         };
 
-        var resetConnector = DialogButton("Pausar atendimento", "#667684");
+        var resetConnector = DialogButton("Pausar atendimento", "#5B6B7A");
         resetConnector.HorizontalAlignment = HorizontalAlignment.Stretch;
         resetConnector.Width = double.NaN;
         resetConnector.Click += (_, _) =>

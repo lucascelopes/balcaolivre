@@ -3514,3 +3514,8 @@ h1 {
   font-size: 13px !important;
   line-height: 1.35 !important;
 }
+
+.coupon-card[hidden],
+.loyalty-card[hidden] {
+  display: none !important;
+}

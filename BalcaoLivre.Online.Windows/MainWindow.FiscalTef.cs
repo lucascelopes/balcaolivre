@@ -55,7 +55,7 @@ public partial class MainWindow
             TextWrapping = TextWrapping.Wrap
         };
 
-        var saveButton = DialogButton("Salvar modulo fiscal/TEF", "#0F766E");
+        var saveButton = DialogButton("Salvar modulo fiscal/TEF", "#08A99B");
         saveButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         saveButton.Width = double.NaN;
         saveButton.Click += (_, _) =>

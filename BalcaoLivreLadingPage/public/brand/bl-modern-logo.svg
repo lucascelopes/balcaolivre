@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 120" role="img" aria-label="Balcao Livre PDV">
+  <defs>
+    <linearGradient id="logoBg" x1="10" y1="8" x2="104" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#08263a"/>
+      <stop offset="1" stop-color="#03151f"/>
+    </linearGradient>
+    <linearGradient id="logoTeal" x1="78" y1="64" x2="109" y2="108" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5ff6ea"/>
+      <stop offset="1" stop-color="#08a99b"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="8" width="104" height="104" rx="20" fill="url(#logoBg)"/>
+  <path d="M22 30h33c13 0 22 7 22 18 0 8-4 13-11 16 9 3 14 9 14 20 0 14-10 22-26 22H22V30Zm21 18v10h11c5 0 7-2 7-5s-2-5-7-5H43Zm0 27v13h13c5 0 8-2 8-6s-3-7-8-7H43Z" fill="#ffffff"/>
+  <path d="M82 30h22v56h16v20H82V30Z" fill="#ffffff"/>
+  <g transform="translate(76 67)">
+    <rect x="9" y="0" width="29" height="34" rx="6" fill="none" stroke="url(#logoTeal)" stroke-width="5"/>
+    <path d="M4 13c0-5 4-9 9-9h19v43l-5-4-5 4-5-4-5 4-8-6V13Z" fill="url(#logoTeal)"/>
+    <rect x="13" y="16" width="20" height="4" rx="2" fill="#062230"/>
+    <rect x="13" y="26" width="13" height="4" rx="2" fill="#062230"/>
+  </g>
+  <text x="130" y="55" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="900">Balcao Livre</text>
+  <text x="132" y="86" fill="#62efe4" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="800">PDV ONLINE</text>
+</svg>

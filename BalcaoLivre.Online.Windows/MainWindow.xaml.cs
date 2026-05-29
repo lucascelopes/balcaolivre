@@ -53,8 +53,11 @@ public partial class MainWindow : Window
 {
     private const string AppDisplayName = "Balcao Livre PDV Online";
     private const string AppReceiptName = "BALCAO LIVRE PDV ONLINE";
-    private const string DefaultUpdateManifestUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/version.json";
+    private const string DefaultUpdateManifestUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/version.json";
     private const string DefaultAdminApiUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/license";
+    private const string DefaultPaymentsApiUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/payments";
+    private const string DefaultPagBankApiUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/pagbank";
+    private const string LegacyAdminApiUrl = "https://balcaolivrepdv.onrender.com";
     private const string DefaultWhatsAppFunctionUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/whatsapp";
     private const string PublicMenuApexHost = "balcaolivrepdv.com.br";
     private const string PublicMenuHost = "cardapio.balcaolivrepdv.com.br";
@@ -63,11 +66,23 @@ public partial class MainWindow : Window
     private const string PasswordHashPrefix = "PBKDF2";
     private static readonly CultureInfo Brazil = CultureInfo.GetCultureInfo("pt-BR");
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
-    private static readonly Brush GreenTile = Solid("#9CE083");
-    private static readonly Brush AmberTile = Solid("#F7D87A");
-    private static readonly Brush RedTile = Solid("#F5A09A");
-    private static readonly Brush BlueSoft = Solid("#E8F1FA");
-    private static readonly Brush GreenSoft = Solid("#EAF8EF");
+    private static readonly Brush FreeTile = Solid("#73E7DE");
+    private static readonly Brush NewTile = Solid("#8BC7FF");
+    private static readonly Brush OccupiedTile = Solid("#F6B26B");
+    private static readonly Brush PrepTile = Solid("#F4CC61");
+    private static readonly Brush PreparingTile = Solid("#F0B15A");
+    private static readonly Brush ConfirmedTile = Solid("#D8D96B");
+    private static readonly Brush AcceptedTile = Solid("#A6D977");
+    private static readonly Brush AccountTile = Solid("#B7C4D8");
+    private static readonly Brush WaitingTile = Solid("#D9D76D");
+    private static readonly Brush RouteTile = Solid("#B59CFF");
+    private static readonly Brush ReadyTile = Solid("#8FDB7A");
+    private static readonly Brush DispatchedTile = Solid("#67DCCB");
+    private static readonly Brush DeliveredTile = Solid("#9BE58F");
+    private static readonly Brush CancellationRequestedTile = Solid("#D8A06D");
+    private static readonly Brush CancelledTile = Solid("#F49A93");
+    private static readonly Brush BlueSoft = Solid("#EAF8FA");
+    private static readonly Brush GreenSoft = Solid("#E6FBF8");
     private static readonly Brush GreenText = Solid("#176B36");
     private static readonly Brush AmberSoft = Solid("#FFF2CB");
     private static readonly Brush AmberText = Solid("#99620D");
@@ -77,13 +92,57 @@ public partial class MainWindow : Window
     private const string ServiceCode = "900002";
     private const double RibbonScrollStep = 260;
     private static readonly int[] ActivationWarningDays = [1, 3, 7, 15, 30];
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public struct PlugPagTransactionResult
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 65543)]
+        public string RawBuffer;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 1024)]
+        public string Message;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 33)]
+        public string TransactionCode;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 11)]
+        public string Date;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 9)]
+        public string Time;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 13)]
+        public string HostNsu;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 31)]
+        public string CardBrand;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 7)]
+        public string Bin;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 5)]
+        public string Holder;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 11)]
+        public string UserReference;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 66)]
+        public string TerminalSerialNumber;
+    }
+
+    [DllImport("PPPagSeguro.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    private static extern int InitBTConnection(byte[] comport);
+
+    [DllImport("PPPagSeguro.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    private static extern int SetVersionName(byte[] appName, byte[] version);
+
+    [DllImport("PPPagSeguro.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    private static extern int SimplePaymentTransaction(
+        int paymentMethod,
+        int installmentType,
+        int installments,
+        byte[] amount,
+        byte[] userReference,
+        IntPtr transactionResult);
     private readonly DispatcherTimer _toastTimer = new() { Interval = TimeSpan.FromSeconds(2.8) };
     private readonly DispatcherTimer _licenseTimer = new() { Interval = TimeSpan.FromSeconds(5) };
-    private readonly DispatcherTimer _ifoodSyncTimer = new() { Interval = TimeSpan.FromSeconds(5) };
+    private readonly DispatcherTimer _ifoodSyncTimer = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly DispatcherTimer _deliveryCountdownTimer = new() { Interval = TimeSpan.FromSeconds(1) };
-    private readonly DispatcherTimer _supportPollTimer = new() { Interval = TimeSpan.FromSeconds(60) };
+    private readonly DispatcherTimer _supportPollTimer = new() { Interval = TimeSpan.FromSeconds(10) };
     private readonly DispatcherTimer _publicMenuPublishTimer = new() { Interval = TimeSpan.FromSeconds(7) };
     private readonly DispatcherTimer _publicMenuOrderPollTimer = new() { Interval = TimeSpan.FromSeconds(8) };
+    private readonly DispatcherTimer _kitchenPrintBatchTimer = new() { Interval = TimeSpan.FromSeconds(4) };
+    private readonly Dictionary<TableTile, HashSet<TicketLine>> _pendingKitchenPrintLines = [];
     private readonly IFoodCloudClient _ifoodClient = new();
 
     private readonly string _dataRoot = Path.Combine(
@@ -98,6 +157,8 @@ public partial class MainWindow : Window
     private bool _supportPollRunning;
     private DateTimeOffset? _lastSupportAdminMessageAt;
     private bool _updatingTableSelection;
+    private bool _ifoodPresenceLoopStarted;
+    private readonly object _settingsFileLock = new();
     private decimal _cashTotal;
     private string _currentUser = "";
     private LocalHubSettings _settings = new();
@@ -117,6 +178,7 @@ public partial class MainWindow : Window
     private bool _suppressNextToastSound;
     private MediaPlayer? _ifoodAlertPlayer;
     private DateTime _lastIFoodSyncErrorAt = DateTime.MinValue;
+    private DateTime _lastIFoodCatalogSyncUtc = DateTime.MinValue;
     private DateTime _lastPublicMenuOrderSyncErrorAt = DateTime.MinValue;
 
     public ObservableCollection<RibbonAction> RibbonActions { get; } = [];
@@ -165,6 +227,7 @@ public partial class MainWindow : Window
         _deliveryCountdownTimer.Tick += (_, _) => RefreshDeliveryCountdownTiles();
         _supportPollTimer.Tick += async (_, _) => await PollSupportNotificationsAsync();
         _publicMenuOrderPollTimer.Tick += async (_, _) => await PollPublicMenuOrdersAsync();
+        _kitchenPrintBatchTimer.Tick += (_, _) => FlushPendingKitchenPrints();
         _publicMenuPublishTimer.Tick += async (_, _) =>
         {
             _publicMenuPublishTimer.Stop();
@@ -176,6 +239,8 @@ public partial class MainWindow : Window
         ApplyRestaurantIdentity();
         SeedStaticUi();
         LoadStore();
+        _ = SyncIFoodPresenceOnceAsync();
+        StartIFoodPresenceLoop();
         ResetWhatsAppRuntimeState();
         SaveAppSettings();
         DataContext = this;
@@ -192,6 +257,13 @@ public partial class MainWindow : Window
         _ = StartWaiterServerAsync();
         Loaded += (_, _) =>
         {
+            if (_appSettings.IFood?.HasCloudConnection == true)
+            {
+                _ifoodSyncTimer.Start();
+                _ = AutoImportIFoodOrdersAsync(force: true);
+                StartIFoodPresenceLoop();
+            }
+
             if (!RequireStartupLogin())
             {
                 return;
@@ -202,7 +274,10 @@ public partial class MainWindow : Window
             SelectArea(KeyboardArea.Ticket);
             SetStatus("Digite a mesa e pressione Enter. Modo online pronto; caixa local continua funcionando.");
             _licenseTimer.Start();
-            _ifoodSyncTimer.Start();
+            if (!_ifoodSyncTimer.IsEnabled)
+            {
+                _ifoodSyncTimer.Start();
+            }
             _deliveryCountdownTimer.Start();
             _supportPollTimer.Start();
             _publicMenuOrderPollTimer.Start();
@@ -491,6 +566,7 @@ public partial class MainWindow : Window
                 {
                     _appSettings.LastAdminSyncAt = DateTime.Now;
                     SaveAppSettings();
+                    ApplyRestaurantIdentity();
                 });
             }
         });
@@ -518,6 +594,1364 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task<T> PostPaymentsOperationAsync<T>(string path, AdminClientPayload payload, TimeSpan timeout)
+        where T : AdminMercadoPagoResult, new()
+    {
+        var endpoint = BuildPaymentsApiUri(path);
+        if (endpoint is null)
+        {
+            return new T { Ok = false, Message = "URL de pagamentos invalida." };
+        }
+
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = timeout };
+            using var content = new StringContent(JsonSerializer.Serialize(payload, payload.GetType(), JsonOptions), Encoding.UTF8, "application/json");
+            using var response = await client.PostAsync(endpoint, content);
+            var body = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<T>(body, JsonOptions) ?? new T
+            {
+                Ok = response.IsSuccessStatusCode,
+                Message = response.IsSuccessStatusCode ? "" : body
+            };
+
+            if (!response.IsSuccessStatusCode && string.IsNullOrWhiteSpace(result.Message))
+            {
+                result.Message = string.IsNullOrWhiteSpace(body)
+                    ? $"Admin retornou {(int)response.StatusCode}."
+                    : body;
+            }
+
+            return result;
+        }
+        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException)
+        {
+            Debug.WriteLine($"Admin operation failed ({path}): {ex.Message}");
+            return new T { Ok = false, Message = "Nao foi possivel falar com o Supabase agora." };
+        }
+    }
+
+    private async Task<T> PostPagBankOperationAsync<T>(string path, AdminClientPayload payload, TimeSpan timeout)
+        where T : AdminMercadoPagoResult, new()
+    {
+        var endpoint = BuildAdminApiUri(DefaultPagBankApiUrl, path);
+        if (endpoint is null)
+        {
+            return new T { Ok = false, Message = "URL do PagBank invalida." };
+        }
+
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = timeout };
+            using var content = new StringContent(JsonSerializer.Serialize(payload, payload.GetType(), JsonOptions), Encoding.UTF8, "application/json");
+            using var response = await client.PostAsync(endpoint, content);
+            var body = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<T>(body, JsonOptions) ?? new T
+            {
+                Ok = response.IsSuccessStatusCode,
+                Message = response.IsSuccessStatusCode ? "" : body
+            };
+
+            if (!response.IsSuccessStatusCode && string.IsNullOrWhiteSpace(result.Message))
+            {
+                result.Message = string.IsNullOrWhiteSpace(body)
+                    ? $"PagBank retornou {(int)response.StatusCode}."
+                    : body;
+            }
+
+            return result;
+        }
+        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException)
+        {
+            Debug.WriteLine($"PagBank operation failed ({path}): {ex.Message}");
+            return new T { Ok = false, Message = "Nao foi possivel falar com o Supabase agora." };
+        }
+    }
+
+    private Task<AdminMercadoPagoConnectResult> StartMercadoPagoConnectAsync()
+    {
+        var payload = FillAdminPayload(new AdminClientPayload(), "mercadopago.connect.start");
+        return PostPaymentsOperationAsync<AdminMercadoPagoConnectResult>(
+            "/mercadopago/connect/start",
+            payload,
+            TimeSpan.FromSeconds(10));
+    }
+
+    private Task<AdminMercadoPagoConnectionStatusResult> FetchMercadoPagoConnectionStatusAsync()
+    {
+        var payload = FillAdminPayload(new AdminClientPayload(), "mercadopago.status");
+        return PostPaymentsOperationAsync<AdminMercadoPagoConnectionStatusResult>(
+            "/mercadopago/status",
+            payload,
+            TimeSpan.FromSeconds(10));
+    }
+
+    private Task<AdminMercadoPagoTerminalsResult> FetchMercadoPagoTerminalsAsync()
+    {
+        var payload = FillAdminPayload(new AdminClientPayload(), "mercadopago.terminals");
+        return PostPaymentsOperationAsync<AdminMercadoPagoTerminalsResult>(
+            "/mercadopago/terminals",
+            payload,
+            TimeSpan.FromSeconds(14));
+    }
+
+    private Task<AdminMercadoPagoResult> SelectMercadoPagoTerminalAsync(string terminalId, string terminalLabel)
+    {
+        var payload = FillAdminPayload(new AdminMercadoPagoTerminalPayload
+        {
+            TerminalId = terminalId,
+            TerminalLabel = terminalLabel
+        }, "mercadopago.terminal.select");
+        return PostPaymentsOperationAsync<AdminMercadoPagoResult>(
+            "/mercadopago/terminal/select",
+            payload,
+            TimeSpan.FromSeconds(10));
+    }
+
+    private Task<AdminMercadoPagoChargeResult> CreateMercadoPagoPointChargeAsync(decimal amount, string method, string localReference, string description)
+    {
+        var payload = FillAdminPayload(new AdminMercadoPagoChargePayload
+        {
+            Amount = MercadoPagoAmountValue(amount),
+            Method = method,
+            LocalReference = localReference,
+            Description = description,
+            TerminalId = _appSettings.MercadoPago.DefaultTerminalId,
+            Items = BuildMercadoPagoChargeItems()
+        }, "mercadopago.point.charge");
+        return PostPaymentsOperationAsync<AdminMercadoPagoChargeResult>(
+            "/mercadopago/point/charge",
+            payload,
+            TimeSpan.FromSeconds(14));
+    }
+
+    private Task<AdminMercadoPagoPointStatusResult> FetchMercadoPagoPointStatusAsync(string attemptId, string orderId, string localReference)
+    {
+        var payload = FillAdminPayload(new AdminMercadoPagoPointStatusPayload
+        {
+            AttemptId = attemptId,
+            OrderId = orderId,
+            LocalReference = localReference
+        }, "mercadopago.point.status");
+        return PostPaymentsOperationAsync<AdminMercadoPagoPointStatusResult>(
+            "/mercadopago/point/status",
+            payload,
+            TimeSpan.FromSeconds(10));
+    }
+
+    private Task<AdminMercadoPagoWebChargeResult> CreateMercadoPagoWebChargeAsync(decimal amount, string method, string localReference, string description, string payer)
+    {
+        var payload = FillAdminPayload(new AdminMercadoPagoWebChargePayload
+        {
+            Amount = MercadoPagoAmountValue(amount),
+            Method = method,
+            LocalReference = localReference,
+            Description = description,
+            PayerName = payer,
+            Items = BuildMercadoPagoChargeItems()
+        }, "mercadopago.web.charge");
+        return PostPaymentsOperationAsync<AdminMercadoPagoWebChargeResult>(
+            "/mercadopago/web/charge",
+            payload,
+            TimeSpan.FromSeconds(18));
+    }
+
+    private Task<AdminMercadoPagoPointStatusResult> FetchMercadoPagoWebStatusAsync(string attemptId, string orderId, string localReference)
+    {
+        var payload = FillAdminPayload(new AdminMercadoPagoPointStatusPayload
+        {
+            AttemptId = attemptId,
+            OrderId = orderId,
+            LocalReference = localReference
+        }, "mercadopago.web.status");
+        return PostPaymentsOperationAsync<AdminMercadoPagoPointStatusResult>(
+            "/mercadopago/web/status",
+            payload,
+            TimeSpan.FromSeconds(10));
+    }
+
+    private void ApplyMercadoPagoStatus(AdminMercadoPagoConnectionStatusResult result)
+    {
+        _appSettings.MercadoPago ??= new MercadoPagoPaymentSettings();
+        _appSettings.MercadoPago.Connected = result.Ok && result.Connected;
+        _appSettings.MercadoPago.SellerUserId = result.SellerUserId ?? "";
+        _appSettings.MercadoPago.LastError = result.LastError ?? "";
+        if (!string.IsNullOrWhiteSpace(result.SelectedTerminalId))
+        {
+            _appSettings.MercadoPago.DefaultTerminalId = result.SelectedTerminalId.Trim();
+            _appSettings.MercadoPago.DefaultTerminalLabel = string.IsNullOrWhiteSpace(result.SelectedTerminalLabel)
+                ? result.SelectedTerminalId.Trim()
+                : result.SelectedTerminalLabel.Trim();
+        }
+
+        if (DateTime.TryParse(result.LastSyncAt, Brazil, DateTimeStyles.AssumeLocal, out var lastSync))
+        {
+            _appSettings.MercadoPago.LastSyncAt = lastSync;
+        }
+    }
+
+    private bool IsMercadoPagoPointReady(string method)
+    {
+        if (!_appSettings.MercadoPago.Enabled || !_appSettings.MercadoPago.Connected)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_appSettings.MercadoPago.DefaultTerminalId))
+        {
+            return false;
+        }
+
+        return method is "CREDITO" or "DEBITO";
+    }
+
+    private async Task<PaymentLine?> ProcessMercadoPagoPaymentAsync(string method, decimal amount, string payer, Window owner)
+    {
+        if (!_appSettings.MercadoPago.Enabled)
+        {
+            return null;
+        }
+
+        if (!_appSettings.MercadoPago.Connected)
+        {
+            System.Windows.MessageBox.Show(owner, "Conecte a conta Mercado Pago em Config antes de cobrar.", "Mercado Pago", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        var hasTerminal = !string.IsNullOrWhiteSpace(_appSettings.MercadoPago.DefaultTerminalId);
+        var mode = ChooseMercadoPagoCollectionMode(method, hasTerminal, owner);
+        if (string.IsNullOrWhiteSpace(mode))
+        {
+            return null;
+        }
+
+        return mode == "POINT"
+            ? await ProcessMercadoPagoPointPaymentAsync(method, amount, payer, owner)
+            : await ProcessMercadoPagoWebPaymentAsync(method, amount, payer, owner);
+    }
+
+    private string ChooseMercadoPagoCollectionMode(string method, bool hasTerminal, Window owner)
+    {
+        if (!hasTerminal)
+        {
+            return "WEB";
+        }
+
+        var result = "";
+        var isPix = method == "PIX";
+        var dialog = CreateDialog("Mercado Pago", 500, 360);
+        dialog.Owner = owner;
+        dialog.ResizeMode = ResizeMode.NoResize;
+
+        var primaryMode = isPix ? "WEB" : "POINT";
+        var secondaryMode = "WEB";
+        var primary = DialogButton(isPix ? "Gerar QR Pix" : "Enviar para Point", "#08A99B");
+        var secondary = DialogButton(isPix ? "Usar Pix copia-e-cola" : "Gerar link", "#2D73B9");
+        var cancel = DialogButton("Cancelar", "#5B6B7A");
+        foreach (var button in new[] { primary, secondary, cancel })
+        {
+            button.HorizontalAlignment = HorizontalAlignment.Stretch;
+            button.Width = double.NaN;
+        }
+
+        primary.Click += (_, _) =>
+        {
+            result = primaryMode;
+            dialog.Close();
+        };
+        secondary.Click += (_, _) =>
+        {
+            result = secondaryMode;
+            dialog.Close();
+        };
+        cancel.Click += (_, _) => dialog.Close();
+
+        var panel = DialogPanel();
+        panel.Children.Add(SectionTitle(isPix ? "Como cobrar este Pix?" : "Como cobrar este cartao?"));
+        panel.Children.Add(new TextBlock
+        {
+            Text = isPix
+                ? "O Pix sai por QR na tela ou copia-e-cola do Mercado Pago. A Point integrada via API fica para debito/credito; assim o PDV nao promete Pix na maquininha quando o Mercado Pago nao liberar."
+                : "A Point recebe a cobranca online pela conta Mercado Pago. Nao e por cabo USB: a maquininha precisa estar conectada na conta da loja e selecionada em Config.",
+            Foreground = Solid("#5B6B7A"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 14)
+        });
+        panel.Children.Add(primary);
+        if (!isPix)
+        {
+            panel.Children.Add(secondary);
+        }
+        panel.Children.Add(cancel);
+        dialog.Content = panel;
+        dialog.ShowDialog();
+        return result;
+    }
+
+    private async Task<PaymentLine?> ProcessMercadoPagoPointPaymentAsync(string method, decimal amount, string payer, Window owner)
+    {
+        if (!_appSettings.MercadoPago.Enabled)
+        {
+            return null;
+        }
+
+        if (!_appSettings.MercadoPago.Connected)
+        {
+            System.Windows.MessageBox.Show(owner, "Conecte a conta Mercado Pago em Config antes de cobrar na maquininha.", "Mercado Pago", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(_appSettings.MercadoPago.DefaultTerminalId))
+        {
+            System.Windows.MessageBox.Show(owner, "Escolha a maquininha Mercado Pago em Config antes de cobrar.", "Mercado Pago", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        var localReference = $"BLV-{DateTime.Now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..32].ToUpperInvariant();
+        var charge = await CreateMercadoPagoPointChargeAsync(
+            amount,
+            method,
+            localReference,
+            BuildMercadoPagoChargeDescription(method, amount));
+
+        if (!charge.Ok)
+        {
+            System.Windows.MessageBox.Show(owner, string.IsNullOrWhiteSpace(charge.Message) ? "Mercado Pago recusou a cobranca." : charge.Message, "Mercado Pago", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        var cancelled = false;
+        var paid = false;
+        var lastStatus = charge.Status;
+        var waitDialog = CreateDialog("Mercado Pago Point", 460, 270);
+        waitDialog.Owner = owner;
+        waitDialog.ResizeMode = ResizeMode.NoResize;
+        var statusText = new TextBlock
+        {
+            Text = $"Cobranca enviada para {_appSettings.MercadoPago.DefaultTerminalLabel}. Aguarde o pagamento.",
+            Foreground = Solid("#071A2C"),
+            FontSize = 16,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap
+        };
+        var detailText = new TextBlock
+        {
+            Text = $"Valor: {Money(amount)} | {method}",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 13,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        var cancel = DialogButton("Parar espera", "#5B6B7A");
+        cancel.HorizontalAlignment = HorizontalAlignment.Stretch;
+        cancel.Click += (_, _) =>
+        {
+            cancelled = true;
+            waitDialog.Close();
+        };
+        waitDialog.Closed += (_, _) => cancelled = !paid;
+        var panel = DialogPanel();
+        panel.Children.Add(SectionTitle(method == "PIX" ? "Confirme o Pix na maquininha" : "Passe o cartao na maquininha"));
+        panel.Children.Add(statusText);
+        panel.Children.Add(detailText);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "O PDV fecha a venda somente quando o Mercado Pago confirmar.",
+            Foreground = Solid("#5B6B7A"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 12, 0, 16)
+        });
+        panel.Children.Add(cancel);
+        waitDialog.Content = panel;
+        waitDialog.Show();
+
+        for (var attempt = 0; attempt < 45 && !cancelled; attempt++)
+        {
+            await Task.Delay(attempt == 0 ? 1200 : 2500);
+            if (cancelled)
+            {
+                break;
+            }
+
+            var status = await FetchMercadoPagoPointStatusAsync(charge.AttemptId, charge.OrderId, charge.LocalReference);
+            if (!status.Ok)
+            {
+                detailText.Text = string.IsNullOrWhiteSpace(status.Message)
+                    ? $"Aguardando retorno... ultima situacao: {TextOrDefault(lastStatus, "CRIADO")}"
+                    : status.Message;
+                continue;
+            }
+
+            lastStatus = TextOrDefault(status.Status, lastStatus);
+            detailText.Text = $"Situacao: {TextOrDefault(lastStatus, "aguardando")} | tentativa {attempt + 1}/45";
+            if (status.Paid)
+            {
+                paid = true;
+                waitDialog.Close();
+                return new PaymentLine
+                {
+                    Payer = string.IsNullOrWhiteSpace(payer) ? "Cliente" : payer.Trim(),
+                    Method = $"MP {method}",
+                    Amount = amount,
+                    TenderedAmount = amount,
+                    ChangeAmount = 0,
+                    When = DateTime.Now
+                };
+            }
+
+            if (IsMercadoPagoFinalFailure(lastStatus))
+            {
+                waitDialog.Close();
+                System.Windows.MessageBox.Show(owner, $"Pagamento nao aprovado: {lastStatus}", "Mercado Pago", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return null;
+            }
+        }
+
+        if (!paid && !cancelled)
+        {
+            waitDialog.Close();
+            System.Windows.MessageBox.Show(owner, "Ainda nao houve confirmacao do Mercado Pago. Confira a maquininha antes de tentar de novo.", "Mercado Pago", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        return null;
+    }
+
+    private async Task<PaymentLine?> ProcessMercadoPagoWebPaymentAsync(string method, decimal amount, string payer, Window owner)
+    {
+        var localReference = $"BLV-{DateTime.Now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..32].ToUpperInvariant();
+        var isPix = method == "PIX";
+        var charge = await CreateMercadoPagoWebChargeAsync(
+            amount,
+            method,
+            localReference,
+            BuildMercadoPagoWebChargeDescription(method, amount),
+            payer);
+
+        if (!charge.Ok)
+        {
+            System.Windows.MessageBox.Show(owner, string.IsNullOrWhiteSpace(charge.Message) ? "Mercado Pago recusou a cobranca." : charge.Message, "Mercado Pago", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        var displayPayload = isPix
+            ? TextOrDefault(charge.QrCode, charge.PaymentUrl)
+            : charge.PaymentUrl;
+        var qrSource = isPix
+            ? TryCreateBitmapFromBase64(charge.QrCodeBase64) ?? TryCreateQrBitmap(displayPayload, 8)
+            : TryCreateQrBitmap(displayPayload, 8);
+
+        if (string.IsNullOrWhiteSpace(displayPayload) || qrSource is null)
+        {
+            System.Windows.MessageBox.Show(owner, "Mercado Pago gerou a cobranca, mas nao retornou QR/link para exibir.", "Mercado Pago", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        var cancelled = false;
+        var paid = false;
+        var lastStatus = charge.Status;
+        var waitDialog = CreateDialog(isPix ? "Pix Mercado Pago" : "Pagamento Mercado Pago", 620, isPix ? 760 : 690);
+        waitDialog.Owner = owner;
+        waitDialog.ResizeMode = ResizeMode.NoResize;
+
+        var title = new TextBlock
+        {
+            Text = isPix ? "Mostre o QR Pix para o cliente" : "Mostre ou abra o link para o cliente pagar",
+            Foreground = Solid("#071A2C"),
+            FontSize = 22,
+            FontWeight = FontWeights.Bold,
+            TextWrapping = TextWrapping.Wrap
+        };
+        var subtitle = new TextBlock
+        {
+            Text = isPix
+                ? "O PDV fecha a venda somente quando o Mercado Pago confirmar o Pix."
+                : "O cliente paga pelo Mercado Pago. O PDV fecha a venda somente quando o pagamento for aprovado.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 13,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 14)
+        };
+        var image = new System.Windows.Controls.Image
+        {
+            Source = qrSource,
+            Width = 330,
+            Height = 330,
+            Stretch = Stretch.Uniform,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        var codeBox = new TextBox
+        {
+            Text = displayPayload,
+            IsReadOnly = true,
+            TextWrapping = TextWrapping.Wrap,
+            AcceptsReturn = true,
+            Height = isPix ? 92 : 62,
+            Margin = new Thickness(0, 0, 0, 12),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+        };
+        var statusText = new TextBlock
+        {
+            Text = $"Aguardando pagamento de {Money(amount)}...",
+            Foreground = Solid("#08A99B"),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 2, 0, 12)
+        };
+        var copy = DialogButton(isPix ? "Copiar Pix" : "Copiar link", "#5B6B7A");
+        var open = DialogButton(isPix ? "Abrir Pix" : "Abrir link", "#2D73B9");
+        var cancel = DialogButton("Parar espera", "#5B6B7A");
+        foreach (var button in new[] { copy, open, cancel })
+        {
+            button.HorizontalAlignment = HorizontalAlignment.Stretch;
+            button.Width = double.NaN;
+        }
+
+        copy.Click += (_, _) =>
+        {
+            try
+            {
+                System.Windows.Clipboard.SetText(displayPayload);
+                statusText.Text = isPix ? "Pix copia-e-cola copiado." : "Link copiado.";
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ExternalException)
+            {
+                statusText.Text = "Nao foi possivel copiar agora.";
+            }
+        };
+        open.Click += (_, _) =>
+        {
+            var url = TextOrDefault(charge.PaymentUrl, charge.TicketUrl);
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                statusText.Text = "Sem link para abrir. Use o QR/copia-e-cola.";
+                return;
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            }
+            catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+            {
+                statusText.Text = "Nao foi possivel abrir o link.";
+            }
+        };
+        cancel.Click += (_, _) =>
+        {
+            cancelled = true;
+            waitDialog.Close();
+        };
+        waitDialog.Closed += (_, _) => cancelled = !paid;
+
+        var buttons = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 0) };
+        buttons.Children.Add(copy);
+        buttons.Children.Add(open);
+        buttons.Children.Add(cancel);
+
+        var panel = DialogPanel();
+        panel.Children.Add(title);
+        panel.Children.Add(subtitle);
+        panel.Children.Add(image);
+        panel.Children.Add(DialogLabel(isPix ? "Pix copia-e-cola" : "Link de pagamento"));
+        panel.Children.Add(codeBox);
+        panel.Children.Add(statusText);
+        panel.Children.Add(buttons);
+        waitDialog.Content = panel;
+        waitDialog.Show();
+        _ = Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            if (TryPrintQrOnlyToDefaultPrinter(displayPayload, isPix ? "Mercado Pago Pix QR" : "Mercado Pago Link QR"))
+            {
+                statusText.Text = $"{(isPix ? "Pix" : "Link")} impresso em QR grande. Aguardando pagamento de {Money(amount)}...";
+            }
+        }));
+
+        for (var attempt = 0; attempt < 72 && !cancelled; attempt++)
+        {
+            await Task.Delay(attempt == 0 ? 1500 : 2500);
+            if (cancelled)
+            {
+                break;
+            }
+
+            var status = await FetchMercadoPagoWebStatusAsync(charge.AttemptId, charge.OrderId, charge.LocalReference);
+            if (!status.Ok)
+            {
+                statusText.Text = string.IsNullOrWhiteSpace(status.Message)
+                    ? $"Aguardando retorno... ultima situacao: {TextOrDefault(lastStatus, "CRIADO")}"
+                    : status.Message;
+                continue;
+            }
+
+            lastStatus = TextOrDefault(status.Status, lastStatus);
+            statusText.Text = $"Situacao: {TextOrDefault(lastStatus, "aguardando")} | tentativa {attempt + 1}/72";
+            if (status.Paid)
+            {
+                paid = true;
+                waitDialog.Close();
+                return new PaymentLine
+                {
+                    Payer = string.IsNullOrWhiteSpace(payer) ? "Cliente" : payer.Trim(),
+                    Method = isPix ? "MP PIX" : $"MP LINK {method}",
+                    Amount = amount,
+                    TenderedAmount = amount,
+                    ChangeAmount = 0,
+                    When = DateTime.Now
+                };
+            }
+
+            if (IsMercadoPagoFinalFailure(lastStatus))
+            {
+                waitDialog.Close();
+                System.Windows.MessageBox.Show(owner, $"Pagamento nao aprovado: {lastStatus}", "Mercado Pago", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return null;
+            }
+        }
+
+        if (!paid && !cancelled)
+        {
+            waitDialog.Close();
+            System.Windows.MessageBox.Show(owner, "Ainda nao houve confirmacao do Mercado Pago. Confira a conta antes de tentar de novo.", "Mercado Pago", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        return null;
+    }
+
+    private static bool IsMercadoPagoFinalFailure(string status)
+    {
+        var normalized = (status ?? "").Trim().ToUpperInvariant();
+        return normalized is "CANCELLED" or "CANCELED" or "FAILED" or "REJECTED" or "EXPIRED" or "REFUNDED";
+    }
+
+    private string BuildMercadoPagoChargeDescription(string method, decimal amount)
+    {
+        var merchantName = FirstNonEmpty(_profile.BusinessName, _profile.LegalName, AppDisplayName);
+        var boardLabel = BuildMercadoPagoBoardLabel(CurrentBoard);
+        var itemSummary = BuildMercadoPagoItemSummary();
+        var parts = new List<string> { merchantName };
+
+        if (!string.IsNullOrWhiteSpace(boardLabel))
+        {
+            parts.Add(boardLabel);
+        }
+
+        parts.Add($"{method} {Money(amount)}");
+        if (!string.IsNullOrWhiteSpace(itemSummary))
+        {
+            parts.Add(itemSummary);
+        }
+
+        return ClipMercadoPagoDescription(string.Join(" - ", parts));
+    }
+
+    private string BuildMercadoPagoWebChargeDescription(string method, decimal amount)
+    {
+        var merchantName = FirstNonEmpty(_profile.BusinessName, _profile.LegalName, AppDisplayName);
+        return ClipMercadoPagoDescription($"{merchantName} - {method} {Money(amount)}");
+    }
+
+    private List<AdminMercadoPagoItemPayload> BuildMercadoPagoChargeItems()
+    {
+        return TicketLines
+            .Where(line => line.Quantity > 0
+                           && line.UnitPrice > 0
+                           && !string.IsNullOrWhiteSpace(line.Name))
+            .Take(50)
+            .Select(line => new AdminMercadoPagoItemPayload
+            {
+                Code = CompactSingleLine(line.Code),
+                Title = ClipMercadoPagoItemTitle(line.Name),
+                Quantity = line.Quantity,
+                UnitPrice = MercadoPagoAmountValue(line.UnitPrice),
+                Description = BuildMercadoPagoLineDescription(line)
+            })
+            .ToList();
+    }
+
+    private string BuildMercadoPagoItemSummary()
+    {
+        var lines = TicketLines
+            .Where(line => line.Quantity > 0 && !string.IsNullOrWhiteSpace(line.Name))
+            .ToList();
+        if (lines.Count == 0)
+        {
+            return "";
+        }
+
+        var summary = lines
+            .Take(3)
+            .Select(line => $"{line.Quantity}x {CompactSingleLine(line.Name)}")
+            .ToList();
+        if (lines.Count > summary.Count)
+        {
+            summary.Add($"+{lines.Count - summary.Count} item(ns)");
+        }
+
+        return string.Join("; ", summary);
+    }
+
+    private static string BuildMercadoPagoBoardLabel(TableTile? board)
+    {
+        if (board is null || string.IsNullOrWhiteSpace(board.Number))
+        {
+            return "";
+        }
+
+        return $"{BoardKindLabel(board)} {CompactSingleLine(board.Number)}";
+    }
+
+    private static string ClipMercadoPagoDescription(string value)
+    {
+        var clean = CompactSingleLine(value);
+        return clean.Length <= 120 ? clean : clean[..120].Trim();
+    }
+
+    private static string ClipMercadoPagoItemTitle(string value)
+    {
+        var clean = CompactSingleLine(value);
+        return clean.Length <= 120 ? clean : clean[..120].Trim();
+    }
+
+    private static string BuildMercadoPagoLineDescription(TicketLine line)
+    {
+        return CompactSingleLine(string.Join(" | ", new[] { line.ModifierSummary, line.Note, line.Sector }
+            .Where(part => !string.IsNullOrWhiteSpace(part))));
+    }
+
+    private static string FirstNonEmpty(params string[] values)
+    {
+        foreach (var value in values)
+        {
+            var clean = CompactSingleLine(value);
+            if (!string.IsNullOrWhiteSpace(clean))
+            {
+                return clean;
+            }
+        }
+
+        return AppDisplayName;
+    }
+
+    private static string CompactSingleLine(string? value)
+    {
+        return string.Join(" ", (value ?? "")
+            .Replace('\r', ' ')
+            .Replace('\n', ' ')
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string CompactDeliveryTileSubtitle(TableTile tile)
+    {
+        if (string.Equals(tile.ExternalSource, "IFOOD", StringComparison.OrdinalIgnoreCase))
+        {
+            if (IsIFoodTakeout(tile))
+            {
+                return "iFood retirada";
+            }
+
+            if (string.Equals(tile.ExternalOrderTiming, "SCHEDULED", StringComparison.OrdinalIgnoreCase))
+            {
+                return "iFood agendado";
+            }
+
+            return IsIFoodShipment(tile.ExternalDeliveredBy) ? "iFood entrega" : "iFood loja";
+        }
+
+        if (string.Equals(tile.ExternalSource, "CARDAPIO_ONLINE", StringComparison.OrdinalIgnoreCase))
+        {
+            return PublicMenuOrderTypeLabel(tile.ExternalOrderType) switch
+            {
+                "MESA/LOCAL" => "Cardapio mesa",
+                "RETIRADA" => "Cardapio retirada",
+                "ENTREGA" => "Cardapio entrega",
+                _ => "Cardapio"
+            };
+        }
+
+        var detail = CompactSingleLine(tile.Detail);
+        if (detail.Contains("WHATSAPP", StringComparison.OrdinalIgnoreCase))
+        {
+            return "WhatsApp";
+        }
+
+        if (string.IsNullOrWhiteSpace(detail))
+        {
+            return string.IsNullOrWhiteSpace(tile.CustomerName) ? "Delivery" : CompactTileText(tile.CustomerName, 15);
+        }
+
+        return CompactTileText(detail, 15);
+    }
+
+    private static string CompactTileText(string value, int maxLength)
+    {
+        var clean = CompactSingleLine(value);
+        if (clean.Length <= maxLength)
+        {
+            return clean;
+        }
+
+        return clean[..maxLength].TrimEnd();
+    }
+
+    private Task<AdminPagBankConnectResult> StartPagBankConnectAsync()
+    {
+        var payload = FillAdminPayload(new AdminClientPayload(), "pagbank.connect.start");
+        return PostPagBankOperationAsync<AdminPagBankConnectResult>(
+            "/connect/start",
+            payload,
+            TimeSpan.FromSeconds(10));
+    }
+
+    private Task<AdminPagBankConnectionStatusResult> FetchPagBankConnectionStatusAsync()
+    {
+        var payload = FillAdminPayload(new AdminClientPayload(), "pagbank.status");
+        return PostPagBankOperationAsync<AdminPagBankConnectionStatusResult>(
+            "/status",
+            payload,
+            TimeSpan.FromSeconds(10));
+    }
+
+    private Task<AdminMercadoPagoResult> SelectPagBankTerminalAsync(string terminalId, string terminalLabel, string comPort)
+    {
+        var payload = FillAdminPayload(new AdminPagBankTerminalPayload
+        {
+            TerminalId = terminalId,
+            TerminalLabel = terminalLabel,
+            ComPort = comPort
+        }, "pagbank.terminal.select");
+        return PostPagBankOperationAsync<AdminMercadoPagoResult>(
+            "/terminal/select",
+            payload,
+            TimeSpan.FromSeconds(10));
+    }
+
+    private Task<AdminPagBankWebChargeResult> CreatePagBankWebChargeAsync(decimal amount, string method, string localReference, string description, string payer)
+    {
+        var payload = FillAdminPayload(new AdminPagBankWebChargePayload
+        {
+            Amount = MercadoPagoAmountValue(amount),
+            Method = method,
+            LocalReference = localReference,
+            Description = description,
+            PayerName = payer,
+            PayerTaxId = CurrentBoard?.CustomerCpf ?? "",
+            PayerPhone = CurrentBoard?.Phone ?? "",
+            Items = BuildMercadoPagoChargeItems()
+        }, "pagbank.web.charge");
+        return PostPagBankOperationAsync<AdminPagBankWebChargeResult>(
+            "/web/charge",
+            payload,
+            TimeSpan.FromSeconds(18));
+    }
+
+    private Task<AdminMercadoPagoPointStatusResult> FetchPagBankWebStatusAsync(string attemptId, string orderId, string localReference)
+    {
+        var payload = FillAdminPayload(new AdminMercadoPagoPointStatusPayload
+        {
+            AttemptId = attemptId,
+            OrderId = orderId,
+            LocalReference = localReference
+        }, "pagbank.web.status");
+        return PostPagBankOperationAsync<AdminMercadoPagoPointStatusResult>(
+            "/web/status",
+            payload,
+            TimeSpan.FromSeconds(10));
+    }
+
+    private void ApplyPagBankStatus(AdminPagBankConnectionStatusResult result)
+    {
+        _appSettings.PagBank ??= new PagBankPaymentSettings();
+        _appSettings.PagBank.Connected = result.Ok && result.Connected;
+        _appSettings.PagBank.AccountId = result.AccountId ?? "";
+        _appSettings.PagBank.LastError = result.LastError ?? "";
+        if (!string.IsNullOrWhiteSpace(result.SelectedTerminalId))
+        {
+            _appSettings.PagBank.DefaultTerminalId = result.SelectedTerminalId.Trim();
+            _appSettings.PagBank.DefaultTerminalLabel = string.IsNullOrWhiteSpace(result.SelectedTerminalLabel)
+                ? result.SelectedTerminalId.Trim()
+                : result.SelectedTerminalLabel.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.ComPort))
+        {
+            _appSettings.PagBank.PlugPagComPort = result.ComPort.Trim().ToUpperInvariant();
+        }
+
+        if (DateTime.TryParse(result.LastSyncAt, Brazil, DateTimeStyles.AssumeLocal, out var lastSync))
+        {
+            _appSettings.PagBank.LastSyncAt = lastSync;
+        }
+    }
+
+    private async Task<PaymentLine?> ProcessIntegratedPaymentAsync(string method, decimal amount, string payer, Window owner)
+    {
+        var mercadoPagoEnabled = _appSettings.MercadoPago?.Enabled == true;
+        var pagBankEnabled = _appSettings.PagBank?.Enabled == true;
+        if (!mercadoPagoEnabled && !pagBankEnabled)
+        {
+            return null;
+        }
+
+        var provider = ChoosePaymentProvider(method, mercadoPagoEnabled, pagBankEnabled, owner);
+        return provider switch
+        {
+            "PAGBANK" => await ProcessPagBankPaymentAsync(method, amount, payer, owner),
+            "MERCADOPAGO" => await ProcessMercadoPagoPaymentAsync(method, amount, payer, owner),
+            _ => null
+        };
+    }
+
+    private string ChoosePaymentProvider(string method, bool mercadoPagoEnabled, bool pagBankEnabled, Window owner)
+    {
+        if (mercadoPagoEnabled && !pagBankEnabled)
+        {
+            return "MERCADOPAGO";
+        }
+
+        if (pagBankEnabled && !mercadoPagoEnabled)
+        {
+            return "PAGBANK";
+        }
+
+        var result = "";
+        var dialog = CreateDialog("Escolher integracao", 500, 330);
+        dialog.Owner = owner;
+        dialog.ResizeMode = ResizeMode.NoResize;
+
+        var mp = DialogButton("Mercado Pago", "#0B3A52");
+        var pg = DialogButton("PagBank", "#08A99B");
+        var cancel = DialogButton("Cancelar", "#5B6B7A");
+        foreach (var button in new[] { pg, mp, cancel })
+        {
+            button.HorizontalAlignment = HorizontalAlignment.Stretch;
+            button.Width = double.NaN;
+        }
+
+        pg.Click += (_, _) =>
+        {
+            result = "PAGBANK";
+            dialog.Close();
+        };
+        mp.Click += (_, _) =>
+        {
+            result = "MERCADOPAGO";
+            dialog.Close();
+        };
+        cancel.Click += (_, _) => dialog.Close();
+
+        var panel = DialogPanel();
+        panel.Children.Add(SectionTitle($"Como cobrar {method}?"));
+        panel.Children.Add(new TextBlock
+        {
+            Text = "As duas integracoes estao ativas. Escolha por onde esta venda sera cobrada.",
+            Foreground = Solid("#5B6B7A"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 14)
+        });
+        panel.Children.Add(pg);
+        panel.Children.Add(mp);
+        panel.Children.Add(cancel);
+        dialog.Content = panel;
+        dialog.ShowDialog();
+        return result;
+    }
+
+    private async Task<PaymentLine?> ProcessPagBankPaymentAsync(string method, decimal amount, string payer, Window owner)
+    {
+        if (!_appSettings.PagBank.Enabled)
+        {
+            return null;
+        }
+
+        if (!_appSettings.PagBank.Connected)
+        {
+            System.Windows.MessageBox.Show(owner, "Conecte a conta PagBank em Config antes de cobrar.", "PagBank", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        var mode = ChoosePagBankCollectionMode(method, owner);
+        if (string.IsNullOrWhiteSpace(mode))
+        {
+            return null;
+        }
+
+        return mode == "PLUGPAG"
+            ? await ProcessPagBankPlugPagPaymentAsync(method, amount, payer, owner)
+            : await ProcessPagBankWebPaymentAsync(method, amount, payer, owner);
+    }
+
+    private string ChoosePagBankCollectionMode(string method, Window owner)
+    {
+        var canUsePlugPag = _appSettings.PagBank.PlugPagEnabled
+            && method is "CREDITO" or "DEBITO"
+            && !string.IsNullOrWhiteSpace(_appSettings.PagBank.PlugPagComPort);
+        if (!canUsePlugPag)
+        {
+            return "WEB";
+        }
+
+        var result = "";
+        var dialog = CreateDialog("PagBank", 500, 360);
+        dialog.Owner = owner;
+        dialog.ResizeMode = ResizeMode.NoResize;
+
+        var terminal = DialogButton("Enviar para maquininha", "#08A99B");
+        var online = DialogButton(method == "PIX" ? "Gerar QR Pix" : "Gerar link", "#2D73B9");
+        var cancel = DialogButton("Cancelar", "#5B6B7A");
+        foreach (var button in new[] { terminal, online, cancel })
+        {
+            button.HorizontalAlignment = HorizontalAlignment.Stretch;
+            button.Width = double.NaN;
+        }
+
+        terminal.Click += (_, _) =>
+        {
+            result = "PLUGPAG";
+            dialog.Close();
+        };
+        online.Click += (_, _) =>
+        {
+            result = "WEB";
+            dialog.Close();
+        };
+        cancel.Click += (_, _) => dialog.Close();
+
+        var panel = DialogPanel();
+        panel.Children.Add(SectionTitle(method == "PIX" ? "Como cobrar este Pix?" : "Como cobrar este cartao?"));
+        panel.Children.Add(new TextBlock
+        {
+            Text = method == "PIX"
+                ? "Pix no PagBank sai por QR/link online. A integracao PlugPag desta versao fica para credito/debito na Moderninha pareada por Bluetooth."
+                : $"PlugPag envia o valor para a Moderninha pareada na porta {_appSettings.PagBank.PlugPagComPort}. O online gera link/checkout PagBank.",
+            Foreground = Solid("#5B6B7A"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 14)
+        });
+        if (method is "CREDITO" or "DEBITO")
+        {
+            panel.Children.Add(terminal);
+        }
+        panel.Children.Add(online);
+        panel.Children.Add(cancel);
+        dialog.Content = panel;
+        dialog.ShowDialog();
+        return result;
+    }
+
+    private async Task<PaymentLine?> ProcessPagBankPlugPagPaymentAsync(string method, decimal amount, string payer, Window owner)
+    {
+        var comPort = CompactSingleLine(_appSettings.PagBank.PlugPagComPort).ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(comPort))
+        {
+            System.Windows.MessageBox.Show(owner, "Informe a porta Bluetooth COM da Moderninha em Config > PagBank.", "PagBank PlugPag", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        var localReference = $"BLV-{DateTime.Now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..32].ToUpperInvariant();
+        var cancelled = false;
+        var waitDialog = CreateDialog("PagBank PlugPag", 470, 285);
+        waitDialog.Owner = owner;
+        waitDialog.ResizeMode = ResizeMode.NoResize;
+        var statusText = new TextBlock
+        {
+            Text = $"Enviando {Money(amount)} para a Moderninha em {comPort}.",
+            Foreground = Solid("#071A2C"),
+            FontSize = 16,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap
+        };
+        var detailText = new TextBlock
+        {
+            Text = "Aguarde o cliente passar o cartao. O PDV so registra quando o PlugPag retornar aprovado.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 13,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 16)
+        };
+        var stop = DialogButton("Parar espera", "#5B6B7A");
+        stop.HorizontalAlignment = HorizontalAlignment.Stretch;
+        stop.Click += (_, _) =>
+        {
+            cancelled = true;
+            waitDialog.Close();
+        };
+        var panel = DialogPanel();
+        panel.Children.Add(SectionTitle(method == "CREDITO" ? "Credito na maquininha" : "Debito na maquininha"));
+        panel.Children.Add(statusText);
+        panel.Children.Add(detailText);
+        panel.Children.Add(stop);
+        waitDialog.Content = panel;
+        waitDialog.Show();
+
+        PlugPagChargeResult nativeResult;
+        try
+        {
+            nativeResult = await Task.Run(() => ExecutePlugPagCharge(method, amount, localReference, comPort));
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException or SEHException or InvalidOperationException)
+        {
+            waitDialog.Close();
+            System.Windows.MessageBox.Show(owner, $"Nao consegui iniciar o PlugPag: {ex.Message}", "PagBank PlugPag", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        if (waitDialog.IsVisible)
+        {
+            waitDialog.Close();
+        }
+
+        if (cancelled)
+        {
+            return null;
+        }
+
+        if (!nativeResult.Approved)
+        {
+            System.Windows.MessageBox.Show(owner, nativeResult.Message, "PagBank PlugPag", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        return new PaymentLine
+        {
+            Payer = string.IsNullOrWhiteSpace(payer) ? "Cliente" : payer.Trim(),
+            Method = $"PAGBANK {method}",
+            Amount = amount,
+            TenderedAmount = amount,
+            ChangeAmount = 0,
+            When = DateTime.Now
+        };
+    }
+
+    private PlugPagChargeResult ExecutePlugPagCharge(string method, decimal amount, string localReference, string comPort)
+    {
+        var cents = Math.Max(1, (long)Math.Round(amount * 100m, MidpointRounding.AwayFromZero));
+        var amountBytes = Encoding.ASCII.GetBytes($"{cents:000000000000}");
+        var referenceBytes = Encoding.ASCII.GetBytes(CompactSingleLine(localReference)[..Math.Min(10, CompactSingleLine(localReference).Length)]);
+        var portBytes = Encoding.ASCII.GetBytes(comPort);
+        var appName = Encoding.ASCII.GetBytes("BalcaoLivre");
+        var version = Encoding.ASCII.GetBytes(GetAppVersion());
+        var paymentMethod = method == "DEBITO" ? 2 : 1;
+        var result = new PlugPagTransactionResult();
+        var size = Marshal.SizeOf<PlugPagTransactionResult>();
+        var ptr = Marshal.AllocHGlobal(size);
+        try
+        {
+            Marshal.StructureToPtr(result, ptr, false);
+            SetVersionName(appName, version);
+            var init = InitBTConnection(portBytes);
+            if (init != 0)
+            {
+                return PlugPagChargeResult.Fail($"Moderninha nao conectou na porta {comPort}. Codigo: {init}.");
+            }
+
+            var response = SimplePaymentTransaction(paymentMethod, 1, 1, amountBytes, referenceBytes, ptr);
+            result = Marshal.PtrToStructure<PlugPagTransactionResult>(ptr);
+            return response == 0
+                ? PlugPagChargeResult.Ok(result)
+                : PlugPagChargeResult.Fail($"Pagamento negado ou interrompido. Codigo: {response}. {CompactSingleLine(result.Message)}");
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(ptr);
+        }
+    }
+
+    private async Task<PaymentLine?> ProcessPagBankWebPaymentAsync(string method, decimal amount, string payer, Window owner)
+    {
+        var localReference = $"BLV-{DateTime.Now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..32].ToUpperInvariant();
+        var isPix = method == "PIX";
+        var charge = await CreatePagBankWebChargeAsync(
+            amount,
+            method,
+            localReference,
+            BuildMercadoPagoChargeDescription(method, amount),
+            payer);
+
+        if (!charge.Ok)
+        {
+            System.Windows.MessageBox.Show(owner, string.IsNullOrWhiteSpace(charge.Message) ? "PagBank recusou a cobranca." : charge.Message, "PagBank", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        var displayPayload = isPix
+            ? TextOrDefault(charge.QrCode, charge.PaymentUrl)
+            : charge.PaymentUrl;
+        var qrSource = isPix
+            ? TryCreateBitmapFromBase64(charge.QrCodeBase64) ?? TryCreateQrBitmap(displayPayload, 8)
+            : TryCreateQrBitmap(displayPayload, 8);
+
+        if (string.IsNullOrWhiteSpace(displayPayload) || qrSource is null)
+        {
+            System.Windows.MessageBox.Show(owner, "PagBank gerou a cobranca, mas nao retornou QR/link para exibir.", "PagBank", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        var cancelled = false;
+        var paid = false;
+        var lastStatus = charge.Status;
+        var waitDialog = CreateDialog(isPix ? "Pix PagBank" : "Pagamento PagBank", 620, isPix ? 760 : 690);
+        waitDialog.Owner = owner;
+        waitDialog.ResizeMode = ResizeMode.NoResize;
+
+        var title = new TextBlock
+        {
+            Text = isPix ? "Mostre o QR Pix PagBank para o cliente" : "Mostre ou abra o link PagBank para o cliente pagar",
+            Foreground = Solid("#071A2C"),
+            FontSize = 22,
+            FontWeight = FontWeights.Bold,
+            TextWrapping = TextWrapping.Wrap
+        };
+        var subtitle = new TextBlock
+        {
+            Text = isPix
+                ? "O PDV fecha a venda somente quando o PagBank confirmar o Pix."
+                : "O cliente paga no checkout PagBank. O PDV fecha a venda somente quando o pagamento for aprovado.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 13,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 14)
+        };
+        var image = new System.Windows.Controls.Image
+        {
+            Source = qrSource,
+            Width = 330,
+            Height = 330,
+            Stretch = Stretch.Uniform,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        var codeBox = new TextBox
+        {
+            Text = displayPayload,
+            IsReadOnly = true,
+            TextWrapping = TextWrapping.Wrap,
+            AcceptsReturn = true,
+            Height = isPix ? 92 : 62,
+            Margin = new Thickness(0, 0, 0, 12),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+        };
+        var statusText = new TextBlock
+        {
+            Text = $"Aguardando pagamento de {Money(amount)}...",
+            Foreground = Solid("#08A99B"),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 2, 0, 12)
+        };
+        var copy = DialogButton(isPix ? "Copiar Pix" : "Copiar link", "#5B6B7A");
+        var open = DialogButton(isPix ? "Abrir Pix" : "Abrir link", "#2D73B9");
+        var cancel = DialogButton("Parar espera", "#5B6B7A");
+        foreach (var button in new[] { copy, open, cancel })
+        {
+            button.HorizontalAlignment = HorizontalAlignment.Stretch;
+            button.Width = double.NaN;
+        }
+
+        copy.Click += (_, _) =>
+        {
+            try
+            {
+                System.Windows.Clipboard.SetText(displayPayload);
+                statusText.Text = isPix ? "Pix copia-e-cola copiado." : "Link copiado.";
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ExternalException)
+            {
+                statusText.Text = "Nao foi possivel copiar agora.";
+            }
+        };
+        open.Click += (_, _) =>
+        {
+            var url = TextOrDefault(charge.PaymentUrl, charge.TicketUrl);
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                statusText.Text = "Sem link para abrir. Use o QR/copia-e-cola.";
+                return;
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            }
+            catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+            {
+                statusText.Text = "Nao foi possivel abrir o link.";
+            }
+        };
+        cancel.Click += (_, _) =>
+        {
+            cancelled = true;
+            waitDialog.Close();
+        };
+        waitDialog.Closed += (_, _) => cancelled = !paid;
+
+        var buttons = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 0) };
+        buttons.Children.Add(copy);
+        buttons.Children.Add(open);
+        buttons.Children.Add(cancel);
+
+        var panel = DialogPanel();
+        panel.Children.Add(title);
+        panel.Children.Add(subtitle);
+        panel.Children.Add(image);
+        panel.Children.Add(DialogLabel(isPix ? "Pix copia-e-cola" : "Link de pagamento"));
+        panel.Children.Add(codeBox);
+        panel.Children.Add(statusText);
+        panel.Children.Add(buttons);
+        waitDialog.Content = panel;
+        waitDialog.Show();
+
+        for (var attempt = 0; attempt < 72 && !cancelled; attempt++)
+        {
+            await Task.Delay(attempt == 0 ? 1500 : 2500);
+            if (cancelled)
+            {
+                break;
+            }
+
+            var status = await FetchPagBankWebStatusAsync(charge.AttemptId, charge.OrderId, charge.LocalReference);
+            if (!status.Ok)
+            {
+                statusText.Text = string.IsNullOrWhiteSpace(status.Message)
+                    ? $"Aguardando retorno... ultima situacao: {TextOrDefault(lastStatus, "CRIADO")}"
+                    : status.Message;
+                continue;
+            }
+
+            lastStatus = TextOrDefault(status.Status, lastStatus);
+            statusText.Text = $"Situacao: {TextOrDefault(lastStatus, "aguardando")} | tentativa {attempt + 1}/72";
+            if (status.Paid)
+            {
+                paid = true;
+                waitDialog.Close();
+                return new PaymentLine
+                {
+                    Payer = string.IsNullOrWhiteSpace(payer) ? "Cliente" : payer.Trim(),
+                    Method = isPix ? "PAGBANK PIX" : $"PAGBANK LINK {method}",
+                    Amount = amount,
+                    TenderedAmount = amount,
+                    ChangeAmount = 0,
+                    When = DateTime.Now
+                };
+            }
+
+            if (IsMercadoPagoFinalFailure(lastStatus))
+            {
+                waitDialog.Close();
+                System.Windows.MessageBox.Show(owner, $"Pagamento nao aprovado: {lastStatus}", "PagBank", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return null;
+            }
+        }
+
+        if (!paid && !cancelled)
+        {
+            waitDialog.Close();
+            System.Windows.MessageBox.Show(owner, "Ainda nao houve confirmacao do PagBank. Confira a conta antes de tentar de novo.", "PagBank", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        return null;
+    }
+
     private async Task<AdminSupportResult> SendAdminSupportAsync(string category, string priority, string message)
     {
         if (!_appSettings.AdminSyncEnabled)
@@ -525,8 +1959,8 @@ public partial class MainWindow : Window
             return AdminSupportResult.Fail("Sincronizacao admin desligada nas configuracoes.");
         }
 
-        var endpoint = BuildAdminApiUri("/api/app/support");
-        if (endpoint is null)
+        var endpoints = BuildAdminApiUrisWithLegacyFallback("/api/app/support");
+        if (endpoints.Count == 0)
         {
             return AdminSupportResult.Fail("URL do admin invalida.");
         }
@@ -550,27 +1984,40 @@ public partial class MainWindow : Window
             LocalWhen = DateTimeOffset.Now
         };
 
-        try
+        AdminSupportResult? lastResult = null;
+        foreach (var endpoint in endpoints)
         {
-            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-            using var content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
-            using var response = await client.PostAsync(endpoint, content);
-            var json = await response.Content.ReadAsStringAsync();
-            var result = JsonSerializer.Deserialize<AdminSupportResult>(json, JsonOptions);
-            if (result is not null)
+            try
             {
-                return result;
-            }
+                using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                using var content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
+                using var response = await client.PostAsync(endpoint, content);
+                var json = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<AdminSupportResult>(json, JsonOptions);
+                if (result is not null)
+                {
+                    lastResult = result;
+                    if (result.Ok || !IsAdminRouteMissing(result.Message))
+                    {
+                        return result;
+                    }
 
-            return response.IsSuccessStatusCode
-                ? AdminSupportResult.OkResult("", "Suporte enviado para o admin.")
-                : AdminSupportResult.Fail("Admin recusou o suporte, mas nao retornou detalhes.");
+                    continue;
+                }
+
+                return response.IsSuccessStatusCode
+                    ? AdminSupportResult.OkResult("", "Suporte enviado para o admin.")
+                    : AdminSupportResult.Fail("Admin recusou o suporte, mas nao retornou detalhes.");
+            }
+            catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException)
+            {
+                Debug.WriteLine($"Admin support sync failed ({endpoint}): {ex.Message}");
+            }
         }
-        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException)
-        {
-            Debug.WriteLine($"Admin support sync failed: {ex.Message}");
-            return AdminSupportResult.Fail("Admin indisponivel agora. Verifique a internet ou a URL do admin.");
-        }
+
+        return lastResult is not null && !IsAdminRouteMissing(lastResult.Message)
+            ? lastResult
+            : AdminSupportResult.Fail("Admin indisponivel agora. Verifique a internet ou a URL do admin.");
     }
 
     private async Task<AdminSupportListResult> FetchAdminSupportTicketsAsync()
@@ -580,32 +2027,44 @@ public partial class MainWindow : Window
             return new AdminSupportListResult();
         }
 
-        var endpoint = BuildAdminApiUri("/api/app/support/list");
-        if (endpoint is null)
+        var endpoints = BuildAdminApiUrisWithLegacyFallback("/api/app/support/list");
+        if (endpoints.Count == 0)
         {
             return new AdminSupportListResult { Ok = false, Message = "URL do admin invalida." };
         }
 
         var payload = CreateAdminClientPayload("support.list", _appSettings.ActivationKey, _appSettings.ActivationExpiresAt, _appSettings.ActivationPlan);
-        try
+        AdminSupportListResult? lastResult = null;
+        foreach (var endpoint in endpoints)
         {
-            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(6) };
-            using var content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
-            using var response = await client.PostAsync(endpoint, content);
-            var json = await response.Content.ReadAsStringAsync();
-            return JsonSerializer.Deserialize<AdminSupportListResult>(json, JsonOptions) ?? new AdminSupportListResult { Ok = response.IsSuccessStatusCode };
+            try
+            {
+                using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(6) };
+                using var content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
+                using var response = await client.PostAsync(endpoint, content);
+                var json = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<AdminSupportListResult>(json, JsonOptions) ?? new AdminSupportListResult { Ok = response.IsSuccessStatusCode };
+                lastResult = result;
+                if (result.Ok || !IsAdminRouteMissing(result.Message))
+                {
+                    return result;
+                }
+            }
+            catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException)
+            {
+                Debug.WriteLine($"Admin support list failed ({endpoint}): {ex.Message}");
+            }
         }
-        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException)
-        {
-            Debug.WriteLine($"Admin support list failed: {ex.Message}");
-            return new AdminSupportListResult { Ok = false, Message = "Nao foi possivel atualizar o suporte agora." };
-        }
+
+        return lastResult is not null && !IsAdminRouteMissing(lastResult.Message)
+            ? lastResult
+            : new AdminSupportListResult { Ok = false, Message = "Nao foi possivel atualizar o suporte agora." };
     }
 
     private async Task<AdminSupportResult> SendAdminSupportMessageAsync(string ticketId, string message)
     {
-        var endpoint = BuildAdminApiUri($"/api/app/support/{Uri.EscapeDataString(ticketId)}/message");
-        if (endpoint is null)
+        var endpoints = BuildAdminApiUrisWithLegacyFallback($"/api/app/support/{Uri.EscapeDataString(ticketId)}/message");
+        if (endpoints.Count == 0)
         {
             return AdminSupportResult.Fail("URL do admin invalida.");
         }
@@ -627,22 +2086,39 @@ public partial class MainWindow : Window
             LocalWhen = DateTimeOffset.Now
         };
 
-        try
+        AdminSupportResult? lastResult = null;
+        foreach (var endpoint in endpoints)
         {
-            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-            using var content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
-            using var response = await client.PostAsync(endpoint, content);
-            var json = await response.Content.ReadAsStringAsync();
-            return JsonSerializer.Deserialize<AdminSupportResult>(json, JsonOptions)
-                ?? (response.IsSuccessStatusCode
-                    ? AdminSupportResult.OkResult(ticketId, "Mensagem enviada.")
-                    : AdminSupportResult.Fail("Admin recusou a mensagem."));
+            try
+            {
+                using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                using var content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
+                using var response = await client.PostAsync(endpoint, content);
+                var json = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<AdminSupportResult>(json, JsonOptions)
+                    ?? (response.IsSuccessStatusCode
+                        ? AdminSupportResult.OkResult(ticketId, "Mensagem enviada.")
+                        : AdminSupportResult.Fail("Admin recusou a mensagem."));
+                lastResult = result;
+                if (result.Ok || !IsAdminRouteMissing(result.Message))
+                {
+                    return result;
+                }
+            }
+            catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException)
+            {
+                Debug.WriteLine($"Admin support message failed ({endpoint}): {ex.Message}");
+            }
         }
-        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException)
-        {
-            Debug.WriteLine($"Admin support message failed: {ex.Message}");
-            return AdminSupportResult.Fail("Admin indisponivel agora. A mensagem nao foi enviada.");
-        }
+
+        return lastResult is not null && !IsAdminRouteMissing(lastResult.Message)
+            ? lastResult
+            : AdminSupportResult.Fail("Admin indisponivel agora. A mensagem nao foi enviada.");
+    }
+
+    private static bool IsAdminRouteMissing(string? message)
+    {
+        return (message ?? "").Contains("Rota de licenca nao encontrada", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task PollSupportNotificationsAsync()
@@ -673,7 +2149,7 @@ public partial class MainWindow : Window
 
             if (_lastSupportAdminMessageAt.HasValue && latestAdminMessage.When > _lastSupportAdminMessageAt.Value)
             {
-                ShowToast("Suporte respondeu", "Abra o botao Suporte para ver a conversa.", "?", "#0F766E", "#E8F7F4");
+                ShowToast("Suporte respondeu", "Abra o botao Suporte para ver a conversa.", "?", "#08A99B", "#E6FBF8");
                 SetStatus("Nova resposta do suporte recebida.");
             }
 
@@ -763,7 +2239,7 @@ public partial class MainWindow : Window
             ? $"{latest.Number} - {latest.CustomerName} - {Money(latest.Total)}"
             : $"{orders.Count} pedidos do cardapio. Ultimo: {latest.Number} - {Money(latest.Total)}";
         _suppressNextToastSound = true;
-        ShowToast("Novo pedido do cardapio", message, "QR", "#0F766E", "#E8F7F4");
+        ShowToast("Novo pedido do cardapio", message, "QR", "#08A99B", "#E6FBF8");
         PlayIFoodOrderSound();
         VibrateInApp();
         Dispatcher.BeginInvoke(() => ShowPublicMenuOrderAlertDialog(latest, orders.Count), DispatcherPriority.Background);
@@ -790,7 +2266,7 @@ public partial class MainWindow : Window
         var statusText = new TextBlock
         {
             Text = $"Status: {order.Status} | Tipo: {PublicMenuOrderTypeLabel(order.ExternalOrderType)}",
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
             TextAlignment = TextAlignment.Center,
@@ -802,7 +2278,7 @@ public partial class MainWindow : Window
             Text = batchCount > 1
                 ? $"{batchCount} pedidos chegaram juntos. Este alerta abriu o mais recente."
                 : "Pedido importado no Delivery. Confira e avance a producao.",
-            Foreground = Solid("#0F766E"),
+            Foreground = Solid("#08A99B"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 10, 0, 0)
@@ -820,10 +2296,10 @@ public partial class MainWindow : Window
             dialog.Close();
         }
 
-        var openDelivery = DialogButton("Abrir no Delivery", "#245B91");
-        var prepare = DialogButton("Preparar pedido", "#0F766E");
+        var openDelivery = DialogButton("Abrir no Delivery", "#0B3A52");
+        var prepare = DialogButton("Preparar pedido", "#08A99B");
         var ready = DialogButton("Marcar pronto", "#99620D");
-        var close = DialogButton("Fechar alerta", "#667684");
+        var close = DialogButton("Fechar alerta", "#5B6B7A");
 
         openDelivery.Click += (_, _) =>
         {
@@ -849,8 +2325,8 @@ public partial class MainWindow : Window
 
         var header = new Border
         {
-            Background = Solid("#E8F7F4"),
-            BorderBrush = Solid("#0F766E"),
+            Background = Solid("#E6FBF8"),
+            BorderBrush = Solid("#08A99B"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(18, 16, 18, 16),
@@ -862,7 +2338,7 @@ public partial class MainWindow : Window
                     new TextBlock
                     {
                         Text = "NOVO PEDIDO DO CARDAPIO",
-                        Foreground = Solid("#0F766E"),
+                        Foreground = Solid("#08A99B"),
                         FontSize = 30,
                         FontWeight = FontWeights.Bold,
                         TextAlignment = TextAlignment.Center,
@@ -871,7 +2347,7 @@ public partial class MainWindow : Window
                     new TextBlock
                     {
                         Text = $"{order.Number}  |  {order.CustomerName}  |  {Money(order.Total)}",
-                        Foreground = Solid("#18222B"),
+                        Foreground = Solid("#071A2C"),
                         FontSize = 17,
                         FontWeight = FontWeights.SemiBold,
                         TextAlignment = TextAlignment.Center,
@@ -905,12 +2381,12 @@ public partial class MainWindow : Window
             Children =
             {
                 SectionTitle("Dados do pedido"),
-                new TextBlock { Text = $"Pedido online: {EmptyDash(order.ExternalDisplayId)} | ID: {EmptyDash(order.ExternalOrderId)}", Foreground = Solid("#18222B"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Cliente: {order.CustomerName}", Foreground = Solid("#18222B"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Contato: {EmptyDash(order.Phone)}", Foreground = Solid("#667684"), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Endereco: {EmptyDash(order.Address)}", Foreground = Solid("#667684"), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Bairro/referencia: {EmptyDash(order.District)}", Foreground = Solid("#667684"), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Obs: {EmptyDash(order.Notes)}", Foreground = Solid("#667684"), Margin = new Thickness(0, 4, 0, 8), TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"Pedido online: {EmptyDash(order.ExternalDisplayId)} | ID: {EmptyDash(order.ExternalOrderId)}", Foreground = Solid("#071A2C"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"Cliente: {order.CustomerName}", Foreground = Solid("#071A2C"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"Contato: {EmptyDash(order.Phone)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"Endereco: {EmptyDash(order.Address)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"Bairro/referencia: {EmptyDash(order.District)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"Obs: {EmptyDash(order.Notes)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 4, 0, 8), TextWrapping = TextWrapping.Wrap },
                 items
             }
         };
@@ -941,7 +2417,7 @@ public partial class MainWindow : Window
         var footer = new Border
         {
             Background = Brushes.White,
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(0, 1, 0, 0),
             Padding = new Thickness(18, 12, 8, 8),
             Child = buttons
@@ -1120,7 +2596,7 @@ public partial class MainWindow : Window
                 Quantity = quantity,
                 UnitPrice = item.Price,
                 Note = item.Note.Trim(),
-                Sector = product?.Sector ?? "COZINHA"
+                Sector = product is null ? "COZINHA" : NormalizeProductDestination(product.Sector, "CAIXA")
             };
             tile.Lines.Add(line);
 
@@ -1148,7 +2624,7 @@ public partial class MainWindow : Window
                 Name = "TAXA ENTREGA",
                 Quantity = 1,
                 UnitPrice = order.DeliveryFee,
-                Sector = "BALCAO"
+                Sector = "CAIXA"
             });
         }
 
@@ -1162,11 +2638,12 @@ public partial class MainWindow : Window
                 Name = "AJUSTE TOTAL CARDAPIO",
                 Quantity = 1,
                 UnitPrice = tile.Total - lineTotal,
-                Sector = "BALCAO"
+                Sector = "CAIXA"
             });
         }
 
         DeliveryTiles.Add(tile);
+        ScheduleKitchenPrint(tile, tile.Lines);
         if (!string.IsNullOrWhiteSpace(tile.CustomerName))
         {
             UpsertCustomerRecord(tile.CustomerCpf, tile.CustomerName, tile.Phone, tile.Address, tile.District, tile.Notes);
@@ -1276,6 +2753,28 @@ public partial class MainWindow : Window
         return BuildAdminApiUri(baseUrl, path);
     }
 
+    private List<Uri> BuildAdminApiUrisWithLegacyFallback(string path)
+    {
+        var uris = new List<Uri>();
+        var primary = BuildAdminApiUri(path);
+        if (primary is not null)
+        {
+            uris.Add(primary);
+        }
+
+        var configured = (_appSettings.AdminApiUrl ?? DefaultAdminApiUrl).Trim().TrimEnd('/');
+        if (string.Equals(configured, DefaultAdminApiUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            var fallback = BuildAdminApiUri(LegacyAdminApiUrl, path);
+            if (fallback is not null && !uris.Any(uri => string.Equals(uri.ToString(), fallback.ToString(), StringComparison.OrdinalIgnoreCase)))
+            {
+                uris.Add(fallback);
+            }
+        }
+
+        return uris;
+    }
+
     private static Uri? BuildAdminApiUri(string baseUrl, string path)
     {
         if (!Uri.TryCreate(baseUrl.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri))
@@ -1284,6 +2783,11 @@ public partial class MainWindow : Window
         }
 
         return new Uri(baseUri, path.TrimStart('/'));
+    }
+
+    private static Uri? BuildPaymentsApiUri(string path)
+    {
+        return BuildAdminApiUri(DefaultPaymentsApiUrl, path);
     }
 
     private Uri? BuildWhatsAppFunctionUri(string path)
@@ -1438,11 +2942,25 @@ public partial class MainWindow : Window
         var meta = new List<string>();
         if (!string.IsNullOrWhiteSpace(profile.Cnpj)) meta.Add($"CNPJ {profile.Cnpj}");
         if (!string.IsNullOrWhiteSpace(profile.Phone)) meta.Add(profile.Phone);
-        meta.Add("Offline 100%");
+        meta.Add(BuildHeaderSyncText());
         BrandMetaText.Text = string.Join("  |  ", meta);
         UpdateTrayTitle();
 
         ApplyBrandLogo(profile.LocalLogoPath);
+    }
+
+    private string BuildHeaderSyncText()
+    {
+        var lastSyncAt = _appSettings.LastCentralSyncAt;
+        if (_appSettings.LastAdminSyncAt.HasValue
+            && (!lastSyncAt.HasValue || _appSettings.LastAdminSyncAt.Value > lastSyncAt.Value))
+        {
+            lastSyncAt = _appSettings.LastAdminSyncAt;
+        }
+
+        return lastSyncAt.HasValue
+            ? $"Sync {lastSyncAt.Value:dd/MM HH:mm}"
+            : "Sync pendente";
     }
 
     private void InitializeTrayIcon()
@@ -1546,6 +3064,7 @@ public partial class MainWindow : Window
         _ifoodSyncTimer.Stop();
         _licenseTimer.Stop();
         _toastTimer.Stop();
+        _kitchenPrintBatchTimer.Stop();
 
         if (_waiterServer is not null)
         {
@@ -1565,29 +3084,43 @@ public partial class MainWindow : Window
     {
         if (!string.IsNullOrWhiteSpace(logoPath) && File.Exists(logoPath))
         {
-            try
+            if (TryApplyBrandLogo(new Uri(logoPath, UriKind.Absolute)))
             {
-                var image = new BitmapImage();
-                image.BeginInit();
-                image.CacheOption = BitmapCacheOption.OnLoad;
-                image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
-                image.UriSource = new Uri(logoPath, UriKind.Absolute);
-                image.EndInit();
-                image.Freeze();
-                BrandLogoImage.Source = image;
-                BrandLogoImage.Visibility = Visibility.Visible;
-                BrandLogoFallback.Visibility = Visibility.Collapsed;
                 return;
             }
-            catch (Exception ex) when (ex is IOException or NotSupportedException or InvalidOperationException)
-            {
-                Debug.WriteLine($"Logo load failed: {ex.Message}");
-            }
+        }
+
+        if (TryApplyBrandLogo(new Uri("pack://application:,,,/Assets/app-icon.png", UriKind.Absolute)))
+        {
+            return;
         }
 
         BrandLogoImage.Source = null;
         BrandLogoImage.Visibility = Visibility.Collapsed;
         BrandLogoFallback.Visibility = Visibility.Visible;
+    }
+
+    private bool TryApplyBrandLogo(Uri source)
+    {
+        try
+        {
+            var image = new BitmapImage();
+            image.BeginInit();
+            image.CacheOption = BitmapCacheOption.OnLoad;
+            image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+            image.UriSource = source;
+            image.EndInit();
+            image.Freeze();
+            BrandLogoImage.Source = image;
+            BrandLogoImage.Visibility = Visibility.Visible;
+            BrandLogoFallback.Visibility = Visibility.Collapsed;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException or NotSupportedException or InvalidOperationException)
+        {
+            Debug.WriteLine($"Logo load failed: {ex.Message}");
+            return false;
+        }
     }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -2058,7 +3591,7 @@ public partial class MainWindow : Window
 
     private void ShowSupportDialog()
     {
-        var dialog = CreateDialog("Suporte", 640, 560);
+        var dialog = CreateDialog("Suporte online", 680, 600);
         var categoryBox = new ComboBox
         {
             ItemsSource = new[]
@@ -2097,7 +3630,7 @@ public partial class MainWindow : Window
         var chatFrame = new Border
         {
             Background = Brushes.White,
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(12),
@@ -2106,12 +3639,12 @@ public partial class MainWindow : Window
         };
         var status = new TextBlock
         {
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 10, 0, 0)
         };
-        var send = DialogButton("Enviar mensagem", "#0F766E");
+        var send = DialogButton("Enviar mensagem", "#08A99B");
         send.MinWidth = 170;
         var newTicketFields = new StackPanel();
         string activeTicketId = "";
@@ -2141,7 +3674,7 @@ public partial class MainWindow : Window
             var isAdmin = string.Equals(sender, "admin", StringComparison.OrdinalIgnoreCase);
             return new Border
             {
-                Background = Solid(isAdmin ? "#E8F1FA" : "#E8F7F4"),
+                Background = Solid(isAdmin ? "#EAF8FA" : "#E6FBF8"),
                 BorderBrush = Solid(isAdmin ? "#C9D8E7" : "#BDE5DD"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(10),
@@ -2155,21 +3688,21 @@ public partial class MainWindow : Window
                         new TextBlock
                         {
                             Text = isAdmin ? "Suporte" : "Voce",
-                            Foreground = Solid(isAdmin ? "#245B91" : "#0F766E"),
+                            Foreground = Solid(isAdmin ? "#0B3A52" : "#08A99B"),
                             FontWeight = FontWeights.Bold,
                             FontSize = 12
                         },
                         new TextBlock
                         {
                             Text = message,
-                            Foreground = Solid("#18222B"),
+                            Foreground = Solid("#071A2C"),
                             TextWrapping = TextWrapping.Wrap,
                             Margin = new Thickness(0, 4, 0, 0)
                         },
                         new TextBlock
                         {
                             Text = when.ToLocalTime().ToString("dd/MM HH:mm", Brazil),
-                            Foreground = Solid("#667684"),
+                            Foreground = Solid("#5B6B7A"),
                             FontSize = 11,
                             Margin = new Thickness(0, 5, 0, 0)
                         }
@@ -2200,22 +3733,22 @@ public partial class MainWindow : Window
                             new TextBlock
                             {
                                 Text = "Nenhuma conversa aberta",
-                                Foreground = Solid("#18222B"),
+                                Foreground = Solid("#071A2C"),
                                 FontWeight = FontWeights.Bold,
                                 FontSize = 14
                             },
                             new TextBlock
                             {
                                 Text = "Digite sua mensagem para iniciar o atendimento.",
-                                Foreground = Solid("#667684"),
+                                Foreground = Solid("#5B6B7A"),
                                 TextWrapping = TextWrapping.Wrap,
                                 Margin = new Thickness(0, 4, 0, 0)
                             }
                         }
                     }
                 });
-                status.Text = "Aguardando envio.";
-                status.Foreground = Solid("#667684");
+                status.Text = "Digite a mensagem. A conversa aparece para o admin responder em tempo real.";
+                status.Foreground = Solid("#5B6B7A");
                 return;
             }
 
@@ -2232,8 +3765,8 @@ public partial class MainWindow : Window
                 }
             }
 
-            status.Text = $"Protocolo {activeTicketId} - {ticket.Status}.";
-            status.Foreground = ticket.Status == "RESOLVIDO" ? Solid("#0F766E") : Solid("#667684");
+            status.Text = $"Protocolo {activeTicketId} - {ticket.Status}. Atualizacao automatica ligada.";
+            status.Foreground = ticket.Status == "RESOLVIDO" ? Solid("#08A99B") : Solid("#5B6B7A");
             _ = Dispatcher.BeginInvoke(() => messagesScroll.ScrollToEnd());
         }
 
@@ -2258,7 +3791,7 @@ public partial class MainWindow : Window
                 .FirstOrDefault();
             if (notify && latestAdmin is not null && lastDialogAdminMessageAt.HasValue && latestAdmin.When > lastDialogAdminMessageAt.Value)
             {
-                ShowToast("Suporte respondeu", "Nova mensagem recebida no suporte.", "?", "#0F766E", "#E8F7F4");
+                ShowToast("Suporte respondeu", "Nova mensagem recebida no suporte.", "?", "#08A99B", "#E6FBF8");
             }
 
             if (latestAdmin is not null)
@@ -2290,7 +3823,7 @@ public partial class MainWindow : Window
 
             send.IsEnabled = false;
             status.Text = "Enviando mensagem...";
-            status.Foreground = Solid("#667684");
+            status.Foreground = Solid("#5B6B7A");
             var result = string.IsNullOrWhiteSpace(activeTicketId)
                 ? await SendAdminSupportAsync(
                     categoryBox.SelectedItem?.ToString() ?? "Suporte tecnico",
@@ -2308,7 +3841,7 @@ public partial class MainWindow : Window
 
                 messageBox.Clear();
                 status.Text = TextOrDefault(result.Message, "Mensagem enviada.");
-                status.Foreground = Solid("#0F766E");
+                status.Foreground = Solid("#08A99B");
                 SetStatus(status.Text);
                 QueueAdminCheckIn("support.sent", force: true);
                 await RefreshSupport(false);
@@ -2335,7 +3868,7 @@ public partial class MainWindow : Window
         Grid.SetColumn(send, 1);
         footer.Children.Add(send);
         panel.Children.Add(footer);
-        var supportDialogTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
+        var supportDialogTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
         supportDialogTimer.Tick += async (_, _) => await RefreshSupport(true);
         dialog.Closed += (_, _) => supportDialogTimer.Stop();
         dialog.Content = panel;
@@ -2385,13 +3918,13 @@ public partial class MainWindow : Window
         var logoText = new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(logoPath) ? "Nenhuma imagem selecionada" : Path.GetFileName(logoPath),
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             TextWrapping = TextWrapping.Wrap
         };
         var coverText = new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(coverPath) ? "Nenhuma capa selecionada" : Path.GetFileName(coverPath),
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             TextWrapping = TextWrapping.Wrap
         };
         var waitMinBox = new TextBox
@@ -2408,7 +3941,7 @@ public partial class MainWindow : Window
         var ifoodSoundText = new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(ifoodSoundPath) ? "Toque iFood: alerta de pedido do app" : Path.GetFileName(ifoodSoundPath),
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             TextWrapping = TextWrapping.Wrap
         };
         const string defaultPrinterOption = "Usar padrao do Windows";
@@ -2431,18 +3964,19 @@ public partial class MainWindow : Window
         var selectedPrinter = string.IsNullOrWhiteSpace(_appSettings.PreferredPrinterName)
             ? defaultPrinterOption
             : _appSettings.PreferredPrinterName;
-        var sectorPrinterRows = new List<(string Sector, ComboBox PrinterBox)>();
+        var sectorPrinterRows = new List<(TextBox SectorBox, ComboBox PrinterBox)>();
+        var sectorPrinterList = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
         var printerSelectedText = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
             FontWeight = FontWeights.Bold,
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             Margin = new Thickness(0, 2, 0, 4)
         };
         var defaultPrinterText = new TextBlock
         {
             Text = $"Padrao do Windows: {GetDefaultPrinterName()}",
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 4, 0, 0)
@@ -2450,7 +3984,7 @@ public partial class MainWindow : Window
         var versionText = new TextBlock
         {
             Text = $"Versao do app: {GetAppVersion()}",
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontWeight = FontWeights.Bold,
             FontSize = 15
         };
@@ -2471,7 +4005,7 @@ public partial class MainWindow : Window
         var qrHint = new TextBlock
         {
             Text = "Exemplos: chave Pix, @instagram, link do Google Maps ou qualquer URL. Se ficar vazio, o PDV imprime um QR simples com dados da loja e total.",
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
@@ -2479,7 +4013,7 @@ public partial class MainWindow : Window
         var licenseText = new TextBlock
         {
             Text = BuildActivationSummary(),
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 2, 0, 8)
@@ -2489,7 +4023,7 @@ public partial class MainWindow : Window
             Text = string.IsNullOrWhiteSpace(profile.Email)
                 ? "Nenhum email de conta vinculado."
                 : $"Conta vinculada: {profile.Email}",
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
         };
@@ -2500,7 +4034,7 @@ public partial class MainWindow : Window
         Border ToggleCard(string title, string subtitle, Func<bool> get, Action<bool> set)
         {
             var titleText = new TextBlock { FontWeight = FontWeights.Bold };
-            var subtitleText = new TextBlock { Foreground = Solid("#667684"), FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap };
+            var subtitleText = new TextBlock { Foreground = Solid("#5B6B7A"), FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap };
             var card = new Border
             {
                 BorderThickness = new Thickness(1),
@@ -2514,9 +4048,9 @@ public partial class MainWindow : Window
             void Refresh()
             {
                 var enabled = get();
-                card.Background = enabled ? Solid("#E8F7F4") : Brushes.White;
-                card.BorderBrush = enabled ? Solid("#0F766E") : Solid("#D8E2EC");
-                titleText.Foreground = enabled ? Solid("#0F766E") : Solid("#18222B");
+                card.Background = enabled ? Solid("#E6FBF8") : Brushes.White;
+                card.BorderBrush = enabled ? Solid("#08A99B") : Solid("#CAD6E2");
+                titleText.Foreground = enabled ? Solid("#08A99B") : Solid("#071A2C");
                 titleText.Text = enabled ? $"{title}: ligado" : $"{title}: desligado";
                 subtitleText.Text = subtitle;
             }
@@ -2539,7 +4073,7 @@ public partial class MainWindow : Window
                 Height = 38,
                 Margin = new Thickness(0, 0, 8, 8),
                 Background = Brushes.White,
-                BorderBrush = Solid("#D8E2EC"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 Cursor = Cursors.Hand,
                 FocusVisualStyle = null,
@@ -2552,12 +4086,761 @@ public partial class MainWindow : Window
             foreach (var button in buttons)
             {
                 var active = string.Equals(button.Tag?.ToString(), selected, StringComparison.Ordinal);
-                button.Background = active ? Solid("#E8F1FA") : Brushes.White;
-                button.BorderBrush = active ? Solid(selectedColor) : Solid("#D8E2EC");
-                button.Foreground = active ? Solid(selectedColor) : Solid("#18222B");
+                button.Background = active ? Solid("#EAF8FA") : Brushes.White;
+                button.BorderBrush = active ? Solid(selectedColor) : Solid("#CAD6E2");
+                button.Foreground = active ? Solid(selectedColor) : Solid("#071A2C");
                 button.FontWeight = active ? FontWeights.Bold : FontWeights.SemiBold;
             }
         }
+
+        var mpStatusText = new TextBlock
+        {
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 2, 0, 10)
+        };
+        var mpTerminalBox = new ComboBox
+        {
+            MinHeight = 38,
+            DisplayMemberPath = nameof(AdminMercadoPagoTerminalDto.Display),
+            Margin = new Thickness(0, 4, 0, 8)
+        };
+        var mpTerminalField = DialogField("Point da loja", mpTerminalBox);
+        var mpEnabledCheck = new CheckBox
+        {
+            Content = "Usar Mercado Pago no F9",
+            IsChecked = _appSettings.MercadoPago?.Enabled == true,
+            Foreground = Solid("#071A2C"),
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        mpEnabledCheck.Visibility = Visibility.Collapsed;
+        var mpConnect = DialogButton("Conectar Mercado Pago", "#08A99B");
+        var mpRefresh = DialogButton("Atualizar Point", "#0B3A52");
+        var mpSaveTerminal = DialogButton("Salvar Point", "#08A99B");
+        var mpToggle = DialogButton("Ativar no F9", "#08A99B");
+        var mpConnectionPillText = new TextBlock
+        {
+            FontSize = 12,
+            FontWeight = FontWeights.Bold,
+            TextWrapping = TextWrapping.Wrap,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        var mpTerminalPillText = new TextBlock
+        {
+            FontSize = 12,
+            FontWeight = FontWeights.Bold,
+            TextWrapping = TextWrapping.Wrap,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        var mpConnectionPill = new Border
+        {
+            Background = Solid("#EEF4F8"),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 0, 6, 8),
+            Child = mpConnectionPillText
+        };
+        var mpTerminalPill = new Border
+        {
+            Background = Solid("#EEF4F8"),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(6, 0, 0, 8),
+            Child = mpTerminalPillText
+        };
+        var mpPillGrid = new UniformGrid { Columns = 2, Rows = 1 };
+        mpPillGrid.Children.Add(mpConnectionPill);
+        mpPillGrid.Children.Add(mpTerminalPill);
+        Border MpInfoCard(string title, string body, string accent)
+        {
+            return new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = Solid("#CAD6E2"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(10, 8, 10, 8),
+                Margin = new Thickness(0, 0, 8, 0),
+                Child = new StackPanel
+                {
+                    Children =
+                    {
+                        new TextBlock { Text = title, Foreground = Solid(accent), FontSize = 12, FontWeight = FontWeights.Bold },
+                        new TextBlock { Text = body, Foreground = Solid("#5B6B7A"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) }
+                    }
+                }
+            };
+        }
+
+        var mpFlowGrid = new UniformGrid { Columns = 3, Rows = 1, Margin = new Thickness(0, 0, 0, 10) };
+        mpFlowGrid.Children.Add(MpInfoCard("Pix", "QR e copia-e-cola na tela.", "#08A99B"));
+        mpFlowGrid.Children.Add(MpInfoCard("Cartao", "Envia para a Point em modo PDV.", "#0B3A52"));
+        mpFlowGrid.Children.Add(MpInfoCard("F9", "Fecha so quando aprovar.", "#99620D"));
+
+        var mpPointNote = new Border
+        {
+            Background = Solid("#F8FBFD"),
+            BorderBrush = Solid("#CAD6E2"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(11, 9, 11, 9),
+            Margin = new Thickness(0, 0, 0, 12),
+            Child = new TextBlock
+            {
+                Text = "A Point integrada funciona pela internet da conta Mercado Pago. Ela precisa estar vinculada a loja e em modo PDV; nao usa cabo USB.",
+                Foreground = Solid("#5B6B7A"),
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap
+            }
+        };
+        var mpAutoRefreshRunning = false;
+        mpEnabledCheck.Checked += (_, _) =>
+        {
+            (_appSettings.MercadoPago ??= new MercadoPagoPaymentSettings()).Enabled = true;
+            RefreshMercadoPagoCard();
+        };
+        mpEnabledCheck.Unchecked += (_, _) =>
+        {
+            (_appSettings.MercadoPago ??= new MercadoPagoPaymentSettings()).Enabled = false;
+            RefreshMercadoPagoCard();
+        };
+        mpToggle.Click += (_, _) =>
+        {
+            var mp = _appSettings.MercadoPago ??= new MercadoPagoPaymentSettings();
+            mp.Enabled = !mp.Enabled;
+            SaveAppSettings();
+            status.Foreground = mp.Enabled ? GreenText : Solid("#5B6B7A");
+            status.Text = mp.Enabled
+                ? "Mercado Pago ativado no F9."
+                : "Mercado Pago desativado no F9. As outras formas de pagamento continuam normais.";
+            RefreshMercadoPagoCard();
+        };
+        void RefreshMercadoPagoCard()
+        {
+            var mp = _appSettings.MercadoPago ??= new MercadoPagoPaymentSettings();
+            var terminal = string.IsNullOrWhiteSpace(mp.DefaultTerminalLabel)
+                ? mp.DefaultTerminalId
+                : mp.DefaultTerminalLabel;
+            mpStatusText.Text = mp.Connected
+                ? string.IsNullOrWhiteSpace(terminal)
+                    ? "Conta conectada. Escolha a Point para debito/credito; Pix ja usa QR/link."
+                    : $"Point selecionada: {terminal}. Pix continua por QR/link."
+                : "Conecte a conta da loja para liberar Pix, link e Point no F9.";
+            if (!string.IsNullOrWhiteSpace(mp.LastError))
+            {
+                mpStatusText.Text += $" Ultimo erro: {mp.LastError}";
+            }
+
+            mpStatusText.Foreground = mp.Enabled && mp.Connected
+                ? GreenText
+                : Solid("#5B6B7A");
+            mpEnabledCheck.IsChecked = mp.Enabled;
+            mpToggle.Content = mp.Enabled ? "Desativar no F9" : "Ativar no F9";
+            mpToggle.Background = mp.Enabled ? Brushes.White : Solid("#08A99B");
+            mpToggle.Foreground = mp.Enabled ? Solid("#5B6B7A") : Brushes.White;
+            mpToggle.BorderThickness = mp.Enabled ? new Thickness(1) : new Thickness(0);
+            mpToggle.BorderBrush = mp.Enabled ? Solid("#BFD1E2") : Brushes.Transparent;
+            mpConnect.Content = mp.Connected ? "Reconectar conta" : "Conectar Mercado Pago";
+            mpConnectionPillText.Text = mp.Connected
+                ? mp.Enabled ? "Ativo no F9" : "Conectado, desligado"
+                : "Conta nao conectada";
+            mpConnectionPillText.Foreground = mp.Connected && mp.Enabled ? GreenText : Solid("#5B6B7A");
+            mpConnectionPill.Background = mp.Connected && mp.Enabled ? Solid("#E6F6F2") : Solid("#F1F5F8");
+            mpTerminalPillText.Text = string.IsNullOrWhiteSpace(terminal)
+                ? "Sem Point selecionada"
+                : $"Point: {terminal}";
+            mpTerminalPillText.Foreground = string.IsNullOrWhiteSpace(terminal) ? Solid("#5B6B7A") : Solid("#0B3A52");
+            mpTerminalPill.Background = string.IsNullOrWhiteSpace(terminal) ? Solid("#F1F5F8") : Solid("#EAF8FA");
+            mpTerminalBox.IsEnabled = mp.Connected;
+            mpTerminalField.Visibility = mp.Connected ? Visibility.Visible : Visibility.Collapsed;
+            mpSaveTerminal.IsEnabled = mp.Connected;
+            mpRefresh.IsEnabled = true;
+        }
+
+        async Task RefreshMercadoPagoOnlineAsync(bool loadTerminals)
+        {
+            var connection = await FetchMercadoPagoConnectionStatusAsync();
+            ApplyMercadoPagoStatus(connection);
+            if (!connection.Ok)
+            {
+                status.Foreground = RedText;
+                status.Text = TextOrDefault(connection.Message, "Nao consegui consultar o Mercado Pago agora.");
+                RefreshMercadoPagoCard();
+                return;
+            }
+
+            if (loadTerminals && connection.Connected)
+            {
+                var terminals = await FetchMercadoPagoTerminalsAsync();
+                if (terminals.Ok)
+                {
+                    var mp = _appSettings.MercadoPago ??= new MercadoPagoPaymentSettings();
+                    var list = terminals.Terminals
+                        .Where(item => !string.IsNullOrWhiteSpace(item.Id))
+                        .GroupBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+                        .Select(group => group.First())
+                        .ToList();
+                    if (!string.IsNullOrWhiteSpace(mp.DefaultTerminalId)
+                        && list.All(item => !string.Equals(item.Id, mp.DefaultTerminalId, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        list.Insert(0, new AdminMercadoPagoTerminalDto
+                        {
+                            Id = mp.DefaultTerminalId,
+                            Label = string.IsNullOrWhiteSpace(mp.DefaultTerminalLabel)
+                                ? mp.DefaultTerminalId
+                                : mp.DefaultTerminalLabel
+                        });
+                    }
+
+                    mpTerminalBox.ItemsSource = null;
+                    mpTerminalBox.ItemsSource = list;
+                    mpTerminalBox.SelectedItem = list.FirstOrDefault(item =>
+                        string.Equals(item.Id, mp.DefaultTerminalId, StringComparison.OrdinalIgnoreCase));
+                    status.Foreground = GreenText;
+                    status.Text = list.Count == 0
+                        ? "Conta conectada. Sem maquininha ativa; o F9 usa Pix QR e link de pagamento."
+                        : "Maquininhas Mercado Pago atualizadas. O F9 tambem pode usar Pix QR e link.";
+                }
+                else
+                {
+                    status.Foreground = Solid("#99620D");
+                    status.Text = "Conta Mercado Pago conectada. Nao encontrei maquininha agora; o F9 usa Pix QR e link de pagamento.";
+                }
+            }
+            else if (connection.Connected)
+            {
+                status.Foreground = GreenText;
+                status.Text = "Conta Mercado Pago conectada.";
+            }
+
+            SaveAppSettings();
+            RefreshMercadoPagoCard();
+        }
+
+        async Task AutoRefreshMercadoPagoUntilConnectedAsync()
+        {
+            if (mpAutoRefreshRunning)
+            {
+                return;
+            }
+
+            mpAutoRefreshRunning = true;
+            try
+            {
+                for (var attempt = 0; attempt < 40; attempt++)
+                {
+                    await Task.Delay(attempt == 0 ? 1800 : 3000);
+                    if (!dialog.IsVisible)
+                    {
+                        return;
+                    }
+
+                    status.Foreground = Solid("#5B6B7A");
+                    status.Text = "Aguardando autorizacao do Mercado Pago...";
+                    await RefreshMercadoPagoOnlineAsync(loadTerminals: true);
+                    if (_appSettings.MercadoPago?.Connected == true)
+                    {
+                        status.Foreground = GreenText;
+                        status.Text = string.IsNullOrWhiteSpace(_appSettings.MercadoPago.DefaultTerminalId)
+                            ? "Mercado Pago confirmado. Sem maquininha ativa; F9 usa Pix QR e link."
+                            : "Mercado Pago confirmado e maquininha carregada.";
+                        return;
+                    }
+                }
+
+                status.Foreground = Solid("#99620D");
+                status.Text = "Ainda nao confirmei a autorizacao. Se voce terminou no navegador, clique em Atualizar.";
+            }
+            finally
+            {
+                mpAutoRefreshRunning = false;
+                RefreshMercadoPagoCard();
+            }
+        }
+
+        mpConnect.Click += async (_, _) =>
+        {
+            if (!TryApplyProfileInputs())
+            {
+                return;
+            }
+
+            (_appSettings.MercadoPago ??= new MercadoPagoPaymentSettings()).Enabled = true;
+            SaveRestaurantProfile();
+            SaveAppSettings();
+            status.Foreground = Solid("#5B6B7A");
+            status.Text = "Abrindo Mercado Pago para conectar a conta da loja...";
+            mpConnect.IsEnabled = false;
+            try
+            {
+                var result = await StartMercadoPagoConnectAsync();
+                if (!result.Ok || string.IsNullOrWhiteSpace(result.AuthUrl))
+                {
+                    status.Foreground = RedText;
+                    status.Text = TextOrDefault(result.Message, "Nao consegui iniciar a conexao Mercado Pago.");
+                    return;
+                }
+
+                Process.Start(new ProcessStartInfo(result.AuthUrl) { UseShellExecute = true });
+                status.Foreground = GreenText;
+                status.Text = "Autorize no Mercado Pago. O PDV vai confirmar sozinho quando a conta conectar.";
+                _ = AutoRefreshMercadoPagoUntilConnectedAsync();
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                status.Foreground = RedText;
+                status.Text = $"Nao consegui abrir o navegador: {ex.Message}";
+            }
+            finally
+            {
+                mpConnect.IsEnabled = true;
+                RefreshMercadoPagoCard();
+            }
+        };
+
+        mpRefresh.Click += async (_, _) =>
+        {
+            status.Foreground = Solid("#5B6B7A");
+            status.Text = "Consultando conta e maquininhas Mercado Pago...";
+            mpRefresh.IsEnabled = false;
+            try
+            {
+                await RefreshMercadoPagoOnlineAsync(loadTerminals: true);
+            }
+            finally
+            {
+                mpRefresh.IsEnabled = true;
+                RefreshMercadoPagoCard();
+            }
+        };
+
+        mpSaveTerminal.Click += async (_, _) =>
+        {
+            if (mpTerminalBox.SelectedItem is not AdminMercadoPagoTerminalDto terminal || string.IsNullOrWhiteSpace(terminal.Id))
+            {
+                status.Foreground = RedText;
+                status.Text = "Escolha uma maquininha Mercado Pago.";
+                return;
+            }
+
+            status.Foreground = Solid("#5B6B7A");
+            status.Text = "Salvando maquininha da loja...";
+            mpSaveTerminal.IsEnabled = false;
+            try
+            {
+                var result = await SelectMercadoPagoTerminalAsync(terminal.Id, terminal.Display);
+                if (result.Ok)
+                {
+                    var mp = _appSettings.MercadoPago ??= new MercadoPagoPaymentSettings();
+                    mp.Enabled = true;
+                    mp.Connected = true;
+                    mp.DefaultTerminalId = terminal.Id;
+                    mp.DefaultTerminalLabel = terminal.Display;
+                    mp.LastSyncAt = DateTime.Now;
+                    mp.LastError = "";
+                    SaveAppSettings();
+                    status.Foreground = GreenText;
+                    status.Text = "Maquininha salva. No F9 voce pode escolher Point, QR Pix ou link.";
+                    RefreshMercadoPagoCard();
+                    return;
+                }
+
+                status.Foreground = RedText;
+                status.Text = TextOrDefault(result.Message, "Nao consegui salvar a maquininha.");
+            }
+            finally
+            {
+                mpSaveTerminal.IsEnabled = true;
+                RefreshMercadoPagoCard();
+            }
+        };
+
+        var mpActionGrid = new UniformGrid { Columns = 2, Rows = 1, Margin = new Thickness(0, 0, 0, 10) };
+        var mpTerminalActionGrid = new UniformGrid { Columns = 2, Rows = 1, Margin = new Thickness(0, 0, 0, 0) };
+        mpConnect.HorizontalAlignment = HorizontalAlignment.Stretch;
+        mpRefresh.HorizontalAlignment = HorizontalAlignment.Stretch;
+        mpSaveTerminal.HorizontalAlignment = HorizontalAlignment.Stretch;
+        mpToggle.HorizontalAlignment = HorizontalAlignment.Stretch;
+        mpConnect.Width = double.NaN;
+        mpRefresh.Width = double.NaN;
+        mpSaveTerminal.Width = double.NaN;
+        mpToggle.Width = double.NaN;
+        mpConnect.Margin = new Thickness(0, 0, 6, 0);
+        mpRefresh.Margin = new Thickness(6, 0, 0, 0);
+        mpSaveTerminal.Margin = new Thickness(0, 0, 6, 0);
+        mpToggle.Margin = new Thickness(6, 0, 0, 0);
+        mpActionGrid.Children.Add(mpConnect);
+        mpActionGrid.Children.Add(mpRefresh);
+        mpTerminalActionGrid.Children.Add(mpSaveTerminal);
+        mpTerminalActionGrid.Children.Add(mpToggle);
+        var mpCard = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#CAD6E2"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(9),
+            Padding = new Thickness(14),
+            Margin = new Thickness(0, 0, 0, 10),
+            Child = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock { Text = "Mercado Pago", Foreground = Solid("#071A2C"), FontSize = 18, FontWeight = FontWeights.Bold },
+                    new TextBlock { Text = "Cobranca integrada no F9 com confirmacao antes de fechar a venda.", Foreground = Solid("#5B6B7A"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 10) },
+                    mpPillGrid,
+                    mpStatusText,
+                    mpFlowGrid,
+                    mpPointNote,
+                    mpActionGrid,
+                    mpTerminalField,
+                    mpTerminalActionGrid
+                }
+            }
+        };
+        RefreshMercadoPagoCard();
+
+        var pgStatusText = new TextBlock
+        {
+            Foreground = Solid("#5B6B7A"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        var pgComPortBox = new TextBox
+        {
+            Text = _appSettings.PagBank?.PlugPagComPort ?? "",
+            Margin = new Thickness(0, 4, 0, 10)
+        };
+        var pgTerminalBox = new TextBox
+        {
+            Text = string.IsNullOrWhiteSpace(_appSettings.PagBank?.DefaultTerminalLabel)
+                ? "Moderninha PlugPag"
+                : _appSettings.PagBank.DefaultTerminalLabel,
+            Margin = new Thickness(0, 4, 0, 10)
+        };
+        var pgTerminalField = DialogField("Nome da maquininha", pgTerminalBox);
+        var pgComPortField = DialogField("Porta Bluetooth COM", pgComPortBox);
+        var pgConnect = DialogButton("Conectar conta", "#08A99B");
+        var pgRefresh = DialogButton("Atualizar conta", "#0B3A52");
+        var pgToggle = DialogButton("Ativar no F9", "#08A99B");
+        var pgSaveTerminal = DialogButton("Salvar PlugPag", "#08A99B");
+        var pgPlugPagToggle = DialogButton("Ativar maquininha", "#99620D");
+        var pgConnectionPillText = new TextBlock
+        {
+            FontSize = 12,
+            FontWeight = FontWeights.Bold,
+            TextWrapping = TextWrapping.Wrap,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        var pgTerminalPillText = new TextBlock
+        {
+            FontSize = 12,
+            FontWeight = FontWeights.Bold,
+            TextWrapping = TextWrapping.Wrap,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        var pgConnectionPill = new Border
+        {
+            Background = Solid("#EEF4F8"),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 0, 6, 8),
+            Child = pgConnectionPillText
+        };
+        var pgTerminalPill = new Border
+        {
+            Background = Solid("#EEF4F8"),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(6, 0, 0, 8),
+            Child = pgTerminalPillText
+        };
+        var pgPillGrid = new UniformGrid { Columns = 2, Rows = 1 };
+        pgPillGrid.Children.Add(pgConnectionPill);
+        pgPillGrid.Children.Add(pgTerminalPill);
+        var pgCustomerExplanation = new Border
+        {
+            Background = Solid("#EEF7F6"),
+            BorderBrush = Solid("#B6E1DC"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12),
+            Margin = new Thickness(0, 2, 0, 10),
+            Child = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock { Text = "Como funciona para o cliente", Foreground = Solid("#08A99B"), FontSize = 13, FontWeight = FontWeights.Bold },
+                    new TextBlock { Text = "Pix abre QR/copia-e-cola PagBank na tela. Credito/debito podem ir para a Moderninha pareada via PlugPag ou virar link PagBank. A venda fecha somente depois do retorno aprovado.", Foreground = Solid("#435466"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) }
+                }
+            }
+        };
+        var pgPointNote = new TextBlock
+        {
+            Text = "Maquininha PagBank integrada no Windows usa PlugPag por Bluetooth/porta COM. Nao e USB nem nuvem. Requer Moderninha compativel pareada no Windows.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+        var pgAutoRefreshRunning = false;
+
+        void RefreshPagBankCard()
+        {
+            var pg = _appSettings.PagBank ??= new PagBankPaymentSettings();
+            var terminal = string.IsNullOrWhiteSpace(pg.DefaultTerminalLabel)
+                ? pg.DefaultTerminalId
+                : pg.DefaultTerminalLabel;
+            var plugPagReady = pg.PlugPagEnabled && !string.IsNullOrWhiteSpace(pg.PlugPagComPort);
+            pgStatusText.Text = pg.Connected
+                ? plugPagReady
+                    ? $"Conta conectada. Online ativo e Moderninha em {pg.PlugPagComPort} pronta para credito/debito."
+                    : "Conta conectada. PagBank online ja usa Pix QR/link; informe a porta COM para ativar a Moderninha PlugPag."
+                : "Conecte a conta PagBank da loja para usar Pix QR/link. Depois informe a porta COM da Moderninha para credito/debito integrado.";
+            if (!string.IsNullOrWhiteSpace(pg.LastError))
+            {
+                pgStatusText.Text += $" Ultimo erro: {pg.LastError}";
+            }
+
+            pgStatusText.Foreground = pg.Enabled && pg.Connected ? GreenText : Solid("#5B6B7A");
+            pgToggle.Content = pg.Enabled ? "Desativar no F9" : "Ativar no F9";
+            pgToggle.Background = pg.Enabled ? Solid("#5B6B7A") : Solid("#08A99B");
+            pgPlugPagToggle.Content = pg.PlugPagEnabled ? "Desativar maquininha" : "Ativar maquininha";
+            pgPlugPagToggle.Background = pg.PlugPagEnabled ? Solid("#5B6B7A") : Solid("#99620D");
+            pgConnect.Content = pg.Connected ? "Reconectar conta" : "Conectar conta";
+            pgConnectionPillText.Text = pg.Connected
+                ? pg.Enabled ? "Ativo no F9" : "Conectado, desligado"
+                : "Conta nao conectada";
+            pgConnectionPillText.Foreground = pg.Connected && pg.Enabled ? GreenText : Solid("#5B6B7A");
+            pgConnectionPill.Background = pg.Connected && pg.Enabled ? Solid("#E6F6F2") : Solid("#F1F5F8");
+            pgTerminalPillText.Text = plugPagReady
+                ? $"PlugPag: {pg.PlugPagComPort}"
+                : "Sem maquininha PlugPag";
+            pgTerminalPillText.Foreground = plugPagReady ? Solid("#99620D") : Solid("#5B6B7A");
+            pgTerminalPill.Background = plugPagReady ? Solid("#FFF4D6") : Solid("#F1F5F8");
+            pgComPortBox.Text = pg.PlugPagComPort;
+            if (!string.IsNullOrWhiteSpace(terminal))
+            {
+                pgTerminalBox.Text = terminal;
+            }
+        }
+
+        async Task RefreshPagBankOnlineAsync()
+        {
+            var connection = await FetchPagBankConnectionStatusAsync();
+            ApplyPagBankStatus(connection);
+            if (!connection.Ok)
+            {
+                status.Foreground = RedText;
+                status.Text = TextOrDefault(connection.Message, "Nao consegui consultar o PagBank agora.");
+                RefreshPagBankCard();
+                return;
+            }
+
+            status.Foreground = connection.Connected ? GreenText : Solid("#99620D");
+            status.Text = connection.Connected
+                ? "Conta PagBank conectada. Pix/link online estao prontos."
+                : "PagBank ainda nao conectado.";
+            SaveAppSettings();
+            RefreshPagBankCard();
+        }
+
+        async Task AutoRefreshPagBankUntilConnectedAsync()
+        {
+            if (pgAutoRefreshRunning)
+            {
+                return;
+            }
+
+            pgAutoRefreshRunning = true;
+            try
+            {
+                for (var attempt = 0; attempt < 40; attempt++)
+                {
+                    await Task.Delay(attempt == 0 ? 1800 : 3000);
+                    if (!dialog.IsVisible)
+                    {
+                        return;
+                    }
+
+                    status.Foreground = Solid("#5B6B7A");
+                    status.Text = "Aguardando autorizacao do PagBank...";
+                    await RefreshPagBankOnlineAsync();
+                    if (_appSettings.PagBank?.Connected == true)
+                    {
+                        status.Foreground = GreenText;
+                        status.Text = "PagBank confirmado. Configure a porta COM se for usar Moderninha PlugPag.";
+                        return;
+                    }
+                }
+
+                status.Foreground = Solid("#99620D");
+                status.Text = "Ainda nao confirmei o PagBank. Se voce terminou no navegador, clique em Atualizar conta.";
+            }
+            finally
+            {
+                pgAutoRefreshRunning = false;
+                RefreshPagBankCard();
+            }
+        }
+
+        pgToggle.Click += (_, _) =>
+        {
+            var pg = _appSettings.PagBank ??= new PagBankPaymentSettings();
+            pg.Enabled = !pg.Enabled;
+            SaveAppSettings();
+            status.Foreground = pg.Enabled ? GreenText : Solid("#5B6B7A");
+            status.Text = pg.Enabled
+                ? "PagBank ativado no F9."
+                : "PagBank desativado no F9. As outras formas de pagamento continuam normais.";
+            RefreshPagBankCard();
+        };
+        pgPlugPagToggle.Click += (_, _) =>
+        {
+            var pg = _appSettings.PagBank ??= new PagBankPaymentSettings();
+            pg.PlugPagEnabled = !pg.PlugPagEnabled;
+            SaveAppSettings();
+            status.Foreground = pg.PlugPagEnabled ? GreenText : Solid("#5B6B7A");
+            status.Text = pg.PlugPagEnabled
+                ? "Maquininha PagBank ativada. Salve a porta COM da Moderninha."
+                : "Maquininha PagBank desativada. PagBank online continua disponivel.";
+            RefreshPagBankCard();
+        };
+        pgConnect.Click += async (_, _) =>
+        {
+            if (!TryApplyProfileInputs())
+            {
+                return;
+            }
+
+            (_appSettings.PagBank ??= new PagBankPaymentSettings()).Enabled = true;
+            SaveRestaurantProfile();
+            SaveAppSettings();
+            status.Foreground = Solid("#5B6B7A");
+            status.Text = "Abrindo PagBank para conectar a conta da loja...";
+            pgConnect.IsEnabled = false;
+            try
+            {
+                var result = await StartPagBankConnectAsync();
+                if (!result.Ok || string.IsNullOrWhiteSpace(result.AuthUrl))
+                {
+                    status.Foreground = RedText;
+                    status.Text = TextOrDefault(result.Message, "Nao consegui iniciar a conexao PagBank.");
+                    return;
+                }
+
+                Process.Start(new ProcessStartInfo(result.AuthUrl) { UseShellExecute = true });
+                status.Foreground = GreenText;
+                status.Text = "Autorize no PagBank. O PDV vai confirmar sozinho quando a conta conectar.";
+                _ = AutoRefreshPagBankUntilConnectedAsync();
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                status.Foreground = RedText;
+                status.Text = $"Nao consegui abrir o navegador: {ex.Message}";
+            }
+            finally
+            {
+                pgConnect.IsEnabled = true;
+                RefreshPagBankCard();
+            }
+        };
+        pgRefresh.Click += async (_, _) =>
+        {
+            status.Foreground = Solid("#5B6B7A");
+            status.Text = "Consultando conta PagBank...";
+            pgRefresh.IsEnabled = false;
+            try
+            {
+                await RefreshPagBankOnlineAsync();
+            }
+            finally
+            {
+                pgRefresh.IsEnabled = true;
+                RefreshPagBankCard();
+            }
+        };
+        pgSaveTerminal.Click += async (_, _) =>
+        {
+            var pg = _appSettings.PagBank ??= new PagBankPaymentSettings();
+            var comPort = CompactSingleLine(pgComPortBox.Text).ToUpperInvariant();
+            if (string.IsNullOrWhiteSpace(comPort))
+            {
+                status.Foreground = RedText;
+                status.Text = "Informe a porta COM da Moderninha, exemplo COM5.";
+                pgComPortBox.Focus();
+                return;
+            }
+
+            pg.DefaultTerminalLabel = CompactSingleLine(pgTerminalBox.Text);
+            pg.DefaultTerminalId = string.IsNullOrWhiteSpace(pg.DefaultTerminalLabel)
+                ? "PLUGPAG"
+                : pg.DefaultTerminalLabel;
+            pg.PlugPagComPort = comPort;
+            pg.PlugPagEnabled = true;
+            SaveAppSettings();
+            status.Foreground = Solid("#5B6B7A");
+            status.Text = "Salvando Moderninha PlugPag...";
+            pgSaveTerminal.IsEnabled = false;
+            try
+            {
+                var result = await SelectPagBankTerminalAsync(pg.DefaultTerminalId, pg.DefaultTerminalLabel, comPort);
+                status.Foreground = result.Ok ? GreenText : Solid("#99620D");
+                status.Text = result.Ok
+                    ? "Moderninha salva. No F9, credito/debito podem sair pelo PlugPag."
+                    : TextOrDefault(result.Message, "Salvei localmente, mas nao consegui sincronizar com o Supabase agora.");
+            }
+            finally
+            {
+                pgSaveTerminal.IsEnabled = true;
+                RefreshPagBankCard();
+            }
+        };
+
+        var pgActionGrid = new UniformGrid { Columns = 3, Rows = 1, Margin = new Thickness(0, 0, 0, 8) };
+        foreach (var button in new[] { pgToggle, pgConnect, pgRefresh, pgPlugPagToggle, pgSaveTerminal })
+        {
+            button.HorizontalAlignment = HorizontalAlignment.Stretch;
+            button.Width = double.NaN;
+        }
+        pgToggle.Margin = new Thickness(0, 0, 6, 0);
+        pgConnect.Margin = new Thickness(6, 0, 6, 0);
+        pgRefresh.Margin = new Thickness(6, 0, 0, 0);
+        pgPlugPagToggle.Margin = new Thickness(0, 0, 6, 8);
+        pgSaveTerminal.Margin = new Thickness(6, 0, 0, 8);
+        pgActionGrid.Children.Add(pgToggle);
+        pgActionGrid.Children.Add(pgConnect);
+        pgActionGrid.Children.Add(pgRefresh);
+        var pgPlugPagGrid = new UniformGrid { Columns = 2, Rows = 1, Margin = new Thickness(0, 0, 0, 0) };
+        pgPlugPagGrid.Children.Add(pgPlugPagToggle);
+        pgPlugPagGrid.Children.Add(pgSaveTerminal);
+        var pgCard = new Border
+        {
+            Background = Solid("#F8FBFD"),
+            BorderBrush = Solid("#CAD6E2"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(9),
+            Padding = new Thickness(12),
+            Margin = new Thickness(0, 0, 0, 10),
+            Child = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock { Text = "PagBank", Foreground = Solid("#071A2C"), FontSize = 18, FontWeight = FontWeights.Bold },
+                    new TextBlock { Text = "Pix/link online pela conta PagBank da loja. Credito/debito presencial usam PlugPag quando a Moderninha estiver pareada no Windows.", Foreground = Solid("#5B6B7A"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 10) },
+                    pgPillGrid,
+                    pgStatusText,
+                    pgCustomerExplanation,
+                    pgPointNote,
+                    pgTerminalField,
+                    pgComPortField,
+                    pgActionGrid,
+                    pgPlugPagGrid
+                }
+            }
+        };
+        RefreshPagBankCard();
 
         var soundGrid = new UniformGrid { Columns = 4, Rows = 1, Margin = new Thickness(0, 6, 0, 4) };
         foreach (var item in new[] { ("Padrao", "PADRAO"), ("Aviso", "AVISO"), ("Erro", "ERRO"), ("Nenhum", "NENHUM") })
@@ -2566,7 +4849,7 @@ public partial class MainWindow : Window
             button.Click += (_, _) =>
             {
                 _appSettings.NotificationSound = item.Item2;
-                RefreshSegments(soundButtons, _appSettings.NotificationSound, "#245B91");
+                RefreshSegments(soundButtons, _appSettings.NotificationSound, "#0B3A52");
             };
             soundButtons.Add(button);
             soundGrid.Children.Add(button);
@@ -2579,7 +4862,7 @@ public partial class MainWindow : Window
             button.Click += (_, _) =>
             {
                 _appSettings.PrintLayout = size;
-                RefreshSegments(printSizeButtons, _appSettings.PrintLayout, "#245B91");
+                RefreshSegments(printSizeButtons, _appSettings.PrintLayout, "#0B3A52");
             };
             printSizeButtons.Add(button);
             sizeGrid.Children.Add(button);
@@ -2592,7 +4875,7 @@ public partial class MainWindow : Window
                 : selectedPrinter;
         }
 
-        var useDefaultPrinter = DialogButton("Usar padrao", "#667684");
+        var useDefaultPrinter = DialogButton("Usar padrao", "#5B6B7A");
         useDefaultPrinter.MinWidth = 120;
         useDefaultPrinter.Click += (_, _) =>
         {
@@ -2601,7 +4884,7 @@ public partial class MainWindow : Window
             status.Text = "Impressora voltou para o padrao do Windows. Clique em Salvar configuracoes.";
         };
 
-        var choosePrinter = DialogButton("Escolher impressora", "#2F6FAE");
+        var choosePrinter = DialogButton("Escolher impressora", "#0B3A52");
         choosePrinter.MinWidth = 170;
         choosePrinter.Click += (_, _) =>
         {
@@ -2611,11 +4894,11 @@ public partial class MainWindow : Window
                 ItemsSource = installedPrinters,
                 SelectedItem = selectedPrinter,
                 MinHeight = 300,
-                BorderBrush = Solid("#D8E2EC"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 Background = Brushes.White
             };
-            var apply = DialogButton("Aplicar impressora", "#0F766E");
+            var apply = DialogButton("Aplicar impressora", "#08A99B");
             apply.Click += (_, _) =>
             {
                 selectedPrinter = list.SelectedItem?.ToString() ?? defaultPrinterOption;
@@ -2642,7 +4925,7 @@ public partial class MainWindow : Window
         var printerCard = new Border
         {
             Background = Solid("#F8FBFD"),
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(9),
             Padding = new Thickness(12),
@@ -2651,7 +4934,7 @@ public partial class MainWindow : Window
             {
                 Children =
                 {
-                    new TextBlock { Text = "Impressora preferida", Foreground = Solid("#667684"), FontWeight = FontWeights.SemiBold },
+                    new TextBlock { Text = "Impressora preferida", Foreground = Solid("#5B6B7A"), FontWeight = FontWeights.SemiBold },
                     printerSelectedText,
                     defaultPrinterText,
                     printerActions
@@ -2660,55 +4943,79 @@ public partial class MainWindow : Window
         };
         RefreshPrinterCard();
 
+        void AddSectorPrinterRow(string sector = "", string printerName = "")
+        {
+            var selected = string.IsNullOrWhiteSpace(printerName)
+                ? defaultPrinterOption
+                : printerName.Trim();
+            if (installedPrinters.All(item => !string.Equals(item, selected, StringComparison.OrdinalIgnoreCase)))
+            {
+                installedPrinters.Add(selected);
+            }
+
+            var sectorBox = new TextBox
+            {
+                Text = NormalizeProductDestination(sector, ""),
+                CharacterCasing = System.Windows.Controls.CharacterCasing.Upper,
+                MinHeight = 34,
+                Padding = new Thickness(10, 6, 10, 6),
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            var printerBox = new ComboBox
+            {
+                ItemsSource = installedPrinters.ToList(),
+                SelectedItem = selected,
+                MinHeight = 34,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            var remove = DialogButton("Remover", "#5B6B7A");
+            remove.MinWidth = 86;
+            remove.Height = 34;
+
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.Children.Add(sectorBox);
+            Grid.SetColumn(printerBox, 1);
+            row.Children.Add(printerBox);
+            Grid.SetColumn(remove, 2);
+            row.Children.Add(remove);
+
+            sectorPrinterRows.Add((sectorBox, printerBox));
+            sectorPrinterList.Children.Add(row);
+            remove.Click += (_, _) =>
+            {
+                sectorPrinterRows.RemoveAll(item => ReferenceEquals(item.SectorBox, sectorBox));
+                sectorPrinterList.Children.Remove(row);
+                status.Text = "Destino removido. Clique em Salvar configuracoes.";
+            };
+        }
+
         Border BuildSectorPrintersCard()
         {
             sectorPrinterRows.Clear();
-            var grid = new Grid { Margin = new Thickness(0, 8, 0, 0) };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.35, GridUnitType.Star) });
-
-            var row = 0;
-            foreach (var sector in GetKnownProductSectors())
+            sectorPrinterList.Children.Clear();
+            foreach (var setting in _appSettings.SectorPrinters
+                         .Where(item => !string.IsNullOrWhiteSpace(item.Sector))
+                          .OrderBy(item => string.Equals(NormalizeProductDestination(item.Sector, ""), "COZINHA", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                          .ThenBy(item => NormalizeProductDestination(item.Sector, ""), StringComparer.OrdinalIgnoreCase))
             {
-                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                var setting = _appSettings.SectorPrinters.FirstOrDefault(item =>
-                    string.Equals(NormalizeSectorName(item.Sector), sector, StringComparison.OrdinalIgnoreCase));
-                var selected = string.IsNullOrWhiteSpace(setting?.PrinterName)
-                    ? defaultPrinterOption
-                    : setting.PrinterName.Trim();
-                if (installedPrinters.All(item => !string.Equals(item, selected, StringComparison.OrdinalIgnoreCase)))
-                {
-                    installedPrinters.Add(selected);
-                }
-
-                var label = new TextBlock
-                {
-                    Text = sector,
-                    Foreground = Solid("#18222B"),
-                    FontWeight = FontWeights.Bold,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(0, 0, 10, 8)
-                };
-                var box = new ComboBox
-                {
-                    ItemsSource = installedPrinters.ToList(),
-                    SelectedItem = selected,
-                    MinHeight = 34,
-                    Margin = new Thickness(0, 0, 0, 8)
-                };
-                Grid.SetRow(label, row);
-                Grid.SetRow(box, row);
-                Grid.SetColumn(box, 1);
-                grid.Children.Add(label);
-                grid.Children.Add(box);
-                sectorPrinterRows.Add((sector, box));
-                row++;
+                AddSectorPrinterRow(setting.Sector, setting.PrinterName);
             }
+
+            var addSector = DialogButton("Adicionar destino", "#0B3A52");
+            addSector.HorizontalAlignment = HorizontalAlignment.Left;
+            addSector.Click += (_, _) =>
+            {
+                AddSectorPrinterRow();
+                status.Text = "Informe o nome do destino, escolha a impressora e salve.";
+            };
 
             return new Border
             {
                 Background = Solid("#F8FBFD"),
-                BorderBrush = Solid("#D8E2EC"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(9),
                 Padding = new Thickness(12),
@@ -2717,9 +5024,10 @@ public partial class MainWindow : Window
                 {
                     Children =
                     {
-                        new TextBlock { Text = "Impressoras por setor", Foreground = Solid("#667684"), FontWeight = FontWeights.SemiBold },
-                        new TextBlock { Text = "Cada produto escolhe um setor. Se o setor tiver impressora propria, cozinha/bar/pizza saem separados. Sem impressora propria, usa a preferida acima.", Foreground = Solid("#667684"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 4) },
-                        grid
+                        new TextBlock { Text = "Destinos de producao", Foreground = Solid("#5B6B7A"), FontWeight = FontWeights.SemiBold },
+                        new TextBlock { Text = "COZINHA ja vem criada. Produto em CAIXA nao imprime producao; produto em COZINHA ou outro destino sai agrupado na impressora escolhida.", Foreground = Solid("#5B6B7A"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 8) },
+                        sectorPrinterList,
+                        addSector
                     }
                 }
             };
@@ -2735,16 +5043,16 @@ public partial class MainWindow : Window
             button.Click += (_, _) =>
             {
                 selectedQrKind = kind;
-                RefreshSegments(qrKindButtons, selectedQrKind, "#0F766E");
+                RefreshSegments(qrKindButtons, selectedQrKind, "#08A99B");
                 status.Text = "Tipo do QR atualizado. Clique em Salvar configuracoes.";
             };
             qrKindButtons.Add(button);
             qrKindGrid.Children.Add(button);
         }
 
-        var qrTitle = new TextBlock { FontWeight = FontWeights.Bold, Foreground = Solid("#18222B") };
-        var qrSubtitle = new TextBlock { Foreground = Solid("#667684"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 12, 0) };
-        var qrToggle = DialogButton("Ligar QR", "#0F766E");
+        var qrTitle = new TextBlock { FontWeight = FontWeights.Bold, Foreground = Solid("#071A2C") };
+        var qrSubtitle = new TextBlock { Foreground = Solid("#5B6B7A"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 12, 0) };
+        var qrToggle = DialogButton("Ligar QR", "#08A99B");
         qrToggle.MinWidth = 110;
         var qrHeader = new Grid();
         qrHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -2770,15 +5078,15 @@ public partial class MainWindow : Window
         void RefreshQrCard()
         {
             var enabled = _appSettings.ReceiptQrEnabled;
-            qrCard.Background = enabled ? Solid("#E8F7F4") : Brushes.White;
-            qrCard.BorderBrush = enabled ? Solid("#0F766E") : Solid("#D8E2EC");
-            qrTitle.Foreground = enabled ? Solid("#0F766E") : Solid("#18222B");
+            qrCard.Background = enabled ? Solid("#E6FBF8") : Brushes.White;
+            qrCard.BorderBrush = enabled ? Solid("#08A99B") : Solid("#CAD6E2");
+            qrTitle.Foreground = enabled ? Solid("#08A99B") : Solid("#071A2C");
             qrTitle.Text = enabled ? "QR no comprovante: ligado" : "QR no comprovante: desligado";
             qrSubtitle.Text = enabled
                 ? "O comprovante imprime o QR usando o conteudo abaixo. Para Pix, informe sua chave Pix."
                 : "Desligado para nao poluir o comprovante. Ligue somente quando usar Pix, Instagram, Maps ou link.";
             qrToggle.Content = enabled ? "Desligar QR" : "Ligar QR";
-            qrToggle.Background = enabled ? Solid("#667684") : Solid("#0F766E");
+            qrToggle.Background = enabled ? Solid("#5B6B7A") : Solid("#08A99B");
             qrOptionsPanel.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -2791,7 +5099,7 @@ public partial class MainWindow : Window
                 : "QR desligado. Clique em Salvar configuracoes.";
         };
 
-        var chooseLogo = DialogButton("Trocar foto/logo", "#2F6FAE");
+        var chooseLogo = DialogButton("Trocar foto/logo", "#0B3A52");
         chooseLogo.HorizontalAlignment = HorizontalAlignment.Stretch;
         chooseLogo.Click += (_, _) =>
         {
@@ -2818,7 +5126,7 @@ public partial class MainWindow : Window
             SetStatus("Foto/logo do restaurante atualizada.");
         };
 
-        var chooseCover = DialogButton("Trocar imagem de capa", "#2F6FAE");
+        var chooseCover = DialogButton("Trocar imagem de capa", "#0B3A52");
         chooseCover.HorizontalAlignment = HorizontalAlignment.Stretch;
         chooseCover.Click += (_, _) =>
         {
@@ -2844,7 +5152,7 @@ public partial class MainWindow : Window
             SetStatus("Capa do cardapio atualizada.");
         };
 
-        var chooseIFoodSound = DialogButton("Escolher toque iFood", "#2F6FAE");
+        var chooseIFoodSound = DialogButton("Escolher toque iFood", "#0B3A52");
         chooseIFoodSound.HorizontalAlignment = HorizontalAlignment.Stretch;
         chooseIFoodSound.Click += (_, _) =>
         {
@@ -2865,7 +5173,7 @@ public partial class MainWindow : Window
             status.Text = "Toque iFood selecionado. Clique em Salvar configuracoes.";
         };
 
-        var clearIFoodSound = DialogButton("Usar toque padrao", "#667684");
+        var clearIFoodSound = DialogButton("Usar toque padrao", "#5B6B7A");
         clearIFoodSound.HorizontalAlignment = HorizontalAlignment.Stretch;
         clearIFoodSound.Click += (_, _) =>
         {
@@ -2884,14 +5192,14 @@ public partial class MainWindow : Window
             status.Text = "Toque iFood testado.";
         };
 
-        var testNotification = DialogButton("Testar notificacao", "#2F6FAE");
+        var testNotification = DialogButton("Testar notificacao", "#0B3A52");
         testNotification.HorizontalAlignment = HorizontalAlignment.Stretch;
         testNotification.Click += (_, _) =>
         {
-            ShowToast("Teste de aviso", "Aviso visual e vibracao curta foram testados.", "NT", "#2F6FAE", "#E8F1FA");
+            ShowToast("Teste de aviso", "Aviso visual e vibracao curta foram testados.", "NT", "#0B3A52", "#EAF8FA");
             status.Text = "Notificacao de teste enviada.";
         };
-        var checkUpdate = DialogButton("Verificar atualizacao agora", "#2F6FAE");
+        var checkUpdate = DialogButton("Verificar atualizacao agora", "#0B3A52");
         checkUpdate.HorizontalAlignment = HorizontalAlignment.Stretch;
         checkUpdate.Click += async (_, _) =>
         {
@@ -2963,7 +5271,7 @@ public partial class MainWindow : Window
             return true;
         }
 
-        var syncAccount = DialogButton("Sincronizar conta agora", "#2F6FAE");
+        var syncAccount = DialogButton("Sincronizar conta agora", "#0B3A52");
         syncAccount.HorizontalAlignment = HorizontalAlignment.Stretch;
         syncAccount.Click += async (_, _) =>
         {
@@ -2975,7 +5283,7 @@ public partial class MainWindow : Window
             SaveRestaurantProfile();
             SaveAppSettings();
             var payload = CreateAdminClientPayload("profile.sync", _appSettings.ActivationKey, _appSettings.ActivationExpiresAt, _appSettings.ActivationPlan);
-            status.Foreground = Solid("#667684");
+            status.Foreground = Solid("#5B6B7A");
             status.Text = "Sincronizando conta com o admin/Supabase...";
             syncAccount.IsEnabled = false;
             try
@@ -2984,6 +5292,7 @@ public partial class MainWindow : Window
                 {
                     _appSettings.LastAdminSyncAt = DateTime.Now;
                     SaveAppSettings();
+                    ApplyRestaurantIdentity();
                     licenseText.Text = BuildActivationSummary();
                     status.Foreground = GreenText;
                     status.Text = "Conta sincronizada. Android e Web usam esses dados vinculados a chave.";
@@ -3024,6 +5333,7 @@ public partial class MainWindow : Window
             _appSettings.ActivationLastWarningKey = "";
             _appSettings.LastAdminSyncAt = null;
             SaveAppSettings();
+            ApplyRestaurantIdentity();
             _licenseTimer.Stop();
             SetStatus("Conta removida deste computador.");
             dialog.Close();
@@ -3034,7 +5344,7 @@ public partial class MainWindow : Window
             }
         };
 
-        var save = DialogButton("Salvar configuracoes", "#0F766E");
+        var save = DialogButton("Salvar configuracoes", "#08A99B");
         save.HorizontalAlignment = HorizontalAlignment.Stretch;
         save.Click += (_, _) =>
         {
@@ -3049,15 +5359,17 @@ public partial class MainWindow : Window
             _appSettings.SectorPrinters = sectorPrinterRows
                 .Select(row => new SectorPrinterSetting
                 {
-                    Sector = NormalizeSectorName(row.Sector),
+                    Sector = NormalizeProductDestination(row.SectorBox.Text, ""),
                     PrinterName = string.Equals(row.PrinterBox.SelectedItem?.ToString(), defaultPrinterOption, StringComparison.Ordinal)
                         ? ""
                         : (row.PrinterBox.SelectedItem?.ToString() ?? "").Trim()
                 })
                 .Where(setting => !string.IsNullOrWhiteSpace(setting.Sector))
-                .GroupBy(setting => NormalizeSectorName(setting.Sector), StringComparer.OrdinalIgnoreCase)
+                .Where(setting => IsProductionDestinationName(setting.Sector))
+                .GroupBy(setting => NormalizeProductDestination(setting.Sector, ""), StringComparer.OrdinalIgnoreCase)
                 .Select(group => group.First())
                 .ToList();
+            NormalizeProductionDestinations();
             _appSettings.UpdateManifestUrl = DefaultUpdateManifestUrl;
             _appSettings.ReceiptQrKind = NormalizeReceiptQrKind(selectedQrKind);
             _appSettings.ReceiptQrContent = qrContentBox.Text.Trim();
@@ -3080,85 +5392,142 @@ public partial class MainWindow : Window
             dialog.Close();
         };
 
-        var root = new Grid { Margin = new Thickness(18) };
-        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star) });
-        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.9, GridUnitType.Star) });
-
-        var company = new StackPanel { Margin = new Thickness(0, 0, 14, 0) };
-        company.Children.Add(SectionTitle("Empresa"));
-        company.Children.Add(TwoColumnFields(("Email da conta", emailBox), ("Responsavel", ownerBox)));
-        company.Children.Add(TwoColumnFields(("Nome fantasia", businessBox), ("Razao social", legalBox)));
-        company.Children.Add(TwoColumnFields(("CNPJ", cnpjBox), ("Telefone", phoneBox)));
-        company.Children.Add(TwoColumnFields(("Cidade", cityBox), ("UF", stateBox)));
-        company.Children.Add(DialogField("Endereco", addressBox));
-        company.Children.Add(new Border { Background = Solid("#F8FBFD"), BorderBrush = Solid("#D8E2EC"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(12), Margin = new Thickness(0, 4, 0, 10), Child = new StackPanel { Children = { new TextBlock { Text = "Foto/logo", Foreground = Solid("#667684"), FontWeight = FontWeights.SemiBold }, logoText, chooseLogo } } });
-        company.Children.Add(new Border { Background = Solid("#F8FBFD"), BorderBrush = Solid("#D8E2EC"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(12), Margin = new Thickness(0, 4, 0, 10), Child = new StackPanel { Children = { new TextBlock { Text = "Imagem de capa do cardapio", Foreground = Solid("#667684"), FontWeight = FontWeights.SemiBold }, coverText, chooseCover } } });
-        company.Children.Add(new Border
+        Border SettingsCard(string title, params UIElement[] children)
         {
-            Background = Solid("#F8FBFD"),
-            BorderBrush = Solid("#D8E2EC"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(9),
-            Padding = new Thickness(12),
-            Margin = new Thickness(0, 4, 0, 10),
-            Child = new StackPanel
+            var stack = new StackPanel();
+            stack.Children.Add(SectionTitle(title));
+            foreach (var child in children)
             {
-                Children =
-                {
-                    new TextBlock { Text = "Cardapio digital", Foreground = Solid("#667684"), FontWeight = FontWeights.SemiBold },
-                    new TextBlock { Text = "A loja aparece aberta quando o PDV esta aberto. O tempo abaixo aparece no topo do cardapio.", Foreground = Solid("#667684"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 8) },
-                    TwoColumnFields(("Tempo minimo (min)", waitMinBox), ("Tempo maximo (min)", waitMaxBox))
-                }
+                stack.Children.Add(child);
             }
-        });
-        company.Children.Add(SectionTitle("Comprovantes"));
-        company.Children.Add(new TextBlock { Text = "Dados usados somente nos comprovantes, recibos e impressoes locais.", Foreground = Solid("#667684"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 8) });
-        company.Children.Add(new TextBlock { Text = "Versao online: pedidos iFood entram no delivery; venda local continua funcionando mesmo se a internet cair.", Foreground = Solid("#0F766E"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
-        company.Children.Add(versionText);
-        company.Children.Add(new TextBlock { Text = "2026 Balcao Livre", Foreground = Solid("#667684"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 8, 0, 2) });
-        company.Children.Add(new TextBlock { Text = "2026 Nagazaki Software", Foreground = Solid("#667684"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 10) });
 
-        var system = new StackPanel { Margin = new Thickness(14, 0, 0, 0) };
-        system.Children.Add(SectionTitle("Conta e licenca"));
-        system.Children.Add(new Border
+            return new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = Solid("#CAD6E2"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(16),
+                Child = stack
+            };
+        }
+
+        TextBlock MutedText(string text, double fontSize = 12)
         {
-            Background = Solid("#F8FBFD"),
-            BorderBrush = Solid("#D8E2EC"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(9),
-            Padding = new Thickness(12),
-            Margin = new Thickness(0, 0, 0, 10),
-            Child = new StackPanel
+            return new TextBlock
             {
-                Children =
-                {
-                    new TextBlock { Text = "Conta vinculada", Foreground = Solid("#18222B"), FontWeight = FontWeights.Bold },
-                    linkedAccountText,
-                    licenseText,
-                    new TextBlock { Text = "Esses dados sao enviados ao admin/Supabase junto com a chave para o Android e o PDV Web reconhecerem a mesma loja.", Foreground = Solid("#667684"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) },
-                    syncAccount,
-                    logoutAccount
-                }
-            }
-        });
-        system.Children.Add(SectionTitle("Avisos"));
-        system.Children.Add(ToggleCard("Toast visual no app", "Mostra aviso dentro do PDV quando uma acao importante acontecer.", () => _appSettings.WindowsNotificationsEnabled, value => _appSettings.WindowsNotificationsEnabled = value));
-        system.Children.Add(ToggleCard("Vibracao no app", "Faz uma vibracao visual curta na janela/toast.", () => _appSettings.InAppVibrationEnabled, value => _appSettings.InAppVibrationEnabled = value));
-        system.Children.Add(SectionTitle("Impressao"));
-        system.Children.Add(ToggleCard("Imprimir delivery automaticamente", "Pedidos novos saem na impressora configurada.", () => _appSettings.AutoPrintDelivery, value => _appSettings.AutoPrintDelivery = value));
-        system.Children.Add(ToggleCard("Imprimir cozinha automaticamente", "F4 envia a ordem para a impressora configurada.", () => _appSettings.AutoPrintKitchen, value => _appSettings.AutoPrintKitchen = value));
-        system.Children.Add(DialogLabel("Modelo padrao"));
-        system.Children.Add(sizeGrid);
-        system.Children.Add(printerCard);
-        system.Children.Add(sectorPrintersCard);
-        system.Children.Add(qrCard);
-        system.Children.Add(SectionTitle("Atualizacoes"));
-        system.Children.Add(ToggleCard("Atualizar automaticamente ao abrir", "Consulta o servidor ao entrar no PDV. Se houver versao nova, baixa, instala e reabre o sistema.", () => _appSettings.AutoCheckUpdates, value => _appSettings.AutoCheckUpdates = value));
-        system.Children.Add(checkUpdate);
+                Text = text,
+                Foreground = Solid("#5B6B7A"),
+                FontSize = fontSize,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+        }
 
-        root.Children.Add(company);
-        Grid.SetColumn(system, 1);
-        root.Children.Add(system);
+        Grid SettingsRow(UIElement left, UIElement right)
+        {
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 14) };
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            var leftHost = new Border { Margin = new Thickness(0, 0, 7, 0), Child = left };
+            var rightHost = new Border { Margin = new Thickness(7, 0, 0, 0), Child = right };
+            row.Children.Add(leftHost);
+            Grid.SetColumn(rightHost, 1);
+            row.Children.Add(rightHost);
+            return row;
+        }
+
+        var root = new StackPanel
+        {
+            Margin = new Thickness(18),
+            Background = Solid("#F4F8FB")
+        };
+
+        void AddFull(UIElement element)
+        {
+            if (element is FrameworkElement frameworkElement)
+            {
+                frameworkElement.Margin = new Thickness(0, 0, 0, 14);
+            }
+            root.Children.Add(element);
+        }
+
+        var siteText = new TextBlock
+        {
+            Text = "www.balcaolivrepdv.com.br",
+            Foreground = Solid("#0B3A52"),
+            FontWeight = FontWeights.Bold,
+            TextDecorations = TextDecorations.Underline,
+            Cursor = Cursors.Hand,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        siteText.MouseLeftButtonDown += (_, _) =>
+        {
+            Process.Start(new ProcessStartInfo("https://www.balcaolivrepdv.com.br") { UseShellExecute = true });
+        };
+
+        var accountCard = SettingsCard(
+            "Conta e licenca",
+            new TextBlock { Text = "Conta vinculada", Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold },
+            linkedAccountText,
+            licenseText,
+            MutedText("Esses dados ficam ligados a chave para o Android, PDV Web e admin reconhecerem a mesma loja.", 11),
+            syncAccount,
+            logoutAccount);
+
+        var companyCard = SettingsCard(
+            "Empresa",
+            TwoColumnFields(("Email da conta", emailBox), ("Responsavel", ownerBox)),
+            TwoColumnFields(("Nome fantasia", businessBox), ("Razao social", legalBox)),
+            TwoColumnFields(("CNPJ", cnpjBox), ("Telefone", phoneBox)),
+            TwoColumnFields(("Cidade", cityBox), ("UF", stateBox)),
+            DialogField("Endereco", addressBox));
+
+        var mediaCard = SettingsCard(
+            "Marca e cardapio",
+            new Border { Background = Solid("#F8FBFD"), BorderBrush = Solid("#CAD6E2"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 10), Child = new StackPanel { Children = { new TextBlock { Text = "Foto/logo", Foreground = Solid("#5B6B7A"), FontWeight = FontWeights.SemiBold }, logoText, chooseLogo } } },
+            new Border { Background = Solid("#F8FBFD"), BorderBrush = Solid("#CAD6E2"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 10), Child = new StackPanel { Children = { new TextBlock { Text = "Imagem de capa do cardapio", Foreground = Solid("#5B6B7A"), FontWeight = FontWeights.SemiBold }, coverText, chooseCover } } },
+            MutedText("A loja aparece aberta enquanto o PDV estiver aberto. O tempo abaixo aparece no topo do cardapio.", 11),
+            TwoColumnFields(("Tempo minimo (min)", waitMinBox), ("Tempo maximo (min)", waitMaxBox)));
+
+        var aboutCard = SettingsCard(
+            "Sobre o sistema",
+            MutedText("Versao online: pedidos iFood entram no delivery; venda local continua funcionando mesmo se a internet cair.", 12),
+            versionText,
+            new TextBlock { Text = "2026 Balcao Livre", Foreground = Solid("#071A2C"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 2) },
+            new TextBlock { Text = "2026 Nagazaki Software", Foreground = Solid("#5B6B7A"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) },
+            MutedText("Site oficial", 11),
+            siteText,
+            MutedText("Dados usados nos comprovantes, recibos, cardapio online e impressoes locais.", 11));
+
+        var alertsCard = SettingsCard(
+            "Avisos do app",
+            ToggleCard("Toast visual no app", "Mostra aviso dentro do PDV quando uma acao importante acontecer.", () => _appSettings.WindowsNotificationsEnabled, value => _appSettings.WindowsNotificationsEnabled = value),
+            ToggleCard("Vibracao no app", "Faz uma vibracao visual curta na janela/toast.", () => _appSettings.InAppVibrationEnabled, value => _appSettings.InAppVibrationEnabled = value));
+
+        var printCard = SettingsCard(
+            "Impressao principal",
+            ToggleCard("Imprimir delivery automaticamente", "Pedidos novos saem na impressora configurada.", () => _appSettings.AutoPrintDelivery, value => _appSettings.AutoPrintDelivery = value),
+            ToggleCard("Enviar producao automaticamente", "Itens com destino COZINHA saem agrupados alguns segundos depois de entrar no pedido. F4 fica para reimprimir.", () => _appSettings.AutoPrintKitchen, value => _appSettings.AutoPrintKitchen = value),
+            DialogLabel("Modelo padrao"),
+            sizeGrid,
+            printerCard);
+
+        var productionCard = SettingsCard(
+            "Producao e QR",
+            sectorPrintersCard,
+            qrCard);
+
+        var updateCard = SettingsCard(
+            "Atualizacoes",
+            ToggleCard("Atualizar automaticamente ao abrir", "Consulta o servidor ao entrar no PDV. Se houver versao nova, baixa, instala e reabre o sistema.", () => _appSettings.AutoCheckUpdates, value => _appSettings.AutoCheckUpdates = value),
+            checkUpdate);
+
+        AddFull(SettingsRow(companyCard, accountCard));
+        AddFull(SettingsRow(mediaCard, aboutCard));
+        AddFull(SettingsRow(mpCard, alertsCard));
+        AddFull(SettingsRow(printCard, productionCard));
+        AddFull(updateCard);
 
         var outer = new Grid();
         outer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -3179,7 +5548,7 @@ public partial class MainWindow : Window
         var footer = new Border
         {
             Background = Solid("#FFFFFF"),
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(0, 1, 0, 0),
             Padding = new Thickness(18, 10, 18, 10)
         };
@@ -3197,10 +5566,18 @@ public partial class MainWindow : Window
         outer.Children.Add(footer);
 
         dialog.Content = outer;
-        RefreshSegments(soundButtons, _appSettings.NotificationSound, "#245B91");
-        RefreshSegments(printSizeButtons, _appSettings.PrintLayout, "#245B91");
-        RefreshSegments(qrKindButtons, selectedQrKind, "#0F766E");
+        RefreshSegments(soundButtons, _appSettings.NotificationSound, "#0B3A52");
+        RefreshSegments(printSizeButtons, _appSettings.PrintLayout, "#0B3A52");
+        RefreshSegments(qrKindButtons, selectedQrKind, "#08A99B");
         RefreshQrCard();
+        RefreshMercadoPagoCard();
+        _ = Dispatcher.BeginInvoke(async () =>
+        {
+            if ((_appSettings.MercadoPago?.Enabled == true || !string.IsNullOrWhiteSpace(_appSettings.ActivationKey)) && dialog.IsVisible)
+            {
+                await RefreshMercadoPagoOnlineAsync(loadTerminals: true);
+            }
+        });
         dialog.ShowDialog();
     }
 
@@ -3284,7 +5661,7 @@ public partial class MainWindow : Window
         panel.Children.Add(new TextBlock
         {
             Text = "Criar mesas do salao",
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontSize = 22,
             FontWeight = FontWeights.Bold,
             TextWrapping = TextWrapping.Wrap
@@ -3292,7 +5669,7 @@ public partial class MainWindow : Window
         panel.Children.Add(new TextBlock
         {
             Text = "Informe o primeiro numero e quantas mesas o estabelecimento usa.",
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 12)
         });
@@ -3312,7 +5689,7 @@ public partial class MainWindow : Window
         var previewTitle = new TextBlock
         {
             Text = "Previa",
-            Foreground = Solid("#0F766E"),
+            Foreground = Solid("#08A99B"),
             FontWeight = FontWeights.Bold,
             Margin = new Thickness(0, 0, 0, 4)
         };
@@ -3323,8 +5700,8 @@ public partial class MainWindow : Window
         };
         panel.Children.Add(new Border
         {
-            Background = Solid("#E8F7F4"),
-            BorderBrush = Solid("#0F766E"),
+            Background = Solid("#E6FBF8"),
+            BorderBrush = Solid("#08A99B"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(12),
@@ -3358,7 +5735,7 @@ public partial class MainWindow : Window
         startBox.TextChanged += (_, _) => RefreshPreview();
         countBox.TextChanged += (_, _) => RefreshPreview();
 
-        var create = DialogButton("Criar mesas", "#0F766E");
+        var create = DialogButton("Criar mesas", "#08A99B");
         create.Margin = new Thickness(0);
         create.Width = 180;
         create.IsDefault = true;
@@ -3397,7 +5774,7 @@ public partial class MainWindow : Window
         var footer = new Border
         {
             Background = Brushes.White,
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(0, 1, 0, 0),
             Padding = new Thickness(22, 12, 22, 12)
         };
@@ -3407,7 +5784,7 @@ public partial class MainWindow : Window
         footerGrid.Children.Add(new TextBlock
         {
             Text = "Enter confirma. Esc fecha.",
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             VerticalAlignment = VerticalAlignment.Center
         });
         Grid.SetColumn(create, 1);
@@ -4334,6 +6711,11 @@ public partial class MainWindow : Window
             note = pizzaNote;
         }
 
+        if (!RequireManagerForClosedAccountEdit(board, "incluir produto"))
+        {
+            return;
+        }
+
         var line = new TicketLine
         {
             Code = product.Code,
@@ -4341,7 +6723,7 @@ public partial class MainWindow : Window
             Quantity = qty,
             UnitPrice = product.Price,
             Note = note,
-            Sector = product.Sector
+            Sector = NormalizeProductDestination(product.Sector, "CAIXA")
         };
 
         var existingLine = TicketLines.FirstOrDefault(item => CanMergeTicketLine(item, line));
@@ -4399,6 +6781,7 @@ public partial class MainWindow : Window
         SetStatus(existingLine is null
             ? $"Incluido: {qty}x {line.Name}"
             : $"Agrupado: {line.Quantity}x {line.Name}");
+        ScheduleKitchenPrint(board, [line]);
         if (stockChanged)
         {
             QueueIFoodStockSync(product, $"Venda PDV {board.Kind} {board.Number}");
@@ -4448,6 +6831,11 @@ public partial class MainWindow : Window
         if (IsIFoodDeliveryBoard(board))
         {
             BlockIFoodDeliveryEdit("aplicar taxas");
+            return;
+        }
+
+        if (!RequireManagerForClosedAccountEdit(board, "alterar taxas"))
+        {
             return;
         }
 
@@ -4527,6 +6915,11 @@ public partial class MainWindow : Window
 
         if (CurrentBoard is { } board)
         {
+            if (!RequireManagerForClosedAccountEdit(board, "alterar taxas"))
+            {
+                return;
+            }
+
             board.ChargesEnabled = false;
         }
 
@@ -4658,7 +7051,17 @@ public partial class MainWindow : Window
 
         if (IsTableCharge(line))
         {
+            if (CurrentBoard is { } chargeBoard && !RequireManagerForClosedAccountEdit(chargeBoard, "excluir item"))
+            {
+                return;
+            }
+
             RemoveTableCharges();
+            return;
+        }
+
+        if (CurrentBoard is { } board && !RequireManagerForClosedAccountEdit(board, "excluir item"))
+        {
             return;
         }
 
@@ -4704,6 +7107,11 @@ public partial class MainWindow : Window
 
         var source = CurrentBoard;
         if (source is null)
+        {
+            return;
+        }
+
+        if (!RequireManagerForClosedAccountEdit(source, "transferir item"))
         {
             return;
         }
@@ -4793,7 +7201,7 @@ public partial class MainWindow : Window
             FontWeight = FontWeights.SemiBold
         };
 
-        var confirm = DialogButton("Enter confirma", "#0F766E");
+        var confirm = DialogButton("Enter confirma", "#08A99B");
 
         void ConfirmPayment()
         {
@@ -4835,11 +7243,11 @@ public partial class MainWindow : Window
         };
 
         var panel = new StackPanel { Margin = new Thickness(18) };
-        panel.Children.Add(new TextBlock { Text = "Nome", Foreground = Solid("#667684"), FontWeight = FontWeights.SemiBold });
+        panel.Children.Add(new TextBlock { Text = "Nome", Foreground = Solid("#5B6B7A"), FontWeight = FontWeights.SemiBold });
         panel.Children.Add(payerBox);
-        panel.Children.Add(new TextBlock { Text = "Valor", Foreground = Solid("#667684"), FontWeight = FontWeights.SemiBold });
+        panel.Children.Add(new TextBlock { Text = "Valor", Foreground = Solid("#5B6B7A"), FontWeight = FontWeights.SemiBold });
         panel.Children.Add(amountBox);
-        panel.Children.Add(new TextBlock { Text = "Forma", Foreground = Solid("#667684"), FontWeight = FontWeights.SemiBold });
+        panel.Children.Add(new TextBlock { Text = "Forma", Foreground = Solid("#5B6B7A"), FontWeight = FontWeights.SemiBold });
         panel.Children.Add(methods);
         panel.Children.Add(message);
         panel.Children.Add(confirm);
@@ -4942,7 +7350,7 @@ public partial class MainWindow : Window
         };
         productsList.ItemTemplate = (DataTemplate)System.Windows.Markup.XamlReader.Parse("""
 <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
-  <Border Background="#F8FBFD" BorderBrush="#D8E2EC" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,7">
+  <Border Background="#F8FBFD" BorderBrush="#CAD6E2" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,7">
     <Grid>
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
@@ -4953,11 +7361,11 @@ public partial class MainWindow : Window
         <ColumnDefinition Width="*"/>
         <ColumnDefinition Width="Auto"/>
       </Grid.ColumnDefinitions>
-      <TextBlock Text="{Binding Name}" Foreground="#18222B" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis"/>
-      <TextBlock Grid.Column="1" Text="{Binding PriceText}" Foreground="#0F766E" FontWeight="Bold" Margin="12,0,0,0"/>
-      <TextBlock Grid.Row="1" Text="{Binding Code}" Foreground="#667684" FontSize="11" Margin="0,3,0,0"/>
-      <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Category}" Foreground="#667684" FontSize="11" HorizontalAlignment="Right" Margin="12,3,0,0"/>
-      <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding ProfitMarginText}" Foreground="#667684" FontSize="11" Margin="0,3,0,0"/>
+      <TextBlock Text="{Binding Name}" Foreground="#071A2C" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis"/>
+      <TextBlock Grid.Column="1" Text="{Binding PriceText}" Foreground="#08A99B" FontWeight="Bold" Margin="12,0,0,0"/>
+      <TextBlock Grid.Row="1" Text="{Binding Code}" Foreground="#5B6B7A" FontSize="11" Margin="0,3,0,0"/>
+      <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Category}" Foreground="#5B6B7A" FontSize="11" HorizontalAlignment="Right" Margin="12,3,0,0"/>
+      <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding ProfitMarginText}" Foreground="#5B6B7A" FontSize="11" Margin="0,3,0,0"/>
     </Grid>
   </Border>
 </DataTemplate>
@@ -4966,21 +7374,21 @@ public partial class MainWindow : Window
         var queryBox = new TextBox { ToolTip = "Buscar produto" };
         var countText = new TextBlock
         {
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontSize = 12,
             Margin = new Thickness(0, 6, 0, 10)
         };
         var formTitle = new TextBlock
         {
             Text = "Novo produto",
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontSize = 20,
             FontWeight = FontWeights.Bold
         };
         var formSubtitle = new TextBlock
         {
             Text = "Preencha nome, categoria e preco.",
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontSize = 12,
             Margin = new Thickness(0, 2, 0, 0)
         };
@@ -5001,7 +7409,7 @@ public partial class MainWindow : Window
         var imagePath = "";
         var imageText = new TextBlock
         {
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
         };
@@ -5016,7 +7424,7 @@ public partial class MainWindow : Window
             Width = 112,
             Height = 92,
             Background = Brushes.White,
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(4),
@@ -5030,16 +7438,27 @@ public partial class MainWindow : Window
         };
         var sectorBox = new ComboBox
         {
-            ItemsSource = GetKnownProductSectors(),
-            SelectedIndex = 0,
+            ItemsSource = GetConfiguredProductSectors(),
             IsEditable = true,
             MinHeight = 34
         };
+        void RefreshSectorOptions(string currentSector = "")
+        {
+            var sectors = GetConfiguredProductSectors();
+            var cleanCurrent = NormalizeProductDestination(currentSector, "");
+            if (!string.IsNullOrWhiteSpace(cleanCurrent)
+                && sectors.All(item => !string.Equals(item, cleanCurrent, StringComparison.OrdinalIgnoreCase)))
+            {
+                sectors.Add(cleanCurrent);
+            }
+
+            sectorBox.ItemsSource = sectors;
+        }
         var pizzaBox = new CheckBox { Content = "Pizza / produto com sabores", Margin = new Thickness(0, 8, 0, 4) };
         var activeBox = new CheckBox { Content = "Mostrar na venda", IsChecked = true, Margin = new Thickness(0, 2, 0, 0) };
         var marginText = new TextBlock
         {
-            Foreground = Solid("#0F766E"),
+            Foreground = Solid("#08A99B"),
             FontWeight = FontWeights.Bold,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 8)
@@ -5060,8 +7479,8 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
-        var chooseImageButton = DialogButton("Escolher foto", "#2F6FAE");
-        var clearImageButton = DialogButton("Remover foto", "#667684");
+        var chooseImageButton = DialogButton("Escolher foto", "#0B3A52");
+        var clearImageButton = DialogButton("Remover foto", "#5B6B7A");
 
         void FocusAndSelect(Control control)
         {
@@ -5078,7 +7497,7 @@ public partial class MainWindow : Window
             stack.Children.Add(new TextBlock
             {
                 Text = title,
-                Foreground = Solid("#18222B"),
+                Foreground = Solid("#071A2C"),
                 FontWeight = FontWeights.Bold,
                 FontSize = 15,
                 Margin = new Thickness(0, 0, 0, 8)
@@ -5091,7 +7510,7 @@ public partial class MainWindow : Window
             return new Border
             {
                 Background = Solid("#F8FBFD"),
-                BorderBrush = Solid("#D8E2EC"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(9),
                 Padding = new Thickness(14),
@@ -5242,7 +7661,7 @@ public partial class MainWindow : Window
             var profit = sale - cost;
             var margin = sale > 0 ? profit / sale * 100m : 0m;
             marginText.Text = $"Lucro un.: {Money(profit)}  |  Margem: {margin:N2}%";
-            marginText.Foreground = profit < 0 ? RedText : profit == 0 ? Solid("#667684") : GreenText;
+            marginText.Foreground = profit < 0 ? RedText : profit == 0 ? Solid("#5B6B7A") : GreenText;
         }
 
         void RefreshProductImagePreview()
@@ -5290,7 +7709,8 @@ public partial class MainWindow : Window
             stockBox.Text = "0";
             minBox.Text = "0";
             groupBox.SelectedIndex = groupBox.Items.Count > 0 ? 0 : -1;
-            sectorBox.Text = "COZINHA";
+            RefreshSectorOptions();
+            sectorBox.Text = "CAIXA";
             pizzaBox.IsChecked = false;
             activeBox.IsChecked = true;
             imagePath = "";
@@ -5316,7 +7736,8 @@ public partial class MainWindow : Window
             stockBox.Text = product.StockQuantity.ToString("N0", Brazil);
             minBox.Text = product.MinimumStock.ToString("N0", Brazil);
             groupBox.SelectedItem = product.Category;
-            sectorBox.Text = NormalizeSectorName(product.Sector);
+            RefreshSectorOptions(product.Sector);
+            sectorBox.Text = NormalizeProductDestination(product.Sector, "CAIXA");
             pizzaBox.IsChecked = product.IsPizza;
             activeBox.IsChecked = product.Active;
             imagePath = product.ImagePath ?? "";
@@ -5380,6 +7801,15 @@ public partial class MainWindow : Window
                 groupBox.ItemsSource = Categories.Select(item => item.Name).ToList();
             }
 
+            var productDestination = NormalizeProductDestination(sectorBox.Text, "CAIXA");
+            if (!TryEnsureProductionDestinationConfigured(productDestination))
+            {
+                statusText.Foreground = RedText;
+                statusText.Text = "Escolha a impressora do novo destino ou use CAIXA.";
+                FocusAndSelect(sectorBox);
+                return false;
+            }
+
             var product = Products.FirstOrDefault(item => item.Code == code);
             if (product is null)
             {
@@ -5387,6 +7817,7 @@ public partial class MainWindow : Window
                 Products.Add(product);
             }
 
+            product ??= new ProductTile();
             product.Code = code;
             product.Name = name;
             product.Category = category;
@@ -5394,7 +7825,8 @@ public partial class MainWindow : Window
             product.Price = price;
             product.StockQuantity = ParseMoney(stockBox.Text, 0);
             product.MinimumStock = ParseMoney(minBox.Text, 0);
-            product.Sector = NormalizeSectorName(sectorBox.Text);
+            product.Sector = productDestination;
+            RefreshSectorOptions(product.Sector);
             product.IsPizza = pizzaBox.IsChecked == true;
             product.Active = activeBox.IsChecked == true;
             product.ImagePath = (imagePath ?? "").Trim();
@@ -5421,10 +7853,10 @@ public partial class MainWindow : Window
             return true;
         }
 
-        var addProductButton = DialogButton("Novo produto", "#2F6FAE");
+        var addProductButton = DialogButton("Novo produto", "#0B3A52");
         addProductButton.Click += (_, _) => StartNewProduct();
 
-        var saveButton = DialogButton("Salvar produto", "#0F766E");
+        var saveButton = DialogButton("Salvar produto", "#08A99B");
         saveButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         saveButton.Width = double.NaN;
         saveButton.Click += (_, _) => SaveProduct();
@@ -5458,7 +7890,7 @@ public partial class MainWindow : Window
         {
             imagePath = "";
             RefreshProductImagePreview();
-            statusText.Foreground = Solid("#667684");
+            statusText.Foreground = Solid("#5B6B7A");
             statusText.Text = "Foto removida. Clique em Salvar produto.";
         };
 
@@ -5506,7 +7938,7 @@ public partial class MainWindow : Window
         leftGrid.Children.Add(new TextBlock
         {
             Text = "Produtos",
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontSize = 18,
             FontWeight = FontWeights.Bold
         });
@@ -5526,7 +7958,7 @@ public partial class MainWindow : Window
         var leftCard = new Border
         {
             Background = Brushes.White,
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(9),
             Padding = new Thickness(14),
@@ -5537,8 +7969,8 @@ public partial class MainWindow : Window
 
         var formHeader = new Border
         {
-            Background = Solid("#E8F7F4"),
-            BorderBrush = Solid("#0F766E"),
+            Background = Solid("#E6FBF8"),
+            BorderBrush = Solid("#08A99B"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(9),
             Padding = new Thickness(14),
@@ -5554,7 +7986,8 @@ public partial class MainWindow : Window
         var saleSection = FormSection("Compra e venda",
             TwoColumns(DialogField("Preco de compra", costBox), DialogField("Preco de venda", priceBox)),
             marginText,
-            DialogField("Setor", sectorBox),
+            DialogField("Destino do produto", sectorBox),
+            DialogHint("CAIXA nao manda para producao. COZINHA imprime uma ordem agrupada depois que o pedido entrar. Digite outro destino para cadastrar a impressora dele."),
             activeBox,
             pizzaBox);
 
@@ -5665,7 +8098,7 @@ public partial class MainWindow : Window
             if (usersList.SelectedItem is UserAccount user) LoadUser(user);
         };
 
-        var saveButton = DialogButton("Salvar usuario", "#0F766E");
+        var saveButton = DialogButton("Salvar usuario", "#08A99B");
         saveButton.Click += (_, _) =>
         {
             var name = string.IsNullOrWhiteSpace(nameBox.Text) ? "OPERADOR" : nameBox.Text.Trim().ToUpperInvariant();
@@ -5774,8 +8207,8 @@ public partial class MainWindow : Window
         var sizeGrid = new UniformGrid { Columns = 2, Rows = 1, Margin = new Thickness(0, 6, 0, 10) };
         var printCard = new Border
         {
-            Background = Solid("#E8F7F4"),
-            BorderBrush = Solid("#0F766E"),
+            Background = Solid("#E6FBF8"),
+            BorderBrush = Solid("#08A99B"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(12, 10, 12, 10),
@@ -5783,16 +8216,16 @@ public partial class MainWindow : Window
             Margin = new Thickness(0, 4, 0, 10)
         };
         var printTitle = new TextBlock { FontWeight = FontWeights.Bold };
-        var printHint = new TextBlock { Foreground = Solid("#667684"), FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap };
+        var printHint = new TextBlock { Foreground = Solid("#5B6B7A"), FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap };
 
         void RefreshButtons(IEnumerable<Button> buttons, string selected)
         {
             foreach (var button in buttons)
             {
                 var active = string.Equals(button.Tag?.ToString(), selected, StringComparison.Ordinal);
-                button.Background = active ? Solid("#E8F1FA") : Brushes.White;
-                button.BorderBrush = active ? Solid("#245B91") : Solid("#D8E2EC");
-                button.Foreground = active ? Solid("#245B91") : Solid("#18222B");
+                button.Background = active ? Solid("#EAF8FA") : Brushes.White;
+                button.BorderBrush = active ? Solid("#0B3A52") : Solid("#CAD6E2");
+                button.Foreground = active ? Solid("#0B3A52") : Solid("#071A2C");
                 button.FontWeight = active ? FontWeights.Bold : FontWeights.SemiBold;
             }
         }
@@ -5806,7 +8239,7 @@ public partial class MainWindow : Window
                 Height = 42,
                 Margin = new Thickness(0, 0, 8, 0),
                 Background = Brushes.White,
-                BorderBrush = Solid("#D8E2EC"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 Cursor = Cursors.Hand,
                 FocusVisualStyle = null,
@@ -5829,7 +8262,7 @@ public partial class MainWindow : Window
                 {
                     feeBox.Text = "0,00";
                     zoneText.Text = "Retirada/balcao nao cobra taxa.";
-                    zoneText.Foreground = Solid("#667684");
+                    zoneText.Foreground = Solid("#5B6B7A");
                 }
             };
             typeButtons.Add(button);
@@ -5850,9 +8283,9 @@ public partial class MainWindow : Window
 
         void RefreshPrintCard()
         {
-            printCard.Background = autoPrint ? Solid("#E8F7F4") : Brushes.White;
-            printCard.BorderBrush = autoPrint ? Solid("#0F766E") : Solid("#D8E2EC");
-            printTitle.Foreground = autoPrint ? Solid("#0F766E") : Solid("#18222B");
+            printCard.Background = autoPrint ? Solid("#E6FBF8") : Brushes.White;
+            printCard.BorderBrush = autoPrint ? Solid("#08A99B") : Solid("#CAD6E2");
+            printTitle.Foreground = autoPrint ? Solid("#08A99B") : Solid("#071A2C");
             printTitle.Text = autoPrint ? "Imprimir automaticamente" : "Nao imprimir automaticamente";
             printHint.Text = autoPrint
                 ? "Ao criar, envia o pedido para a impressora padrao do Windows."
@@ -5891,7 +8324,7 @@ public partial class MainWindow : Window
             }
         };
 
-        var includeCustomerButton = DialogButton("Incluir cliente cadastrado", "#2F6FAE");
+        var includeCustomerButton = DialogButton("Incluir cliente cadastrado", "#0B3A52");
         includeCustomerButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         includeCustomerButton.Width = double.NaN;
         includeCustomerButton.Margin = new Thickness(0, 0, 0, 10);
@@ -5907,7 +8340,7 @@ public partial class MainWindow : Window
             SetStatus($"Cliente incluido no delivery: {customer.Name}");
         };
 
-        var zonesButton = DialogButton("Taxas por raio no mapa", "#2F6FAE");
+        var zonesButton = DialogButton("Taxas por raio no mapa", "#0B3A52");
         zonesButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         zonesButton.Width = double.NaN;
         zonesButton.Margin = new Thickness(0, 0, 0, 10);
@@ -5920,7 +8353,7 @@ public partial class MainWindow : Window
             }
         };
 
-        var createButton = DialogButton("Criar pedido", "#0F766E");
+        var createButton = DialogButton("Criar pedido", "#08A99B");
         createButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         createButton.Width = double.NaN;
         createButton.Click += (_, _) =>
@@ -5946,7 +8379,7 @@ public partial class MainWindow : Window
 
             if (fee > 0)
             {
-                tile.Lines.Add(new TicketLine { Code = "000020", Name = "TAXA ENTREGA", Quantity = 1, UnitPrice = fee, Sector = "BALCAO" });
+                tile.Lines.Add(new TicketLine { Code = "000020", Name = "TAXA ENTREGA", Quantity = 1, UnitPrice = fee, Sector = "CAIXA" });
                 tile.Total = fee;
             }
 
@@ -5982,7 +8415,7 @@ public partial class MainWindow : Window
         var summary = new Border
         {
             Background = Solid("#F8FBFD"),
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(9),
             Padding = new Thickness(14, 10, 14, 10),
@@ -5990,8 +8423,8 @@ public partial class MainWindow : Window
             {
                 Children =
                 {
-                    new TextBlock { Text = "Cadastro rapido de pedido", Foreground = Solid("#18222B"), FontWeight = FontWeights.Bold, FontSize = 15 },
-                    new TextBlock { Text = "Cria o pedido e pode imprimir automaticamente na impressora padrao do computador.", Foreground = Solid("#667684"), FontSize = 12, Margin = new Thickness(0, 3, 0, 0) }
+                    new TextBlock { Text = "Cadastro rapido de pedido", Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold, FontSize = 15 },
+                    new TextBlock { Text = "Cria o pedido e pode imprimir automaticamente na impressora padrao do computador.", Foreground = Solid("#5B6B7A"), FontSize = 12, Margin = new Thickness(0, 3, 0, 0) }
                 }
             }
         };
@@ -6116,13 +8549,13 @@ public partial class MainWindow : Window
                 ? "Servidor do garcom ainda nao iniciou. Feche e abra esta tela em alguns segundos."
                 : "No celular do garcom, escaneie o QR Code ou envie o link pelo WhatsApp. O aparelho precisa estar no mesmo Wi-Fi do caixa Windows.",
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             Margin = new Thickness(0, 8, 0, 0)
         };
 
-        var copy = DialogButton("Copiar link manualmente", "#667684");
-        var open = DialogButton("Abrir neste PC", "#2F6FAE");
-        var sendWhatsApp = DialogButton("Enviar pelo WhatsApp", "#0F766E");
+        var copy = DialogButton("Copiar link manualmente", "#5B6B7A");
+        var open = DialogButton("Abrir neste PC", "#0B3A52");
+        var sendWhatsApp = DialogButton("Enviar pelo WhatsApp", "#08A99B");
         copy.Click += (_, _) =>
         {
             System.Windows.Clipboard.SetText(networkUrl);
@@ -6158,7 +8591,7 @@ public partial class MainWindow : Window
         var qrCard = new Border
         {
             Background = Solid("#FFFFFF"),
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(14),
@@ -6169,7 +8602,7 @@ public partial class MainWindow : Window
                 {
                     Text = "QR Code indisponivel. Use o botao Enviar pelo WhatsApp.",
                     TextWrapping = TextWrapping.Wrap,
-                    Foreground = Solid("#667684"),
+                    Foreground = Solid("#5B6B7A"),
                     Width = 220
                 }
                 : new System.Windows.Controls.Image
@@ -6204,14 +8637,14 @@ public partial class MainWindow : Window
         {
             Text = "Use rede local. O celular/tablet precisa estar no mesmo Wi-Fi do computador do caixa.",
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontWeight = FontWeights.SemiBold
         });
         panel.Children.Add(new TextBlock
         {
             Text = "Mais facil: abra a camera do celular e aponte para o QR Code abaixo. Nao precisa copiar nem digitar no navegador.",
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#0F766E"),
+            Foreground = Solid("#08A99B"),
             FontWeight = FontWeights.Bold,
             Margin = new Thickness(0, 10, 0, 0)
         });
@@ -6364,6 +8797,11 @@ public partial class MainWindow : Window
             return WaiterActionResult.Fail("Mesa ja recebida/finalizada. Abra outra mesa no caixa.", state);
         }
 
+        if (IsClosedAccountForConference(board))
+        {
+            return WaiterActionResult.Fail(BuildClosedAccountWaiterMessage(board), state);
+        }
+
         board.Waiter = waiterNumber;
         if (!string.IsNullOrWhiteSpace(request.CustomerName))
         {
@@ -6398,6 +8836,11 @@ public partial class MainWindow : Window
             return WaiterActionResult.Fail("Mesa ja recebida/finalizada. Nao da para lancar item.", state);
         }
 
+        if (IsClosedAccountForConference(board))
+        {
+            return WaiterActionResult.Fail(BuildClosedAccountWaiterMessage(board), state);
+        }
+
         var code = NormalizeProductCode(request.ProductCode);
         var product = Products.FirstOrDefault(item => string.Equals(item.Code, code, StringComparison.OrdinalIgnoreCase))
             ?? Products.FirstOrDefault(item => item.Code.Contains(request.ProductCode.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -6414,9 +8857,10 @@ public partial class MainWindow : Window
             Quantity = qty,
             UnitPrice = product.Price,
             Note = request.Note.Trim(),
-            Sector = product.Sector
+            Sector = NormalizeProductDestination(product.Sector, "CAIXA")
         };
         var existing = board.Lines.FirstOrDefault(line => CanMergeTicketLine(line, lineToAdd));
+        var kitchenLine = lineToAdd;
         if (existing is null)
         {
             board.Lines.Add(lineToAdd);
@@ -6424,6 +8868,7 @@ public partial class MainWindow : Window
         else
         {
             existing.Quantity += qty;
+            kitchenLine = existing;
         }
 
         board.Waiter = waiterNumber;
@@ -6441,7 +8886,7 @@ public partial class MainWindow : Window
         {
             QueueIFoodStockSync(product, $"Venda garcom web {board.Number}");
         }
-        PrintWaiterKitchenLine(board, lineToAdd);
+        PrintWaiterKitchenLine(board, kitchenLine);
         RefreshAfterWaiterMutation(board);
         return WaiterActionResult.Success($"Incluido: {qty}x {product.Name}.", BuildWaiterState());
     }
@@ -6470,6 +8915,11 @@ public partial class MainWindow : Window
             return WaiterActionResult.Fail("Mesa ja recebida/finalizada. Nao da para alterar observacao.", state);
         }
 
+        if (IsClosedAccountForConference(board))
+        {
+            return WaiterActionResult.Fail(BuildClosedAccountWaiterMessage(board), state);
+        }
+
         board.Waiter = waiterNumber;
         board.Notes = (request.Note ?? "").Trim();
         if (board.Status == "LIVRE" && !string.IsNullOrWhiteSpace(board.Notes))
@@ -6495,6 +8945,11 @@ public partial class MainWindow : Window
         if (IsIFoodDeliveryBoard(board))
         {
             return WaiterActionResult.Fail("Pedido iFood nao permite excluir item manualmente.", state);
+        }
+
+        if (IsClosedAccountForConference(board))
+        {
+            return WaiterActionResult.Fail(BuildClosedAccountWaiterMessage(board), state);
         }
 
         if (request.LineIndex < 0 || request.LineIndex >= board.Lines.Count)
@@ -6688,33 +9143,14 @@ public partial class MainWindow : Window
 
     private void PrintWaiterKitchenLine(TableTile board, TicketLine line)
     {
-        var printText = BuildWaiterKitchenText(board, [line]);
-        KitchenTiles.Add(new TableTile
-        {
-            Number = $"{KitchenTiles.Count + 1:000000}",
-            Kind = "KDS",
-            Status = "RECEBIDO",
-            Waiter = board.Waiter,
-            Lines = [CloneLine(line)],
-            Total = line.Total,
-            Detail = $"{board.Kind} {board.Number}"
-        });
-
-        if (_appSettings.AutoPrintKitchen)
-        {
-            _ = TryPrintTextToDefaultPrinter(
-                printText,
-                $"Garcom {NormalizeSectorName(line.Sector)} mesa {board.Number}",
-                compact: _appSettings.PrintLayout == "PEQUENO",
-                printerName: GetPrinterNameForSector(line.Sector));
-        }
+        ScheduleKitchenPrint(board, [line]);
     }
 
     private string BuildWaiterKitchenText(TableTile board, IEnumerable<TicketLine> lines)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"{board.Kind} {board.Number}");
-        var sector = NormalizeSectorName(lines.FirstOrDefault()?.Sector);
+        var sector = NormalizeSectorName(lines.FirstOrDefault()?.Sector, "SEM SETOR");
         sb.AppendLine($"SETOR {sector}");
         var staffLine = BuildStaffReceiptLine(board);
         if (!string.IsNullOrWhiteSpace(staffLine))
@@ -6886,8 +9322,8 @@ public partial class MainWindow : Window
             Foreground = Solid("#52687A"),
             Margin = new Thickness(0, 10, 0, 0),
             Text = settings.HasCloudConnection
-                ? "Recebimento automatico ligado. Quando entrar pedido no iFood, ele aparece no Delivery com aviso sonoro, vibracao visual e impressao se estiver configurada."
-                : "Clique em conectar uma vez. Depois disso os pedidos entram automaticamente no Delivery."
+                ? "Recebimento automatico ligado. Pedidos e produtos do iFood sincronizam em segundo plano com o PDV."
+                : "Clique em conectar uma vez. Depois disso os pedidos entram no Delivery e os produtos aparecem no estoque."
         };
 
         void SaveFields()
@@ -6905,7 +9341,7 @@ public partial class MainWindow : Window
             SetStatus(message);
         }
 
-        var connect = DialogButton(settings.HasCloudConnection ? "Reconectar iFood" : "Conectar iFood", "#0F766E");
+        var connect = DialogButton(settings.HasCloudConnection ? "Reconectar iFood" : "Conectar iFood", "#08A99B");
         connect.MinHeight = 58;
         connect.FontSize = 17;
 
@@ -6931,7 +9367,7 @@ public partial class MainWindow : Window
                 if (string.Equals(settings.ConnectionStatus, "conectado", StringComparison.OrdinalIgnoreCase))
                 {
                     _ifoodSyncTimer.Start();
-                    ShowIFoodMessage("iFood conectado. Novos pedidos entram automaticamente no Delivery em tempo real.");
+                    ShowIFoodMessage("iFood conectado. Pedidos entram no Delivery e produtos do iFood aparecem no estoque.");
                     _ = AutoImportIFoodOrdersAsync(force: true);
                 }
                 else if (!string.IsNullOrWhiteSpace(settings.VerificationUrlComplete))
@@ -6965,7 +9401,7 @@ public partial class MainWindow : Window
             Text = "Pedidos iFood automaticos",
             FontSize = 24,
             FontWeight = FontWeights.Bold,
-            Foreground = Solid("#18222B")
+            Foreground = Solid("#071A2C")
         });
         headerPanel.Children.Add(new TextBlock
         {
@@ -6984,13 +9420,13 @@ public partial class MainWindow : Window
         flowPanel.Children.Add(SectionTitle("Recebimento de pedidos"));
         flowPanel.Children.Add(new TextBlock
         {
-            Text = "O Balcao Livre fica escutando o iFood em segundo plano. Pedido novo abre um aviso grande para confirmar, preparar, marcar pronto, despachar ou cancelar.",
+            Text = "O Balcao Livre fica escutando o iFood em segundo plano. Pedido novo abre um aviso grande e produto criado no iFood entra no estoque do PDV.",
             Foreground = Solid("#5A6B7C"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
         });
         flowPanel.Children.Add(connect);
-        var homologation = DialogButton("Checklist homologacao Order", "#245B91");
+        var homologation = DialogButton("Checklist homologacao Order", "#0B3A52");
         homologation.MinHeight = 46;
         homologation.HorizontalAlignment = HorizontalAlignment.Stretch;
         homologation.Margin = new Thickness(0, 10, 0, 0);
@@ -7102,6 +9538,68 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task<int> SyncIFoodCatalogProductsAsync(bool force = false, Action<string>? log = null)
+    {
+        var settings = _appSettings.IFood ??= new IFoodIntegrationSettings();
+        if (!settings.Enabled || !settings.HasCloudConnection)
+        {
+            return 0;
+        }
+
+        if (!force && DateTime.UtcNow - _lastIFoodCatalogSyncUtc < TimeSpan.FromMinutes(2))
+        {
+            return 0;
+        }
+
+        try
+        {
+            var response = await _ifoodClient.SyncCatalogAsync(
+                settings.BackendUrl,
+                CreateIFoodCatalogSyncRequest(settings.ConnectionId));
+
+            _lastIFoodCatalogSyncUtc = DateTime.UtcNow;
+            var changed = 0;
+            foreach (var item in response.Products.Where(item => !string.IsNullOrWhiteSpace(item.Name)))
+            {
+                if (UpsertIFoodCatalogProduct(item))
+                {
+                    changed++;
+                }
+            }
+
+            if (changed > 0)
+            {
+                SaveStore();
+                ProductsList.Items.Refresh();
+                FilterProducts();
+            }
+
+            if (changed > 0)
+            {
+                var message = changed == 1
+                    ? "1 produto do iFood entrou/atualizou no estoque."
+                    : $"{changed} produtos do iFood entraram/atualizaram no estoque.";
+                log?.Invoke(message);
+                if (log is null)
+                {
+                    SetStatus(message);
+                }
+            }
+            else if (log is not null && !string.IsNullOrWhiteSpace(response.Message))
+            {
+                log.Invoke(response.Message);
+            }
+
+            return changed;
+        }
+        catch (Exception ex)
+        {
+            _lastIFoodCatalogSyncUtc = DateTime.UtcNow;
+            log?.Invoke($"Falha ao sincronizar produtos iFood: {ex.Message}");
+            return 0;
+        }
+    }
+
     private void ShowIFoodHomologationDialog()
     {
         var dialog = CreateDialog("Homologacao Order iFood", 980, 720);
@@ -7111,7 +9609,7 @@ public partial class MainWindow : Window
         var selectedSummary = new TextBlock
         {
             Text = "Selecione um pedido iFood para copiar o orderId.",
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 6, 0, 0)
         };
@@ -7140,7 +9638,7 @@ public partial class MainWindow : Window
 
         Button ScenarioButton(int scenario, string title, string description)
         {
-            var button = DialogButton($"Usar selecionado no cenario {scenario}", "#2F6FAE");
+            var button = DialogButton($"Usar selecionado no cenario {scenario}", "#0B3A52");
             button.HorizontalAlignment = HorizontalAlignment.Stretch;
             button.Margin = new Thickness(0, 8, 0, 0);
             button.Click += (_, _) =>
@@ -7154,7 +9652,7 @@ public partial class MainWindow : Window
 
                 var order = orders[ordersList.SelectedIndex];
                 orderIdBoxes[scenario - 1].Text = order.ExternalOrderId;
-                selectedSummary.Foreground = Solid("#667684");
+                selectedSummary.Foreground = Solid("#5B6B7A");
                 selectedSummary.Text = $"{title}: orderId preenchido. {BuildIFoodScenarioEvidence(order)}";
             };
             return button;
@@ -7167,14 +9665,14 @@ public partial class MainWindow : Window
             {
                 Text = $"Cenario {scenario}: {title}",
                 FontWeight = FontWeights.Bold,
-                Foreground = Solid("#18222B"),
+                Foreground = Solid("#071A2C"),
                 FontSize = 15
             });
             stack.Children.Add(new TextBlock
             {
                 Text = description,
                 TextWrapping = TextWrapping.Wrap,
-                Foreground = Solid("#667684"),
+                Foreground = Solid("#5B6B7A"),
                 Margin = new Thickness(0, 4, 0, 8)
             });
             stack.Children.Add(DialogField("orderId para informar no chamado", orderIdBoxes[scenario - 1]));
@@ -7182,7 +9680,7 @@ public partial class MainWindow : Window
             return new Border
             {
                 Background = Brushes.White,
-                BorderBrush = Solid("#D8E2EC"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(9),
                 Padding = new Thickness(12),
@@ -7196,14 +9694,14 @@ public partial class MainWindow : Window
         left.Children.Add(new TextBlock
         {
             Text = "Ao selecionar um pedido, o orderId e copiado. Use os botoes de cada cenario para montar o texto do chamado.",
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
         });
         left.Children.Add(ordersList);
         left.Children.Add(selectedSummary);
 
-        var copy = DialogButton("Copiar texto do chamado", "#0F766E");
+        var copy = DialogButton("Copiar texto do chamado", "#08A99B");
         copy.HorizontalAlignment = HorizontalAlignment.Stretch;
         copy.Margin = new Thickness(0, 12, 0, 0);
         copy.Click += (_, _) =>
@@ -7264,8 +9762,9 @@ public partial class MainWindow : Window
         _ifoodSyncRunning = true;
         try
         {
+            var catalogChanged = await SyncIFoodCatalogProductsAsync(force);
             var imported = await ImportIFoodOrdersAsync();
-            if (imported <= 0)
+            if (imported <= 0 && catalogChanged <= 0)
             {
                 return;
             }
@@ -7276,9 +9775,13 @@ public partial class MainWindow : Window
                 SelectTable(BoardTiles.Count - 1, saveCurrent: false);
             }
 
-            var message = imported == 1
-                ? "Novo pedido iFood recebido no Delivery."
-                : $"{imported} novos pedidos iFood recebidos no Delivery.";
+            var message = imported > 0
+                ? imported == 1
+                    ? "Novo pedido iFood recebido no Delivery."
+                    : $"{imported} novos pedidos iFood recebidos no Delivery."
+                : catalogChanged == 1
+                    ? "1 produto iFood sincronizado no estoque."
+                    : $"{catalogChanged} produtos iFood sincronizados no estoque.";
             StatusText.Text = message;
         }
         catch (Exception ex)
@@ -7358,6 +9861,26 @@ public partial class MainWindow : Window
         };
     }
 
+    private IFoodCloudCatalogSyncRequest CreateIFoodCatalogSyncRequest(string connectionId)
+    {
+        var context = CreateIFoodCloudContext();
+        return new IFoodCloudCatalogSyncRequest
+        {
+            LicenseKey = context.LicenseKey,
+            MachineHash = context.MachineHash,
+            MachineCode = context.MachineCode,
+            BusinessName = context.BusinessName,
+            LegalName = context.LegalName,
+            Cnpj = context.Cnpj,
+            Phone = context.Phone,
+            Address = context.Address,
+            City = context.City,
+            State = context.State,
+            AppVersion = context.AppVersion,
+            ConnectionId = connectionId
+        };
+    }
+
     private IFoodCloudOrderActionRequest CreateIFoodOrderActionRequest(string connectionId, string orderId, string action, string reason = "", string deliveredBy = "")
     {
         var context = CreateIFoodCloudContext();
@@ -7415,6 +9938,79 @@ public partial class MainWindow : Window
         string ExternalCode,
         int Amount,
         string Reason);
+
+    private sealed record IFoodPresenceSyncSnapshot(
+        string BackendUrl,
+        IFoodCloudSyncRequest Request);
+
+    private void StartIFoodPresenceLoop()
+    {
+        if (_ifoodPresenceLoopStarted)
+        {
+            return;
+        }
+
+        _ifoodPresenceLoopStarted = true;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(30));
+            while (!_exitRequested)
+            {
+                await SyncIFoodPresenceOnceAsync();
+                await Task.Delay(TimeSpan.FromSeconds(30));
+            }
+        });
+    }
+
+    private async Task SyncIFoodPresenceOnceAsync()
+    {
+        try
+        {
+            var snapshot = CreateIFoodPresenceSyncSnapshot();
+            if (snapshot is null)
+            {
+                return;
+            }
+
+            var response = await _ifoodClient.SyncOrdersAsync(snapshot.BackendUrl, snapshot.Request).ConfigureAwait(false);
+            var settings = _appSettings.IFood;
+            if (settings is not null
+                && settings.HasCloudConnection
+                && string.Equals(settings.ConnectionId, snapshot.Request.ConnectionId, StringComparison.Ordinal))
+            {
+                settings.LastSyncUtc = response.SyncedAt?.ToUniversalTime() ?? DateTime.UtcNow;
+                SaveAppSettings();
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"iFood presence sync skipped: {ex.Message}");
+        }
+    }
+
+    private IFoodPresenceSyncSnapshot? CreateIFoodPresenceSyncSnapshot()
+    {
+        var settings = _appSettings.IFood;
+        if (settings is null || !settings.HasCloudConnection || _ifoodSyncRunning)
+        {
+            return null;
+        }
+
+        if (settings.LastSyncUtc.HasValue
+            && DateTime.UtcNow - settings.LastSyncUtc.Value < TimeSpan.FromSeconds(25))
+        {
+            return null;
+        }
+
+        var backendUrl = settings.BackendUrl;
+        var connectionId = settings.ConnectionId;
+        if (string.IsNullOrWhiteSpace(connectionId))
+        {
+            return null;
+        }
+
+        return new IFoodPresenceSyncSnapshot(backendUrl, CreateIFoodSyncRequest(connectionId));
+    }
 
     private void QueueIFoodStockSync(ProductTile? product, string reason)
     {
@@ -7541,7 +10137,13 @@ public partial class MainWindow : Window
         }
 
         var incomingStatus = StatusFromIFoodOrder(order);
-        if (ShouldApplyIFoodStatus(tile.Status, incomingStatus))
+        if (ShouldCorrectFutureDeliveredIFoodStatus(tile, incomingStatus))
+        {
+            tile.Status = incomingStatus;
+            tile.ExternalDeliveredAt = null;
+            changed = true;
+        }
+        else if (ShouldApplyIFoodStatus(tile.Status, incomingStatus))
         {
             tile.Status = incomingStatus;
             changed = true;
@@ -7572,6 +10174,14 @@ public partial class MainWindow : Window
         changed |= SetDate(tile.ExternalDeliveryExpectedAt, LocalTimeOrNull(order.DeliveryExpectedAt), value => tile.ExternalDeliveryExpectedAt = value);
         changed |= SetDate(tile.ExternalDeliveredAt, LocalTimeOrNull(order.DeliveredAt), value => tile.ExternalDeliveredAt = value);
         changed |= SetDate(tile.ExternalCollectedAt, LocalTimeOrNull(order.CollectedAt), value => tile.ExternalCollectedAt = value);
+        if (!order.DeliveredAt.HasValue
+            && tile.ExternalDeliveredAt.HasValue
+            && tile.ExternalDeliveredAt.Value > DateTime.Now.AddMinutes(1)
+            && !IsFinalIFoodStatus(tile.Status))
+        {
+            tile.ExternalDeliveredAt = null;
+            changed = true;
+        }
 
         if (!string.IsNullOrWhiteSpace(order.Address) && !string.Equals(tile.Address, order.Address, StringComparison.Ordinal))
         {
@@ -7643,7 +10253,7 @@ public partial class MainWindow : Window
             var product = ResolveOrCreateIFoodProduct(item, display, stockWarnings);
             var itemCode = product?.Code ?? (string.IsNullOrWhiteSpace(item.Code) ? "IFOOD" : item.Code);
             var itemName = product?.Name ?? item.Name;
-            var itemSector = product?.Sector ?? "BALCAO";
+            var itemSector = product is null ? "COZINHA" : NormalizeProductDestination(product.Sector, "CAIXA");
             var line = tile.Lines.FirstOrDefault(line =>
                 string.Equals(line.Code, itemCode, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(line.Name, itemName, StringComparison.OrdinalIgnoreCase) &&
@@ -7687,12 +10297,13 @@ public partial class MainWindow : Window
                 Name = "AJUSTE TOTAL IFOOD",
                 Quantity = 1,
                 UnitPrice = order.Total - tile.Total,
-                Sector = "BALCAO"
+                Sector = "CAIXA"
             });
             tile.Total = order.Total;
         }
 
         DeliveryTiles.Add(tile);
+        ScheduleKitchenPrint(tile, tile.Lines);
         UpsertCustomerRecord(tile.CustomerCpf, tile.CustomerName, tile.Phone, tile.Address, tile.District, tile.Notes);
         if (_appSettings.AutoPrintDelivery && !IsIFoodDeliveryBoard(tile))
         {
@@ -7700,6 +10311,186 @@ public partial class MainWindow : Window
         }
 
         return tile;
+    }
+
+    private bool UpsertIFoodCatalogProduct(IFoodCatalogProduct item)
+    {
+        var productId = (item.ProductId ?? "").Trim();
+        var itemId = (item.ItemId ?? "").Trim();
+        var ifoodProductId = string.IsNullOrWhiteSpace(productId) ? itemId : productId;
+        var externalCode = (item.ExternalCode ?? "").Trim();
+        var normalizedExternalCode = string.IsNullOrWhiteSpace(externalCode) ? "" : NormalizeProductCode(externalCode);
+        var normalizedName = NormalizeProductLookupText(item.Name);
+        var category = NormalizeIFoodCatalogCategory(item.Category);
+
+        var product = Products.FirstOrDefault(product =>
+                !string.IsNullOrWhiteSpace(ifoodProductId)
+                && string.Equals(product.IFoodProductId, ifoodProductId, StringComparison.OrdinalIgnoreCase))
+            ?? Products.FirstOrDefault(product =>
+                !string.IsNullOrWhiteSpace(productId)
+                && string.Equals(product.IFoodProductId, productId, StringComparison.OrdinalIgnoreCase))
+            ?? Products.FirstOrDefault(product =>
+                !string.IsNullOrWhiteSpace(itemId)
+                && string.Equals(product.IFoodProductId, itemId, StringComparison.OrdinalIgnoreCase))
+            ?? Products.FirstOrDefault(product =>
+                !string.IsNullOrWhiteSpace(externalCode)
+                && string.Equals(product.IFoodExternalCode, externalCode, StringComparison.OrdinalIgnoreCase))
+            ?? Products.FirstOrDefault(product =>
+                !string.IsNullOrWhiteSpace(normalizedExternalCode)
+                && string.Equals(product.IFoodExternalCode, normalizedExternalCode, StringComparison.OrdinalIgnoreCase))
+            ?? Products.FirstOrDefault(product =>
+                !string.IsNullOrWhiteSpace(normalizedExternalCode)
+                && string.Equals(product.Code, normalizedExternalCode, StringComparison.OrdinalIgnoreCase))
+            ?? Products.FirstOrDefault(product =>
+                !string.IsNullOrWhiteSpace(externalCode)
+                && string.Equals(product.Code, externalCode, StringComparison.OrdinalIgnoreCase))
+            ?? Products.FirstOrDefault(product =>
+                !string.IsNullOrWhiteSpace(normalizedName)
+                && string.Equals(NormalizeProductLookupText(product.Name), normalizedName, StringComparison.Ordinal));
+
+        if (product is null)
+        {
+            var code = !string.IsNullOrWhiteSpace(normalizedExternalCode)
+                       && normalizedExternalCode.All(char.IsDigit)
+                       && normalizedExternalCode.Length <= 6
+                ? normalizedExternalCode.PadLeft(6, '0')
+                : NextProductCode();
+            while (Products.Any(product => string.Equals(product.Code, code, StringComparison.OrdinalIgnoreCase)))
+            {
+                code = NextProductCode();
+            }
+
+            product = new ProductTile
+            {
+                Code = code,
+                Name = string.IsNullOrWhiteSpace(item.Name) ? "ITEM IFOOD" : item.Name.Trim().ToUpperInvariant(),
+                Category = category,
+                Price = item.Price,
+                Sector = "COZINHA",
+                Active = item.IsAvailable != false,
+                IFoodProductId = ifoodProductId,
+                IFoodExternalCode = externalCode,
+                StockQuantity = item.StockQuantity ?? DefaultIFoodImportedStockQuantity(item),
+                MinimumStock = 0
+            };
+
+            Products.Add(product);
+            EnsureProductCategory(category);
+            if (product.StockQuantity != 0m)
+            {
+                product.StockHistory.Add(new StockMovement
+                {
+                    ProductCode = product.Code,
+                    Type = "IFOOD",
+                    Quantity = product.StockQuantity,
+                    Reason = "Sincronizacao catalogo iFood",
+                    When = DateTime.Now
+                });
+            }
+
+            return true;
+        }
+
+        var changed = false;
+        changed |= SetIfDifferent(product.IFoodProductId, ifoodProductId, value => product.IFoodProductId = value);
+        changed |= SetIfDifferent(product.IFoodExternalCode, externalCode, value => product.IFoodExternalCode = value);
+
+        if (!string.IsNullOrWhiteSpace(item.Name)
+            && (string.IsNullOrWhiteSpace(product.Name)
+                || string.Equals(product.Name, "ITEM IFOOD", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(product.Category, "IFOOD", StringComparison.OrdinalIgnoreCase)))
+        {
+            changed |= SetIfDifferent(product.Name, item.Name.Trim().ToUpperInvariant(), value => product.Name = value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(category)
+            && (string.IsNullOrWhiteSpace(product.Category)
+                || string.Equals(product.Category, "IFOOD", StringComparison.OrdinalIgnoreCase)))
+        {
+            changed |= SetIfDifferent(product.Category, category, value => product.Category = value);
+        }
+
+        if (item.Price > 0m && product.Price != item.Price)
+        {
+            product.Price = item.Price;
+            changed = true;
+        }
+
+        var active = item.IsAvailable != false;
+        if (product.Active != active)
+        {
+            product.Active = active;
+            changed = true;
+        }
+
+        if (item.StockQuantity.HasValue && product.StockQuantity != item.StockQuantity.Value)
+        {
+            var previous = product.StockQuantity;
+            product.StockQuantity = Math.Max(0m, item.StockQuantity.Value);
+            product.StockHistory.Add(new StockMovement
+            {
+                ProductCode = product.Code,
+                Type = "IFOOD",
+                Quantity = product.StockQuantity - previous,
+                Reason = "Sincronizacao catalogo iFood",
+                When = DateTime.Now
+            });
+            changed = true;
+        }
+        else if (!item.StockQuantity.HasValue
+                 && product.StockQuantity <= 0m
+                 && product.SoldQuantity <= 0m
+                 && HasIFoodCatalogLink(product)
+                 && item.IsAvailable != false)
+        {
+            var defaultQuantity = DefaultIFoodImportedStockQuantity(item);
+            product.StockQuantity = defaultQuantity;
+            product.StockHistory.Add(new StockMovement
+            {
+                ProductCode = product.Code,
+                Type = "IFOOD",
+                Quantity = defaultQuantity,
+                Reason = "Estoque inicial catalogo iFood",
+                When = DateTime.Now
+            });
+            changed = true;
+        }
+
+        EnsureProductCategory(product.Category);
+        return changed;
+    }
+
+    private static bool SetIfDifferent(string current, string next, Action<string> assign)
+    {
+        var normalized = (next ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(normalized)
+            || string.Equals(current ?? "", normalized, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        assign(normalized);
+        return true;
+    }
+
+    private static string NormalizeIFoodCatalogCategory(string value)
+    {
+        var category = (value ?? "").Trim();
+        return string.IsNullOrWhiteSpace(category) ? "IFOOD" : category.ToUpperInvariant();
+    }
+
+    private static decimal DefaultIFoodImportedStockQuantity(IFoodCatalogProduct item)
+    {
+        return item.IsAvailable == false ? 0m : 10m;
+    }
+
+    private void EnsureProductCategory(string category)
+    {
+        var normalized = NormalizeIFoodCatalogCategory(category);
+        if (Categories.All(item => !string.Equals(item.Name, normalized, StringComparison.OrdinalIgnoreCase)))
+        {
+            Categories.Add(new CategoryTile(normalized));
+        }
     }
 
     private ProductTile ResolveOrCreateIFoodProduct(IFoodImportedItem item, string display, ICollection<string> stockWarnings, bool announce = true)
@@ -7835,12 +10626,27 @@ public partial class MainWindow : Window
 
     private static string StatusFromIFoodOrder(IFoodImportedOrder order)
     {
-        if (order.DeliveredAt.HasValue)
+        if (order.DeliveredAt.HasValue && order.DeliveredAt.Value <= DateTime.UtcNow.AddMinutes(1))
         {
             return "ENTREGUE";
         }
 
         return StatusFromIFoodImportedStatus(order.Status);
+    }
+
+    private static bool ShouldCorrectFutureDeliveredIFoodStatus(TableTile tile, string incomingStatus)
+    {
+        var current = NormalizeIFoodBoardStatus(tile.Status);
+        var incoming = NormalizeIFoodBoardStatus(incomingStatus);
+        return current == "ENTREGUE"
+            && incoming is "NOVO" or "PLACED" or "CREATED"
+            && tile.ExternalDeliveredAt.HasValue
+            && tile.ExternalDeliveredAt.Value > DateTime.Now.AddMinutes(1);
+    }
+
+    private static bool IsFinalIFoodStatus(string status)
+    {
+        return NormalizeIFoodBoardStatus(status) is "ENTREGUE" or "FINALIZADO" or "CANCELAMENTO" or "CANCELADO";
     }
 
     private static bool ShouldApplyIFoodStatus(string currentStatus, string incomingStatus)
@@ -7986,7 +10792,7 @@ public partial class MainWindow : Window
         var statusText = new TextBlock
         {
             Text = BuildIFoodOrderStatusText(order),
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             TextWrapping = TextWrapping.Wrap,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 6, 0, 0)
@@ -8004,7 +10810,7 @@ public partial class MainWindow : Window
         var actionMessage = new TextBlock
         {
             Text = BuildIFoodActionHint(order),
-            Foreground = Solid("#0F766E"),
+            Foreground = Solid("#08A99B"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 0)
@@ -8036,7 +10842,7 @@ public partial class MainWindow : Window
                 button.IsEnabled = false;
                 StopIFoodOrderSound();
                 actionMessage.Text = "Enviando para o iFood...";
-                actionMessage.Foreground = Solid("#667684");
+                actionMessage.Foreground = Solid("#5B6B7A");
                 var reason = action == "cancel"
                     ? cancelReasonBox.SelectedItem?.ToString() ?? "501 - Loja sem produto"
                     : "";
@@ -8049,7 +10855,7 @@ public partial class MainWindow : Window
                     actionMessage.Text = string.IsNullOrWhiteSpace(result.Message)
                         ? $"Atualizado: {order.Status}."
                         : result.Message;
-                    actionMessage.Foreground = Solid("#0F766E");
+                    actionMessage.Foreground = Solid("#08A99B");
                     dialog.Close();
                 }
             }
@@ -8064,12 +10870,12 @@ public partial class MainWindow : Window
             }
         }
 
-        var confirm = DialogButton("Confirmar pedido", "#0F766E");
-        var prepare = DialogButton("Preparar pedido", "#2F6FAE");
+        var confirm = DialogButton("Confirmar pedido", "#08A99B");
+        var prepare = DialogButton("Preparar pedido", "#0B3A52");
         var ready = DialogButton("Marcar pronto", "#99620D");
-        var dispatch = DialogButton("Despachar pedido", "#0F766E");
+        var dispatch = DialogButton("Despachar pedido", "#08A99B");
         var cancel = DialogButton("Cancelar no iFood", "#A11D1D");
-        var openDelivery = DialogButton("Abrir Delivery", "#245B91");
+        var openDelivery = DialogButton("Abrir Delivery", "#0B3A52");
 
         void RefreshActionState()
         {
@@ -8134,7 +10940,7 @@ public partial class MainWindow : Window
                     new TextBlock
                     {
                         Text = isNewOrder ? "NOVO PEDIDO IFOOD" : "PEDIDO IFOOD",
-                        Foreground = Solid(isNewOrder ? "#A11D1D" : "#0F766E"),
+                        Foreground = Solid(isNewOrder ? "#A11D1D" : "#08A99B"),
                         FontSize = 28,
                         FontWeight = FontWeights.Bold,
                         TextAlignment = TextAlignment.Center,
@@ -8143,7 +10949,7 @@ public partial class MainWindow : Window
                     new TextBlock
                     {
                         Text = $"{order.Number}  |  {order.CustomerName}  |  {Money(order.Total)}",
-                        Foreground = Solid("#18222B"),
+                        Foreground = Solid("#071A2C"),
                         FontSize = 16,
                         FontWeight = FontWeights.SemiBold,
                         TextAlignment = TextAlignment.Center,
@@ -8175,20 +10981,20 @@ public partial class MainWindow : Window
             Children =
             {
                 SectionTitle("Dados do pedido"),
-                new TextBlock { Text = $"orderId: {order.ExternalOrderId}", Foreground = Solid("#18222B"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Pedido iFood: {EmptyDash(order.ExternalDisplayId)} | Status: {NormalizeIFoodBoardStatus(order.Status)}", Foreground = Solid("#18222B"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Cliente: {order.CustomerName}", Foreground = Solid("#18222B"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = BuildIFoodOrderTypeText(order), Foreground = Solid("#0F766E"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"orderId: {order.ExternalOrderId}", Foreground = Solid("#071A2C"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"Pedido iFood: {EmptyDash(order.ExternalDisplayId)} | Status: {NormalizeIFoodBoardStatus(order.Status)}", Foreground = Solid("#071A2C"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"Cliente: {order.CustomerName}", Foreground = Solid("#071A2C"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = BuildIFoodOrderTypeText(order), Foreground = Solid("#08A99B"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
                 new TextBlock { Text = BuildIFoodScheduleText(order), Foreground = Solid("#99620D"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Entrega: {BuildIFoodShipmentText(order)}", Foreground = Solid("#0F766E"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = BuildIFoodPaymentText(order), Foreground = Solid("#245B91"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = BuildIFoodVoucherText(order), Foreground = Solid("#0F766E"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"Entrega: {BuildIFoodShipmentText(order)}", Foreground = Solid("#08A99B"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = BuildIFoodPaymentText(order), Foreground = Solid("#0B3A52"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = BuildIFoodVoucherText(order), Foreground = Solid("#08A99B"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
                 new TextBlock { Text = BuildIFoodCancellationText(order), Foreground = RedText, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"CPF/CNPJ: {EmptyDash(order.CustomerCpf)}", Foreground = Solid("#667684"), Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Telefone: {EmptyDash(order.Phone)}", Foreground = Solid("#667684"), Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Endereco: {EmptyDash(order.Address)}", Foreground = Solid("#667684"), Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Bairro: {EmptyDash(order.District)}", Foreground = Solid("#667684"), Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Obs: {EmptyDash(order.Notes)}", Foreground = Solid("#667684"), Margin = new Thickness(0, 3, 0, 8), TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"CPF/CNPJ: {EmptyDash(order.CustomerCpf)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"Telefone: {EmptyDash(order.Phone)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"Endereco: {EmptyDash(order.Address)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"Bairro: {EmptyDash(order.District)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = $"Obs: {EmptyDash(order.Notes)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 3, 0, 8), TextWrapping = TextWrapping.Wrap },
                 items
             }
         };
@@ -8223,7 +11029,7 @@ public partial class MainWindow : Window
         var footer = new Border
         {
             Background = Brushes.White,
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(0, 1, 0, 0),
             Padding = new Thickness(18, 12, 8, 8),
             Child = buttons
@@ -8260,7 +11066,7 @@ public partial class MainWindow : Window
                         new TextBlock
                         {
                             Text = label,
-                            Foreground = Solid("#667684"),
+                            Foreground = Solid("#5B6B7A"),
                             FontSize = 12,
                             FontWeight = FontWeights.SemiBold,
                             TextWrapping = TextWrapping.Wrap
@@ -8268,7 +11074,7 @@ public partial class MainWindow : Window
                         new TextBlock
                         {
                             Text = hasValue ? value.Trim() : "Nao informado neste pedido",
-                            Foreground = Solid(hasValue ? "#0F766E" : "#9A5B00"),
+                            Foreground = Solid(hasValue ? "#08A99B" : "#9A5B00"),
                             FontWeight = FontWeights.SemiBold,
                             Margin = new Thickness(0, 3, 0, 0),
                             TextWrapping = TextWrapping.Wrap
@@ -8299,7 +11105,7 @@ public partial class MainWindow : Window
                 new TextBlock
                 {
                     Text = "Grave esta area no video: ela mostra os dados exigidos no checklist do iFood para Order.",
-                    Foreground = Solid("#667684"),
+                    Foreground = Solid("#5B6B7A"),
                     TextWrapping = TextWrapping.Wrap
                 },
                 grid
@@ -8995,11 +11801,6 @@ public partial class MainWindow : Window
 
     private void PlayIFoodOrderSound()
     {
-        if (!_appSettings.NotificationSoundEnabled || _appSettings.NotificationSound == "NENHUM")
-        {
-            return;
-        }
-
         var customPath = _appSettings.IFoodAlertSoundPath;
         if (!string.IsNullOrWhiteSpace(customPath) && File.Exists(customPath))
         {
@@ -9115,10 +11916,29 @@ public partial class MainWindow : Window
         var minBox = new TextBox();
         var movementBox = new TextBox { Text = "1" };
         var reasonBox = new TextBox { Text = "Entrada manual" };
+        var searchBox = new TextBox
+        {
+            Margin = new Thickness(0, 8, 8, 0),
+            VerticalContentAlignment = VerticalAlignment.Center,
+            ToolTip = "Busque por codigo, produto, grupo ou status"
+        };
+        var searchCountText = new TextBlock
+        {
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        var createProductButton = DialogButton("Criar produto", "#08A99B");
+        createProductButton.Height = 34;
+        createProductButton.MinWidth = 112;
+        createProductButton.Padding = new Thickness(14, 0, 14, 0);
+        createProductButton.Margin = new Thickness(10, 0, 0, 0);
+        createProductButton.HorizontalAlignment = HorizontalAlignment.Right;
         var movementSummary = new TextBlock
         {
             Text = "Sem movimento registrado.",
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 4, 0, 0)
@@ -9126,21 +11946,21 @@ public partial class MainWindow : Window
         var selectedName = new TextBlock
         {
             Text = "Selecione um produto",
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontSize = 18,
             FontWeight = FontWeights.Bold,
             TextWrapping = TextWrapping.Wrap
         };
         var selectedMeta = new TextBlock
         {
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontSize = 12,
             Margin = new Thickness(0, 4, 0, 0),
             TextWrapping = TextWrapping.Wrap
         };
         var selectedStatus = new TextBlock
         {
-            Foreground = Solid("#0F766E"),
+            Foreground = Solid("#08A99B"),
             FontWeight = FontWeights.Bold,
             Margin = new Thickness(0, 10, 0, 0)
         };
@@ -9163,7 +11983,7 @@ public partial class MainWindow : Window
                 : "";
             selectedMeta.Text = $"{product.Code}  |  {product.Category}  |  {product.PriceText}{ifoodMeta}";
             selectedStatus.Text = product.StockStatusText;
-            selectedStatus.Foreground = Solid(product.IsLowStock ? "#A11D1D" : "#0F766E");
+            selectedStatus.Foreground = Solid(product.IsLowStock ? "#A11D1D" : "#08A99B");
             var lastMovement = product.StockHistory
                 .OrderByDescending(item => item.When)
                 .FirstOrDefault();
@@ -9172,9 +11992,19 @@ public partial class MainWindow : Window
                 : $"Ultimo: {lastMovement.Display}";
         }
 
+        void ClearStockSelection(string message)
+        {
+            qtyBox.Text = "";
+            minBox.Text = "";
+            selectedName.Text = message;
+            selectedMeta.Text = "";
+            selectedStatus.Text = "";
+            movementSummary.Text = "Nenhum produto selecionado.";
+        }
+
         Border CreateInventoryMetric(string title, TextBlock valueText, string detail, string color)
         {
-            valueText.Foreground = Solid("#18222B");
+            valueText.Foreground = Solid("#071A2C");
             valueText.FontSize = 21;
             valueText.FontWeight = FontWeights.Bold;
             valueText.Margin = new Thickness(0, 3, 0, 0);
@@ -9182,7 +12012,7 @@ public partial class MainWindow : Window
             var border = new Border
             {
                 Background = Brushes.White,
-                BorderBrush = Solid("#D8E2EC"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(9),
                 Margin = new Thickness(0, 0, 10, 0),
@@ -9197,7 +12027,7 @@ public partial class MainWindow : Window
             stack.Children.Add(new TextBlock
             {
                 Text = title,
-                Foreground = Solid("#667684"),
+                Foreground = Solid("#5B6B7A"),
                 FontSize = 12,
                 FontWeight = FontWeights.SemiBold
             });
@@ -9205,7 +12035,7 @@ public partial class MainWindow : Window
             stack.Children.Add(new TextBlock
             {
                 Text = detail,
-                Foreground = Solid("#667684"),
+                Foreground = Solid("#5B6B7A"),
                 FontSize = 11,
                 TextTrimming = TextTrimming.CharacterEllipsis
             });
@@ -9228,10 +12058,10 @@ public partial class MainWindow : Window
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         var metrics = new UniformGrid { Columns = 4, Rows = 1 };
-        metrics.Children.Add(CreateInventoryMetric("Produtos", totalProductsValue, "itens cadastrados", "#245B91"));
+        metrics.Children.Add(CreateInventoryMetric("Produtos", totalProductsValue, "itens cadastrados", "#0B3A52"));
         metrics.Children.Add(CreateInventoryMetric("Criticos", lowStockValue, "abaixo do estoque minimo", "#A11D1D"));
         metrics.Children.Add(CreateInventoryMetric("Unidades", totalUnitsValue, "saldo fisico total", "#99620D"));
-        metrics.Children.Add(CreateInventoryMetric("Valor estoque", inventoryValue, "preco de venda estimado", "#0F766E"));
+        metrics.Children.Add(CreateInventoryMetric("Valor estoque", inventoryValue, "preco de venda estimado", "#08A99B"));
         grid.Children.Add(metrics);
 
         var body = new Grid { Margin = new Thickness(0, 14, 0, 0) };
@@ -9242,29 +12072,53 @@ public partial class MainWindow : Window
         var tableCard = new Border
         {
             Background = Brushes.White,
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(9),
             Margin = new Thickness(0, 0, 12, 0)
         };
         var tablePanel = new Grid { Margin = new Thickness(14, 12, 14, 14) };
-        tablePanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(48) });
+        tablePanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(86) });
         tablePanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        var tableHeader = new StackPanel();
-        tableHeader.Children.Add(new TextBlock
+        var tableHeader = new Grid();
+        tableHeader.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        tableHeader.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        tableHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        tableHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var tableTitle = new StackPanel();
+        tableTitle.Children.Add(new TextBlock
         {
             Text = "Produtos em estoque",
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontSize = 15,
             FontWeight = FontWeights.Bold
         });
-        tableHeader.Children.Add(new TextBlock
+        tableTitle.Children.Add(new TextBlock
         {
-            Text = "Use as setas para selecionar e Enter nos campos para editar.",
-            Foreground = Solid("#667684"),
+            Text = "Busque e selecione um produto para ajustar saldo ou registrar movimento.",
+            Foreground = Solid("#5B6B7A"),
             FontSize = 11,
             Margin = new Thickness(0, 2, 0, 0)
         });
+        tableHeader.Children.Add(tableTitle);
+
+        var headerActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top
+        };
+        searchCountText.Text = $"{sortedProducts.Count:N0} exibidos";
+        headerActions.Children.Add(searchCountText);
+        headerActions.Children.Add(createProductButton);
+        Grid.SetColumn(searchCountText, 1);
+        Grid.SetColumn(headerActions, 1);
+        tableHeader.Children.Add(headerActions);
+
+        searchBox.Text = "";
+        Grid.SetRow(searchBox, 1);
+        Grid.SetColumnSpan(searchBox, 2);
+        tableHeader.Children.Add(searchBox);
         tablePanel.Children.Add(tableHeader);
 
         var table = new DataGrid
@@ -9291,6 +12145,56 @@ public partial class MainWindow : Window
         table.Columns.Add(new DataGridTextColumn { Header = "Atual", Binding = new System.Windows.Data.Binding(nameof(ProductTile.StockQuantity)) { StringFormat = "N0" }, Width = 74 });
         table.Columns.Add(new DataGridTextColumn { Header = "Min.", Binding = new System.Windows.Data.Binding(nameof(ProductTile.MinimumStock)) { StringFormat = "N0" }, Width = 64 });
         table.Columns.Add(new DataGridTextColumn { Header = "Status", Binding = new System.Windows.Data.Binding(nameof(ProductTile.StockStatusText)), Width = 96 });
+
+        bool ProductMatchesSearch(ProductTile product, string term)
+        {
+            if (string.IsNullOrWhiteSpace(term))
+            {
+                return true;
+            }
+
+            return product.Code.Contains(term, StringComparison.OrdinalIgnoreCase)
+                   || product.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+                   || product.Category.Contains(term, StringComparison.OrdinalIgnoreCase)
+                   || product.StockStatusText.Contains(term, StringComparison.OrdinalIgnoreCase);
+        }
+
+        void ApplySearch(ProductTile? selected = null)
+        {
+            var term = searchBox.Text.Trim();
+            var filtered = sortedProducts.Where(product => ProductMatchesSearch(product, term)).ToList();
+            table.ItemsSource = filtered;
+            searchCountText.Text = string.IsNullOrWhiteSpace(term)
+                ? $"{filtered.Count:N0} exibidos"
+                : $"{filtered.Count:N0} encontrados";
+
+            if (selected is not null && filtered.Contains(selected))
+            {
+                table.SelectedItem = selected;
+                table.ScrollIntoView(selected);
+            }
+            else if (filtered.Count > 0)
+            {
+                table.SelectedIndex = 0;
+            }
+            else
+            {
+                ClearStockSelection("Nenhum produto encontrado");
+            }
+        }
+
+        searchBox.TextChanged += (_, _) => ApplySearch();
+        createProductButton.Click += (_, _) =>
+        {
+            var selectedBefore = table.SelectedItem as ProductTile;
+            var previousCodes = Products.Select(product => product.Code).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            ShowProductCatalogDialog();
+            sortedProducts = Products.OrderBy(product => product.Category).ThenBy(product => product.Name).ToList();
+            var created = sortedProducts.FirstOrDefault(product => !previousCodes.Contains(product.Code));
+            UpdateMetrics();
+            ApplySearch(created ?? selectedBefore);
+            table.Items.Refresh();
+        };
         table.SelectionChanged += (_, _) =>
         {
             if (table.SelectedItem is ProductTile product) LoadStock(product);
@@ -9302,10 +12206,10 @@ public partial class MainWindow : Window
 
         void RefreshInventory(ProductTile product)
         {
-            table.Items.Refresh();
-            LoadStock(product);
+            ApplySearch(product);
             UpdateMetrics();
             SaveStore();
+            table.Items.Refresh();
         }
 
         void ChangeStock(decimal multiplier, string type)
@@ -9348,7 +12252,7 @@ public partial class MainWindow : Window
             QueueIFoodStockSync(product, $"Estoque {type}");
         }
 
-        var setButton = DialogButton("Salvar saldo/minimo", "#2F6FAE");
+        var setButton = DialogButton("Salvar saldo/minimo", "#0B3A52");
         setButton.Click += (_, _) =>
         {
             if (table.SelectedItem is ProductTile product)
@@ -9368,16 +12272,35 @@ public partial class MainWindow : Window
                 QueueIFoodStockSync(product, "Ajuste manual de estoque");
             }
         };
-        var inButton = DialogButton("Entrada", "#0F766E");
-        inButton.Click += (_, _) => ChangeStock(1, "ENTRADA");
-        var outButton = DialogButton("Saida", "#A11D1D");
-        outButton.Click += (_, _) => ChangeStock(-1, "SAIDA");
+        var inButton = DialogButton("Entrada no estoque", "#08A99B");
+        inButton.Click += (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(reasonBox.Text)
+                || string.Equals(reasonBox.Text.Trim(), "Saida manual", StringComparison.OrdinalIgnoreCase))
+            {
+                reasonBox.Text = "Entrada manual";
+            }
+
+            ChangeStock(1, "ENTRADA");
+        };
+        var outButton = DialogButton("Saida do estoque", "#A11D1D");
+        outButton.Click += (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(reasonBox.Text)
+                || string.Equals(reasonBox.Text.Trim(), "Entrada manual", StringComparison.OrdinalIgnoreCase))
+            {
+                reasonBox.Text = "Saida manual";
+            }
+
+            ChangeStock(-1, "SAIDA");
+        };
 
         movementBox.KeyDown += (_, e) =>
         {
             if (e.Key == Key.Enter)
             {
-                ChangeStock(1, "ENTRADA");
+                reasonBox.Focus();
+                reasonBox.SelectAll();
                 e.Handled = true;
             }
         };
@@ -9385,7 +12308,7 @@ public partial class MainWindow : Window
         {
             if (e.Key == Key.Enter)
             {
-                ChangeStock(1, "ENTRADA");
+                inButton.Focus();
                 e.Handled = true;
             }
         };
@@ -9395,22 +12318,60 @@ public partial class MainWindow : Window
             button.HorizontalAlignment = HorizontalAlignment.Stretch;
             button.Width = double.NaN;
         }
-        inButton.Margin = new Thickness(0, 8, 6, 0);
-        outButton.Margin = new Thickness(6, 8, 0, 0);
+        inButton.Margin = new Thickness(0, 8, 0, 0);
+        outButton.Margin = new Thickness(0, 8, 0, 0);
 
-        var movementButtons = new UniformGrid
+        var movementButtons = new StackPanel
         {
-            Columns = 2,
-            Rows = 1,
             Margin = new Thickness(0, 0, 0, 0)
         };
         movementButtons.Children.Add(inButton);
         movementButtons.Children.Add(outButton);
 
+        Border SideSection(string title, string detail, params UIElement[] children)
+        {
+            var section = new Border
+            {
+                Background = Solid("#F8FBFD"),
+                BorderBrush = Solid("#CAD6E2"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12),
+                Margin = new Thickness(0, 10, 0, 0)
+            };
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = title,
+                Foreground = Solid("#071A2C"),
+                FontSize = 14,
+                FontWeight = FontWeights.Bold
+            });
+            if (!string.IsNullOrWhiteSpace(detail))
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = detail,
+                    Foreground = Solid("#5B6B7A"),
+                    FontSize = 11,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 2, 0, 8)
+                });
+            }
+
+            foreach (var child in children)
+            {
+                stack.Children.Add(child);
+            }
+
+            section.Child = stack;
+            return section;
+        }
+
         var sideCard = new Border
         {
             Background = Brushes.White,
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(9)
         };
@@ -9419,24 +12380,36 @@ public partial class MainWindow : Window
         panel.Children.Add(selectedMeta);
         panel.Children.Add(selectedStatus);
         panel.Children.Add(new Border { Height = 1, Background = Solid("#E3EBF2"), Margin = new Thickness(0, 14, 0, 10) });
-        panel.Children.Add(DialogLabel("Quantidade atual"));
-        panel.Children.Add(qtyBox);
-        panel.Children.Add(DialogLabel("Estoque minimo"));
-        panel.Children.Add(minBox);
-        panel.Children.Add(DialogLabel("Quantidade movimento"));
-        panel.Children.Add(movementBox);
-        panel.Children.Add(DialogLabel("Motivo"));
-        panel.Children.Add(reasonBox);
-        panel.Children.Add(setButton);
-        panel.Children.Add(movementButtons);
+        panel.Children.Add(SideSection(
+            "Saldo do produto",
+            "Use para corrigir o saldo atual ou o estoque minimo.",
+            DialogLabel("Quantidade atual"),
+            qtyBox,
+            DialogLabel("Estoque minimo"),
+            minBox,
+            setButton));
+        panel.Children.Add(SideSection(
+            "Entrada e saida",
+            "A saida usa exatamente a quantidade digitada abaixo.",
+            DialogLabel("Quantidade"),
+            movementBox,
+            DialogLabel("Motivo"),
+            reasonBox,
+            movementButtons));
         panel.Children.Add(movementSummary);
-        sideCard.Child = panel;
+        sideCard.Child = new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            CanContentScroll = false
+        };
         Grid.SetColumn(sideCard, 1);
         body.Children.Add(sideCard);
         grid.Children.Add(body);
         dialog.Content = grid;
         UpdateMetrics();
-        if (sortedProducts.Count > 0) table.SelectedIndex = 0;
+        ApplySearch();
         dialog.ShowDialog();
     }
 
@@ -9476,11 +12449,11 @@ public partial class MainWindow : Window
             SetStatus($"{CashMovementLabel(type)}: {Money(amount)}");
         }
 
-        var supply = DialogButton("Entrada de caixa", "#0F766E");
+        var supply = DialogButton("Entrada de caixa", "#08A99B");
         supply.Click += (_, _) => AddMovement(1, "ENTRADA");
         var withdrawal = DialogButton("Retirada de caixa", "#A11D1D");
         withdrawal.Click += (_, _) => AddMovement(-1, "RETIRADA");
-        var close = DialogButton(IsCashOpen() ? "F10 Fechar caixa" : "F10 Abrir caixa", "#2F6FAE");
+        var close = DialogButton(IsCashOpen() ? "F10 Fechar caixa" : "F10 Abrir caixa", "#0B3A52");
         close.Click += (_, _) =>
         {
             if (ToggleCashRegister())
@@ -9495,7 +12468,7 @@ public partial class MainWindow : Window
         panel.Children.Add(new TextBlock
         {
             Text = "Atalho do operador: F10 abre ou fecha o caixa.",
-            Foreground = Solid("#245B91"),
+            Foreground = Solid("#0B3A52"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
@@ -9579,7 +12552,7 @@ public partial class MainWindow : Window
         var message = new TextBlock
         {
             Text = "Informe quanto dinheiro vivo existe no restaurante agora.",
-            Foreground = Solid("#245B91"),
+            Foreground = Solid("#0B3A52"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
@@ -9590,7 +12563,7 @@ public partial class MainWindow : Window
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap
         };
-        var open = DialogButton("Abrir caixa", "#0F766E");
+        var open = DialogButton("Abrir caixa", "#08A99B");
         open.HorizontalAlignment = HorizontalAlignment.Stretch;
         open.Width = double.NaN;
 
@@ -9770,7 +12743,7 @@ public partial class MainWindow : Window
             ItemsSource = pending.Select(PendingCashBoardDisplay).ToList(),
             Margin = new Thickness(0, 8, 0, 12)
         };
-        var ok = DialogButton("Entendi", "#2F6FAE");
+        var ok = DialogButton("Entendi", "#0B3A52");
         ok.HorizontalAlignment = HorizontalAlignment.Stretch;
         ok.Click += (_, _) => dialog.Close();
 
@@ -9778,7 +12751,7 @@ public partial class MainWindow : Window
         panel.Children.Add(new TextBlock
         {
             Text = "Nao da para fechar o caixa enquanto existir mesa, ficha ou pedido com movimento pendente.",
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap
         });
@@ -9857,7 +12830,7 @@ public partial class MainWindow : Window
         var selectedDestination = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#245B91"),
+            Foreground = Solid("#0B3A52"),
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 8)
         };
@@ -9866,13 +12839,13 @@ public partial class MainWindow : Window
         Border Card(string title, string subtitle, UIElement content, string color)
         {
             var stack = new StackPanel { Margin = new Thickness(16, 14, 16, 16) };
-            stack.Children.Add(new TextBlock { Text = title, Foreground = Solid("#18222B"), FontSize = 17, FontWeight = FontWeights.Bold });
-            stack.Children.Add(new TextBlock { Text = subtitle, Foreground = Solid("#667684"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 12) });
+            stack.Children.Add(new TextBlock { Text = title, Foreground = Solid("#071A2C"), FontSize = 17, FontWeight = FontWeights.Bold });
+            stack.Children.Add(new TextBlock { Text = subtitle, Foreground = Solid("#5B6B7A"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 12) });
             stack.Children.Add(content);
             return new Border
             {
                 Background = Brushes.White,
-                BorderBrush = Solid("#D8E2EC"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(10),
                 Padding = new Thickness(0),
@@ -9891,12 +12864,12 @@ public partial class MainWindow : Window
         Border MiniStat(string label, string value, string color)
         {
             var stack = new StackPanel { Margin = new Thickness(10, 8, 10, 8) };
-            stack.Children.Add(new TextBlock { Text = label, Foreground = Solid("#667684"), FontSize = 11, FontWeight = FontWeights.SemiBold });
+            stack.Children.Add(new TextBlock { Text = label, Foreground = Solid("#5B6B7A"), FontSize = 11, FontWeight = FontWeights.SemiBold });
             stack.Children.Add(new TextBlock { Text = value, Foreground = Solid(color), FontSize = 16, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 0) });
             return new Border
             {
                 Background = Solid("#F8FBFE"),
-                BorderBrush = Solid("#D8E2EC"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
                 Margin = new Thickness(0, 0, 8, 0),
@@ -9910,7 +12883,7 @@ public partial class MainWindow : Window
             row.Children.Add(new TextBlock
             {
                 Text = Money(line.Total),
-                Foreground = Solid("#0F766E"),
+                Foreground = Solid("#08A99B"),
                 FontSize = 13,
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Right,
@@ -9921,14 +12894,14 @@ public partial class MainWindow : Window
             {
                 Children =
                 {
-                    new TextBlock { Text = line.Name, Foreground = Solid("#18222B"), FontWeight = FontWeights.Bold, TextTrimming = TextTrimming.CharacterEllipsis },
-                    new TextBlock { Text = $"{line.Quantity:N0} x {Money(line.UnitPrice)}", Foreground = Solid("#667684"), FontSize = 11 }
+                    new TextBlock { Text = line.Name, Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold, TextTrimming = TextTrimming.CharacterEllipsis },
+                    new TextBlock { Text = $"{line.Quantity:N0} x {Money(line.UnitPrice)}", Foreground = Solid("#5B6B7A"), FontSize = 11 }
                 }
             });
             return new Border
             {
                 Background = Solid("#F8FBFE"),
-                BorderBrush = Solid("#D8E2EC"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(10),
@@ -9942,21 +12915,21 @@ public partial class MainWindow : Window
             sourceDetails.Children.Clear();
             if (sourceList.SelectedItem is not TableTile source)
             {
-                sourceDetails.Children.Add(new TextBlock { Text = "Selecione a comanda de origem.", Foreground = Solid("#667684") });
+                sourceDetails.Children.Add(new TextBlock { Text = "Selecione a comanda de origem.", Foreground = Solid("#5B6B7A") });
                 return;
             }
 
-            sourceDetails.Children.Add(new TextBlock { Text = $"{BoardKindLabel(source)} {source.Number}", Foreground = Solid("#18222B"), FontSize = 24, FontWeight = FontWeights.Bold });
-            sourceDetails.Children.Add(new TextBlock { Text = $"{source.Status}  |  origem selecionada", Foreground = Solid("#0F766E"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 4, 0, 0) });
+            sourceDetails.Children.Add(new TextBlock { Text = $"{BoardKindLabel(source)} {source.Number}", Foreground = Solid("#071A2C"), FontSize = 24, FontWeight = FontWeights.Bold });
+            sourceDetails.Children.Add(new TextBlock { Text = $"{source.Status}  |  origem selecionada", Foreground = Solid("#08A99B"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 4, 0, 0) });
             if (!string.IsNullOrWhiteSpace(source.CustomerName))
             {
-                sourceDetails.Children.Add(new TextBlock { Text = $"Cliente: {source.CustomerName}", Foreground = Solid("#667684"), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap });
+                sourceDetails.Children.Add(new TextBlock { Text = $"Cliente: {source.CustomerName}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap });
             }
 
             var stats = new UniformGrid { Columns = 3, Margin = new Thickness(0, 12, -8, 0) };
-            stats.Children.Add(MiniStat("Itens", source.Lines.Count.ToString("N0", Brazil), "#245B91"));
+            stats.Children.Add(MiniStat("Itens", source.Lines.Count.ToString("N0", Brazil), "#0B3A52"));
             stats.Children.Add(MiniStat("Pagamentos", Money(source.Payments.Sum(payment => payment.Amount)), "#99620D"));
-            stats.Children.Add(MiniStat("Total", Money(source.Lines.Sum(line => line.Total)), "#0F766E"));
+            stats.Children.Add(MiniStat("Total", Money(source.Lines.Sum(line => line.Total)), "#08A99B"));
             sourceDetails.Children.Add(stats);
 
             var sourceItems = new StackPanel();
@@ -10021,7 +12994,7 @@ public partial class MainWindow : Window
         };
         destinationList.SelectionChanged += (_, _) => RefreshDestinationText();
 
-        var transferButton = DialogButton("Transferir comanda completa", "#0F766E");
+        var transferButton = DialogButton("Transferir comanda completa", "#08A99B");
         transferButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         transferButton.Width = double.NaN;
         transferButton.IsDefault = true;
@@ -10058,9 +13031,9 @@ public partial class MainWindow : Window
         };
 
         var sourcePanel = new StackPanel();
-        sourcePanel.Children.Add(new TextBlock { Text = "Escolha qual comanda vai sair do lugar atual.", Foreground = Solid("#667684"), TextWrapping = TextWrapping.Wrap });
+        sourcePanel.Children.Add(new TextBlock { Text = "Escolha qual comanda vai sair do lugar atual.", Foreground = Solid("#5B6B7A"), TextWrapping = TextWrapping.Wrap });
         sourcePanel.Children.Add(sourceList);
-        sourcePanel.Children.Add(new Border { Height = 1, Background = Solid("#D8E2EC"), Margin = new Thickness(0, 10, 0, 10) });
+        sourcePanel.Children.Add(new Border { Height = 1, Background = Solid("#CAD6E2"), Margin = new Thickness(0, 10, 0, 10) });
         sourcePanel.Children.Add(sourceDetails);
         var destinationPanel = new StackPanel();
         destinationPanel.Children.Add(selectedDestination);
@@ -10072,11 +13045,11 @@ public partial class MainWindow : Window
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star) });
         var left = new StackPanel();
-        left.Children.Add(Card("Origem", "Selecione a comanda completa que sera transferida.", sourcePanel, "#245B91"));
+        left.Children.Add(Card("Origem", "Selecione a comanda completa que sera transferida.", sourcePanel, "#0B3A52"));
         Grid.SetColumn(left, 0);
         grid.Children.Add(left);
         var right = new StackPanel();
-        right.Children.Add(Card("Destino", "Escolha para onde mover a comanda completa.", destinationPanel, "#0F766E"));
+        right.Children.Add(Card("Destino", "Escolha para onde mover a comanda completa.", destinationPanel, "#08A99B"));
         Grid.SetColumn(right, 2);
         grid.Children.Add(right);
         dialog.Content = grid;
@@ -10102,7 +13075,7 @@ public partial class MainWindow : Window
         panel.Children.Add(new TextBlock
         {
             Text = "Nao ha comanda/ficha aberta com itens para transferir.",
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontSize = 18,
             FontWeight = FontWeights.Bold,
             TextWrapping = TextWrapping.Wrap
@@ -10110,11 +13083,11 @@ public partial class MainWindow : Window
         panel.Children.Add(new TextBlock
         {
             Text = "Abra uma mesa/ficha, inclua pelo menos um produto e depois use F6 Transferir Comanda.",
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             Margin = new Thickness(0, 10, 0, 18),
             TextWrapping = TextWrapping.Wrap
         });
-        var ok = DialogButton("Entendi", "#245B91");
+        var ok = DialogButton("Entendi", "#0B3A52");
         ok.HorizontalAlignment = HorizontalAlignment.Stretch;
         ok.Width = double.NaN;
         ok.Click += (_, _) => dialog.Close();
@@ -10303,7 +13276,7 @@ public partial class MainWindow : Window
             }
         };
 
-        var newButton = DialogButton("Novo cliente", "#2F6FAE");
+        var newButton = DialogButton("Novo cliente", "#0B3A52");
         newButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         newButton.Width = double.NaN;
         newButton.Click += (_, _) =>
@@ -10318,7 +13291,7 @@ public partial class MainWindow : Window
             nameBox.Focus();
         };
 
-        var save = DialogButton("Salvar cliente", "#0F766E");
+        var save = DialogButton("Salvar cliente", "#08A99B");
         save.HorizontalAlignment = HorizontalAlignment.Stretch;
         save.Width = double.NaN;
         save.Click += (_, _) =>
@@ -10408,7 +13381,7 @@ public partial class MainWindow : Window
             dialog.Close();
         }
 
-        var include = DialogButton("Incluir no delivery", "#0F766E");
+        var include = DialogButton("Incluir no delivery", "#08A99B");
         include.HorizontalAlignment = HorizontalAlignment.Stretch;
         include.Width = double.NaN;
         include.Click += (_, _) => Confirm();
@@ -10486,7 +13459,7 @@ public partial class MainWindow : Window
 
         var dialog = CreateDialog("Quantidade de pessoas", 360, 220);
         var peopleBox = new TextBox { Text = Math.Max(1, board.People).ToString(Brazil) };
-        var save = DialogButton("Salvar", "#0F766E");
+        var save = DialogButton("Salvar", "#08A99B");
         save.Click += (_, _) =>
         {
             board.People = Math.Max(1, ParseInt(peopleBox.Text, 1));
@@ -10581,10 +13554,10 @@ public partial class MainWindow : Window
             }
         };
 
-        var newButton = DialogButton("Novo cadastro", "#2F6FAE");
+        var newButton = DialogButton("Novo cadastro", "#0B3A52");
         newButton.Click += (_, _) => ClearForm();
 
-        var saveButton = DialogButton("Salvar equipe", "#0F766E");
+        var saveButton = DialogButton("Salvar equipe", "#08A99B");
         saveButton.Click += (_, _) =>
         {
             var name = nameBox.Text.Trim().ToUpperInvariant();
@@ -10670,7 +13643,7 @@ public partial class MainWindow : Window
         left.Children.Add(new TextBlock
         {
             Text = "Equipe cadastrada",
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontWeight = FontWeights.Bold,
             FontSize = 16,
             Margin = new Thickness(0, 0, 0, 8)
@@ -10755,7 +13728,7 @@ public partial class MainWindow : Window
         var statusText = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             Margin = new Thickness(0, 8, 0, 0)
         };
         var linkPreview = new TextBlock
@@ -10768,7 +13741,7 @@ public partial class MainWindow : Window
         var qrHost = new Border
         {
             Background = Brushes.White,
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(14),
@@ -10785,7 +13758,7 @@ public partial class MainWindow : Window
         var discountEnabledBox = new CheckBox
         {
             Content = "Mostrar cupom no cardapio do cliente",
-            IsChecked = _appSettings.PublicMenuDiscountEnabled,
+            IsChecked = _appSettings.PublicMenuDiscountConfigured && _appSettings.PublicMenuDiscountEnabled,
             Margin = new Thickness(0, 4, 0, 8)
         };
         var discountCodeBox = new TextBox
@@ -10806,7 +13779,7 @@ public partial class MainWindow : Window
         var discountDescriptionBox = new TextBox
         {
             Text = string.IsNullOrWhiteSpace(_appSettings.PublicMenuDiscountDescription)
-                ? "Use no atendimento para ganhar desconto no pedido."
+                ? "Apresente este cupom no atendimento para receber o desconto."
                 : _appSettings.PublicMenuDiscountDescription.Trim(),
             MinHeight = 70,
             TextWrapping = TextWrapping.Wrap,
@@ -10816,7 +13789,7 @@ public partial class MainWindow : Window
         var loyaltyEnabledBox = new CheckBox
         {
             Content = "Mostrar fidelidade no cardapio",
-            IsChecked = _appSettings.PublicMenuLoyaltyEnabled,
+            IsChecked = _appSettings.PublicMenuLoyaltyConfigured && _appSettings.PublicMenuLoyaltyEnabled,
             Margin = new Thickness(0, 10, 0, 8)
         };
         var loyaltyGoalBox = new TextBox
@@ -10836,13 +13809,13 @@ public partial class MainWindow : Window
         var discountStatus = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             Margin = new Thickness(0, 10, 0, 0)
         };
         var discountPreview = BorderCard();
         discountPreview.Margin = new Thickness(0, 12, 0, 0);
 
-        TextBlock ProductCell(string text, double fontSize = 12, FontWeight? weight = null, string color = "#18222B")
+        TextBlock ProductCell(string text, double fontSize = 12, FontWeight? weight = null, string color = "#071A2C")
         {
             return new TextBlock
             {
@@ -10864,10 +13837,10 @@ public partial class MainWindow : Window
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(88) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(70) });
 
-            var code = ProductCell(string.IsNullOrWhiteSpace(product.Code) ? "-" : product.Code, 11, FontWeights.SemiBold, "#667684");
+            var code = ProductCell(string.IsNullOrWhiteSpace(product.Code) ? "-" : product.Code, 11, FontWeights.SemiBold, "#5B6B7A");
             var name = ProductCell(product.Name, 13, FontWeights.SemiBold);
-            var price = ProductCell(Money(product.Price), 12, FontWeights.SemiBold, "#0F766E");
-            var stock = ProductCell(product.StockQuantity.ToString("N0", Brazil), 11, FontWeights.SemiBold, product.StockQuantity < 0 ? "#A11D1D" : "#667684");
+            var price = ProductCell(Money(product.Price), 12, FontWeights.SemiBold, "#08A99B");
+            var stock = ProductCell(product.StockQuantity.ToString("N0", Brazil), 11, FontWeights.SemiBold, product.StockQuantity < 0 ? "#A11D1D" : "#5B6B7A");
 
             row.Children.Add(code);
             Grid.SetColumn(name, 1);
@@ -10880,7 +13853,7 @@ public partial class MainWindow : Window
             productRows.Children.Add(new Border
             {
                 Background = Solid("#F7FAFD"),
-                BorderBrush = Solid("#D8E2EC"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(10, 8, 10, 8),
@@ -10893,7 +13866,7 @@ public partial class MainWindow : Window
             productRows.Children.Add(new TextBlock
             {
                 Text = "Nenhum produto ativo no cadastro.",
-                Foreground = Solid("#667684"),
+                Foreground = Solid("#5B6B7A"),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 8, 0, 0)
             });
@@ -10949,12 +13922,12 @@ public partial class MainWindow : Window
                     Text = "Nao foi possivel gerar o QR Code.",
                     TextWrapping = TextWrapping.Wrap,
                     TextAlignment = TextAlignment.Center,
-                    Foreground = Solid("#667684"),
+                    Foreground = Solid("#5B6B7A"),
                     VerticalAlignment = VerticalAlignment.Center
                 };
                 linkPreview.Text = "";
                 statusText.Text = "O cliente escaneia o QR Code e abre o cardapio usando qualquer internet do celular.";
-                statusText.Foreground = Solid("#667684");
+                statusText.Foreground = Solid("#5B6B7A");
                 return;
             }
 
@@ -10989,7 +13962,7 @@ public partial class MainWindow : Window
             var code = NormalizePublicMenuDiscountCode(discountCodeBox.Text);
             var amount = Math.Max(0, ParseMoney(discountAmountBox.Text, _appSettings.PublicMenuDiscountAmount));
             var description = string.IsNullOrWhiteSpace(discountDescriptionBox.Text)
-                ? "Use no atendimento para ganhar desconto no pedido."
+                ? "Apresente este cupom no atendimento para receber o desconto."
                 : discountDescriptionBox.Text.Trim();
             var loyaltyGoal = Math.Max(1, ParseInt(loyaltyGoalBox.Text, _appSettings.PublicMenuLoyaltyGoal <= 0 ? 20 : _appSettings.PublicMenuLoyaltyGoal));
             var loyaltyMinimum = Math.Max(0, ParseMoney(loyaltyMinimumBox.Text, _appSettings.PublicMenuLoyaltyMinimumOrder));
@@ -11000,7 +13973,7 @@ public partial class MainWindow : Window
                     new TextBlock
                     {
                         Text = discountEnabledBox.IsChecked == true ? $"Cupom {code}" : "Cupom oculto",
-                        Foreground = Solid("#18222B"),
+                        Foreground = Solid("#071A2C"),
                         FontSize = 18,
                         FontWeight = FontWeights.Bold
                     },
@@ -11014,17 +13987,17 @@ public partial class MainWindow : Window
                     new TextBlock
                     {
                         Text = description,
-                        Foreground = Solid("#667684"),
+                        Foreground = Solid("#5B6B7A"),
                         TextWrapping = TextWrapping.Wrap,
                         Margin = new Thickness(0, 6, 0, 0)
                     },
-                    new Border { Height = 1, Background = Solid("#D8E2EC"), Margin = new Thickness(0, 12, 0, 10) },
+                    new Border { Height = 1, Background = Solid("#CAD6E2"), Margin = new Thickness(0, 12, 0, 10) },
                     new TextBlock
                     {
                         Text = loyaltyEnabledBox.IsChecked == true
                             ? $"Fidelidade: {loyaltyGoal:N0} ponto(s), pedido minimo {Money(loyaltyMinimum)}."
                             : "Fidelidade oculta no cardapio.",
-                        Foreground = Solid("#18222B"),
+                        Foreground = Solid("#071A2C"),
                         FontWeight = FontWeights.SemiBold,
                         TextWrapping = TextWrapping.Wrap
                     }
@@ -11060,12 +14033,14 @@ public partial class MainWindow : Window
             }
 
             _appSettings.PublicMenuDiscountEnabled = discountEnabledBox.IsChecked == true;
+            _appSettings.PublicMenuDiscountConfigured = _appSettings.PublicMenuDiscountEnabled;
             _appSettings.PublicMenuDiscountCode = code;
             _appSettings.PublicMenuDiscountAmount = amount;
             _appSettings.PublicMenuDiscountDescription = string.IsNullOrWhiteSpace(discountDescriptionBox.Text)
-                ? "Use no atendimento para ganhar desconto no pedido."
+                ? "Apresente este cupom no atendimento para receber o desconto."
                 : discountDescriptionBox.Text.Trim();
             _appSettings.PublicMenuLoyaltyEnabled = loyaltyEnabledBox.IsChecked == true;
+            _appSettings.PublicMenuLoyaltyConfigured = _appSettings.PublicMenuLoyaltyEnabled;
             _appSettings.PublicMenuLoyaltyGoal = goal;
             _appSettings.PublicMenuLoyaltyMinimumOrder = minimum;
             SaveAppSettings();
@@ -11077,12 +14052,12 @@ public partial class MainWindow : Window
             return true;
         }
 
-        var publish = DialogButton("Publicar/atualizar", "#0F766E");
-        var print = DialogButton("Imprimir POS58", "#0F766E");
-        var copy = DialogButton("Copiar QR/link", "#667684");
-        var open = DialogButton("Abrir cardapio", "#2F6FAE");
-        var saveDiscounts = DialogButton("Salvar descontos", "#0F766E");
-        var publishDiscounts = DialogButton("Salvar e publicar", "#2F6FAE");
+        var publish = DialogButton("Publicar/atualizar", "#08A99B");
+        var print = DialogButton("Imprimir POS58", "#08A99B");
+        var copy = DialogButton("Copiar QR/link", "#5B6B7A");
+        var open = DialogButton("Abrir cardapio", "#0B3A52");
+        var saveDiscounts = DialogButton("Salvar descontos", "#08A99B");
+        var publishDiscounts = DialogButton("Salvar e publicar", "#0B3A52");
 
         async Task PublishCurrentMenuAsync(bool automatic)
         {
@@ -11095,7 +14070,7 @@ public partial class MainWindow : Window
             statusText.Text = automatic
                 ? "Publicando cardapio automaticamente..."
                 : "Publicando cardapio no Supabase...";
-            statusText.Foreground = Solid("#667684");
+            statusText.Foreground = Solid("#5B6B7A");
             try
             {
                 var result = await PublishGeneratedPublicMenuAsync(silent: false);
@@ -11178,7 +14153,7 @@ public partial class MainWindow : Window
         {
             Text = "O link e fixo do Balcao Livre. Os produtos abaixo saem direto do cadastro e estoque da loja.",
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 10)
         });
@@ -11189,13 +14164,13 @@ public partial class MainWindow : Window
         {
             Text = $"{activeProducts.Count:N0} produto(s) ativo(s) no sistema da loja",
             FontWeight = FontWeights.Bold,
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             Margin = new Thickness(0, 16, 0, 6)
         });
         left.Children.Add(new Border
         {
             Background = Brushes.White,
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(10),
@@ -11231,7 +14206,7 @@ public partial class MainWindow : Window
             Text = ResolveWaiterRestaurantName(),
             FontSize = 22,
             FontWeight = FontWeights.Bold,
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             TextAlignment = TextAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 4)
@@ -11252,7 +14227,7 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             TextAlignment = TextAlignment.Center,
             FontWeight = FontWeights.Bold,
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             Margin = new Thickness(0, 14, 0, 4)
         });
         preview.Children.Add(new TextBlock
@@ -11260,13 +14235,13 @@ public partial class MainWindow : Window
             Text = "Veja o cardapio, escolha os itens e chame a equipe para pedir.",
             TextWrapping = TextWrapping.Wrap,
             TextAlignment = TextAlignment.Center,
-            Foreground = Solid("#667684")
+            Foreground = Solid("#5B6B7A")
         });
 
         var previewCard = new Border
         {
             Background = Solid("#F7FAFD"),
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(18),
@@ -11292,7 +14267,7 @@ public partial class MainWindow : Window
                 new TextBlock
                 {
                     Text = "Configure o que aparece na aba Descontos do cardapio publico.",
-                    Foreground = Solid("#667684"),
+                    Foreground = Solid("#5B6B7A"),
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 0, 0, 10)
                 },
@@ -11572,10 +14547,12 @@ public partial class MainWindow : Window
         sb.AppendLine(_appSettings.PublicMenuStoreOpen.ToString());
         sb.AppendLine(_appSettings.PublicMenuWaitMinMinutes.ToString(CultureInfo.InvariantCulture));
         sb.AppendLine(_appSettings.PublicMenuWaitMaxMinutes.ToString(CultureInfo.InvariantCulture));
+        sb.AppendLine(_appSettings.PublicMenuDiscountConfigured.ToString());
         sb.AppendLine(_appSettings.PublicMenuDiscountEnabled.ToString());
         sb.AppendLine(_appSettings.PublicMenuDiscountCode);
         sb.AppendLine(_appSettings.PublicMenuDiscountAmount.ToString("0.00", CultureInfo.InvariantCulture));
         sb.AppendLine(_appSettings.PublicMenuDiscountDescription);
+        sb.AppendLine(_appSettings.PublicMenuLoyaltyConfigured.ToString());
         sb.AppendLine(_appSettings.PublicMenuLoyaltyEnabled.ToString());
         sb.AppendLine(_appSettings.PublicMenuLoyaltyGoal.ToString(CultureInfo.InvariantCulture));
         sb.AppendLine(_appSettings.PublicMenuLoyaltyMinimumOrder.ToString("0.00", CultureInfo.InvariantCulture));
@@ -11760,13 +14737,15 @@ public partial class MainWindow : Window
         payload.StoreOpen = true;
         payload.WaitMinMinutes = Math.Max(1, _appSettings.PublicMenuWaitMinMinutes);
         payload.WaitMaxMinutes = Math.Max(payload.WaitMinMinutes, _appSettings.PublicMenuWaitMaxMinutes);
-        payload.DiscountEnabled = _appSettings.PublicMenuDiscountEnabled;
+        var publishDiscount = _appSettings.PublicMenuDiscountConfigured && _appSettings.PublicMenuDiscountEnabled;
+        var publishLoyalty = _appSettings.PublicMenuLoyaltyConfigured && _appSettings.PublicMenuLoyaltyEnabled;
+        payload.DiscountEnabled = publishDiscount;
         payload.DiscountCode = NormalizePublicMenuDiscountCode(_appSettings.PublicMenuDiscountCode);
         payload.DiscountAmount = Math.Max(0, _appSettings.PublicMenuDiscountAmount);
         payload.DiscountDescription = string.IsNullOrWhiteSpace(_appSettings.PublicMenuDiscountDescription)
-            ? "Use no atendimento para ganhar desconto no pedido."
+            ? "Apresente este cupom no atendimento para receber o desconto."
             : _appSettings.PublicMenuDiscountDescription.Trim();
-        payload.LoyaltyEnabled = _appSettings.PublicMenuLoyaltyEnabled;
+        payload.LoyaltyEnabled = publishLoyalty;
         payload.LoyaltyGoal = Math.Max(1, _appSettings.PublicMenuLoyaltyGoal);
         payload.LoyaltyMinimumOrder = Math.Max(0, _appSettings.PublicMenuLoyaltyMinimumOrder);
         FillPublicMenuLogo(payload);
@@ -12136,7 +15115,7 @@ public partial class MainWindow : Window
         controlsContent.Children.Add(new TextBlock
         {
             Text = "Periodo do relatorio",
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center
@@ -12183,16 +15162,16 @@ public partial class MainWindow : Window
                 Rows = showIFoodReport ? 2 : 1,
                 Margin = new Thickness(0, 4, 0, 0)
             };
-            metrics.Children.Add(CreateMetricCard("Em aberto", Money(openTotal), $"{openOrders.Count} comandas/pedidos", "#245B91"));
-            metrics.Children.Add(CreateMetricCard("Caixa atual", Money(_cashTotal), IsCashOpen() ? "caixa aberto" : "caixa fechado", IsCashOpen() ? "#0F766E" : "#A11D1D"));
+            metrics.Children.Add(CreateMetricCard("Em aberto", Money(openTotal), $"{openOrders.Count} comandas/pedidos", "#0B3A52"));
+            metrics.Children.Add(CreateMetricCard("Caixa atual", Money(_cashTotal), IsCashOpen() ? "caixa aberto" : "caixa fechado", IsCashOpen() ? "#08A99B" : "#A11D1D"));
             metrics.Children.Add(CreateMetricCard("Itens vendidos", soldItems.ToString("N0", Brazil), $"{topProducts.Count} produtos no ranking - {period}", "#99620D"));
-            metrics.Children.Add(CreateMetricCard("Lucro bruto", Money(profitSummary.Profit), $"Margem {profitSummary.Margin:N2}% - {period}", profitSummary.Profit >= 0 ? "#0F766E" : "#A11D1D"));
+            metrics.Children.Add(CreateMetricCard("Lucro bruto", Money(profitSummary.Profit), $"Margem {profitSummary.Margin:N2}% - {period}", profitSummary.Profit >= 0 ? "#08A99B" : "#A11D1D"));
             if (showIFoodReport)
             {
-                metrics.Children.Add(CreateMetricCard("Lucro iFood", Money(ifoodSummary.EstimatedNetProfit), $"Taxa est. {Money(ifoodSummary.EstimatedFee)} - {period}", ifoodSummary.EstimatedNetProfit >= 0 ? "#0F766E" : "#A11D1D"));
+                metrics.Children.Add(CreateMetricCard("Lucro iFood", Money(ifoodSummary.EstimatedNetProfit), $"Taxa est. {Money(ifoodSummary.EstimatedFee)} - {period}", ifoodSummary.EstimatedNetProfit >= 0 ? "#08A99B" : "#A11D1D"));
             }
 
-            metrics.Children.Add(CreateMetricCard("Estoque baixo", lowStock.Count.ToString("N0", Brazil), "itens abaixo do minimo", lowStock.Count == 0 ? "#0F766E" : "#A11D1D"));
+            metrics.Children.Add(CreateMetricCard("Estoque baixo", lowStock.Count.ToString("N0", Brazil), "itens abaixo do minimo", lowStock.Count == 0 ? "#08A99B" : "#A11D1D"));
             metricsHost.Content = metrics;
 
             var body = new Grid { Margin = new Thickness(0, 8, 0, 0) };
@@ -12247,7 +15226,7 @@ public partial class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center
         };
-        var openFolder = DialogButton("Abrir pasta", "#2F6FAE");
+        var openFolder = DialogButton("Abrir pasta", "#0B3A52");
         openFolder.Margin = new Thickness(0, 10, 10, 0);
         openFolder.Click += (_, _) => Process.Start(new ProcessStartInfo(ExportDir) { UseShellExecute = true });
         var print = DialogButton("Imprimir", "#99620D");
@@ -12261,7 +15240,7 @@ public partial class MainWindow : Window
                 ? $"Relatorio {period.ToLowerInvariant()} impresso."
                 : "Relatorio nao impresso. Impressora padrao indisponivel.");
         };
-        var export = DialogButton("Exportar TXT", "#0F766E");
+        var export = DialogButton("Exportar TXT", "#08A99B");
         export.Margin = new Thickness(0, 10, 0, 0);
         export.Click += (_, _) =>
         {
@@ -12493,14 +15472,14 @@ public partial class MainWindow : Window
         text.Children.Add(new TextBlock
         {
             Text = title,
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontSize = 12,
             FontWeight = FontWeights.SemiBold
         });
         text.Children.Add(new TextBlock
         {
             Text = value,
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontSize = 21,
             FontWeight = FontWeights.Bold,
             Margin = new Thickness(0, 2, 0, 0)
@@ -12508,7 +15487,7 @@ public partial class MainWindow : Window
         text.Children.Add(new TextBlock
         {
             Text = detail,
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontSize = 11,
             TextWrapping = TextWrapping.NoWrap,
             TextTrimming = TextTrimming.CharacterEllipsis
@@ -12540,7 +15519,7 @@ public partial class MainWindow : Window
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.Children.Add(new Border
         {
-            Background = Solid("#2F6FAE"),
+            Background = Solid("#0B3A52"),
             CornerRadius = new CornerRadius(2),
             Margin = new Thickness(0, 1, 0, 5)
         });
@@ -12548,14 +15527,14 @@ public partial class MainWindow : Window
         headerText.Children.Add(new TextBlock
         {
             Text = title,
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontSize = 16,
             FontWeight = FontWeights.Bold
         });
         headerText.Children.Add(new TextBlock
         {
             Text = subtitle,
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontSize = 11,
             Margin = new Thickness(0, 2, 0, 0)
         });
@@ -12616,7 +15595,7 @@ public partial class MainWindow : Window
                 $"Qtd {product.SoldQuantity:N0}  Compra {product.CostPriceText}  Venda {product.PriceText}  Margem {product.ProfitMargin:N2}%",
                 Money(totalProfit),
                 (double)(product.SoldQuantity / max),
-                totalProfit >= 0 ? "#0F766E" : "#A11D1D"));
+                totalProfit >= 0 ? "#08A99B" : "#A11D1D"));
         }
 
         return panel;
@@ -12658,7 +15637,7 @@ public partial class MainWindow : Window
                 $"{movement.Type} - {movement.User}",
                 $"{movement.When:g}  {movement.Reason}",
                 Money(movement.Amount),
-                movement.Amount < 0 ? "#A11D1D" : "#0F766E"));
+                movement.Amount < 0 ? "#A11D1D" : "#08A99B"));
         }
 
         return panel;
@@ -12677,7 +15656,7 @@ public partial class MainWindow : Window
             "Vendas iFood",
             $"{summary.ValidOrders:N0} pedido(s), {summary.DeliveredOrders:N0} entregue(s), {summary.CancelledOrders:N0} cancelado(s)",
             Money(summary.Revenue),
-            "#245B91"));
+            "#0B3A52"));
         panel.Children.Add(CreateReportRow(
             "Entrega propria / merchant",
             $"{summary.MerchantOrders:N0} pedido(s) x 12%",
@@ -12692,7 +15671,7 @@ public partial class MainWindow : Window
             "Lucro liquido estimado",
             $"Custo produto {Money(summary.ProductCost)}  |  Margem {summary.EstimatedMargin:N2}%",
             Money(summary.EstimatedNetProfit),
-            summary.EstimatedNetProfit >= 0 ? "#0F766E" : "#A11D1D"));
+            summary.EstimatedNetProfit >= 0 ? "#08A99B" : "#A11D1D"));
         return panel;
     }
 
@@ -12718,14 +15697,14 @@ public partial class MainWindow : Window
         text.Children.Add(new TextBlock
         {
             Text = title,
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontWeight = FontWeights.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis
         });
         text.Children.Add(new TextBlock
         {
             Text = subtitle,
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontSize = 11,
             TextTrimming = TextTrimming.CharacterEllipsis,
             Margin = new Thickness(0, 2, 0, 0)
@@ -12736,7 +15715,7 @@ public partial class MainWindow : Window
         var right = new TextBlock
         {
             Text = trailing,
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontWeight = FontWeights.Bold,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
@@ -12758,7 +15737,7 @@ public partial class MainWindow : Window
 
         var track = new Border
         {
-            Background = Solid("#E8F1FA"),
+            Background = Solid("#EAF8FA"),
             Height = 5,
             CornerRadius = new CornerRadius(3),
             Margin = new Thickness(0, 7, 0, 0),
@@ -12788,7 +15767,7 @@ public partial class MainWindow : Window
             Child = new TextBlock
             {
                 Text = text,
-                Foreground = Solid("#667684"),
+                Foreground = Solid("#5B6B7A"),
                 FontWeight = FontWeights.SemiBold
             }
         };
@@ -12798,9 +15777,9 @@ public partial class MainWindow : Window
     {
         return status switch
         {
-            "LIVRE" or "PRONTO" or "ENTREGUE" or "FINALIZADO" => "#0F766E",
-            "CONTA" or "AGUARDANDO" or "PREPARO" or "PREPARANDO" or "ROTA" => "#99620D",
-            _ => "#A11D1D"
+            "LIVRE" or "PRONTO" or "ENTREGUE" or "FINALIZADO" => "#087D73",
+            "CONTA" or "AGUARDANDO" or "PREPARO" or "PREPARANDO" or "ROTA" => "#8A5B09",
+            _ => "#9E2F27"
         };
     }
 
@@ -12824,21 +15803,124 @@ public partial class MainWindow : Window
         }
 
         SaveStore();
-        var dialog = CreateDialog("Backup e exportacao", 560, 480);
-        var result = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = GreenText, FontWeight = FontWeights.SemiBold };
-        var cloudBackupBox = new CheckBox { Content = "Backup automatico versionado na nuvem", IsChecked = _appSettings.CloudBackupEnabled };
-        var centralSyncBox = new CheckBox { Content = "Sync central compacto e economico", IsChecked = _appSettings.CentralSyncEnabled };
-        var saveOnline = DialogButton("Salvar automacao online", "#2F6FAE");
+        var dialog = CreateDialog("Backup e exportacao", 760, 570);
+        var result = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = GreenText,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        var cloudBackupBox = new CheckBox
+        {
+            Content = "Backup completo versionado",
+            IsChecked = _appSettings.CloudBackupEnabled,
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        var centralSyncBox = new CheckBox
+        {
+            Content = "Sync central economico",
+            IsChecked = _appSettings.CentralSyncEnabled,
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        var cloudStatus = new TextBlock();
+        var syncStatus = new TextBlock();
+        var lastBackupText = new TextBlock();
+        var lastSyncText = new TextBlock();
+
+        Border BackupCard(string title, string description, params UIElement[] children)
+        {
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = title,
+                Foreground = Solid("#071A2C"),
+                FontSize = 15,
+                FontWeight = FontWeights.Bold
+            });
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = description,
+                    Foreground = Solid("#5B6B7A"),
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 3, 0, 10)
+                });
+            }
+
+            foreach (var child in children)
+            {
+                stack.Children.Add(child);
+            }
+
+            return new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = Solid("#CAD6E2"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(16),
+                Margin = new Thickness(0, 0, 0, 12),
+                Child = stack
+            };
+        }
+
+        Border StatusPill(TextBlock text, string onText, bool enabled)
+        {
+            text.Text = enabled ? onText : "desligado";
+            text.Foreground = enabled ? Solid("#08A99B") : Solid("#5B6B7A");
+            text.FontWeight = FontWeights.Bold;
+            return new Border
+            {
+                Background = enabled ? Solid("#E6FBF8") : Solid("#F1F5F8"),
+                BorderBrush = enabled ? Solid("#08A99B") : Solid("#CAD6E2"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(18),
+                Padding = new Thickness(12, 7, 12, 7),
+                Margin = new Thickness(0, 0, 8, 0),
+                Child = text
+            };
+        }
+
+        void StyleLastText(TextBlock text)
+        {
+            text.Foreground = Solid("#5B6B7A");
+            text.FontSize = 12;
+            text.TextWrapping = TextWrapping.Wrap;
+            text.Margin = new Thickness(0, 2, 0, 0);
+        }
+
+        StyleLastText(lastBackupText);
+        StyleLastText(lastSyncText);
+
+        void RefreshBackupState()
+        {
+            cloudStatus.Text = _appSettings.CloudBackupEnabled ? "backup ligado" : "backup desligado";
+            cloudStatus.Foreground = _appSettings.CloudBackupEnabled ? Solid("#08A99B") : Solid("#5B6B7A");
+            syncStatus.Text = _appSettings.CentralSyncEnabled ? "sync ligado" : "sync desligado";
+            syncStatus.Foreground = _appSettings.CentralSyncEnabled ? Solid("#08A99B") : Solid("#5B6B7A");
+            lastBackupText.Text = _appSettings.LastCloudBackupAt.HasValue
+                ? $"Ultimo backup online: {_appSettings.LastCloudBackupAt.Value:dd/MM/yyyy HH:mm}"
+                : "Ultimo backup online: ainda nao enviado";
+            lastSyncText.Text = _appSettings.LastCentralSyncAt.HasValue
+                ? $"Ultimo sync central: {_appSettings.LastCentralSyncAt.Value:dd/MM/yyyy HH:mm}"
+                : "Ultimo sync central: ainda nao enviado";
+        }
+
+        var saveOnline = DialogButton("Salvar automacao", "#0B3A52");
         saveOnline.Click += (_, _) =>
         {
             _appSettings.CloudBackupEnabled = cloudBackupBox.IsChecked == true;
             _appSettings.CentralSyncEnabled = centralSyncBox.IsChecked == true;
             SaveAppSettings();
             QueueCentralSync("sync.settings.saved", CreateStoreSnapshot(), force: true);
+            RefreshBackupState();
             result.Text = "Automacao online salva.";
             SetStatus("Backup automatico e sync central atualizados.");
         };
-        var backup = DialogButton("Gerar backup agora", "#0F766E");
+        var backup = DialogButton("Gerar backup agora", "#08A99B");
         backup.Click += (_, _) =>
         {
             var backupDir = Path.Combine(_dataRoot, "backups");
@@ -12846,12 +15928,15 @@ public partial class MainWindow : Window
             var path = Path.Combine(backupDir, $"backup-{DateTime.Now:yyyyMMdd-HHmmss}.json");
             File.Copy(StoreFile, path, overwrite: true);
             QueueCloudBackup(CreateStoreSnapshot(), force: true);
+            _appSettings.LastCloudBackupAt = DateTime.Now;
+            SaveAppSettings();
+            RefreshBackupState();
             result.Text = path;
             SetStatus($"Backup local gerado: {path}. Envio online solicitado se a licenca estiver ativa.");
         };
-        var open = DialogButton("Abrir pasta de dados", "#2F6FAE");
+        var open = DialogButton("Abrir pasta de dados", "#5B6B7A");
         open.Click += (_, _) => Process.Start(new ProcessStartInfo(_dataRoot) { UseShellExecute = true });
-        var export = DialogButton("Exportar resumo CSV", "#2F6FAE");
+        var export = DialogButton("Exportar resumo CSV", "#0B3A52");
         export.Click += (_, _) =>
         {
             var path = Path.Combine(ExportDir, $"produtos-{DateTime.Now:yyyyMMdd-HHmmss}.csv");
@@ -12861,20 +15946,92 @@ public partial class MainWindow : Window
             SetStatus($"CSV gerado: {path}");
         };
 
-        var panel = DialogPanel();
-        panel.Children.Add(DialogLabel("Dados locais"));
-        panel.Children.Add(DialogHint(StoreFile));
-        panel.Children.Add(DialogLabel("Nuvem"));
-        panel.Children.Add(DialogHint("Economico: sync salva so resumo operacional; backup completo e versionado roda no maximo a cada 6 horas ou manualmente."));
-        panel.Children.Add(cloudBackupBox);
-        panel.Children.Add(centralSyncBox);
-        panel.Children.Add(saveOnline);
-        panel.Children.Add(DialogLabel("Backup local"));
-        panel.Children.Add(backup);
-        panel.Children.Add(export);
-        panel.Children.Add(open);
-        panel.Children.Add(result);
-        dialog.Content = panel;
+        foreach (var button in new[] { saveOnline, backup, export, open })
+        {
+            button.HorizontalAlignment = HorizontalAlignment.Stretch;
+            button.Width = double.NaN;
+        }
+
+        var pathBox = new TextBox
+        {
+            Text = StoreFile,
+            IsReadOnly = true,
+            TextWrapping = TextWrapping.Wrap,
+            BorderThickness = new Thickness(0),
+            Background = Solid("#F8FBFD"),
+            Foreground = Solid("#435466"),
+            Height = 64,
+            Padding = new Thickness(10)
+        };
+
+        var statusRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
+        statusRow.Children.Add(StatusPill(cloudStatus, "backup ligado", _appSettings.CloudBackupEnabled));
+        statusRow.Children.Add(StatusPill(syncStatus, "sync ligado", _appSettings.CentralSyncEnabled));
+
+        var cloudBox = BackupCard(
+            "Nuvem",
+            "Modo economico: sync envia resumo operacional; backup completo versionado roda a cada 6 horas ou manualmente.",
+            cloudBackupBox,
+            DialogHint("Salva uma copia completa dos dados para recuperacao."),
+            centralSyncBox,
+            DialogHint("Mantem clientes, licenca e resumo prontos para web/admin/mobile."),
+            lastBackupText,
+            lastSyncText);
+
+        var localBox = BackupCard(
+            "Dados locais",
+            "Arquivo principal usado pelo PDV neste computador.",
+            pathBox);
+
+        var actionsBox = BackupCard(
+            "Acoes",
+            "Use backup manual antes de formatar, trocar de computador ou fazer alteracao grande.",
+            backup,
+            export,
+            open,
+            saveOnline,
+            result);
+
+        var layout = new Grid { Margin = new Thickness(18) };
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        var header = new StackPanel();
+        header.Children.Add(new TextBlock
+        {
+            Text = "Protecao dos dados",
+            Foreground = Solid("#071A2C"),
+            FontSize = 22,
+            FontWeight = FontWeights.Bold
+        });
+        header.Children.Add(new TextBlock
+        {
+            Text = "Backup local, copia versionada na nuvem e sync compacto para manter o PDV seguro.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 13,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 3, 0, 12)
+        });
+        header.Children.Add(statusRow);
+        layout.Children.Add(header);
+
+        var content = new Grid { Margin = new Thickness(0, 6, 0, 0) };
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(250) });
+        Grid.SetRow(content, 1);
+
+        var left = new StackPanel();
+        left.Children.Add(localBox);
+        left.Children.Add(cloudBox);
+        content.Children.Add(left);
+
+        Grid.SetColumn(actionsBox, 1);
+        actionsBox.Margin = new Thickness(12, 0, 0, 12);
+        content.Children.Add(actionsBox);
+        layout.Children.Add(content);
+
+        RefreshBackupState();
+        dialog.Content = layout;
         dialog.ShowDialog();
     }
 
@@ -13000,6 +16157,47 @@ public partial class MainWindow : Window
                || board.ClosedPayments.Count > 0;
     }
 
+    private static bool IsClosedAccountForConference(TableTile? board)
+    {
+        return board is not null
+               && string.Equals(board.Status, "CONTA", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildClosedAccountWaiterMessage(TableTile board)
+    {
+        return $"{BoardKindLabel(board)} {board.Number} esta com a conta fechada. Somente gerente no caixa pode liberar alteracoes.";
+    }
+
+    private bool RequireManagerForClosedAccountEdit(TableTile board, string action)
+    {
+        if (!IsClosedAccountForConference(board))
+        {
+            return true;
+        }
+
+        if (!ShowOperatorPasswordDialog(
+                "Autorizacao do gerente",
+                $"{BoardKindLabel(board)} {board.Number} esta com a conta fechada. Para {action}, informe a conta e senha do gerente.",
+                "Autorizar",
+                IsManagerUser,
+                out var approvingManager))
+        {
+            SetStatus($"{BoardKindLabel(board)} {board.Number} continua em conta. Somente gerente pode {action}.");
+            return false;
+        }
+
+        board.Status = board.Kind switch
+        {
+            "DELIVERY" => "PREPARO",
+            "KDS" => "RECEBIDO",
+            "BALCAO" => "ABERTO",
+            _ => "OCUPADA"
+        };
+        QueuePublicMenuOrderStatusSync(board);
+        SetStatus($"{BoardKindLabel(board)} {board.Number} liberada por {approvingManager?.Name ?? "gerente"} para {action}.");
+        return true;
+    }
+
     private string? ShowPizzaDialog(ProductTile product, string existingNote)
     {
         var dialog = CreateDialog($"Pizzaria - {product.Name}", 520, 520);
@@ -13009,7 +16207,7 @@ public partial class MainWindow : Window
         var flavor2 = new ComboBox { ItemsSource = Products.Where(item => item.Category == "PIZZAS").Select(item => item.Name).ToList(), SelectedIndex = 0, MinHeight = 34 };
         var borderBox = new CheckBox { Content = "Borda catupiry", Margin = new Thickness(0, 10, 0, 8) };
         var noteBox = new TextBox { Text = existingNote, Height = 64, AcceptsReturn = true };
-        var ok = DialogButton("Confirmar pizza", "#0F766E");
+        var ok = DialogButton("Confirmar pizza", "#08A99B");
         ok.Click += (_, _) =>
         {
             var parts = new List<string>
@@ -13120,7 +16318,7 @@ public partial class MainWindow : Window
         var message = new TextBlock
         {
             Text = instruction,
-            Foreground = Solid("#245B91"),
+            Foreground = Solid("#0B3A52"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
@@ -13132,10 +16330,10 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap
         };
         var approved = false;
-        var button = DialogButton(buttonText, "#0F766E");
+        var button = DialogButton(buttonText, "#08A99B");
         button.HorizontalAlignment = HorizontalAlignment.Stretch;
         button.Width = double.NaN;
-        var firstAccessButton = DialogButton("Criar primeiro acesso", "#2F6FAE");
+        var firstAccessButton = DialogButton("Criar primeiro acesso", "#0B3A52");
         firstAccessButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         firstAccessButton.Width = double.NaN;
         firstAccessButton.Visibility = allowFirstAccess && CanCreateFirstAccessUser()
@@ -13246,7 +16444,7 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 0)
         };
-        var activate = DialogButton(needsAdmin ? "Ativar e criar administrador" : "Ativar sistema", "#0F766E");
+        var activate = DialogButton(needsAdmin ? "Ativar e criar administrador" : "Ativar sistema", "#08A99B");
         activate.HorizontalAlignment = HorizontalAlignment.Stretch;
         activate.Width = double.NaN;
 
@@ -13300,7 +16498,7 @@ public partial class MainWindow : Window
                 return new Border
                 {
                     Background = BlueSoft,
-                    BorderBrush = Solid("#D8E2EC"),
+                    BorderBrush = Solid("#CAD6E2"),
                     BorderThickness = new Thickness(1),
                     CornerRadius = new CornerRadius(12),
                     Padding = new Thickness(16),
@@ -13318,7 +16516,7 @@ public partial class MainWindow : Window
             return new Border
             {
                 Background = Brushes.White,
-                BorderBrush = Solid("#D8E2EC"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(12),
                 Padding = new Thickness(16, 10, 16, 10),
@@ -13599,7 +16797,7 @@ public partial class MainWindow : Window
             Text = needsAdmin
                 ? "Primeira instalacao: ative o sistema e crie o administrador antes de usar o PDV."
                 : "Ative a chave do sistema para continuar usando o PDV.",
-            Foreground = Solid("#245B91"),
+            Foreground = Solid("#0B3A52"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 10)
@@ -13610,7 +16808,7 @@ public partial class MainWindow : Window
         panel.Children.Add(new Border
         {
             Background = Solid("#F8FBFD"),
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(9),
             Padding = new Thickness(14),
@@ -13619,7 +16817,7 @@ public partial class MainWindow : Window
             {
                 Children =
                 {
-                    new TextBlock { Text = "Conta da loja", Foreground = Solid("#18222B"), FontWeight = FontWeights.Bold, FontSize = 15, Margin = new Thickness(0, 0, 0, 8) },
+                    new TextBlock { Text = "Conta da loja", Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold, FontSize = 15, Margin = new Thickness(0, 0, 0, 8) },
                     DialogHint("Vincule chave, email, nome e CNPJ. O admin salva esses dados no Supabase para o Android e o PDV Web reconhecerem a mesma loja."),
                     DialogField("Email da conta", accountEmailBox),
                     DialogField("Nome fantasia", businessNameBox),
@@ -13635,7 +16833,7 @@ public partial class MainWindow : Window
             panel.Children.Add(new Border
             {
                 Background = Solid("#F8FBFD"),
-                BorderBrush = Solid("#D8E2EC"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(9),
                 Padding = new Thickness(14),
@@ -13644,7 +16842,7 @@ public partial class MainWindow : Window
                 {
                     Children =
                     {
-                        new TextBlock { Text = "Administrador", Foreground = Solid("#18222B"), FontWeight = FontWeights.Bold, FontSize = 15, Margin = new Thickness(0, 0, 0, 8) },
+                        new TextBlock { Text = "Administrador", Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold, FontSize = 15, Margin = new Thickness(0, 0, 0, 8) },
                         DialogField("Nome", adminNameBox),
                         DialogField("Numero do operador", adminNumberBox),
                         DialogField("Senha", passwordBox),
@@ -13702,7 +16900,7 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 0)
         };
-        var create = DialogButton("Criar gerente e entrar", "#0F766E");
+        var create = DialogButton("Criar gerente e entrar", "#08A99B");
         create.HorizontalAlignment = HorizontalAlignment.Stretch;
         create.Width = double.NaN;
 
@@ -13818,7 +17016,7 @@ public partial class MainWindow : Window
         panel.Children.Add(new TextBlock
         {
             Text = "Crie o gerente do sistema. Ele podera configurar o restaurante, cadastrar produtos, equipe, estoque e relatorios.",
-            Foreground = Solid("#245B91"),
+            Foreground = Solid("#0B3A52"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 10)
@@ -14202,6 +17400,19 @@ public partial class MainWindow : Window
             shouldSaveSettings = true;
         }
 
+        _appSettings.MercadoPago ??= new MercadoPagoPaymentSettings();
+        _appSettings.MercadoPago.DefaultTerminalId = (_appSettings.MercadoPago.DefaultTerminalId ?? "").Trim();
+        _appSettings.MercadoPago.DefaultTerminalLabel = (_appSettings.MercadoPago.DefaultTerminalLabel ?? "").Trim();
+        _appSettings.MercadoPago.SellerUserId = (_appSettings.MercadoPago.SellerUserId ?? "").Trim();
+        _appSettings.MercadoPago.LastError = (_appSettings.MercadoPago.LastError ?? "").Trim();
+
+        _appSettings.PagBank ??= new PagBankPaymentSettings();
+        _appSettings.PagBank.AccountId = (_appSettings.PagBank.AccountId ?? "").Trim();
+        _appSettings.PagBank.DefaultTerminalId = (_appSettings.PagBank.DefaultTerminalId ?? "").Trim();
+        _appSettings.PagBank.DefaultTerminalLabel = (_appSettings.PagBank.DefaultTerminalLabel ?? "").Trim();
+        _appSettings.PagBank.PlugPagComPort = (_appSettings.PagBank.PlugPagComPort ?? "").Trim().ToUpperInvariant();
+        _appSettings.PagBank.LastError = (_appSettings.PagBank.LastError ?? "").Trim();
+
         if (_appSettings.PrintLayout is not ("PEQUENO" or "GRANDE"))
         {
             _appSettings.PrintLayout = "GRANDE";
@@ -14215,23 +17426,8 @@ public partial class MainWindow : Window
             shouldSaveSettings = true;
         }
 
-        _appSettings.SectorPrinters ??= [];
-        var normalizedSectorPrinters = _appSettings.SectorPrinters
-            .Where(setting => !string.IsNullOrWhiteSpace(setting.Sector))
-            .Select(setting => new SectorPrinterSetting
-            {
-                Sector = NormalizeSectorName(setting.Sector),
-                PrinterName = (setting.PrinterName ?? "").Trim()
-            })
-            .GroupBy(setting => setting.Sector, StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.First())
-            .ToList();
-        if (normalizedSectorPrinters.Count != _appSettings.SectorPrinters.Count
-            || normalizedSectorPrinters.Where((setting, index) =>
-                !string.Equals(setting.Sector, _appSettings.SectorPrinters[index].Sector, StringComparison.Ordinal)
-                || !string.Equals(setting.PrinterName, _appSettings.SectorPrinters[index].PrinterName, StringComparison.Ordinal)).Any())
+        if (NormalizeProductionDestinations())
         {
-            _appSettings.SectorPrinters = normalizedSectorPrinters;
             shouldSaveSettings = true;
         }
 
@@ -14285,9 +17481,10 @@ public partial class MainWindow : Window
             shouldSaveSettings = true;
         }
 
-        if (string.IsNullOrWhiteSpace(_appSettings.PublicMenuDiscountDescription))
+        if (string.IsNullOrWhiteSpace(_appSettings.PublicMenuDiscountDescription)
+            || string.Equals(_appSettings.PublicMenuDiscountDescription.Trim(), "Use no atendimento para ganhar desconto no pedido.", StringComparison.Ordinal))
         {
-            _appSettings.PublicMenuDiscountDescription = "Use no atendimento para ganhar desconto no pedido.";
+            _appSettings.PublicMenuDiscountDescription = "Apresente este cupom no atendimento para receber o desconto.";
             shouldSaveSettings = true;
         }
 
@@ -14311,8 +17508,11 @@ public partial class MainWindow : Window
 
     private void SaveAppSettings()
     {
-        Directory.CreateDirectory(_dataRoot);
-        File.WriteAllText(SettingsFile, JsonSerializer.Serialize(_appSettings, JsonOptions), Encoding.UTF8);
+        lock (_settingsFileLock)
+        {
+            Directory.CreateDirectory(_dataRoot);
+            File.WriteAllText(SettingsFile, JsonSerializer.Serialize(_appSettings, JsonOptions), Encoding.UTF8);
+        }
     }
 
     private static string NormalizeReceiptQrKind(string? value)
@@ -14329,33 +17529,156 @@ public partial class MainWindow : Window
         };
     }
 
-    private static readonly string[] DefaultProductSectors =
-    [
-        "COZINHA",
-        "BAR",
-        "PIZZA",
-        "SOBREMESA",
-        "BALCAO",
-        "DELIVERY"
-    ];
-
-    private static string NormalizeSectorName(string? value)
+    private static string NormalizeSectorName(string? value, string fallback = "COZINHA")
     {
         var sector = (value ?? "").Trim().ToUpperInvariant();
-        return string.IsNullOrWhiteSpace(sector) ? "COZINHA" : sector;
+        return string.IsNullOrWhiteSpace(sector) ? fallback : sector;
+    }
+
+    private static string NormalizeProductDestination(string? value, string fallback = "CAIXA")
+    {
+        var destination = NormalizeSectorName(value, fallback);
+        return destination switch
+        {
+            "BALCAO" or "BALCÃO" or "SEM SETOR" or "DELIVERY" or "ENTREGA" or "RETIRADA" => "CAIXA",
+            _ => destination
+        };
+    }
+
+    private static bool IsProductionDestinationName(string? value)
+    {
+        var destination = NormalizeProductDestination(value, "CAIXA");
+        return !string.Equals(destination, "CAIXA", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsLegacyDefaultProductionDestination(string? value)
+    {
+        return NormalizeSectorName(value, "") is "BAR" or "PIZZA" or "SOBREMESA" or "SOBREMESAS";
+    }
+
+    private bool NormalizeProductionDestinations()
+    {
+        _appSettings.SectorPrinters ??= [];
+        var normalizedSectorPrinters = _appSettings.SectorPrinters
+            .Where(setting => !string.IsNullOrWhiteSpace(setting.Sector))
+            .Select(setting => new SectorPrinterSetting
+            {
+                Sector = NormalizeProductDestination(setting.Sector, ""),
+                PrinterName = (setting.PrinterName ?? "").Trim()
+            })
+            .Where(setting => !string.IsNullOrWhiteSpace(setting.Sector))
+            .Where(setting => IsProductionDestinationName(setting.Sector))
+            .Where(setting => !IsLegacyDefaultProductionDestination(setting.Sector) || !string.IsNullOrWhiteSpace(setting.PrinterName))
+            .GroupBy(setting => setting.Sector, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
+
+        if (normalizedSectorPrinters.All(setting => !string.Equals(setting.Sector, "COZINHA", StringComparison.OrdinalIgnoreCase)))
+        {
+            normalizedSectorPrinters.Insert(0, new SectorPrinterSetting { Sector = "COZINHA" });
+        }
+
+        var changed = normalizedSectorPrinters.Count != _appSettings.SectorPrinters.Count
+            || normalizedSectorPrinters.Where((setting, index) =>
+                !string.Equals(setting.Sector, _appSettings.SectorPrinters[index].Sector, StringComparison.Ordinal)
+                || !string.Equals(setting.PrinterName, _appSettings.SectorPrinters[index].PrinterName, StringComparison.Ordinal)).Any();
+
+        if (changed)
+        {
+            _appSettings.SectorPrinters = normalizedSectorPrinters;
+        }
+
+        return changed;
+    }
+
+    private List<string> GetConfiguredProductSectors()
+    {
+        var sectors = new List<string> { "CAIXA" };
+        sectors.AddRange((_appSettings.SectorPrinters ?? [])
+            .Select(setting => NormalizeSectorName(setting.Sector, ""))
+            .Where(sector => !string.IsNullOrWhiteSpace(sector))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(sector => sector == "COZINHA" ? 0 : 1)
+            .ThenBy(sector => sector, StringComparer.OrdinalIgnoreCase));
+        return sectors
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private List<string> GetKnownProductSectors()
     {
         var sectorPrinters = _appSettings.SectorPrinters ?? [];
         return Products
-            .Select(product => NormalizeSectorName(product.Sector))
-            .Concat(sectorPrinters.Select(setting => NormalizeSectorName(setting.Sector)))
-            .Concat(DefaultProductSectors)
+            .Select(product => NormalizeProductDestination(product.Sector, "CAIXA"))
+            .Concat(sectorPrinters.Select(setting => NormalizeSectorName(setting.Sector, "")))
             .Where(sector => !string.IsNullOrWhiteSpace(sector))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(sector => sector, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private bool TryEnsureProductionDestinationConfigured(string destination)
+    {
+        var normalized = NormalizeProductDestination(destination, "CAIXA");
+        if (!IsProductionDestinationName(normalized))
+        {
+            return true;
+        }
+
+        _appSettings.SectorPrinters ??= [];
+        if (_appSettings.SectorPrinters.Any(setting =>
+                string.Equals(NormalizeProductDestination(setting.Sector, ""), normalized, StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        const string defaultPrinterOption = "Usar padrao do Windows";
+        var installedPrinters = new List<string> { defaultPrinterOption };
+        installedPrinters.AddRange(GetInstalledPrinterNames());
+        var printerBox = new ComboBox
+        {
+            ItemsSource = installedPrinters,
+            SelectedIndex = 0,
+            MinHeight = 36
+        };
+        var status = new TextBlock
+        {
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        var dialog = CreateDialog($"Impressora de {normalized}", 520, 330);
+        var confirmed = false;
+        var save = DialogButton("Salvar destino", "#08A99B");
+        save.HorizontalAlignment = HorizontalAlignment.Stretch;
+        save.Width = double.NaN;
+        save.Click += (_, _) =>
+        {
+            var selected = printerBox.SelectedItem?.ToString() ?? defaultPrinterOption;
+            var selectedPrinterName = string.Equals(selected, defaultPrinterOption, StringComparison.Ordinal)
+                ? GetDefaultPrinterName()
+                : selected.Trim();
+            _appSettings.SectorPrinters.Add(new SectorPrinterSetting
+            {
+                Sector = normalized,
+                PrinterName = string.Equals(selectedPrinterName, "nenhuma", StringComparison.OrdinalIgnoreCase) ? "" : selectedPrinterName
+            });
+            NormalizeProductionDestinations();
+            SaveAppSettings();
+            confirmed = true;
+            dialog.Close();
+        };
+
+        var panel = new StackPanel { Margin = new Thickness(18) };
+        panel.Children.Add(SectionTitle($"Novo destino: {normalized}"));
+        panel.Children.Add(DialogHint("Escolha a impressora que recebe os pedidos deste destino. CAIXA nao manda para producao; destinos como COZINHA imprimem ordem de preparo."));
+        panel.Children.Add(DialogField("Impressora", printerBox));
+        panel.Children.Add(save);
+        panel.Children.Add(status);
+        dialog.Content = panel;
+        dialog.ShowDialog();
+        return confirmed;
     }
 
     private void LoadRestaurantProfile()
@@ -14385,7 +17708,7 @@ public partial class MainWindow : Window
         return new TextBlock
         {
             Text = text,
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontSize = 17,
             FontWeight = FontWeights.Bold,
             Margin = new Thickness(0, 0, 0, 10)
@@ -14442,10 +17765,15 @@ public partial class MainWindow : Window
 
     private string GetPrinterNameForSector(string sector)
     {
-        var normalized = NormalizeSectorName(sector);
+        var normalized = NormalizeProductDestination(sector, "");
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return "";
+        }
+
         var sectorPrinters = _appSettings.SectorPrinters ?? [];
         var setting = sectorPrinters.FirstOrDefault(item =>
-            string.Equals(NormalizeSectorName(item.Sector), normalized, StringComparison.OrdinalIgnoreCase));
+            string.Equals(NormalizeSectorName(item.Sector, ""), normalized, StringComparison.OrdinalIgnoreCase));
         return (setting?.PrinterName ?? "").Trim();
     }
 
@@ -14492,7 +17820,7 @@ public partial class MainWindow : Window
         return Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
             .InformationalVersion
-            ?? "1.0.2026";
+            ?? "1.6.2026";
     }
 
     private async Task<bool> CheckForUpdatesAsync(bool showIfCurrent, bool autoInstall = false)
@@ -14530,7 +17858,7 @@ public partial class MainWindow : Window
             {
                 if (showIfCurrent)
                 {
-                    ShowToast("Sistema atualizado", $"Versao instalada: {GetAppVersion()}.", "AT", "#0F766E", "#E8F7F4");
+                    ShowToast("Sistema atualizado", $"Versao instalada: {GetAppVersion()}.", "AT", "#08A99B", "#E6FBF8");
                     SetStatus("Nenhuma atualizacao disponivel.");
                 }
 
@@ -14539,7 +17867,7 @@ public partial class MainWindow : Window
 
             if (autoInstall)
             {
-                ShowToast("Atualizacao encontrada", $"Baixando versao {manifest.Version}.", "AT", "#0F766E", "#E8F7F4");
+                ShowToast("Atualizacao encontrada", $"Baixando versao {manifest.Version}.", "AT", "#08A99B", "#E6FBF8");
                 SetStatus($"Atualizacao {manifest.Version} encontrada. Baixando instalador automaticamente...");
                 return await DownloadAndOpenInstallerAsync(manifest, status: null, silentInstall: true);
             }
@@ -14566,14 +17894,14 @@ public partial class MainWindow : Window
         var panel = DialogPanel();
         var status = new TextBlock
         {
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 10, 0, 0)
         };
         var version = new TextBlock
         {
             Text = $"Nova versao: {manifest.Version}",
-            Foreground = Solid("#0F766E"),
+            Foreground = Solid("#08A99B"),
             FontSize = 26,
             FontWeight = FontWeights.Bold,
             Margin = new Thickness(0, 4, 0, 8)
@@ -14587,8 +17915,8 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
         };
-        var download = DialogButton("Baixar instalador", "#0F766E");
-        var later = DialogButton("Depois", "#667684");
+        var download = DialogButton("Baixar instalador", "#08A99B");
+        var later = DialogButton("Depois", "#5B6B7A");
         var buttons = new UniformGrid
         {
             Columns = 2,
@@ -14624,7 +17952,7 @@ public partial class MainWindow : Window
         panel.Children.Add(new TextBlock
         {
             Text = "Tem uma nova versao pronta para instalar.",
-            Foreground = Solid("#18222B"),
+            Foreground = Solid("#071A2C"),
             FontSize = 18,
             FontWeight = FontWeights.Bold,
             TextWrapping = TextWrapping.Wrap
@@ -14669,7 +17997,7 @@ public partial class MainWindow : Window
         var fileName = Path.GetFileName(Uri.UnescapeDataString(uri.LocalPath));
         if (string.IsNullOrWhiteSpace(fileName) || !fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
         {
-            fileName = $"BalcaoLivrePDV-Setup-{SafeFileName(manifest.Version)}.exe";
+            fileName = $"BalcaoLivrePDVOnline-Setup-{SafeFileName(manifest.Version)}.exe";
         }
 
         var destination = Path.Combine(downloads, fileName);
@@ -14696,7 +18024,7 @@ public partial class MainWindow : Window
             : "Instalador baixado. Execute para atualizar o PDV.");
         ShowToast("Instalador baixado", silentInstall
             ? "O PDV sera fechado e reaberto atualizado."
-            : "O instalador sera aberto agora.", "AT", "#0F766E", "#E8F7F4");
+            : "O instalador sera aberto agora.", "AT", "#08A99B", "#E6FBF8");
         try
         {
             Process.Start(new ProcessStartInfo(destination)
@@ -14765,7 +18093,7 @@ public partial class MainWindow : Window
             builder.Append(invalid.Contains(ch) ? '-' : ch);
         }
 
-        return builder.Length == 0 ? "1.0.2026" : builder.ToString();
+        return builder.Length == 0 ? "1.6.2026" : builder.ToString();
     }
 
     private static string CopyLogoToAppIdentityFolder(string sourcePath)
@@ -14828,7 +18156,7 @@ public partial class MainWindow : Window
         return new TextBlock
         {
             Text = text,
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 6, 0, 4)
         };
@@ -14852,7 +18180,7 @@ public partial class MainWindow : Window
         return new TextBlock
         {
             Text = text,
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 10, 0, 0)
         };
@@ -14860,18 +18188,21 @@ public partial class MainWindow : Window
 
     private static Button DialogButton(string text, string color)
     {
+        var isNeutral = string.Equals(color, "#5B6B7A", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(color, "#667684", StringComparison.OrdinalIgnoreCase);
         var button = new Button
         {
             Content = text,
-            Height = 40,
-            MinWidth = 136,
-            Padding = new Thickness(18, 0, 18, 0),
-            Margin = new Thickness(0, 12, 0, 0),
+            Height = 38,
+            MinWidth = 128,
+            Padding = new Thickness(16, 0, 16, 0),
+            Margin = new Thickness(0, 10, 0, 0),
             HorizontalAlignment = HorizontalAlignment.Right,
-            Background = Solid(color),
-            Foreground = Brushes.White,
-            BorderThickness = new Thickness(0),
-            FontWeight = FontWeights.SemiBold,
+            Background = isNeutral ? Solid("#EEF4F8") : Solid(color),
+            Foreground = isNeutral ? Solid("#071A2C") : Brushes.White,
+            BorderBrush = isNeutral ? Solid("#CAD6E2") : Solid(color),
+            BorderThickness = new Thickness(1),
+            FontWeight = FontWeights.Bold,
             Cursor = Cursors.Hand,
             FocusVisualStyle = null,
             Template = RoundedButtonTemplate()
@@ -14886,6 +18217,8 @@ public partial class MainWindow : Window
         dialog.Resources.Add(typeof(ComboBox), DialogComboBoxStyle());
         dialog.Resources.Add(typeof(ListBox), DialogListBoxStyle());
         dialog.Resources.Add(typeof(CheckBox), DialogCheckBoxStyle());
+        dialog.Resources.Add(typeof(System.Windows.Controls.TabControl), DialogTabControlStyle());
+        dialog.Resources.Add(typeof(System.Windows.Controls.TabItem), DialogTabItemStyle());
     }
 
     private static Style DialogTextBoxStyle()
@@ -14893,7 +18226,7 @@ public partial class MainWindow : Window
         var style = new Style(typeof(TextBox));
         style.Setters.Add(new Setter(Control.HeightProperty, 38d));
         style.Setters.Add(new Setter(Control.FontSizeProperty, 14d));
-        style.Setters.Add(new Setter(Control.ForegroundProperty, Solid("#18222B")));
+        style.Setters.Add(new Setter(Control.ForegroundProperty, Solid("#071A2C")));
         style.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.White));
         style.Setters.Add(new Setter(Control.BorderBrushProperty, Solid("#BFD1E2")));
         style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
@@ -14907,7 +18240,7 @@ public partial class MainWindow : Window
         var style = new Style(typeof(PasswordBox));
         style.Setters.Add(new Setter(Control.HeightProperty, 38d));
         style.Setters.Add(new Setter(Control.FontSizeProperty, 14d));
-        style.Setters.Add(new Setter(Control.ForegroundProperty, Solid("#18222B")));
+        style.Setters.Add(new Setter(Control.ForegroundProperty, Solid("#071A2C")));
         style.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.White));
         style.Setters.Add(new Setter(Control.BorderBrushProperty, Solid("#BFD1E2")));
         style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
@@ -14920,7 +18253,7 @@ public partial class MainWindow : Window
         var style = new Style(typeof(ComboBox));
         style.Setters.Add(new Setter(Control.HeightProperty, 38d));
         style.Setters.Add(new Setter(Control.FontSizeProperty, 14d));
-        style.Setters.Add(new Setter(Control.ForegroundProperty, Solid("#18222B")));
+        style.Setters.Add(new Setter(Control.ForegroundProperty, Solid("#071A2C")));
         style.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.White));
         style.Setters.Add(new Setter(Control.BorderBrushProperty, Solid("#BFD1E2")));
         style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
@@ -14932,7 +18265,7 @@ public partial class MainWindow : Window
     {
         var style = new Style(typeof(ListBox));
         style.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.White));
-        style.Setters.Add(new Setter(Control.BorderBrushProperty, Solid("#D5DEE7")));
+        style.Setters.Add(new Setter(Control.BorderBrushProperty, Solid("#CAD6E2")));
         style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
         style.Setters.Add(new Setter(Control.FontSizeProperty, 13d));
         style.Setters.Add(new Setter(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Auto));
@@ -14942,10 +18275,62 @@ public partial class MainWindow : Window
     private static Style DialogCheckBoxStyle()
     {
         var style = new Style(typeof(CheckBox));
-        style.Setters.Add(new Setter(Control.ForegroundProperty, Solid("#18222B")));
+        style.Setters.Add(new Setter(Control.ForegroundProperty, Solid("#071A2C")));
         style.Setters.Add(new Setter(Control.FontSizeProperty, 13d));
         style.Setters.Add(new Setter(Control.MarginProperty, new Thickness(0, 5, 0, 5)));
         return style;
+    }
+
+    private static Style DialogTabControlStyle()
+    {
+        var style = new Style(typeof(System.Windows.Controls.TabControl));
+        style.Setters.Add(new Setter(Control.BackgroundProperty, Solid("#F8FBFD")));
+        style.Setters.Add(new Setter(Control.BorderBrushProperty, Brushes.Transparent));
+        style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0)));
+        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(16, 12, 16, 16)));
+        return style;
+    }
+
+    private static Style DialogTabItemStyle()
+    {
+        var style = new Style(typeof(System.Windows.Controls.TabItem));
+        style.Setters.Add(new Setter(Control.ForegroundProperty, Solid("#5B6B7A")));
+        style.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.Bold));
+        style.Setters.Add(new Setter(Control.FontSizeProperty, 13d));
+        style.Setters.Add(new Setter(Control.MarginProperty, new Thickness(0, 0, 6, 8)));
+        style.Setters.Add(new Setter(Control.TemplateProperty, DialogTabItemTemplate()));
+        return style;
+    }
+
+    private static ControlTemplate DialogTabItemTemplate()
+    {
+        var template = new ControlTemplate(typeof(System.Windows.Controls.TabItem));
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.Name = "TabChrome";
+        border.SetValue(Border.BackgroundProperty, Solid("#EEF4F8"));
+        border.SetValue(Border.BorderBrushProperty, Solid("#CAD6E2"));
+        border.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(7));
+        border.SetValue(Border.PaddingProperty, new Thickness(14, 8, 14, 8));
+
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetValue(ContentPresenter.ContentSourceProperty, "Header");
+        presenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        presenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+        border.AppendChild(presenter);
+        template.VisualTree = border;
+
+        var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+        hover.Setters.Add(new Setter(Border.BackgroundProperty, Solid("#E6FBF8"), "TabChrome"));
+        hover.Setters.Add(new Setter(Border.BorderBrushProperty, Solid("#73E7DE"), "TabChrome"));
+        template.Triggers.Add(hover);
+
+        var selected = new Trigger { Property = System.Windows.Controls.TabItem.IsSelectedProperty, Value = true };
+        selected.Setters.Add(new Setter(Border.BackgroundProperty, Solid("#071A2C"), "TabChrome"));
+        selected.Setters.Add(new Setter(Border.BorderBrushProperty, Solid("#071A2C"), "TabChrome"));
+        selected.Setters.Add(new Setter(Control.ForegroundProperty, Brushes.White));
+        template.Triggers.Add(selected);
+        return template;
     }
 
     private static ControlTemplate RoundedButtonTemplate()
@@ -14996,7 +18381,7 @@ public partial class MainWindow : Window
         template.VisualTree = border;
 
         var focused = new Trigger { Property = UIElement.IsKeyboardFocusWithinProperty, Value = true };
-        focused.Setters.Add(new Setter(Border.BorderBrushProperty, Solid("#2F6FAE"), "InputChrome"));
+        focused.Setters.Add(new Setter(Border.BorderBrushProperty, Solid("#0B3A52"), "InputChrome"));
         focused.Setters.Add(new Setter(Border.BackgroundProperty, Solid("#FBFDFF"), "InputChrome"));
         template.Triggers.Add(focused);
         return template;
@@ -15053,7 +18438,7 @@ public partial class MainWindow : Window
             var header = new Border
             {
                 Background = Solid("#F8FBFD"),
-                BorderBrush = Solid("#D5DEE7"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(0, 0, 0, 1),
                 CornerRadius = new CornerRadius(10, 10, 0, 0)
             };
@@ -15074,14 +18459,14 @@ public partial class MainWindow : Window
             {
                 Width = 28,
                 Height = 28,
-                Background = Solid("#E8F1FA"),
+                Background = Solid("#EAF8FA"),
                 CornerRadius = new CornerRadius(7),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Center,
                 Child = new TextBlock
                 {
                     Text = "PDV",
-                    Foreground = Solid("#245B91"),
+                    Foreground = Solid("#0B3A52"),
                     FontSize = 10,
                     FontWeight = FontWeights.Bold,
                     HorizontalAlignment = HorizontalAlignment.Center,
@@ -15092,7 +18477,7 @@ public partial class MainWindow : Window
             var titleText = new TextBlock
             {
                 Text = Title,
-                Foreground = Solid("#18222B"),
+                Foreground = Solid("#071A2C"),
                 FontSize = 15,
                 FontWeight = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -15106,7 +18491,7 @@ public partial class MainWindow : Window
                 Width = 30,
                 Height = 30,
                 Background = Solid("#EEF4F8"),
-                BorderBrush = Solid("#D5DEE7"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 Foreground = Solid("#425466"),
                 FontWeight = FontWeights.Bold,
@@ -15417,6 +18802,144 @@ public partial class MainWindow : Window
             .Replace("\"", "&quot;", StringComparison.Ordinal);
     }
 
+    private bool ShouldSendLineToProduction(TicketLine line)
+    {
+        if (IsTableCharge(line))
+        {
+            return false;
+        }
+
+        var destination = NormalizeProductDestination(line.Sector, "CAIXA");
+        if (!IsProductionDestinationName(destination))
+        {
+            return false;
+        }
+
+        return (_appSettings.SectorPrinters ?? []).Any(setting =>
+            string.Equals(NormalizeProductDestination(setting.Sector, ""), destination, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void ScheduleKitchenPrint(TableTile board, IEnumerable<TicketLine> lines)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => ScheduleKitchenPrint(board, lines.ToList()));
+            return;
+        }
+
+        var productionLines = lines
+            .Where(ShouldSendLineToProduction)
+            .Where(line => line.Quantity > line.KitchenPrintedQuantity)
+            .ToList();
+        if (productionLines.Count == 0)
+        {
+            return;
+        }
+
+        if (!_pendingKitchenPrintLines.TryGetValue(board, out var pending))
+        {
+            pending = [];
+            _pendingKitchenPrintLines[board] = pending;
+        }
+
+        foreach (var line in productionLines)
+        {
+            pending.Add(line);
+        }
+
+        _kitchenPrintBatchTimer.Stop();
+        _kitchenPrintBatchTimer.Start();
+    }
+
+    private void FlushPendingKitchenPrints()
+    {
+        _kitchenPrintBatchTimer.Stop();
+        if (_pendingKitchenPrintLines.Count == 0)
+        {
+            return;
+        }
+
+        var batches = _pendingKitchenPrintLines
+            .Select(entry => new { Board = entry.Key, Lines = entry.Value.ToList() })
+            .ToList();
+        _pendingKitchenPrintLines.Clear();
+
+        foreach (var batch in batches)
+        {
+            PrintKitchenBatch(batch.Board, batch.Lines);
+        }
+
+        SaveStore();
+    }
+
+    private void PrintKitchenBatch(TableTile board, IEnumerable<TicketLine> sourceLines)
+    {
+        var linesToPrint = new List<TicketLine>();
+        foreach (var source in sourceLines.Where(ShouldSendLineToProduction))
+        {
+            var quantityToPrint = source.Quantity - source.KitchenPrintedQuantity;
+            if (quantityToPrint <= 0)
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(source.KitchenStatus) || string.Equals(source.KitchenStatus, "ENTREGUE", StringComparison.OrdinalIgnoreCase))
+            {
+                source.KitchenStatus = "RECEBIDO";
+                source.KitchenStartedAt = null;
+                source.KitchenReadyAt = null;
+            }
+
+            var printLine = CloneLine(source);
+            printLine.Quantity = quantityToPrint;
+            printLine.Sector = NormalizeProductDestination(source.Sector, "CAIXA");
+            printLine.KitchenPrintedQuantity = quantityToPrint;
+            linesToPrint.Add(printLine);
+            source.KitchenPrintedQuantity += quantityToPrint;
+        }
+
+        if (linesToPrint.Count == 0)
+        {
+            return;
+        }
+
+        KitchenTiles.Add(new TableTile
+        {
+            Number = $"{KitchenTiles.Count + 1:000000}",
+            Kind = "KDS",
+            Status = AggregateKitchenStatus(linesToPrint),
+            Waiter = board.Waiter,
+            Lines = linesToPrint.Select(CloneLine).ToList(),
+            Total = linesToPrint.Sum(line => line.Total),
+            Detail = $"{board.Kind} {board.Number}  {linesToPrint.Sum(line => line.Quantity):N0} item(ns)"
+        });
+
+        if (!_appSettings.AutoPrintKitchen)
+        {
+            SetStatus($"Producao enviada ao monitor: {board.Kind} {board.Number}.");
+            return;
+        }
+
+        var printedDestinations = new List<string>();
+        var failedDestinations = new List<string>();
+        foreach (var group in linesToPrint
+                     .GroupBy(line => NormalizeProductDestination(line.Sector, "CAIXA"))
+                     .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var destination = group.Key;
+            var printed = TryPrintTextToDefaultPrinter(
+                BuildKitchenSectorPrintText(board, destination, group),
+                $"Producao {destination} {board.Number}",
+                compact: _appSettings.PrintLayout == "PEQUENO",
+                printerName: GetPrinterNameForSector(destination));
+            (printed ? printedDestinations : failedDestinations).Add(destination);
+        }
+
+        SetStatus(failedDestinations.Count == 0
+            ? $"Producao impressa: {string.Join(", ", printedDestinations)}."
+            : $"Producao gerada, mas falhou impressao em: {string.Join(", ", failedDestinations)}.");
+    }
+
     private void PrintKitchen()
     {
         var board = CurrentBoard;
@@ -15434,7 +18957,7 @@ public partial class MainWindow : Window
             sb.AppendLine(staffLine);
         }
 
-        foreach (var line in TicketLines.Where(line => !IsTableCharge(line)))
+        foreach (var line in TicketLines.Where(ShouldSendLineToProduction))
         {
             if (string.IsNullOrWhiteSpace(line.KitchenStatus) || line.KitchenStatus == "ENTREGUE")
             {
@@ -15445,15 +18968,21 @@ public partial class MainWindow : Window
         }
 
         var kitchenGroups = TicketLines
-            .Where(line => !IsTableCharge(line))
-            .GroupBy(line => string.IsNullOrWhiteSpace(line.Sector) ? "COZINHA" : line.Sector)
+            .Where(ShouldSendLineToProduction)
+            .GroupBy(line => NormalizeProductDestination(line.Sector, "CAIXA"))
             .OrderBy(group => group.Key)
             .Select(group => new
             {
-                Sector = NormalizeSectorName(group.Key),
+                Sector = NormalizeProductDestination(group.Key, "CAIXA"),
                 Lines = group.ToList()
             })
             .ToList();
+
+        if (kitchenGroups.Count == 0)
+        {
+            SetStatus("Nenhum item com destino de producao nesta comanda.");
+            return;
+        }
 
         foreach (var group in kitchenGroups)
         {
@@ -15462,6 +18991,7 @@ public partial class MainWindow : Window
             foreach (var line in group.Lines)
             {
                 sb.AppendLine($"{line.Quantity}x {line.Name} [{line.KitchenStatus}] {line.Note}".Trim());
+                line.KitchenPrintedQuantity = Math.Max(line.KitchenPrintedQuantity, line.Quantity);
                 if (!string.IsNullOrWhiteSpace(line.ModifierSummary))
                 {
                     sb.AppendLine($"  {line.ModifierSummary}");
@@ -15479,7 +19009,7 @@ public partial class MainWindow : Window
             Waiter = board.Waiter,
             Lines = TicketLines.Select(CloneLine).ToList(),
             Total = TicketLines.Sum(line => line.Total),
-            Detail = $"{board.Kind} {board.Number}  {TicketLines.Count(line => !IsTableCharge(line)):N0} item(ns)"
+            Detail = $"{board.Kind} {board.Number}  {TicketLines.Count(ShouldSendLineToProduction):N0} item(ns)"
         });
         SaveStore();
         if (_appSettings.AutoPrintKitchen)
@@ -15511,7 +19041,7 @@ public partial class MainWindow : Window
     {
         var sb = new StringBuilder();
         sb.AppendLine($"{board.Kind} {board.Number}");
-        sb.AppendLine($"SETOR {NormalizeSectorName(sector)}");
+        sb.AppendLine($"SETOR {NormalizeSectorName(sector, "SEM SETOR")}");
         var staffLine = BuildStaffReceiptLine(board);
         if (!string.IsNullOrWhiteSpace(staffLine))
         {
@@ -15686,6 +19216,66 @@ public partial class MainWindow : Window
         }
     }
 
+    private bool TryPrintQrOnlyToDefaultPrinter(string qrPayload, string jobName, string printerName = "")
+    {
+        try
+        {
+            qrPayload = (qrPayload ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(qrPayload))
+            {
+                return false;
+            }
+
+            var queue = GetConfiguredPrintQueue(printerName);
+            if (queue is null)
+            {
+                return false;
+            }
+
+            if (LooksLikeEscPosPrinter(queue))
+            {
+                var resolvedPrinterName = string.IsNullOrWhiteSpace(queue.FullName) ? queue.Name : queue.FullName;
+                if (TryPrintEscPosQrOnly(resolvedPrinterName, qrPayload, jobName))
+                {
+                    return true;
+                }
+            }
+
+            var qr = TryCreateQrBitmap(qrPayload, 12);
+            if (qr is null)
+            {
+                return false;
+            }
+
+            var dialog = new PrintDialog { PrintQueue = queue };
+            var document = new FlowDocument
+            {
+                PagePadding = new Thickness(2),
+                ColumnWidth = double.PositiveInfinity
+            };
+            document.Blocks.Add(new BlockUIContainer(new System.Windows.Controls.Image
+            {
+                Source = qr,
+                Width = 320,
+                Height = 320,
+                Stretch = Stretch.Uniform,
+                HorizontalAlignment = HorizontalAlignment.Center
+            })
+            {
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0)
+            });
+
+            dialog.PrintDocument(((IDocumentPaginatorSource)document).DocumentPaginator, jobName);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"QR only print failed: {ex}");
+            return false;
+        }
+    }
+
     private static BitmapSource? TryCreateQrBitmap(string payload, int pixelsPerModule)
     {
         try
@@ -15708,6 +19298,39 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             Debug.WriteLine($"QR generation failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static BitmapSource? TryCreateBitmapFromBase64(string base64)
+    {
+        try
+        {
+            var value = (base64 ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            var comma = value.IndexOf(',', StringComparison.Ordinal);
+            if (comma >= 0)
+            {
+                value = value[(comma + 1)..];
+            }
+
+            var bytes = Convert.FromBase64String(value);
+            var image = new BitmapImage();
+            using var stream = new MemoryStream(bytes);
+            image.BeginInit();
+            image.CacheOption = BitmapCacheOption.OnLoad;
+            image.StreamSource = stream;
+            image.EndInit();
+            image.Freeze();
+            return image;
+        }
+        catch (Exception ex) when (ex is FormatException or NotSupportedException or IOException)
+        {
+            Debug.WriteLine($"Base64 image generation failed: {ex.Message}");
             return null;
         }
     }
@@ -15799,7 +19422,7 @@ public partial class MainWindow : Window
             Command(0x1D, 0x21, 0x00);
             Text(string.IsNullOrWhiteSpace(qrCaption) ? "QR CODE\n" : $"{qrCaption.Trim().ToUpperInvariant()}\n");
 
-            if (!TryAppendEscPosQrRaster(ms, qrPayload, desiredPrintWidth: 256, maxPrintWidth: 320))
+            if (!TryAppendEscPosQrRaster(ms, qrPayload, desiredPrintWidth: compact ? 272 : 296, maxPrintWidth: 384))
             {
                 Command(0x1D, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00); // model 2
                 Command(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x43, compact ? (byte)0x05 : (byte)0x06); // module size
@@ -15816,6 +19439,54 @@ public partial class MainWindow : Window
 
             Text("\n");
             Command(0x1B, 0x61, 0x00);
+        }
+
+        Text("\n\n\n");
+        return ms.ToArray();
+    }
+
+    private static bool TryPrintEscPosQrOnly(string printerName, string qrPayload, string jobName)
+    {
+        try
+        {
+            var bytes = BuildEscPosQrOnlyBytes(qrPayload);
+            return SendRawToPrinter(printerName, bytes, jobName);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"ESC/POS QR only print failed: {ex}");
+            return false;
+        }
+    }
+
+    private static byte[] BuildEscPosQrOnlyBytes(string qrPayload)
+    {
+        using var ms = new MemoryStream();
+
+        void Command(params byte[] bytes) => ms.Write(bytes, 0, bytes.Length);
+        void Text(string text)
+        {
+            var bytes = Encoding.ASCII.GetBytes(text);
+            ms.Write(bytes, 0, bytes.Length);
+        }
+
+        Command(0x1B, 0x40); // init
+        Command(0x1B, 0x61, 0x01); // center
+        Text("\n");
+
+        if (!TryAppendEscPosQrRaster(ms, qrPayload, desiredPrintWidth: 352, maxPrintWidth: 384))
+        {
+            Command(0x1D, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00); // model 2
+            Command(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x43, 0x08); // large module
+            Command(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x45, 0x30); // error correction L
+
+            var qrBytes = Encoding.UTF8.GetBytes((qrPayload ?? "").Trim());
+            var storeLength = qrBytes.Length + 3;
+            var pL = (byte)(storeLength % 256);
+            var pH = (byte)(storeLength / 256);
+            Command(0x1D, 0x28, 0x6B, pL, pH, 0x31, 0x50, 0x30);
+            ms.Write(qrBytes, 0, qrBytes.Length);
+            Command(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x51, 0x30); // print QR
         }
 
         Text("\n\n\n");
@@ -16225,20 +19896,20 @@ public partial class MainWindow : Window
         var changeText = new TextBlock
         {
             Text = "Sem troco.",
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontWeight = FontWeights.SemiBold
         };
         var changeHint = new TextBlock
         {
             Text = "Digite o valor entregue pelo cliente.",
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontSize = 11,
             Margin = new Thickness(0, 3, 0, 0)
         };
         var changeCard = new Border
         {
             Background = Solid("#F8FBFD"),
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(12, 9, 12, 9),
@@ -16254,7 +19925,7 @@ public partial class MainWindow : Window
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 10, 0, 0)
         };
-        var confirm = DialogButton("Finalizar venda", "#0F766E");
+        var confirm = DialogButton("Finalizar venda", "#08A99B");
         confirm.HorizontalAlignment = HorizontalAlignment.Stretch;
         confirm.Width = double.NaN;
 
@@ -16266,9 +19937,9 @@ public partial class MainWindow : Window
             foreach (var button in methodButtons)
             {
                 var isSelected = string.Equals(button.Tag?.ToString(), selectedMethod, StringComparison.Ordinal);
-                button.Background = isSelected ? Solid("#E8F7F4") : Brushes.White;
-                button.BorderBrush = isSelected ? Solid("#0F766E") : Solid("#D8E2EC");
-                button.Foreground = isSelected ? Solid("#0F766E") : Solid("#18222B");
+                button.Background = isSelected ? Solid("#E6FBF8") : Brushes.White;
+                button.BorderBrush = isSelected ? Solid("#08A99B") : Solid("#CAD6E2");
+                button.Foreground = isSelected ? Solid("#08A99B") : Solid("#071A2C");
                 button.FontWeight = isSelected ? FontWeights.Bold : FontWeights.SemiBold;
             }
         }
@@ -16282,7 +19953,7 @@ public partial class MainWindow : Window
                 Height = 42,
                 Margin = new Thickness(0, 0, 8, 8),
                 Background = Brushes.White,
-                BorderBrush = Solid("#D8E2EC"),
+                BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 Cursor = Cursors.Hand,
                 FocusVisualStyle = null,
@@ -16300,8 +19971,8 @@ public partial class MainWindow : Window
 
         var finalizeCard = new Border
         {
-            Background = Solid("#E8F7F4"),
-            BorderBrush = Solid("#0F766E"),
+            Background = Solid("#E6FBF8"),
+            BorderBrush = Solid("#08A99B"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(12, 10, 12, 10),
@@ -16310,22 +19981,22 @@ public partial class MainWindow : Window
         var finalizeText = new TextBlock
         {
             Text = "Finalizar conta apos este pagamento",
-            Foreground = Solid("#0F766E"),
+            Foreground = Solid("#08A99B"),
             FontWeight = FontWeights.Bold
         };
         var finalizeHint = new TextBlock
         {
             Text = "Conta fica fechada e o recebimento entra no caixa.",
-            Foreground = Solid("#667684"),
+            Foreground = Solid("#5B6B7A"),
             FontSize = 11,
             Margin = new Thickness(0, 3, 0, 0)
         };
 
         void RefreshFinalizeCard()
         {
-            finalizeCard.Background = finalizePayment ? Solid("#E8F7F4") : Brushes.White;
-            finalizeCard.BorderBrush = finalizePayment ? Solid("#0F766E") : Solid("#D8E2EC");
-            finalizeText.Foreground = finalizePayment ? Solid("#0F766E") : Solid("#18222B");
+            finalizeCard.Background = finalizePayment ? Solid("#E6FBF8") : Brushes.White;
+            finalizeCard.BorderBrush = finalizePayment ? Solid("#08A99B") : Solid("#CAD6E2");
+            finalizeText.Foreground = finalizePayment ? Solid("#08A99B") : Solid("#071A2C");
             if (!hasOpenBalance)
             {
                 finalizeText.Text = "Finalizar e imprimir comprovante";
@@ -16347,7 +20018,7 @@ public partial class MainWindow : Window
             {
                 changeText.Text = "Troco: R$ 0,00";
                 changeHint.Text = "Saldo ja quitado. Confirme para imprimir/finalizar.";
-                changeText.Foreground = Solid("#667684");
+                changeText.Foreground = Solid("#5B6B7A");
                 return;
             }
 
@@ -16356,7 +20027,7 @@ public partial class MainWindow : Window
             {
                 changeText.Text = "Troco: R$ 0,00";
                 changeHint.Text = $"Saldo atual: {Money(balance)}";
-                changeText.Foreground = Solid("#667684");
+                changeText.Foreground = Solid("#5B6B7A");
                 return;
             }
 
@@ -16368,7 +20039,7 @@ public partial class MainWindow : Window
                 changeHint.Text = selectedMethod == "DINHEIRO"
                     ? $"Cliente entregou {Money(tendered)} para uma conta de {Money(balance)}."
                     : "Troco acima do saldo e permitido somente em dinheiro.";
-                changeText.Foreground = selectedMethod == "DINHEIRO" ? Solid("#0F766E") : RedText;
+                changeText.Foreground = selectedMethod == "DINHEIRO" ? Solid("#08A99B") : RedText;
                 return;
             }
 
@@ -16382,7 +20053,7 @@ public partial class MainWindow : Window
 
             changeText.Text = "Troco: R$ 0,00";
             changeHint.Text = "Valor exato para finalizar a venda.";
-            changeText.Foreground = Solid("#667684");
+            changeText.Foreground = Solid("#5B6B7A");
         }
 
         finalizeCard.MouseLeftButtonDown += (_, _) =>
@@ -16399,7 +20070,7 @@ public partial class MainWindow : Window
             }
         };
 
-        void Confirm()
+        async void Confirm()
         {
             if (!hasOpenBalance)
             {
@@ -16429,10 +20100,31 @@ public partial class MainWindow : Window
 
             var appliedAmount = Math.Min(amount, balance);
             var changeAmount = Math.Max(0, amount - balance);
+            var payer = string.IsNullOrWhiteSpace(payerBox.Text) ? "Cliente" : payerBox.Text.Trim();
+
+            if (selectedMethod is "CREDITO" or "DEBITO" or "PIX"
+                && (_appSettings.MercadoPago.Enabled || _appSettings.PagBank.Enabled))
+            {
+                confirm.IsEnabled = false;
+                message.Foreground = Solid("#5B6B7A");
+                message.Text = "Preparando cobranca integrada...";
+                var integratedPayment = await ProcessIntegratedPaymentAsync(selectedMethod, appliedAmount, payer, dialog);
+                confirm.IsEnabled = true;
+                if (integratedPayment is null)
+                {
+                    message.Foreground = RedText;
+                    message.Text = "Pagamento integrado nao confirmado. A venda continua aberta.";
+                    return;
+                }
+
+                result = (integratedPayment, finalizePayment && appliedAmount >= balance);
+                dialog.Close();
+                return;
+            }
 
             result = (new PaymentLine
             {
-                Payer = string.IsNullOrWhiteSpace(payerBox.Text) ? "Cliente" : payerBox.Text.Trim(),
+                Payer = payer,
                 Method = selectedMethod,
                 Amount = appliedAmount,
                 TenderedAmount = amount,
@@ -16463,7 +20155,7 @@ public partial class MainWindow : Window
         panel.Children.Add(new Border
         {
             Background = Solid("#F8FBFD"),
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(9),
             Padding = new Thickness(14, 11, 14, 11),
@@ -16476,9 +20168,9 @@ public partial class MainWindow : Window
                     {
                         Children =
                         {
-                            new TextBlock { Text = "Total / pago / saldo", Foreground = Solid("#667684"), FontSize = 12, FontWeight = FontWeights.SemiBold },
-                            new TextBlock { Text = $"{Money(total)}  |  Pago {Money(paidTotal)}", Foreground = Solid("#18222B"), FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 4, 0, 0) },
-                            new TextBlock { Text = Money(balance), Foreground = hasOpenBalance ? Solid("#0F766E") : Solid("#667684"), FontSize = 28, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 0) }
+                            new TextBlock { Text = "Total / pago / saldo", Foreground = Solid("#5B6B7A"), FontSize = 12, FontWeight = FontWeights.SemiBold },
+                            new TextBlock { Text = $"{Money(total)}  |  Pago {Money(paidTotal)}", Foreground = Solid("#071A2C"), FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 4, 0, 0) },
+                            new TextBlock { Text = Money(balance), Foreground = hasOpenBalance ? Solid("#08A99B") : Solid("#5B6B7A"), FontSize = 28, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 0) }
                         }
                     }
                 }
@@ -16508,7 +20200,7 @@ public partial class MainWindow : Window
         var footer = new Border
         {
             Background = Solid("#FFFFFF"),
-            BorderBrush = Solid("#D8E2EC"),
+            BorderBrush = Solid("#CAD6E2"),
             BorderThickness = new Thickness(0, 1, 0, 0),
             Padding = new Thickness(18, 10, 18, 10),
             Child = confirm
@@ -17154,7 +20846,7 @@ public partial class MainWindow : Window
         TicketTotalText.Text = Money(balance);
         CashTotalText.Text = Money(_cashTotal);
         CashStatusText.Text = IsCashOpen() ? "Caixa aberto" : "Caixa fechado";
-        CashStatusText.Foreground = IsCashOpen() ? Solid("#667684") : RedText;
+        CashStatusText.Foreground = IsCashOpen() ? Solid("#5B6B7A") : RedText;
         TodaySalesText.Text = $"Vendas hoje: {Money(GetTodaySalesTotal())}";
         if (CurrentBoard is { } board)
         {
@@ -17243,7 +20935,7 @@ public partial class MainWindow : Window
 
         var active = HasAppliedTableCharges();
         ChargeToggleButton.Content = active ? "Desativar" : "Ativar";
-        ChargeToggleButton.Background = active ? RedText : Solid("#0F766E");
+        ChargeToggleButton.Background = active ? RedText : Solid("#08A99B");
         ChargeToggleButton.BorderBrush = ChargeToggleButton.Background;
     }
 
@@ -17375,8 +21067,8 @@ public partial class MainWindow : Window
         var lower = text.ToLowerInvariant();
         title = "";
         code = "OK";
-        color = "#0F766E";
-        softColor = "#E8F7F4";
+        color = "#08A99B";
+        softColor = "#E6FBF8";
 
         if (lower.Contains("bloquead") || lower.Contains("pendente"))
         {
@@ -17421,8 +21113,8 @@ public partial class MainWindow : Window
         {
             title = "Arquivo gerado";
             code = "AR";
-            color = "#2F6FAE";
-            softColor = "#E8F1FA";
+            color = "#0B3A52";
+            softColor = "#EAF8FA";
             return true;
         }
 
@@ -17671,6 +21363,7 @@ public partial class MainWindow : Window
             _appSettings = store.AppSettings;
             MergeWhatsAppSendPulseSettings(loadedAppSettings.WhatsApp, _appSettings.WhatsApp ??= new WhatsAppSettings());
             NormalizeWhatsAppSendPulseOnlySettings();
+            NormalizeProductionDestinations();
             SaveAppSettings();
         }
 
@@ -17701,7 +21394,18 @@ public partial class MainWindow : Window
         Categories.Clear();
         foreach (var item in store.Categories) Categories.Add(item);
         Products.Clear();
-        foreach (var item in store.Products) Products.Add(item);
+        foreach (var item in store.Products)
+        {
+            var destination = NormalizeProductDestination(item.Sector, "CAIXA");
+            if (string.Equals(destination, "CAIXA", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(item.Category, "IFOOD", StringComparison.OrdinalIgnoreCase))
+            {
+                destination = "COZINHA";
+            }
+
+            item.Sector = destination;
+            Products.Add(item);
+        }
         ApplyPendingIFoodStockReconciliation();
         TicketLines.Clear();
         Payments.Clear();
@@ -17820,6 +21524,12 @@ public partial class MainWindow : Window
 
     private static void NormalizeLoadedBoard(TableTile board)
     {
+        foreach (var line in board.Lines)
+        {
+            line.Sector = NormalizeProductDestination(line.Sector, "CAIXA");
+            line.KitchenPrintedQuantity = Math.Clamp(line.KitchenPrintedQuantity, 0, line.Quantity);
+        }
+
         if (board.Status == "LIVRE")
         {
             board.Lines.Clear();
@@ -17903,6 +21613,7 @@ public partial class MainWindow : Window
             UnitPrice = line.UnitPrice,
             Note = line.Note,
             Sector = line.Sector,
+            KitchenPrintedQuantity = line.KitchenPrintedQuantity,
             KitchenStatus = line.KitchenStatus,
             KitchenStartedAt = line.KitchenStartedAt,
             KitchenReadyAt = line.KitchenReadyAt,
@@ -18036,6 +21747,11 @@ public partial class MainWindow : Window
             : fallback;
     }
 
+    private static string MercadoPagoAmountValue(decimal value)
+    {
+        return Math.Round(value, 2, MidpointRounding.AwayFromZero).ToString("0.00", CultureInfo.InvariantCulture);
+    }
+
     private static string Money(decimal value)
     {
         return value.ToString("C", Brazil);
@@ -18166,21 +21882,23 @@ public partial class MainWindow : Window
         [JsonIgnore]
         public Brush TileBrush => Status switch
         {
-            "LIVRE" => GreenTile,
-            "PRONTO" => GreenTile,
-            "DESPACHADO" => GreenTile,
-            "ENTREGUE" => GreenTile,
-            "FINALIZADO" => GreenTile,
-            "CONTA" => AmberTile,
-            "AGUARDANDO" => AmberTile,
-            "CONFIRMADO" => AmberTile,
-            "ACEITO" => AmberTile,
-            "PREPARO" => AmberTile,
-            "PREPARANDO" => AmberTile,
-            "ROTA" => AmberTile,
-            "CANCELAMENTO" => AmberTile,
-            "CANCELADO" => RedTile,
-            _ => RedTile
+            "LIVRE" => FreeTile,
+            "NOVO" => NewTile,
+            "OCUPADA" => OccupiedTile,
+            "PRONTO" => ReadyTile,
+            "DESPACHADO" => DispatchedTile,
+            "ENTREGUE" => DeliveredTile,
+            "FINALIZADO" => DeliveredTile,
+            "CONTA" => AccountTile,
+            "AGUARDANDO" => WaitingTile,
+            "CONFIRMADO" => ConfirmedTile,
+            "ACEITO" => AcceptedTile,
+            "PREPARO" => PrepTile,
+            "PREPARANDO" => PreparingTile,
+            "ROTA" => RouteTile,
+            "CANCELAMENTO" => CancellationRequestedTile,
+            "CANCELADO" => CancelledTile,
+            _ => NewTile
         };
 
         [JsonIgnore] public string TransferDisplay => $"{Kind} {Number}  {Status}  {Money(Total)}";
@@ -18219,6 +21937,11 @@ public partial class MainWindow : Window
                 if (Kind == "BALCAO")
                 {
                     return string.IsNullOrWhiteSpace(CustomerName) ? "FICHA" : CustomerName;
+                }
+
+                if (Kind == "DELIVERY")
+                {
+                    return CompactDeliveryTileSubtitle(this);
                 }
 
                 return Detail;
@@ -18306,7 +22029,7 @@ public partial class MainWindow : Window
         public string Category { get; set; } = "";
         public decimal CostPrice { get; set; }
         public decimal Price { get; set; }
-        public string Sector { get; set; } = "COZINHA";
+        public string Sector { get; set; } = "CAIXA";
         public bool Active { get; set; } = true;
         public bool IsPizza { get; set; }
         public string WhatsAppCode { get; set; } = "";
@@ -18356,7 +22079,8 @@ public partial class MainWindow : Window
         public int Quantity { get; set; }
         public decimal UnitPrice { get; set; }
         public string Note { get; set; } = "";
-        public string Sector { get; set; } = "COZINHA";
+        public string Sector { get; set; } = "";
+        public int KitchenPrintedQuantity { get; set; }
         public string KitchenStatus { get; set; } = "RECEBIDO";
         public DateTime? KitchenStartedAt { get; set; }
         public DateTime? KitchenReadyAt { get; set; }
@@ -18574,7 +22298,7 @@ public partial class MainWindow : Window
         public string Name { get; set; } = "";
         public int Quantity { get; set; }
         public decimal UnitPrice { get; set; }
-        public string Sector { get; set; } = "COZINHA";
+        public string Sector { get; set; } = "";
         [JsonIgnore] public decimal Total => Quantity * UnitPrice;
         [JsonIgnore] public string Display => $"{Quantity}x {Name}  {Money(Total)}";
     }
@@ -18653,14 +22377,42 @@ public partial class MainWindow : Window
         public bool PublicMenuStoreOpen { get; set; } = true;
         public int PublicMenuWaitMinMinutes { get; set; } = 30;
         public int PublicMenuWaitMaxMinutes { get; set; } = 60;
-        public bool PublicMenuDiscountEnabled { get; set; } = true;
+        public bool PublicMenuDiscountConfigured { get; set; }
+        public bool PublicMenuDiscountEnabled { get; set; }
         public string PublicMenuDiscountCode { get; set; } = "EXCLUSIVO4";
         public decimal PublicMenuDiscountAmount { get; set; } = 4m;
-        public string PublicMenuDiscountDescription { get; set; } = "Use no atendimento para ganhar desconto no pedido.";
-        public bool PublicMenuLoyaltyEnabled { get; set; } = true;
+        public string PublicMenuDiscountDescription { get; set; } = "Apresente este cupom no atendimento para receber o desconto.";
+        public bool PublicMenuLoyaltyConfigured { get; set; }
+        public bool PublicMenuLoyaltyEnabled { get; set; }
         public int PublicMenuLoyaltyGoal { get; set; } = 20;
         public decimal PublicMenuLoyaltyMinimumOrder { get; set; } = 20m;
         public IFoodIntegrationSettings IFood { get; set; } = new();
+        public MercadoPagoPaymentSettings MercadoPago { get; set; } = new();
+        public PagBankPaymentSettings PagBank { get; set; } = new();
+    }
+
+    public sealed class MercadoPagoPaymentSettings
+    {
+        public bool Enabled { get; set; }
+        public bool Connected { get; set; }
+        public string SellerUserId { get; set; } = "";
+        public string DefaultTerminalId { get; set; } = "";
+        public string DefaultTerminalLabel { get; set; } = "";
+        public DateTime? LastSyncAt { get; set; }
+        public string LastError { get; set; } = "";
+    }
+
+    public sealed class PagBankPaymentSettings
+    {
+        public bool Enabled { get; set; }
+        public bool Connected { get; set; }
+        public bool PlugPagEnabled { get; set; }
+        public string AccountId { get; set; } = "";
+        public string DefaultTerminalId { get; set; } = "";
+        public string DefaultTerminalLabel { get; set; } = "";
+        public string PlugPagComPort { get; set; } = "";
+        public DateTime? LastSyncAt { get; set; }
+        public string LastError { get; set; } = "";
     }
 
     public sealed class SectorPrinterSetting
@@ -18721,6 +22473,178 @@ public partial class MainWindow : Window
         };
     }
 
+    public class AdminMercadoPagoResult
+    {
+        public bool Ok { get; set; }
+        public string Message { get; set; } = "";
+    }
+
+    public sealed class AdminMercadoPagoConnectResult : AdminMercadoPagoResult
+    {
+        public string AuthUrl { get; set; } = "";
+        public DateTime? ExpiresAt { get; set; }
+    }
+
+    public sealed class AdminMercadoPagoConnectionStatusResult : AdminMercadoPagoResult
+    {
+        public bool Connected { get; set; }
+        public string Status { get; set; } = "";
+        public string SellerUserId { get; set; } = "";
+        public string SelectedTerminalId { get; set; } = "";
+        public string SelectedTerminalLabel { get; set; } = "";
+        public string LastSyncAt { get; set; } = "";
+        public string LastError { get; set; } = "";
+    }
+
+    public sealed class AdminMercadoPagoTerminalsResult : AdminMercadoPagoResult
+    {
+        public List<AdminMercadoPagoTerminalDto> Terminals { get; set; } = [];
+    }
+
+    public sealed class AdminMercadoPagoTerminalDto
+    {
+        public string Id { get; set; } = "";
+        public string Label { get; set; } = "";
+        public string PosId { get; set; } = "";
+        public string StoreId { get; set; } = "";
+        public string ExternalPosId { get; set; } = "";
+        public string OperatingMode { get; set; } = "";
+
+        [JsonIgnore]
+        public string Display => string.IsNullOrWhiteSpace(Label) ? Id : Label;
+    }
+
+    public sealed class AdminMercadoPagoTerminalPayload : AdminClientPayload
+    {
+        public string TerminalId { get; set; } = "";
+        public string TerminalLabel { get; set; } = "";
+    }
+
+    public class AdminMercadoPagoChargePayload : AdminClientPayload
+    {
+        public string Amount { get; set; } = "";
+        public string Method { get; set; } = "";
+        public string LocalReference { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string TerminalId { get; set; } = "";
+        public List<AdminMercadoPagoItemPayload> Items { get; set; } = [];
+    }
+
+    public sealed class AdminMercadoPagoWebChargePayload : AdminMercadoPagoChargePayload
+    {
+        public string PayerName { get; set; } = "";
+        public string PayerEmail { get; set; } = "";
+    }
+
+    public sealed class AdminMercadoPagoItemPayload
+    {
+        public string Code { get; set; } = "";
+        public string Title { get; set; } = "";
+        public int Quantity { get; set; }
+        public string UnitPrice { get; set; } = "";
+        public string Description { get; set; } = "";
+    }
+
+    public sealed class AdminMercadoPagoPointStatusPayload : AdminClientPayload
+    {
+        public string AttemptId { get; set; } = "";
+        public string OrderId { get; set; } = "";
+        public string LocalReference { get; set; } = "";
+    }
+
+    public class AdminMercadoPagoChargeResult : AdminMercadoPagoResult
+    {
+        public string AttemptId { get; set; } = "";
+        public string LocalReference { get; set; } = "";
+        public string OrderId { get; set; } = "";
+        public string PaymentId { get; set; } = "";
+        public string Status { get; set; } = "";
+        public string StatusDetail { get; set; } = "";
+    }
+
+    public sealed class AdminMercadoPagoWebChargeResult : AdminMercadoPagoChargeResult
+    {
+        public string QrCode { get; set; } = "";
+        public string QrCodeBase64 { get; set; } = "";
+        public string TicketUrl { get; set; } = "";
+        public string PaymentUrl { get; set; } = "";
+        public string ExpiresAt { get; set; } = "";
+    }
+
+    public sealed class AdminMercadoPagoPointStatusResult : AdminMercadoPagoResult
+    {
+        public string AttemptId { get; set; } = "";
+        public string OrderId { get; set; } = "";
+        public string PaymentId { get; set; } = "";
+        public string Status { get; set; } = "";
+        public string StatusDetail { get; set; } = "";
+        public bool Paid { get; set; }
+    }
+
+    public sealed class AdminPagBankConnectResult : AdminMercadoPagoResult
+    {
+        public string AuthUrl { get; set; } = "";
+        public DateTime? ExpiresAt { get; set; }
+    }
+
+    public sealed class AdminPagBankConnectionStatusResult : AdminMercadoPagoResult
+    {
+        public bool Connected { get; set; }
+        public string Status { get; set; } = "";
+        public string AccountId { get; set; } = "";
+        public string SelectedTerminalId { get; set; } = "";
+        public string SelectedTerminalLabel { get; set; } = "";
+        public string ComPort { get; set; } = "";
+        public string LastSyncAt { get; set; } = "";
+        public string LastError { get; set; } = "";
+    }
+
+    public sealed class AdminPagBankTerminalPayload : AdminClientPayload
+    {
+        public string TerminalId { get; set; } = "";
+        public string TerminalLabel { get; set; } = "";
+        public string ComPort { get; set; } = "";
+    }
+
+    public sealed class AdminPagBankWebChargePayload : AdminMercadoPagoChargePayload
+    {
+        public string PayerName { get; set; } = "";
+        public string PayerEmail { get; set; } = "";
+        public string PayerTaxId { get; set; } = "";
+        public string PayerPhone { get; set; } = "";
+    }
+
+    public sealed class AdminPagBankWebChargeResult : AdminMercadoPagoChargeResult
+    {
+        public string QrCode { get; set; } = "";
+        public string QrCodeBase64 { get; set; } = "";
+        public string TicketUrl { get; set; } = "";
+        public string PaymentUrl { get; set; } = "";
+        public string ExpiresAt { get; set; } = "";
+    }
+
+    public sealed class PlugPagChargeResult
+    {
+        public bool Approved { get; set; }
+        public string Message { get; set; } = "";
+        public string TransactionCode { get; set; } = "";
+        public string HostNsu { get; set; } = "";
+
+        public static PlugPagChargeResult Ok(PlugPagTransactionResult result) => new()
+        {
+            Approved = true,
+            Message = CompactSingleLine(result.Message),
+            TransactionCode = CompactSingleLine(result.TransactionCode),
+            HostNsu = CompactSingleLine(result.HostNsu)
+        };
+
+        public static PlugPagChargeResult Fail(string message) => new()
+        {
+            Approved = false,
+            Message = string.IsNullOrWhiteSpace(message) ? "Pagamento PagBank nao aprovado." : message
+        };
+    }
+
     public sealed class AdminSupportPayload : AdminClientPayload
     {
         public string Category { get; set; } = "";
@@ -18746,11 +22670,11 @@ public partial class MainWindow : Window
         public bool StoreOpen { get; set; } = true;
         public int WaitMinMinutes { get; set; } = 30;
         public int WaitMaxMinutes { get; set; } = 60;
-        public bool DiscountEnabled { get; set; } = true;
+        public bool DiscountEnabled { get; set; }
         public string DiscountCode { get; set; } = "EXCLUSIVO4";
         public decimal DiscountAmount { get; set; } = 4m;
-        public string DiscountDescription { get; set; } = "Use no atendimento para ganhar desconto no pedido.";
-        public bool LoyaltyEnabled { get; set; } = true;
+        public string DiscountDescription { get; set; } = "Apresente este cupom no atendimento para receber o desconto.";
+        public bool LoyaltyEnabled { get; set; }
         public int LoyaltyGoal { get; set; } = 20;
         public decimal LoyaltyMinimumOrder { get; set; } = 20m;
         public DateTimeOffset LocalWhen { get; set; } = DateTimeOffset.Now;

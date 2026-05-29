@@ -154,23 +154,42 @@ function waitTimeText(menu = currentMenu) {
   return min === max ? `${min} min` : `${min} a ${max} min`;
 }
 
+function isGeneratedDefaultDiscount(menu) {
+  const code = String(menu?.discount_code || "").trim().toUpperCase();
+  const amount = Number(menu?.discount_amount ?? 0);
+  const description = String(menu?.discount_description || "").trim();
+  return code === "EXCLUSIVO4"
+    && Math.abs(amount - 4) < 0.001
+    && description === "Use no atendimento para ganhar desconto no pedido.";
+}
+
+function isGeneratedDefaultLoyalty(menu) {
+  const goal = Math.max(1, Math.round(Number(menu?.loyalty_goal || 20)));
+  const minimum = Math.max(0, Number(menu?.loyalty_minimum_order || 20));
+  return goal === 20 && Math.abs(minimum - 20) < 0.001;
+}
+
 function activeDiscount(menu = currentMenu) {
-  if (!menu || menu.discount_enabled === false) return null;
-  const code = String(menu.discount_code || "EXCLUSIVO4").trim().toUpperCase();
-  const amount = Number(menu.discount_amount ?? 4);
+  if (!menu || menu.discount_enabled !== true || isGeneratedDefaultDiscount(menu)) return null;
+  const code = String(menu.discount_code || "").trim().toUpperCase();
+  const amount = Number(menu.discount_amount ?? 0);
   if (!code || !Number.isFinite(amount) || amount <= 0) return null;
   return {
     code,
     amount,
-    description: String(menu.discount_description || "Use no atendimento para ganhar desconto no pedido.").trim()
+    description: String(menu.discount_description || "Apresente este cupom no atendimento para receber o desconto.").trim()
   };
 }
 
 function loyaltyConfig(menu = currentMenu) {
-  if (!menu || menu.loyalty_enabled === false) return null;
+  if (!menu || menu.loyalty_enabled !== true || isGeneratedDefaultLoyalty(menu)) return null;
   const goal = Math.max(1, Math.round(Number(menu.loyalty_goal || 20)));
   const minimum = Math.max(0, Number(menu.loyalty_minimum_order || 20));
   return { goal, minimum };
+}
+
+function hasDiscountArea(menu = currentMenu) {
+  return Boolean(activeDiscount(menu) || loyaltyConfig(menu));
 }
 
 function normalizeOrderStatus(value) {
@@ -330,6 +349,14 @@ function setPage(page, shouldScroll = true) {
   }
 }
 
+function updateDiscountNavigation() {
+  document.querySelectorAll('.bottom-nav [data-nav-page="discounts"]').forEach((item) => {
+    item.hidden = false;
+  });
+  const page = qs("#pageDiscounts");
+  if (page) page.hidden = false;
+}
+
 async function supabaseGet(path) {
   const baseUrl = String(config.supabaseUrl || "").replace(/\/$/, "");
   const key = String(config.publishableKey || config.anonKey || "").trim();
@@ -408,18 +435,33 @@ function renderCouponCard(menu) {
   const card = qs(".coupon-card");
   if (!card) return;
   const discount = activeDiscount(menu);
-  card.hidden = !discount;
-  if (!discount) return;
+  const loyalty = loyaltyConfig(menu);
+  card.hidden = !discount && !loyalty;
+  if (!discount && !loyalty) return;
+
+  if (discount) {
+    card.innerHTML = `
+      <div class="coupon-icon">${iconSvg("tag", "coupon-svg")}</div>
+      <div>
+        <span>Aplique o cupom</span>
+        <strong>${escapeHtml(discount.code)}</strong>
+        <span class="coupon-amount">${escapeHtml(money(discount.amount))} de desconto</span>
+        <span>${escapeHtml(discount.description)}</span>
+      </div>
+      <b aria-hidden="true">&rsaquo;</b>
+    `;
+    return;
+  }
 
   card.innerHTML = `
     <div class="coupon-icon">${iconSvg("tag", "coupon-svg")}</div>
     <div>
-      <span>Aplique o cupom</span>
-      <strong>${escapeHtml(discount.code)}</strong>
-      <span class="coupon-amount">${escapeHtml(money(discount.amount))} de desconto</span>
-      <span>${escapeHtml(discount.description)}</span>
+      <span>Fidelidade da loja</span>
+      <strong>${escapeHtml(loyalty.goal)} pontos</strong>
+      <span class="coupon-amount">Pedido minimo ${escapeHtml(money(loyalty.minimum))}</span>
+      <span>Acompanhe seus pontos no cardapio.</span>
     </div>
-    <b aria-hidden="true">›</b>
+    <b aria-hidden="true">&rsaquo;</b>
   `;
 }
 
@@ -947,6 +989,8 @@ function renderHistory() {
 
 function renderDiscounts() {
   const loyalty = loyaltyConfig();
+  const loyaltyCard = qs(".loyalty-card");
+  if (loyaltyCard) loyaltyCard.hidden = !loyalty;
   const progressText = qs("#loyaltyProgressText");
   const progressBar = qs("#loyaltyProgress");
   const points = loyalty ? Math.min(loyalty.goal, orderHistory.length) : 0;
@@ -1040,6 +1084,7 @@ function renderEverything() {
   renderHistory();
   renderDiscounts();
   renderProfile();
+  updateDiscountNavigation();
   setPage(currentPage, false);
 }
 

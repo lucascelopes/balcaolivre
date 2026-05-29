@@ -63,7 +63,6 @@ public static class IFoodOrderMapper
             imported.DeliveredAt = FirstDateTime(
                 GetDateTime(delivery, "deliveredAt"),
                 GetDateTime(delivery, "deliveredDateTime"),
-                GetDateTime(delivery, "deliveryDateTime"),
                 GetDateTime(order, "deliveredAt"),
                 GetDateTime(order, "deliveredDateTime"));
             imported.CollectedAt = FirstDateTime(

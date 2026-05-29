@@ -2,6 +2,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const PUBLIC_MENU_BASE_URL = "https://cardapio.balcaolivrepdv.com.br";
 const LICENSE_SECRET = "BalcaoLivrePDV-local-license-v1";
+const ADMIN_STORE_BUCKET = "balcao-livre-admin";
+const ADMIN_STORE_OBJECT = "admin-store.json";
+const OFFLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe";
+const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.5.2026.exe";
+const TRIAL_SOURCE = "landing_trial_download";
+const TRIAL_DAYS = 7;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,6 +27,18 @@ type ClientPayload = {
   profile?: Record<string, unknown>;
   settings?: Record<string, unknown>;
   metrics?: Record<string, unknown>;
+};
+
+type SupportPayload = ClientPayload & {
+  category?: string;
+  priority?: string;
+  message?: string;
+  localWhen?: string | null;
+};
+
+type SupportMessagePayload = ClientPayload & {
+  message?: string;
+  localWhen?: string | null;
 };
 
 type PublicMenuPayload = ClientPayload & {
@@ -96,6 +114,25 @@ type PublicMenuOrderStatusPayload = {
   orderIds?: string[];
 };
 
+type MercadoPagoTerminalPayload = ClientPayload & {
+  terminalId?: string;
+  terminalLabel?: string;
+};
+
+type MercadoPagoChargePayload = ClientPayload & {
+  amount?: number;
+  method?: string;
+  localReference?: string;
+  description?: string;
+  terminalId?: string;
+};
+
+type MercadoPagoPointStatusPayload = ClientPayload & {
+  attemptId?: string;
+  orderId?: string;
+  localReference?: string;
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -109,6 +146,14 @@ Deno.serve(async (req) => {
       return json({ ok: true, app: "Balcao Livre License", storage: "supabase" });
     }
 
+    if ((route === "/trial/download" || route === "/api/trial/download") && req.method === "GET") {
+      return createTrialDownload(req);
+    }
+
+    if (route === "/payments/mercadopago/oauth/callback" && req.method === "GET") {
+      return handleMercadoPagoOAuthCallback(req);
+    }
+
     if (req.method !== "POST") {
       return json({ ok: false, message: "Metodo nao permitido." }, 405);
     }
@@ -119,6 +164,19 @@ Deno.serve(async (req) => {
 
     if (route === "/checkin" || route === "/api/app/checkin") {
       return checkIn(req);
+    }
+
+    if (route === "/support/list" || route === "/api/app/support/list") {
+      return listSupportTickets(req);
+    }
+
+    if (route === "/support" || route === "/api/app/support") {
+      return createSupportTicket(req);
+    }
+
+    const supportMessageRoute = route.match(/^\/(?:api\/app\/)?support\/([^/]+)\/message$/);
+    if (supportMessageRoute) {
+      return appendSupportMessage(req, decodeURIComponent(supportMessageRoute[1]));
     }
 
     if (route === "/menu/publish" || route === "/api/app/menu/publish") {
@@ -139,6 +197,30 @@ Deno.serve(async (req) => {
 
     if (route === "/menu/orders/ack" || route === "/api/app/menu/orders/ack") {
       return ackPublicMenuOrder(req);
+    }
+
+    if (route === "/payments/mercadopago/connect/start" || route === "/api/app/payments/mercadopago/connect/start") {
+      return startMercadoPagoConnect(req);
+    }
+
+    if (route === "/payments/mercadopago/status" || route === "/api/app/payments/mercadopago/status") {
+      return getMercadoPagoConnectionStatus(req);
+    }
+
+    if (route === "/payments/mercadopago/terminals" || route === "/api/app/payments/mercadopago/terminals") {
+      return listMercadoPagoTerminals(req);
+    }
+
+    if (route === "/payments/mercadopago/terminal/select" || route === "/api/app/payments/mercadopago/terminal/select") {
+      return selectMercadoPagoTerminal(req);
+    }
+
+    if (route === "/payments/mercadopago/point/charge" || route === "/api/app/payments/mercadopago/point/charge") {
+      return createMercadoPagoPointCharge(req);
+    }
+
+    if (route === "/payments/mercadopago/point/status" || route === "/api/app/payments/mercadopago/point/status") {
+      return getMercadoPagoPointStatus(req);
     }
 
     return json({ ok: false, message: "Rota de licenca nao encontrada." }, 404);
@@ -170,6 +252,228 @@ async function checkIn(req: Request) {
   }
 
   return json({ ok: true, message: "Licenca sincronizada no Supabase.", mode: "supabase" });
+}
+
+async function createTrialDownload(req: Request) {
+  const url = new URL(req.url);
+  const kind = normalizeTrialKind(url.searchParams.get("plan"));
+  const installerUrl = kind === "online" ? ONLINE_INSTALLER_URL : OFFLINE_INSTALLER_URL;
+  const clientKind = kind === "online" ? "windows-online" : "windows-offline";
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+  const ip = requestIp(req);
+  const userAgent = stringValue(req.headers.get("user-agent"));
+  const trialIpHash = (await activationSignature(`trial-ip|${ip || "unknown"}`)).slice(0, 32);
+  const userAgentHash = userAgent ? (await activationSignature(`trial-ua|${userAgent}`)).slice(0, 32) : "";
+  const supabase = serviceClient();
+
+  const existing = await supabase
+    .from("bv_licenses")
+    .select("key, expires_at")
+    .in("status", ["DISPONIVEL", "ATIVA"])
+    .contains("profile", { source: TRIAL_SOURCE, installer: kind, trial_ip_hash: trialIpHash })
+    .gt("expires_at", now.toISOString())
+    .limit(1);
+
+  if (existing.error) {
+    return trialDownloadPage(
+      "Download indisponivel",
+      `Supabase recusou gerar a chave de teste: ${existing.error.message}`,
+      false,
+      500,
+    );
+  }
+
+  if ((existing.data ?? []).length > 0) {
+    await supabase.from("bv_license_events").insert({
+      license_key: stringValue(existing.data?.[0]?.key),
+      event_type: "trial.download.blocked_by_ip",
+      message: "Nova chave de teste bloqueada por IP.",
+      payload: { source: TRIAL_SOURCE, installer: kind, trialIpHash, userAgentHash },
+    });
+    return trialDownloadPage(
+      "Teste ja gerado neste IP",
+      "Para evitar duplicidade, este IP ja tem uma chave de 7 dias ativa. Chame o vendedor no WhatsApp se precisar liberar outro teste.",
+      false,
+      429,
+    );
+  }
+
+  const expiresText = activationExpirationText(expiresAt);
+  const serialPrefix = kind === "online" ? "ONL" : "OFF";
+  const serial = `${serialPrefix}${crypto.randomUUID().replaceAll("-", "").slice(0, 9).toUpperCase()}`;
+  const signature = (await activationSignature(`BLV|${expiresText}|${serial}`)).slice(0, 10);
+  const key = `BLV-${expiresText}-${serial}-${signature}`;
+  const profile = {
+    source: TRIAL_SOURCE,
+    installer: kind,
+    trial_days: TRIAL_DAYS,
+    trial_ip_hash: trialIpHash,
+    user_agent_hash: userAgentHash,
+    generated_at: now.toISOString(),
+    installer_url: installerUrl,
+  };
+
+  const created = await supabase.from("bv_licenses").insert({
+    key,
+    status: "DISPONIVEL",
+    plan: kind === "online" ? "Teste Online 7 dias" : "Teste Offline 7 dias",
+    customer_name: "Teste gerado no download",
+    client_kind: clientKind,
+    profile,
+    settings: {},
+    metrics: {},
+    expires_at: expiresAt.toISOString(),
+    updated_at: now.toISOString(),
+  });
+
+  if (created.error) {
+    return trialDownloadPage(
+      "Download indisponivel",
+      `Supabase recusou salvar a chave de teste: ${created.error.message}`,
+      false,
+      500,
+    );
+  }
+
+  await supabase.from("bv_license_events").insert({
+    license_key: key,
+    event_type: "trial.download.generated",
+    message: "Chave de teste gerada no download.",
+    payload: { source: TRIAL_SOURCE, installer: kind, trialIpHash, userAgentHash, generatedAt: now.toISOString() },
+  });
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      ...corsHeaders,
+      Location: installerUrl,
+      "Cache-Control": "no-store, max-age=0",
+    },
+  });
+}
+
+async function listSupportTickets(req: Request) {
+  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const result = await ensureLicense(payload, { bindMachine: false, eventType: "support.list", skipEvent: true });
+  if (!result.ok) {
+    return json({ ok: false, message: result.message, tickets: [] }, result.status ?? 401);
+  }
+
+  const licenseKey = normalizeLicense(payload.licenseKey);
+  const machineHash = stringValue(payload.machineHash);
+  const store = await readAdminStore();
+  const tickets = adminSupportTickets(store)
+    .filter((ticket) =>
+      stringValue(ticket.licenseKey).toUpperCase() === licenseKey &&
+      stringValue(ticket.machineHash) === machineHash
+    )
+    .sort((a, b) =>
+      supportStatusRank(stringValue(a.status)) - supportStatusRank(stringValue(b.status)) ||
+      Date.parse(stringValue(b.updatedAt)) - Date.parse(stringValue(a.updatedAt))
+    )
+    .slice(0, 10)
+    .map(supportTicketToClient);
+
+  return json({ ok: true, tickets });
+}
+
+async function createSupportTicket(req: Request) {
+  const payload = normalizePayloadKeys(await readJson<SupportPayload>(req));
+  payload.message = stringValue(payload.message);
+  if (!payload.message) {
+    return json({ ok: false, message: "Mensagem do suporte obrigatoria." }, 400);
+  }
+
+  const result = await ensureLicense(payload, { bindMachine: false, eventType: "support.opened", skipEvent: true });
+  if (!result.ok) {
+    return json({ ok: false, message: result.message }, result.status ?? 401);
+  }
+
+  const licenseKey = normalizeLicense(payload.licenseKey);
+  const now = new Date().toISOString();
+  const ticketId = crypto.randomUUID().replaceAll("-", "");
+  const ticket = {
+    id: ticketId,
+    shortId: shortSupportId(ticketId),
+    status: "ABERTO",
+    category: stringValue(payload.category) || "Suporte tecnico",
+    priority: normalizeSupportPriority(payload.priority),
+    message: payload.message,
+    messages: [supportMessage("cliente", payload.message, now)],
+    adminNote: "",
+    createdAt: now,
+    updatedAt: now,
+    resolvedAt: null,
+    licenseKey,
+    machineHash: stringValue(payload.machineHash),
+    machineCode: stringValue(payload.machineCode),
+    appVersion: stringValue(payload.appVersion),
+    customerName: businessName(payload.profile) || "Cliente",
+    email: stringValue(payload.profile?.email).toLowerCase(),
+    businessName: businessName(payload.profile),
+    ownerName: stringValue(payload.profile?.ownerName),
+    phone: stringValue(payload.profile?.phone),
+    cnpj: stringValue(payload.profile?.cnpj),
+    city: stringValue(payload.profile?.city),
+    state: stringValue(payload.profile?.state),
+    profile: payload.profile ?? {},
+    metrics: payload.metrics ?? {},
+  };
+
+  const store = await readAdminStore();
+  upsertAdminStoreLicense(store, payload, result.license);
+  upsertAdminStoreDevice(store, payload);
+  adminSupportTickets(store).push(ticket);
+  appendAdminStoreEvent(store, "support.opened", `Suporte ${ticket.shortId}: ${ticket.businessName || ticket.machineCode}`, payload);
+  trimAdminStore(store);
+  await writeAdminStore(store);
+  await appendEvent("support.opened", `Suporte ${ticket.shortId} aberto.`, payload);
+
+  return json({ ok: true, ticketId: ticket.shortId, message: "Mensagem enviada. O suporte vai responder por aqui." });
+}
+
+async function appendSupportMessage(req: Request, id: string) {
+  const payload = normalizePayloadKeys(await readJson<SupportMessagePayload>(req));
+  const message = stringValue(payload.message);
+  if (!message) {
+    return json({ ok: false, message: "Mensagem obrigatoria." }, 400);
+  }
+
+  const result = await ensureLicense(payload, { bindMachine: false, eventType: "support.customer_message", skipEvent: true });
+  if (!result.ok) {
+    return json({ ok: false, message: result.message }, result.status ?? 401);
+  }
+
+  const licenseKey = normalizeLicense(payload.licenseKey);
+  const machineHash = stringValue(payload.machineHash);
+  const store = await readAdminStore();
+  const ticket = findSupportTicket(store, id);
+  if (!ticket) {
+    return json({ ok: false, message: "Chamado nao encontrado." }, 404);
+  }
+
+  if (stringValue(ticket.licenseKey).toUpperCase() !== licenseKey || stringValue(ticket.machineHash) !== machineHash) {
+    return json({ ok: false, message: "Chamado pertence a outro computador." }, 401);
+  }
+
+  const now = new Date().toISOString();
+  const messages = supportMessages(ticket);
+  messages.push(supportMessage("cliente", message, now));
+  ticket.messages = messages;
+  ticket.message = message;
+  ticket.status = "ABERTO";
+  ticket.updatedAt = now;
+  ticket.profile = payload.profile ?? ticket.profile ?? {};
+  ticket.metrics = payload.metrics ?? ticket.metrics ?? {};
+  upsertAdminStoreLicense(store, payload, result.license);
+  upsertAdminStoreDevice(store, payload);
+  appendAdminStoreEvent(store, "support.customer_message", `Nova mensagem no suporte ${shortSupportId(stringValue(ticket.id))}`, payload);
+  trimAdminStore(store);
+  await writeAdminStore(store);
+  await appendEvent("support.customer_message", `Nova mensagem no suporte ${shortSupportId(stringValue(ticket.id))}.`, payload);
+
+  return json({ ok: true, ticketId: shortSupportId(stringValue(ticket.id)), message: "Mensagem enviada." });
 }
 
 async function publishMenu(req: Request) {
@@ -207,11 +511,11 @@ async function publishMenu(req: Request) {
     store_open: payload.storeOpen !== false,
     wait_min_minutes: waitMin,
     wait_max_minutes: Math.max(waitMin, Math.round(numberValue(payload.waitMaxMinutes) || 60)),
-    discount_enabled: payload.discountEnabled !== false,
+    discount_enabled: payload.discountEnabled === true,
     discount_code: (stringValue(payload.discountCode) || "EXCLUSIVO4").toUpperCase(),
     discount_amount: Math.max(0, numberValue(payload.discountAmount) || 0),
-    discount_description: stringValue(payload.discountDescription) || "Use no atendimento para ganhar desconto no pedido.",
-    loyalty_enabled: payload.loyaltyEnabled !== false,
+    discount_description: stringValue(payload.discountDescription) || "Apresente este cupom no atendimento para receber o desconto.",
+    loyalty_enabled: payload.loyaltyEnabled === true,
     loyalty_goal: Math.max(1, Math.round(numberValue(payload.loyaltyGoal) || 20)),
     loyalty_minimum_order: Math.max(0, numberValue(payload.loyaltyMinimumOrder) || 20),
     is_published: true,
@@ -524,6 +828,543 @@ async function ackPublicMenuOrder(req: Request) {
   return json({ ok: true, message: "Pedido confirmado no PDV." });
 }
 
+async function startMercadoPagoConnect(req: Request) {
+  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.connect.start", skipEvent: true });
+  if (!result.ok) {
+    return json({ ok: false, message: result.message }, result.status ?? 401);
+  }
+
+  const clientId = mercadoPagoClientId();
+  if (!clientId) {
+    return json({ ok: false, message: "Configure MERCADO_PAGO_CLIENT_ID na Edge Function." }, 500);
+  }
+
+  const state = crypto.randomUUID();
+  const supabase = serviceClient();
+  const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
+  const saved = await supabase.from("bv_mercadopago_oauth_states").insert({
+    state,
+    license_key: normalizeLicense(payload.licenseKey),
+    machine_hash: stringValue(payload.machineHash),
+    expires_at: expiresAt,
+  });
+  if (saved.error) {
+    return json({ ok: false, message: `Supabase recusou inicio Mercado Pago: ${saved.error.message}` }, 500);
+  }
+
+  const auth = new URL("https://auth.mercadopago.com.br/authorization");
+  auth.searchParams.set("client_id", clientId);
+  auth.searchParams.set("response_type", "code");
+  auth.searchParams.set("platform_id", "mp");
+  auth.searchParams.set("state", state);
+  auth.searchParams.set("redirect_uri", mercadoPagoRedirectUri());
+  auth.searchParams.set("scope", "offline_access");
+  return json({ ok: true, authUrl: auth.toString(), expiresAt });
+}
+
+async function handleMercadoPagoOAuthCallback(req: Request) {
+  const url = new URL(req.url);
+  const code = stringValue(url.searchParams.get("code"));
+  const state = stringValue(url.searchParams.get("state"));
+  if (!code || !state) {
+    return html("Mercado Pago", "Vinculo recusado ou incompleto.", false);
+  }
+
+  const supabase = serviceClient();
+  const stateRow = await supabase
+    .from("bv_mercadopago_oauth_states")
+    .select("*")
+    .eq("state", state)
+    .maybeSingle();
+
+  if (stateRow.error || !stateRow.data) {
+    return html("Mercado Pago", "Estado de conexao invalido. Volte ao PDV e tente conectar de novo.", false);
+  }
+
+  const row = stateRow.data as Record<string, unknown>;
+  if (stringValue(row.used_at) || new Date(stringValue(row.expires_at)).getTime() < Date.now()) {
+    return html("Mercado Pago", "Essa conexao expirou. Volte ao PDV e conecte novamente.", false);
+  }
+
+  const token = await exchangeMercadoPagoToken({
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: mercadoPagoRedirectUri(),
+  });
+  const now = new Date().toISOString();
+  const expiresAt = mercadoPagoTokenExpiresAt(token);
+  const upsert = await supabase.from("bv_mercadopago_connections").upsert({
+    license_key: stringValue(row.license_key),
+    machine_hash: stringValue(row.machine_hash),
+    status: "CONNECTED",
+    seller_user_id: stringValue(token.user_id),
+    access_token: stringValue(token.access_token),
+    refresh_token: stringValue(token.refresh_token),
+    public_key: stringValue(token.public_key),
+    token_type: stringValue(token.token_type),
+    scope: stringValue(token.scope),
+    expires_at: expiresAt,
+    connected_at: now,
+    last_sync_at: now,
+    last_error: "",
+    updated_at: now,
+  }, { onConflict: "license_key" });
+
+  if (upsert.error) {
+    return html("Mercado Pago", `Supabase recusou salvar conexao: ${upsert.error.message}`, false);
+  }
+
+  await supabase.from("bv_mercadopago_oauth_states").update({ used_at: now }).eq("state", state);
+  return html("Mercado Pago conectado", "Conta Mercado Pago conectada. Pode voltar ao Balcao Livre PDV.", true);
+}
+
+async function getMercadoPagoConnectionStatus(req: Request) {
+  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.status", skipEvent: true });
+  if (!result.ok) {
+    return json({ ok: false, message: result.message }, result.status ?? 401);
+  }
+
+  const connection = await getMercadoPagoConnection(normalizeLicense(payload.licenseKey));
+  return json({
+    ok: true,
+    connected: !!connection?.access_token,
+    status: stringValue(connection?.status) || "DISCONNECTED",
+    sellerUserId: stringValue(connection?.seller_user_id),
+    selectedTerminalId: stringValue(connection?.selected_terminal_id),
+    selectedTerminalLabel: stringValue(connection?.selected_terminal_label),
+    expiresAt: stringValue(connection?.expires_at),
+    lastSyncAt: stringValue(connection?.last_sync_at),
+    lastError: stringValue(connection?.last_error),
+  });
+}
+
+async function listMercadoPagoTerminals(req: Request) {
+  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.terminals", skipEvent: true });
+  if (!result.ok) {
+    return json({ ok: false, message: result.message, terminals: [] }, result.status ?? 401);
+  }
+
+  const token = await ensureMercadoPagoAccessToken(normalizeLicense(payload.licenseKey));
+  if (!token.ok) {
+    return json({ ok: false, message: token.message, terminals: [] }, token.status ?? 400);
+  }
+
+  const response = await mercadoPagoFetch(token.accessToken, "/terminals/v1/list?limit=50&offset=0");
+  const terminals = Array.isArray(response?.data?.terminals)
+    ? response.data.terminals
+    : Array.isArray(response?.terminals)
+      ? response.terminals
+      : [];
+  return json({
+    ok: true,
+    terminals: terminals.map((terminal: Record<string, unknown>) => mercadoPagoTerminalToClient(terminal)),
+  });
+}
+
+async function selectMercadoPagoTerminal(req: Request) {
+  const payload = normalizePayloadKeys(await readJson<MercadoPagoTerminalPayload>(req));
+  const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.terminal.select", skipEvent: true });
+  if (!result.ok) {
+    return json({ ok: false, message: result.message }, result.status ?? 401);
+  }
+
+  const terminalId = stringValue(payload.terminalId);
+  if (!terminalId) {
+    return json({ ok: false, message: "Informe a maquininha Mercado Pago." }, 400);
+  }
+
+  const saved = await serviceClient()
+    .from("bv_mercadopago_connections")
+    .update({
+      selected_terminal_id: terminalId,
+      selected_terminal_label: stringValue(payload.terminalLabel) || terminalId,
+      last_sync_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("license_key", normalizeLicense(payload.licenseKey))
+    .select("selected_terminal_id, selected_terminal_label")
+    .maybeSingle();
+
+  if (saved.error) {
+    return json({ ok: false, message: `Supabase recusou maquininha: ${saved.error.message}` }, 500);
+  }
+
+  if (!saved.data) {
+    return json({ ok: false, message: "Conecte o Mercado Pago antes de escolher a maquininha." }, 404);
+  }
+
+  return json({ ok: true, message: "Maquininha Mercado Pago salva." });
+}
+
+async function createMercadoPagoPointCharge(req: Request) {
+  const payload = normalizePayloadKeys(await readJson<MercadoPagoChargePayload>(req));
+  const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.point.charge", skipEvent: true });
+  if (!result.ok) {
+    return json({ ok: false, message: result.message }, result.status ?? 401);
+  }
+
+  const licenseKey = normalizeLicense(payload.licenseKey);
+  const connection = await getMercadoPagoConnection(licenseKey);
+  const terminalId = stringValue(payload.terminalId) || stringValue(connection?.selected_terminal_id);
+  if (!terminalId) {
+    return json({ ok: false, message: "Escolha uma maquininha Mercado Pago antes de cobrar." }, 400);
+  }
+
+  const amount = roundMoney(payload.amount);
+  if (amount <= 0) {
+    return json({ ok: false, message: "Valor da cobranca invalido." }, 400);
+  }
+
+  const token = await ensureMercadoPagoAccessToken(licenseKey);
+  if (!token.ok) {
+    return json({ ok: false, message: token.message }, token.status ?? 400);
+  }
+
+  const localReference = sanitizeMercadoPagoReference(payload.localReference || crypto.randomUUID());
+  const method = normalizePointPaymentMethod(payload.method);
+  const orderBody: Record<string, unknown> = {
+    type: "point",
+    external_reference: localReference,
+    expiration_time: "PT10M",
+    transactions: {
+      payments: [{ amount: formatMercadoPagoAmount(amount) }],
+    },
+    config: {
+      point: {
+        terminal_id: terminalId,
+        print_on_terminal: "no_ticket",
+      },
+      ...(method ? { payment_method: { default_type: method } } : {}),
+    },
+    description: stringValue(payload.description) || "Balcao Livre PDV",
+  };
+
+  const order = await mercadoPagoFetch(token.accessToken, "/v1/orders", {
+    method: "POST",
+    headers: { "X-Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify(orderBody),
+  });
+  const payment = Array.isArray(order?.transactions?.payments) ? order.transactions.payments[0] : {};
+  const attempt = {
+    license_key: licenseKey,
+    machine_hash: stringValue(payload.machineHash),
+    local_reference: localReference,
+    method: stringValue(payload.method).toUpperCase() || "POINT",
+    amount,
+    order_id: stringValue(order?.id),
+    payment_id: stringValue(payment?.id),
+    terminal_id: terminalId,
+    terminal_label: stringValue(connection?.selected_terminal_label) || terminalId,
+    status: normalizeMercadoPagoOrderStatus(order),
+    status_detail: stringValue(order?.status_detail || payment?.status_detail),
+    raw_response: order,
+    updated_at: new Date().toISOString(),
+  };
+  const saved = await serviceClient()
+    .from("bv_mercadopago_payment_attempts")
+    .upsert(attempt, { onConflict: "license_key,local_reference" })
+    .select("id, status, status_detail, order_id, payment_id")
+    .single();
+
+  if (saved.error) {
+    return json({ ok: false, message: `Supabase recusou tentativa Mercado Pago: ${saved.error.message}` }, 500);
+  }
+
+  return json({
+    ok: true,
+    message: "Cobranca enviada para a maquininha.",
+    attemptId: saved.data.id,
+    localReference,
+    orderId: saved.data.order_id,
+    paymentId: saved.data.payment_id,
+    status: saved.data.status,
+    statusDetail: saved.data.status_detail,
+  });
+}
+
+async function getMercadoPagoPointStatus(req: Request) {
+  const payload = normalizePayloadKeys(await readJson<MercadoPagoPointStatusPayload>(req));
+  const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.point.status", skipEvent: true });
+  if (!result.ok) {
+    return json({ ok: false, message: result.message }, result.status ?? 401);
+  }
+
+  const licenseKey = normalizeLicense(payload.licenseKey);
+  let query = serviceClient()
+    .from("bv_mercadopago_payment_attempts")
+    .select("*")
+    .eq("license_key", licenseKey);
+
+  if (isUuid(stringValue(payload.attemptId))) {
+    query = query.eq("id", stringValue(payload.attemptId));
+  } else if (stringValue(payload.orderId)) {
+    query = query.eq("order_id", stringValue(payload.orderId));
+  } else if (stringValue(payload.localReference)) {
+    query = query.eq("local_reference", stringValue(payload.localReference));
+  } else {
+    return json({ ok: false, message: "Informe a tentativa de pagamento." }, 400);
+  }
+
+  const current = await query.maybeSingle();
+  if (current.error || !current.data) {
+    return json({ ok: false, message: current.error?.message || "Tentativa nao encontrada." }, current.error ? 500 : 404);
+  }
+
+  const row = current.data as Record<string, unknown>;
+  const token = await ensureMercadoPagoAccessToken(licenseKey);
+  if (!token.ok) {
+    return json({ ok: false, message: token.message }, token.status ?? 400);
+  }
+
+  const orderId = stringValue(row.order_id);
+  const order = orderId ? await mercadoPagoFetch(token.accessToken, `/v1/orders/${encodeURIComponent(orderId)}`) : row.raw_response;
+  const payment = Array.isArray(order?.transactions?.payments) ? order.transactions.payments[0] : {};
+  const status = normalizeMercadoPagoOrderStatus(order);
+  const statusDetail = stringValue(order?.status_detail || payment?.status_detail);
+  await serviceClient()
+    .from("bv_mercadopago_payment_attempts")
+    .update({
+      status,
+      status_detail: statusDetail,
+      payment_id: stringValue(payment?.id) || stringValue(row.payment_id),
+      raw_response: order,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", stringValue(row.id));
+
+  return json({
+    ok: true,
+    attemptId: stringValue(row.id),
+    orderId,
+    paymentId: stringValue(payment?.id) || stringValue(row.payment_id),
+    status,
+    statusDetail,
+    paid: isMercadoPagoPaid(status, payment),
+  });
+}
+
+async function readAdminStore(): Promise<Record<string, unknown>> {
+  const supabase = serviceClient();
+  await ensureAdminStoreBucket(supabase);
+  const { data, error } = await supabase.storage.from(ADMIN_STORE_BUCKET).download(ADMIN_STORE_OBJECT);
+  if (error || !data) {
+    return emptyAdminStore();
+  }
+
+  try {
+    const text = await data.text();
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    return normalizeAdminStore(parsed);
+  } catch {
+    return emptyAdminStore();
+  }
+}
+
+async function writeAdminStore(store: Record<string, unknown>) {
+  const supabase = serviceClient();
+  await ensureAdminStoreBucket(supabase);
+  const body = new Blob([JSON.stringify(normalizeAdminStore(store), null, 2)], { type: "application/json" });
+  const { error } = await supabase.storage
+    .from(ADMIN_STORE_BUCKET)
+    .upload(ADMIN_STORE_OBJECT, body, { contentType: "application/json", upsert: true });
+  if (error) {
+    throw new Error(`Supabase recusou salvar suporte: ${error.message}`);
+  }
+}
+
+async function ensureAdminStoreBucket(supabase: ReturnType<typeof serviceClient>) {
+  const { error } = await supabase.storage.createBucket(ADMIN_STORE_BUCKET, { public: false });
+  if (error && !/already|exists|duplicate/i.test(error.message)) {
+    throw new Error(`Supabase recusou bucket do admin: ${error.message}`);
+  }
+}
+
+function emptyAdminStore(): Record<string, unknown> {
+  return {
+    licenses: [],
+    devices: [],
+    supportTickets: [],
+    events: [],
+  };
+}
+
+function normalizeAdminStore(value: Record<string, unknown>): Record<string, unknown> {
+  const store = value && typeof value === "object" ? value : emptyAdminStore();
+  if (!Array.isArray(store.licenses)) store.licenses = [];
+  if (!Array.isArray(store.devices)) store.devices = [];
+  if (!Array.isArray(store.supportTickets)) store.supportTickets = [];
+  if (!Array.isArray(store.events)) store.events = [];
+  return store;
+}
+
+function adminLicenses(store: Record<string, unknown>): Record<string, unknown>[] {
+  return Array.isArray(store.licenses) ? store.licenses as Record<string, unknown>[] : [];
+}
+
+function adminDevices(store: Record<string, unknown>): Record<string, unknown>[] {
+  return Array.isArray(store.devices) ? store.devices as Record<string, unknown>[] : [];
+}
+
+function adminSupportTickets(store: Record<string, unknown>): Record<string, unknown>[] {
+  return Array.isArray(store.supportTickets) ? store.supportTickets as Record<string, unknown>[] : [];
+}
+
+function adminEvents(store: Record<string, unknown>): Record<string, unknown>[] {
+  return Array.isArray(store.events) ? store.events as Record<string, unknown>[] : [];
+}
+
+function supportMessages(ticket: Record<string, unknown>): Record<string, unknown>[] {
+  if (!Array.isArray(ticket.messages)) {
+    ticket.messages = [];
+  }
+  return ticket.messages as Record<string, unknown>[];
+}
+
+function upsertAdminStoreLicense(store: Record<string, unknown>, payload: ClientPayload, license: Record<string, unknown>) {
+  const licenseKey = normalizeLicense(payload.licenseKey);
+  const list = adminLicenses(store);
+  let row = list.find((item) => stringValue(item.key).toUpperCase() === licenseKey);
+  const profile = payload.profile ?? {};
+  const now = new Date().toISOString();
+  if (!row) {
+    row = {
+      id: crypto.randomUUID().replaceAll("-", ""),
+      key: licenseKey,
+      createdAt: now,
+      periodAmount: 0,
+      periodUnit: "days",
+    };
+    list.push(row);
+    store.licenses = list;
+  }
+
+  row.status = "ATIVA";
+  row.plan = stringValue(license.plan) || stringValue(payload.localPlan) || "Licenca comercial";
+  row.customerName = businessName(profile) || stringValue(license.customer_name) || stringValue(row.customerName) || "Cliente";
+  row.email = stringValue(profile.email).toLowerCase() || stringValue(license.email);
+  row.businessName = businessName(profile);
+  row.ownerName = stringValue(profile.ownerName);
+  row.cnpj = stringValue(profile.cnpj);
+  row.phone = stringValue(profile.phone);
+  row.city = stringValue(profile.city);
+  row.state = stringValue(profile.state);
+  row.machineHash = stringValue(payload.machineHash) || stringValue(row.machineHash);
+  row.machineCode = stringValue(payload.machineCode) || stringValue(row.machineCode);
+  row.appVersion = stringValue(payload.appVersion);
+  row.expiresAt = stringValue(license.expires_at) || stringValue(payload.localExpiresAt) || row.expiresAt || now;
+  row.activatedAt = row.activatedAt || now;
+  row.lastSeenAt = now;
+  row.configSnapshot = payload.settings ?? {};
+  row.metricsSnapshot = payload.metrics ?? {};
+}
+
+function upsertAdminStoreDevice(store: Record<string, unknown>, payload: ClientPayload) {
+  const machineHash = stringValue(payload.machineHash);
+  if (!machineHash) return;
+  const list = adminDevices(store);
+  const now = new Date().toISOString();
+  let row = list.find((item) => stringValue(item.machineHash) === machineHash);
+  if (!row) {
+    row = {
+      id: crypto.randomUUID().replaceAll("-", ""),
+      machineHash,
+      firstSeenAt: now,
+    };
+    list.push(row);
+    store.devices = list;
+  }
+
+  row.machineCode = stringValue(payload.machineCode);
+  row.licenseKey = normalizeLicense(payload.licenseKey);
+  row.clientKind = normalizeClientKind(payload.clientKind);
+  row.appVersion = stringValue(payload.appVersion);
+  row.lastSeenAt = now;
+  row.profile = payload.profile ?? {};
+  row.settings = payload.settings ?? {};
+  row.metrics = payload.metrics ?? {};
+}
+
+function appendAdminStoreEvent(store: Record<string, unknown>, type: string, message: string, payload: ClientPayload) {
+  const list = adminEvents(store);
+  list.push({
+    type,
+    message,
+    licenseKey: normalizeLicense(payload.licenseKey),
+    machineCode: stringValue(payload.machineCode),
+    when: new Date().toISOString(),
+  });
+  store.events = list;
+}
+
+function supportMessage(sender: "cliente" | "admin", message: string, when = new Date().toISOString()) {
+  return {
+    id: crypto.randomUUID().replaceAll("-", ""),
+    sender,
+    message,
+    when,
+  };
+}
+
+function findSupportTicket(store: Record<string, unknown>, id: string) {
+  const normalized = stringValue(id).toUpperCase();
+  return adminSupportTickets(store).find((ticket) =>
+    stringValue(ticket.id).toUpperCase() === normalized ||
+    stringValue(ticket.shortId).toUpperCase() === normalized ||
+    shortSupportId(stringValue(ticket.id)) === normalized
+  );
+}
+
+function supportTicketToClient(ticket: Record<string, unknown>) {
+  const id = stringValue(ticket.id);
+  return {
+    ...ticket,
+    id,
+    shortId: stringValue(ticket.shortId) || shortSupportId(id),
+    messages: supportMessages(ticket)
+      .slice()
+      .sort((a, b) => Date.parse(stringValue(a.when)) - Date.parse(stringValue(b.when))),
+  };
+}
+
+function shortSupportId(id: string) {
+  const clean = stringValue(id).replaceAll("-", "").toUpperCase();
+  return clean.slice(0, Math.min(8, clean.length));
+}
+
+function normalizeSupportPriority(value: unknown) {
+  const clean = stringValue(value).toUpperCase();
+  return ["URGENTE", "ALTA", "HIGH"].includes(clean) ? "URGENTE" : "NORMAL";
+}
+
+function normalizeSupportStatus(value: unknown) {
+  const clean = stringValue(value).toUpperCase();
+  if (["EM_ATENDIMENTO", "ATENDIMENTO", "ATENDENDO"].includes(clean)) return "EM_ATENDIMENTO";
+  if (["RESOLVIDO", "RESOLVIDA", "FECHADO", "FECHADA"].includes(clean)) return "RESOLVIDO";
+  return "ABERTO";
+}
+
+function supportStatusRank(value: unknown) {
+  const status = normalizeSupportStatus(value);
+  if (status === "ABERTO") return 0;
+  if (status === "EM_ATENDIMENTO") return 1;
+  return 2;
+}
+
+function trimAdminStore(store: Record<string, unknown>) {
+  store.supportTickets = adminSupportTickets(store)
+    .sort((a, b) =>
+      supportStatusRank(stringValue(a.status)) - supportStatusRank(stringValue(b.status)) ||
+      Date.parse(stringValue(b.updatedAt)) - Date.parse(stringValue(a.updatedAt))
+    )
+    .slice(0, 300);
+  store.events = adminEvents(store)
+    .sort((a, b) => Date.parse(stringValue(b.when)) - Date.parse(stringValue(a.when)))
+    .slice(0, 500);
+}
+
 async function ensureLicense(
   payload: ClientPayload,
   options: { bindMachine: boolean; eventType: string; skipEvent?: boolean },
@@ -669,6 +1510,11 @@ function parseExpiration(value: string) {
   return new Date(year, month, day, hour, minute, clean.length >= 12 ? 0 : 59);
 }
 
+function activationExpirationText(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}`;
+}
+
 function serviceClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -726,6 +1572,20 @@ function normalizePayloadKeys<T>(value: T): T {
 function normalizeClientKind(value: unknown) {
   const clean = stringValue(value).toLowerCase();
   return clean || "windows";
+}
+
+function normalizeTrialKind(value: unknown): "offline" | "online" {
+  const clean = stringValue(value).toLowerCase();
+  return clean.includes("online") ? "online" : "offline";
+}
+
+function requestIp(req: Request) {
+  const forwardedFor = stringValue(req.headers.get("x-forwarded-for")).split(",")[0]?.trim();
+  return stringValue(req.headers.get("cf-connecting-ip"))
+    || stringValue(req.headers.get("x-real-ip"))
+    || stringValue(req.headers.get("x-nf-client-connection-ip"))
+    || forwardedFor
+    || "unknown";
 }
 
 function isMultiDeviceClient(payload: ClientPayload) {
@@ -860,6 +1720,193 @@ function resolveInlineImageUrl(url: unknown, contentType: unknown, base64: unkno
   const type = stringValue(contentType) || "image/png";
   if (!/^image\/(png|jpe?g|webp|gif|bmp)$/i.test(type)) return "";
   return `data:${type};base64,${data}`;
+}
+
+function mercadoPagoClientId() {
+  return stringValue(Deno.env.get("MERCADO_PAGO_CLIENT_ID"));
+}
+
+function mercadoPagoClientSecret() {
+  return stringValue(Deno.env.get("MERCADO_PAGO_CLIENT_SECRET"));
+}
+
+function mercadoPagoRedirectUri() {
+  return stringValue(Deno.env.get("MERCADO_PAGO_REDIRECT_URI"))
+    || `${stringValue(Deno.env.get("SUPABASE_URL")).replace(/\/$/, "")}/functions/v1/license/payments/mercadopago/oauth/callback`;
+}
+
+function mercadoPagoTokenExpiresAt(token: Record<string, unknown>) {
+  const expiresIn = Math.max(60, Math.trunc(numberValue(token.expires_in)) || 15_552_000);
+  return new Date(Date.now() + expiresIn * 1000).toISOString();
+}
+
+async function exchangeMercadoPagoToken(params: Record<string, string>) {
+  const clientId = mercadoPagoClientId();
+  const clientSecret = mercadoPagoClientSecret();
+  if (!clientId || !clientSecret) {
+    throw new Error("Configure MERCADO_PAGO_CLIENT_ID e MERCADO_PAGO_CLIENT_SECRET na Edge Function.");
+  }
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    ...params,
+  });
+  const response = await fetch("https://api.mercadopago.com/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(`Mercado Pago recusou token: ${stringValue(data.message || data.error || response.status)}`);
+  }
+
+  return data as Record<string, unknown>;
+}
+
+async function getMercadoPagoConnection(licenseKey: string) {
+  const row = await serviceClient()
+    .from("bv_mercadopago_connections")
+    .select("*")
+    .eq("license_key", normalizeLicense(licenseKey))
+    .maybeSingle();
+  if (row.error) {
+    throw new Error(`Supabase recusou conexao Mercado Pago: ${row.error.message}`);
+  }
+
+  return row.data as Record<string, unknown> | null;
+}
+
+async function ensureMercadoPagoAccessToken(licenseKey: string): Promise<
+  | { ok: true; accessToken: string }
+  | { ok: false; message: string; status?: number }
+> {
+  const connection = await getMercadoPagoConnection(licenseKey);
+  if (!connection || !stringValue(connection.access_token)) {
+    return { ok: false, message: "Mercado Pago ainda nao conectado para esta loja.", status: 404 };
+  }
+
+  const accessToken = stringValue(connection.access_token);
+  const refreshToken = stringValue(connection.refresh_token);
+  const expiresAt = new Date(stringValue(connection.expires_at)).getTime();
+  if (!refreshToken || !expiresAt || expiresAt > Date.now() + 10 * 60_000) {
+    return { ok: true, accessToken };
+  }
+
+  try {
+    const token = await exchangeMercadoPagoToken({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    });
+    await serviceClient()
+      .from("bv_mercadopago_connections")
+      .update({
+        status: "CONNECTED",
+        access_token: stringValue(token.access_token),
+        refresh_token: stringValue(token.refresh_token) || refreshToken,
+        public_key: stringValue(token.public_key),
+        token_type: stringValue(token.token_type),
+        scope: stringValue(token.scope),
+        expires_at: mercadoPagoTokenExpiresAt(token),
+        last_sync_at: new Date().toISOString(),
+        last_error: "",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("license_key", normalizeLicense(licenseKey));
+    return { ok: true, accessToken: stringValue(token.access_token) };
+  } catch (error) {
+    const message = messageFromError(error);
+    await serviceClient()
+      .from("bv_mercadopago_connections")
+      .update({ status: "ERROR", last_error: message, updated_at: new Date().toISOString() })
+      .eq("license_key", normalizeLicense(licenseKey));
+    return { ok: false, message, status: 401 };
+  }
+}
+
+async function mercadoPagoFetch(accessToken: string, path: string, init: RequestInit = {}) {
+  const response = await fetch(`https://api.mercadopago.com${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      ...((init.headers ?? {}) as Record<string, string>),
+    },
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {};
+  if (!response.ok) {
+    throw new Error(`Mercado Pago recusou operacao: ${stringValue(data.message || data.error || text || response.status)}`);
+  }
+
+  return data;
+}
+
+function mercadoPagoTerminalToClient(terminal: Record<string, unknown>) {
+  const id = stringValue(terminal.id);
+  const serial = id.includes("__") ? id.split("__").pop() || id : id;
+  return {
+    id,
+    label: serial,
+    posId: stringValue(terminal.pos_id),
+    storeId: stringValue(terminal.store_id),
+    externalPosId: stringValue(terminal.external_pos_id),
+    operatingMode: stringValue(terminal.operating_mode),
+  };
+}
+
+function sanitizeMercadoPagoReference(value: unknown) {
+  const clean = stringValue(value).replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  return (clean || crypto.randomUUID()).slice(0, 64);
+}
+
+function normalizePointPaymentMethod(value: unknown) {
+  const method = stringValue(value).toUpperCase();
+  if (method.includes("DEBIT")) return "debit_card";
+  if (method.includes("CRED")) return "credit_card";
+  return "";
+}
+
+function formatMercadoPagoAmount(value: number) {
+  return roundMoney(value).toFixed(2);
+}
+
+function normalizeMercadoPagoOrderStatus(order: Record<string, unknown>) {
+  const transactions = order.transactions as Record<string, unknown> | undefined;
+  const payment = Array.isArray(transactions?.payments) ? transactions.payments[0] as Record<string, unknown> : {};
+  const paymentStatus = stringValue(payment?.status).toUpperCase();
+  const orderStatus = stringValue(order?.status).toUpperCase();
+  return paymentStatus || orderStatus || "CREATED";
+}
+
+function isMercadoPagoPaid(status: string, payment: Record<string, unknown>) {
+  const normalized = status.toUpperCase();
+  return ["PAID", "APPROVED", "PROCESSED"].includes(normalized)
+    || ["PAID", "APPROVED", "PROCESSED"].includes(stringValue(payment?.status).toUpperCase());
+}
+
+function html(title: string, message: string, ok: boolean) {
+  return new Response(`<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><body style="font-family:Segoe UI,Arial,sans-serif;background:#eef3f6;color:#17212b;margin:0;display:grid;place-items:center;min-height:100vh"><main style="max-width:520px;background:white;border:1px solid #d8e2ec;border-radius:14px;padding:28px;box-shadow:0 18px 44px rgba(22,34,45,.10)"><h1 style="margin:0 0 10px;color:${ok ? "#0f766e" : "#a11d1d"}">${escapeHtml(title)}</h1><p style="font-size:17px;line-height:1.5">${escapeHtml(message)}</p><p style="color:#607284">Pode fechar esta janela.</p></main></body></html>`, {
+    status: ok ? 200 : 400,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
+}
+
+function trialDownloadPage(title: string, message: string, ok: boolean, status = ok ? 200 : 400) {
+  return new Response(`<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><body style="font-family:Segoe UI,Arial,sans-serif;background:#eef3f6;color:#17212b;margin:0;display:grid;place-items:center;min-height:100vh"><main style="max-width:560px;background:white;border:1px solid #d8e2ec;border-radius:14px;padding:30px;box-shadow:0 18px 44px rgba(22,34,45,.10)"><h1 style="margin:0 0 12px;color:${ok ? "#0f766e" : "#a11d1d"}">${escapeHtml(title)}</h1><p style="font-size:17px;line-height:1.55">${escapeHtml(message)}</p><a href="https://wa.me/5527981267551?text=Ola%2C%20preciso%20liberar%20um%20teste%20do%20Balcao%20Livre%20PDV." style="display:inline-flex;margin-top:10px;padding:12px 16px;border-radius:8px;background:#0f766e;color:white;text-decoration:none;font-weight:800">Falar no WhatsApp</a></main></body></html>`, {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, max-age=0" },
+  });
+}
+
+function escapeHtml(value: unknown) {
+  return stringValue(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function messageFromError(error: unknown) {

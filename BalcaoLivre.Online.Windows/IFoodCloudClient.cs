@@ -9,7 +9,8 @@ public sealed class IFoodCloudClient
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        Converters = { new EmptyStringNullableDateTimeConverter() }
     };
 
     private readonly HttpClient _httpClient = new()
@@ -73,6 +74,18 @@ public sealed class IFoodCloudClient
         return await PostAsync<IFoodCloudStockSyncResponse>(
             backendUrl,
             "stock/sync",
+            request,
+            cancellationToken);
+    }
+
+    public async Task<IFoodCloudCatalogSyncResponse> SyncCatalogAsync(
+        string backendUrl,
+        IFoodCloudCatalogSyncRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return await PostAsync<IFoodCloudCatalogSyncResponse>(
+            backendUrl,
+            "catalog/sync",
             request,
             cancellationToken);
     }
@@ -235,6 +248,11 @@ public sealed class IFoodCloudStockSyncRequest : IFoodCloudStoreContext
     public string Reason { get; set; } = "";
 }
 
+public sealed class IFoodCloudCatalogSyncRequest : IFoodCloudStoreContext
+{
+    public string ConnectionId { get; set; } = "";
+}
+
 public sealed class IFoodCloudStartResponse
 {
     public bool Ok { get; set; }
@@ -285,4 +303,25 @@ public sealed class IFoodCloudStockSyncResponse
     public string ExternalCode { get; set; } = "";
     public int Amount { get; set; }
     public string Mode { get; set; } = "";
+}
+
+public sealed class IFoodCloudCatalogSyncResponse
+{
+    public bool Ok { get; set; }
+    public string Message { get; set; } = "";
+    public DateTime? SyncedAt { get; set; }
+    public List<IFoodCatalogProduct> Products { get; set; } = [];
+    public List<string> Warnings { get; set; } = [];
+}
+
+public sealed class IFoodCatalogProduct
+{
+    public string ProductId { get; set; } = "";
+    public string ItemId { get; set; } = "";
+    public string ExternalCode { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Category { get; set; } = "";
+    public decimal Price { get; set; }
+    public decimal? StockQuantity { get; set; }
+    public bool? IsAvailable { get; set; }
 }

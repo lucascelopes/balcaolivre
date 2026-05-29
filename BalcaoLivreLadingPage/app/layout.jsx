@@ -5,7 +5,9 @@ export const metadata = {
   description:
     "Balcão Livre PDV para restaurantes, bares e lanchonetes. Mesas, balcão, delivery, Pix, estoque, relatórios e impressão pela impressora do Windows.",
   icons: {
-    icon: "/balcao-livre-icon.png"
+    icon: "/brand/bl-modern-icon.png",
+    shortcut: "/brand/bl-modern-icon.png",
+    apple: "/brand/bl-modern-icon.png"
   }
 };
 

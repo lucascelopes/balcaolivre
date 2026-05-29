@@ -197,12 +197,16 @@ export default function CashierDemo() {
     <section className="appDemo cashierDemoSection" aria-label="Teste do caixa do Balcao Livre PDV">
       <div className="sectionIntro">
         <p className="eyebrow">Teste o caixa</p>
-        <h2>Clique nos produtos ou digite o codigo para simular uma venda.</h2>
+        <h2>Teste uma venda no PDV</h2>
         <p>
-          Esta demo mostra o fluxo que o restaurante usa no dia a dia: lancar
-          item, agrupar quantidade, ver total, informar dinheiro recebido e
-          calcular troco.
+          Clique em um produto ou digite um codigo. Depois escolha Pix,
+          credito ou dinheiro e finalize para ver o comprovante.
         </p>
+        <div className="demoIntroSteps" aria-label="Passos da demonstracao">
+          <span>1. Inclua produto</span>
+          <span>2. Escolha pagamento</span>
+          <span>3. Finalize a venda</span>
+        </div>
       </div>
 
       <div className="cashierDemo">

@@ -1,5 +1,11 @@
+export const licenseFunctionUrl =
+  "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/trial-download";
+
 export const downloadUrl =
-  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe";
+  `${licenseFunctionUrl}?plan=offline`;
+
+export const onlineDownloadUrl =
+  `${licenseFunctionUrl}?plan=online`;
 
 export const sellers = [
   {

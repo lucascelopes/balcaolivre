@@ -12,7 +12,7 @@ let realtimeSource = null;
 let realtimeFallbackTimer = null;
 let refreshAllQueued = null;
 let lastSupportCustomerMessageAt = "";
-const supportPollMs = 30000;
+const supportPollMs = 5000;
 const realtimeFallbackPollMs = 10000;
 
 const qs = (selector) => document.querySelector(selector);
@@ -102,7 +102,7 @@ function setView(view) {
   const titles = {
     dashboard: ["Dashboard", "Uso do programa, chaves e clientes ativos."],
     licenses: ["Licencas", "Chaves criadas, status, maquina vinculada e vencimento."],
-    support: ["Suporte", "Conversas do PDV por consulta economica."],
+    support: ["Suporte", "Conversas em tempo real entre o PDV e os admins."],
     devices: ["Clientes", "Dados cadastrais sincronizados pelo Balcao Livre PDV."],
     keys: ["Criar chave", "Gere uma licenca unica por periodo."]
   };
@@ -328,7 +328,7 @@ function renderSupport() {
     const haystack = `${item.shortId} ${item.licenseKey} ${item.customerName} ${item.businessName} ${item.ownerName} ${item.phone} ${item.machineCode} ${item.message}`.toLowerCase();
     return !query || haystack.includes(query);
   });
-  qs("#supportLiveBadge").textContent = `${rows.length} chamado(s) - tempo real + reserva ${supportPollMs / 1000}s`;
+  qs("#supportLiveBadge").textContent = `${rows.length} chamado(s) - tempo real ligado`;
   target.innerHTML = rows.length
     ? rows.map((item) => supportCard(item)).join("")
     : `<div class="device-card">Nenhum suporte aberto.</div>`;

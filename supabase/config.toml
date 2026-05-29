@@ -5,3 +5,18 @@ verify_jwt = false
 
 [functions.whatsapp]
 verify_jwt = false
+
+[functions.license]
+verify_jwt = false
+
+[functions.trial-download]
+verify_jwt = false
+
+[functions.payments]
+verify_jwt = false
+
+[functions.pagbank]
+verify_jwt = false
+
+[functions.checkout]
+verify_jwt = false

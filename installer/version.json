@@ -1,7 +1,7 @@
 {
-  "version": "1.0.2026",
-  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe",
-  "notes": "Instalador do Balcao Livre PDV Online com atendimento WhatsApp, estoque integrado, iFood e sincronizacao central.",
+  "version": "1.6.2026",
+  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.6.2026.exe",
+  "notes": "Balcao Livre PDV Online 1.6.2026. Melhorias no estoque, backup, QR de pagamento Mercado Pago, comprovante com QR e ajustes gerais do PDV Online.",
   "required": false,
-  "publishedAt": "2026-05-26T00:00:00-03:00"
+  "publishedAt": "2026-05-29T00:00:00-03:00"
 }

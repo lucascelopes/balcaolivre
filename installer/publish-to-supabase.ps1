@@ -2,7 +2,7 @@ param(
     [string]$SupabaseUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co",
     [string]$ServiceRoleKey = $env:SUPABASE_SERVICE_ROLE_KEY,
     [string]$Bucket = "balcao-livre-updates",
-    [string]$Version = "1.0.2026"
+    [string]$Version = "1.6.2026"
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,7 +12,7 @@ if ([string]::IsNullOrWhiteSpace($ServiceRoleKey)) {
 }
 
 $root = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")
-$installer = Join-Path $root "dist\BalcaoLivrePDV-Setup-$Version.exe"
+$installer = Join-Path $root "dist\BalcaoLivrePDVOnline-Setup-$Version.exe"
 $manifest = Join-Path $PSScriptRoot "version.json"
 
 if (-not (Test-Path -LiteralPath $installer)) {
@@ -73,10 +73,10 @@ function Send-StorageObject {
     Write-Host "Publicado: $ObjectPath"
 }
 
-Send-StorageObject -FilePath $installer -ObjectPath "windows/BalcaoLivrePDV-Setup-$Version.exe" -ContentType "application/vnd.microsoft.portable-executable"
+Send-StorageObject -FilePath $installer -ObjectPath "windows-online/BalcaoLivrePDVOnline-Setup-$Version.exe" -ContentType "application/vnd.microsoft.portable-executable"
 
 # Publique o manifesto por ultimo para o app nunca enxergar uma versao sem instalador disponivel.
-Send-StorageObject -FilePath $manifest -ObjectPath "windows/version.json" -ContentType "application/json"
+Send-StorageObject -FilePath $manifest -ObjectPath "windows-online/version.json" -ContentType "application/json"
 
 Write-Host "URL do manifesto:"
-Write-Host "$SupabaseUrl/storage/v1/object/public/$Bucket/windows/version.json"
+Write-Host "$SupabaseUrl/storage/v1/object/public/$Bucket/windows-online/version.json"
