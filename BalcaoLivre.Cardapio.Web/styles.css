@@ -3519,3 +3519,290 @@ h1 {
 .loyalty-card[hidden] {
   display: none !important;
 }
+
+.action-link {
+  font-family: inherit !important;
+  cursor: pointer;
+}
+
+.action-link span {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  line-height: 1.1;
+}
+
+.action-link span b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.action-link span small {
+  min-width: 0;
+  color: currentColor;
+  opacity: .72;
+  font-size: 11px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.address-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  padding: 18px;
+  background: rgba(8, 18, 28, .46);
+  display: grid;
+  place-items: center;
+}
+
+.address-overlay[hidden] {
+  display: none !important;
+}
+
+.address-panel {
+  width: min(650px, 100%);
+  max-height: min(760px, calc(100vh - 28px));
+  overflow: auto;
+  border: 1px solid rgba(96, 114, 132, .18);
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 30px 80px rgba(8, 18, 28, .30);
+}
+
+.address-head {
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid rgba(96, 114, 132, .16);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.address-head h2 {
+  margin: 2px 0 0;
+  color: #17212b;
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+#addressPanelBody {
+  padding: 18px 20px 22px;
+  display: grid;
+  gap: 16px;
+}
+
+.address-map-wrap {
+  position: relative;
+  overflow: hidden;
+  min-height: 270px;
+  border: 1px solid rgba(96, 114, 132, .18);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(15, 118, 110, .12) 0 22%, transparent 23%),
+    #eef4f7;
+}
+
+.address-map {
+  width: 100%;
+  height: 310px;
+  border: 0;
+  display: block;
+  filter: saturate(.9) contrast(.96);
+}
+
+.delivery-radius-preview {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+}
+
+.delivery-radius-preview span {
+  width: min(260px, 62%);
+  aspect-ratio: 1;
+  border: 2px solid rgba(15, 118, 110, .75);
+  border-radius: 50%;
+  background: rgba(15, 118, 110, .12);
+  box-shadow: 0 0 0 18px rgba(15, 118, 110, .05);
+}
+
+.delivery-radius-preview b {
+  position: absolute;
+  left: 50%;
+  top: calc(50% - 22px);
+  transform: translate(-50%, -100%);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--accent);
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 950;
+  box-shadow: 0 10px 24px rgba(23, 33, 43, .16);
+}
+
+.address-summary {
+  border: 1px solid rgba(96, 114, 132, .16);
+  border-radius: 18px;
+  background: #f7fafb;
+  padding: 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.address-summary strong {
+  color: #17212b;
+  font-size: 19px;
+}
+
+.address-summary p,
+.address-summary span {
+  margin: 0;
+  color: #607284;
+  line-height: 1.4;
+}
+
+.address-summary span {
+  color: var(--accent);
+  font-weight: 900;
+}
+
+.map-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.map-actions .action-link {
+  min-height: 48px;
+}
+
+@media (max-width: 560px) {
+  .address-overlay {
+    padding: 10px;
+    align-items: end;
+  }
+
+  .address-panel {
+    border-radius: 22px 22px 0 0;
+    max-height: calc(100vh - 20px);
+  }
+
+  .address-map {
+    height: 260px;
+  }
+
+  .map-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+#pageDiscounts.app-page {
+  min-height: auto !important;
+  padding: 18px 18px 104px !important;
+}
+
+.discount-hero {
+  margin: 0 auto 14px !important;
+  padding: 22px 22px 20px !important;
+  max-width: 690px !important;
+  border: 1px solid rgba(96, 114, 132, .18) !important;
+  border-radius: 22px !important;
+  background: #fff !important;
+  color: #17212b !important;
+  box-shadow: 0 16px 36px rgba(23, 33, 43, .08) !important;
+  text-align: left !important;
+  gap: 16px !important;
+}
+
+.discount-hero h2 {
+  color: #17212b !important;
+  font-size: clamp(27px, 5vw, 34px) !important;
+  line-height: 1.05 !important;
+}
+
+.discount-subtitle {
+  margin: -6px 0 0;
+  max-width: 460px;
+  color: #607284;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+#discountList.simple-list {
+  max-width: 690px;
+  margin: 0 auto;
+}
+
+.discount-empty-card,
+.discount-card {
+  border: 1px solid rgba(96, 114, 132, .18) !important;
+  border-radius: 20px !important;
+  background: #fff !important;
+  box-shadow: 0 16px 36px rgba(23, 33, 43, .07) !important;
+}
+
+.discount-empty-card {
+  min-height: 132px;
+  padding: 22px;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+}
+
+.discount-empty-card .coupon-icon,
+.discount-card .coupon-icon {
+  width: 58px !important;
+  height: 58px !important;
+  min-height: 58px !important;
+  border-radius: 18px;
+  display: inline-grid;
+  place-items: center;
+  background: #e8f5f2 !important;
+  color: var(--accent) !important;
+  font-size: 28px;
+  font-weight: 950;
+}
+
+.discount-empty-card strong {
+  display: block;
+  color: #17212b;
+  font-size: 23px;
+  line-height: 1.15;
+}
+
+.discount-empty-card .muted,
+.discount-card .muted {
+  margin: 8px 0 0;
+  color: #607284;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.loyalty-card {
+  border-color: rgba(15, 118, 110, .22) !important;
+  background: #f6fbfa !important;
+  color: #17212b !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 520px) {
+  #pageDiscounts.app-page {
+    padding: 14px 12px 98px !important;
+  }
+
+  .discount-hero {
+    padding: 20px 18px !important;
+    border-radius: 20px !important;
+  }
+
+  .discount-empty-card {
+    grid-template-columns: 1fr;
+    align-items: start;
+    padding: 20px;
+  }
+}

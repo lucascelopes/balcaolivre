@@ -141,8 +141,30 @@ function phoneDigits(value) {
   return String(value || "").replace(/\D/g, "");
 }
 
+function formatPhone(value) {
+  let digits = phoneDigits(value);
+  if (digits.startsWith("55") && digits.length > 11) digits = digits.slice(2);
+  if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  if (digits.length === 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  return String(value || "").trim();
+}
+
+function menuAddress(menu = currentMenu) {
+  return [menu?.address, menu?.city, menu?.state].filter(Boolean).join(", ");
+}
+
+function mapLinks(address) {
+  const query = encodeURIComponent(address);
+  return {
+    embed: `https://www.google.com/maps?q=${query}&output=embed`,
+    google: `https://www.google.com/maps/dir/?api=1&destination=${query}`,
+    waze: `https://waze.com/ul?q=${query}&navigate=yes`,
+    apple: `https://maps.apple.com/?q=${query}`
+  };
+}
+
 function formatInfo(menu) {
-  const location = [menu.address, menu.city, menu.state].filter(Boolean).join(", ");
+  const location = menuAddress(menu);
   return [menu.description, menu.phone, location]
     .filter(Boolean)
     .join(" - ");
@@ -418,17 +440,83 @@ function renderActions(menu) {
   const links = [];
   if (digits.length >= 10) {
     const whatsappDigits = digits.startsWith("55") ? digits : `55${digits}`;
-    links.push(`<a class="action-link primary" href="https://wa.me/${whatsappDigits}" target="_blank" rel="noopener">${iconSvg("whatsapp")}<span>WhatsApp</span></a>`);
-    links.push(`<a class="action-link" href="tel:+${whatsappDigits}">${iconSvg("phone")}<span>Ligar</span></a>`);
+    const displayPhone = formatPhone(menu.phone);
+    const whatsappText = encodeURIComponent(`Ola, vim pelo cardapio digital da ${menu.name || "loja"}.`);
+    links.push(`<a class="action-link primary" href="https://wa.me/${whatsappDigits}?text=${whatsappText}" target="_blank" rel="noopener">${iconSvg("whatsapp")}<span><b>WhatsApp</b><small>${escapeHtml(displayPhone)}</small></span></a>`);
+    links.push(`<a class="action-link" href="tel:+${whatsappDigits}">${iconSvg("phone")}<span><b>Ligar</b><small>${escapeHtml(displayPhone)}</small></span></a>`);
   }
 
-  const address = [menu.address, menu.city, menu.state].filter(Boolean).join(", ");
+  const address = menuAddress(menu);
   if (address) {
-    links.push(`<a class="action-link" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}" target="_blank" rel="noopener">${iconSvg("map")}<span>Endereco</span></a>`);
+    links.push(`<button type="button" class="action-link" data-open-address>${iconSvg("map")}<span><b>Endereco</b><small>${escapeHtml(address)}</small></span></button>`);
   }
 
   actions.innerHTML = links.join("");
   actions.hidden = links.length === 0;
+}
+
+function renderAddressModal() {
+  const body = qs("#addressPanelBody");
+  if (!body || !currentMenu) return;
+  const address = menuAddress(currentMenu);
+  if (!address) return;
+  const links = mapLinks(address);
+  body.innerHTML = `
+    <div class="address-map-wrap">
+      <iframe class="address-map" title="Mapa da loja" src="${links.embed}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+      <div class="delivery-radius-preview" aria-hidden="true">
+        <span></span>
+        <b>Raio</b>
+      </div>
+    </div>
+    <div class="address-summary">
+      <strong>${escapeHtml(currentMenu.name || "Loja")}</strong>
+      <p>${escapeHtml(address)}</p>
+    </div>
+    <div class="map-actions">
+      <a class="action-link primary" href="${links.waze}" target="_blank" rel="noopener">Abrir no Waze</a>
+      <a class="action-link" href="${links.google}" target="_blank" rel="noopener">Google Maps</a>
+      <a class="action-link" href="${links.apple}" target="_blank" rel="noopener">Maps iOS</a>
+    </div>
+  `;
+}
+
+function openAddressModal() {
+  renderAddressModal();
+  const overlay = qs("#addressOverlay");
+  if (overlay) overlay.hidden = false;
+}
+
+function renderInfoModal() {
+  const body = qs("#infoPanelBody");
+  if (!body || !currentMenu) return;
+  const address = menuAddress(currentMenu);
+  const digits = phoneDigits(currentMenu.phone);
+  const whatsappDigits = digits.length >= 10 ? (digits.startsWith("55") ? digits : `55${digits}`) : "";
+  const whatsappText = encodeURIComponent(`Ola, vim pelo cardapio digital da ${currentMenu.name || "loja"}.`);
+  const displayPhone = formatPhone(currentMenu.phone);
+  body.innerHTML = `
+    <div class="info-restaurant-card">
+      <strong>${escapeHtml(currentMenu.name || "Restaurante")}</strong>
+      <p>${escapeHtml(currentMenu.description || "Cardapio digital publicado pelo Balcao Livre PDV.")}</p>
+    </div>
+    <div class="info-list">
+      ${displayPhone ? `<div>${iconSvg("phone")}<span><b>Telefone</b><small>${escapeHtml(displayPhone)}</small></span></div>` : ""}
+      ${address ? `<div>${iconSvg("map")}<span><b>Endereco</b><small>${escapeHtml(address)}</small></span></div>` : ""}
+      <div>${iconSvg("store")}<span><b>Status</b><small>${currentMenu.store_open === false ? "Loja pausada no momento" : "Cardapio disponivel"}</small></span></div>
+    </div>
+    <div class="map-actions">
+      ${whatsappDigits ? `<a class="action-link primary" href="https://wa.me/${whatsappDigits}?text=${whatsappText}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
+      ${whatsappDigits ? `<a class="action-link" href="tel:+${whatsappDigits}">Ligar</a>` : ""}
+      ${address ? `<button type="button" class="action-link" data-open-address>Ver mapa</button>` : ""}
+    </div>
+  `;
+}
+
+function openInfoModal() {
+  renderInfoModal();
+  const overlay = qs("#infoOverlay");
+  if (overlay) overlay.hidden = false;
 }
 
 function renderCouponCard(menu) {
@@ -639,11 +727,11 @@ function renderMenu(menu, items) {
   const isOpen = menu.store_open !== false;
   const openText = qs("#storeOpenText");
   if (openText) {
-    openText.innerHTML = `${iconSvg("store", "status-icon")}<b class="dot"></b> ${isOpen ? "Loja aberta" : "Loja fechada"}`;
+    openText.innerHTML = `${iconSvg("store", "status-icon")}<b class="dot"></b> ${isOpen ? "Cardapio disponivel" : "Loja pausada"}`;
     openText.classList.toggle("closed", !isOpen);
   }
   const waitText = qs("#waitTimeText");
-  if (waitText) waitText.textContent = waitTimeText(menu);
+  if (waitText) waitText.textContent = "Atendimento da loja";
   renderActions(menu);
   renderCouponCard(menu);
   renderFeatured(items);
@@ -1028,10 +1116,11 @@ function renderDiscounts() {
   }
 
   host.innerHTML = cards.length ? cards.join("") : `
-    <article class="discount-card">
+    <article class="discount-empty-card">
+      <span class="coupon-icon">%</span>
       <div>
-        <strong>Nenhum desconto ativo</strong>
-        <p class="muted">Quando a loja liberar um cupom, ele aparece aqui.</p>
+        <strong>Sem ofertas no momento</strong>
+        <p class="muted">Quando a loja criar um cupom ou fidelidade no sistema, a oferta aparece aqui automaticamente.</p>
       </div>
     </article>
   `;
@@ -1157,6 +1246,28 @@ document.addEventListener("click", (event) => {
 
   if (event.target.closest("[data-close-cart]")) {
     qs("#checkoutOverlay").hidden = true;
+    return;
+  }
+
+  if (event.target.closest("[data-open-address]")) {
+    const infoOverlay = qs("#infoOverlay");
+    if (infoOverlay) infoOverlay.hidden = true;
+    openAddressModal();
+    return;
+  }
+
+  if (event.target.closest("[data-close-address]") || event.target.id === "addressOverlay") {
+    qs("#addressOverlay").hidden = true;
+    return;
+  }
+
+  if (event.target.closest("[data-open-info]")) {
+    openInfoModal();
+    return;
+  }
+
+  if (event.target.closest("[data-close-info]") || event.target.id === "infoOverlay") {
+    qs("#infoOverlay").hidden = true;
     return;
   }
 

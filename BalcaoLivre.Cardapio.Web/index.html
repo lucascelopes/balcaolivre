@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0f766e">
   <title>Cardapio Digital</title>
-  <link rel="stylesheet" href="./styles.css?v=discount-tab2">
+  <link rel="stylesheet" href="./styles.css?v=info-modal1">
   <script src="./config.js"></script>
 </head>
 <body>
@@ -33,8 +33,8 @@
 
     <section class="store-strip" aria-label="Status da loja">
       <span id="storeOpenText"><b class="dot"></b> Loja aberta</span>
-      <span id="waitTimeText">30 a 60 min</span>
-      <button type="button" data-nav-page="profile">
+      <span id="waitTimeText">Atendimento da loja</span>
+      <button type="button" data-open-info>
         <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></svg>
         Info
       </button>
@@ -86,7 +86,8 @@
 
     <section id="pageDiscounts" class="app-page" data-page-panel="discounts">
       <header class="discount-hero">
-        <h2>Descontos</h2>
+        <h2>Ofertas da loja</h2>
+        <p class="discount-subtitle">Cupons e fidelidade aparecem aqui quando forem liberados no PDV.</p>
         <div class="loyalty-card" hidden>
           <div>
             <strong>Fidelidade</strong>
@@ -147,6 +148,32 @@
       </div>
     </aside>
 
+    <aside id="addressOverlay" class="address-overlay" hidden>
+      <div class="address-panel" role="dialog" aria-modal="true" aria-labelledby="addressTitle">
+        <div class="address-head">
+          <div>
+            <p class="eyebrow">Localizacao</p>
+            <h2 id="addressTitle">Endereco da loja</h2>
+          </div>
+          <button type="button" class="icon-button" data-close-address aria-label="Fechar">X</button>
+        </div>
+        <div id="addressPanelBody"></div>
+      </div>
+    </aside>
+
+    <aside id="infoOverlay" class="address-overlay info-overlay" hidden>
+      <div class="address-panel info-panel" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
+        <div class="address-head">
+          <div>
+            <p class="eyebrow">Restaurante</p>
+            <h2 id="infoTitle">Informacoes da loja</h2>
+          </div>
+          <button type="button" class="icon-button" data-close-info aria-label="Fechar">X</button>
+        </div>
+        <div id="infoPanelBody"></div>
+      </div>
+    </aside>
+
     <nav class="bottom-nav" aria-label="Menu principal">
       <button type="button" class="active" data-nav-page="home">
         <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg></span>
@@ -167,6 +194,6 @@
     </nav>
   </main>
 
-  <script type="module" src="./app.js?v=discount-tab2"></script>
+  <script type="module" src="./app.js?v=info-modal1"></script>
 </body>
 </html>
