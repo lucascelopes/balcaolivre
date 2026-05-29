@@ -3680,6 +3680,71 @@ h1 {
   min-height: 48px;
 }
 
+.info-panel {
+  width: min(560px, 100%);
+}
+
+#infoPanelBody {
+  padding: 18px 20px 22px;
+  display: grid;
+  gap: 14px;
+}
+
+.info-restaurant-card {
+  border: 1px solid rgba(96, 114, 132, .16);
+  border-radius: 18px;
+  background: #f7fafb;
+  padding: 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.info-restaurant-card strong {
+  color: #17212b;
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.info-restaurant-card p {
+  margin: 0;
+  color: #607284;
+  line-height: 1.45;
+}
+
+.info-list {
+  display: grid;
+  gap: 10px;
+}
+
+.info-list > div {
+  border: 1px solid rgba(96, 114, 132, .16);
+  border-radius: 16px;
+  background: #fff;
+  padding: 13px 14px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.info-list b,
+.info-list small {
+  display: block;
+}
+
+.info-list b {
+  color: #17212b;
+  font-size: 15px;
+}
+
+.info-list small {
+  margin-top: 2px;
+  color: #607284;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 560px) {
   .address-overlay {
     padding: 10px;

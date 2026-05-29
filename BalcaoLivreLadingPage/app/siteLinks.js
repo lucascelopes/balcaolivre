@@ -7,6 +7,9 @@ export const downloadUrl =
 export const onlineDownloadUrl =
   `${licenseFunctionUrl}?plan=online`;
 
+export const checkoutFunctionUrl =
+  "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout";
+
 export const sellers = [
   {
     name: "Wender",

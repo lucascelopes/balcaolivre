@@ -1,7 +1,7 @@
 import CashierDemo from "./CashierDemo";
 import PaymentSuccess from "./PaymentSuccess";
 import SiteHeader from "./SiteHeader";
-import { downloadUrl, onlineDownloadUrl, sellers } from "./siteLinks";
+import { checkoutFunctionUrl, downloadUrl, onlineDownloadUrl, sellers } from "./siteLinks";
 
 const modules = [
   ["01", "Caixa e pagamentos", "Venda por codigo, quantidade, desconto, Pix, dinheiro, credito, debito e troco calculado."],
@@ -349,11 +349,11 @@ export default function Page({ searchParams }) {
                 <a className="lpPlanButton" href={sellers[0].href}>Consultar no WhatsApp</a>
               ) : (
                 <div className="lpPlanActions">
-                  <form action="/api/checkout" method="post">
+                  <form action={checkoutFunctionUrl} method="post">
                     <input type="hidden" name="plan" value={`${plan.id}-mensal`} />
                     <button className="lpPlanButton" type="submit">Comprar mensal</button>
                   </form>
-                  <form action="/api/checkout" method="post">
+                  <form action={checkoutFunctionUrl} method="post">
                     <input type="hidden" name="plan" value={`${plan.id}-anual`} />
                     <button className="lpPlanButton lpPlanButtonSecondary" type="submit">Comprar anual</button>
                   </form>

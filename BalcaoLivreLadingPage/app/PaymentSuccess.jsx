@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { checkoutFunctionUrl } from "./siteLinks";
 
 export default function PaymentSuccess({ sessionId }) {
   const [state, setState] = useState({ loading: true, data: null, error: "" });
@@ -10,7 +11,7 @@ export default function PaymentSuccess({ sessionId }) {
 
     async function load() {
       try {
-        const response = await fetch(`/api/checkout/status?session_id=${encodeURIComponent(sessionId)}`, {
+        const response = await fetch(`${checkoutFunctionUrl}/status?session_id=${encodeURIComponent(sessionId)}`, {
           cache: "no-store"
         });
         const data = await response.json();

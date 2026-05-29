@@ -355,8 +355,8 @@
               <li>Licenca por computador com instalador Windows</li>
             </ul>
             <div class="lpPlanActions">
-              <a class="lpPlanButton" href="#" data-preview-checkout="offline-mensal">Comprar mensal</a>
-              <a class="lpPlanButton lpPlanButtonSecondary" href="#" data-preview-checkout="offline-anual">Comprar anual</a>
+              <a class="lpPlanButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=offline-mensal">Comprar mensal</a>
+              <a class="lpPlanButton lpPlanButtonSecondary" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=offline-anual">Comprar anual</a>
             </div>
           </article>
 
@@ -380,8 +380,8 @@
               <li>iFood e Mercado Pago conforme escopo</li>
             </ul>
             <div class="lpPlanActions">
-              <a class="lpPlanButton" href="#" data-preview-checkout="online-mensal">Comprar mensal</a>
-              <a class="lpPlanButton lpPlanButtonSecondary" href="#" data-preview-checkout="online-anual">Comprar anual</a>
+              <a class="lpPlanButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=online-mensal">Comprar mensal</a>
+              <a class="lpPlanButton lpPlanButtonSecondary" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=online-anual">Comprar anual</a>
             </div>
           </article>
 
@@ -405,8 +405,8 @@
               <li>Inclui atendimento e pedidos pelo WhatsApp</li>
             </ul>
             <div class="lpPlanActions">
-              <a class="lpPlanButton" href="#" data-preview-checkout="complete-mensal">Comprar mensal</a>
-              <a class="lpPlanButton lpPlanButtonSecondary" href="#" data-preview-checkout="complete-anual">Comprar anual</a>
+              <a class="lpPlanButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=complete-mensal">Comprar mensal</a>
+              <a class="lpPlanButton lpPlanButtonSecondary" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=complete-anual">Comprar anual</a>
             </div>
           </article>
 
@@ -521,6 +521,15 @@
     </main>
     <script>
       (() => {
+        const checkoutFunctionUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout";
+        const checkoutParams = new URLSearchParams(window.location.search);
+        const checkoutSessionId = checkoutParams.get("session_id") || "";
+
+        if (checkoutParams.get("checkout") === "sucesso" && checkoutSessionId) {
+          renderPaymentSuccess(checkoutSessionId);
+          return;
+        }
+
         const products = [
           { code: "000001", name: "COCA COLA", group: "BEBIDAS", price: 6, stock: 18 },
           { code: "000002", name: "COXINHA DE CATUPIRY", group: "SALGADOS", price: 4, stock: 10 },
@@ -539,13 +548,6 @@
           const parsed = Number.parseFloat(String(value).replace(/\./g, "").replace(",", "."));
           return Number.isFinite(parsed) ? parsed : 0;
         };
-
-        document.querySelectorAll("[data-preview-checkout]").forEach((link) => {
-          link.addEventListener("click", (event) => {
-            event.preventDefault();
-            alert("No site publicado, este botao abre o checkout seguro da Stripe. Para comprar agora, chame Wender ou Lucas no WhatsApp.");
-          });
-        });
 
         if (!root) return;
 
@@ -738,6 +740,73 @@
         });
         receivedInput.addEventListener("input", render);
         render();
+
+        async function renderPaymentSuccess(sessionId) {
+          const main = document.querySelector(".lpPage");
+          if (!main) return;
+
+          main.innerHTML = `
+            <section class="paymentSuccessShell" aria-live="polite">
+              <article class="paymentSuccessCard">
+                <span class="paymentSuccessMark">Pago</span>
+                <h1>Confirmando pagamento</h1>
+                <p>Gerando sua chave e salvando a compra no sistema...</p>
+                <a href="/" class="lpPlanButton paymentSuccessBack">Voltar para a pagina inicial</a>
+              </article>
+            </section>
+          `;
+
+          const card = main.querySelector(".paymentSuccessCard");
+          try {
+            const response = await fetch(`${checkoutFunctionUrl}/status?session_id=${encodeURIComponent(sessionId)}`, {
+              cache: "no-store"
+            });
+            const data = await response.json();
+
+            if (!response.ok || !data.ok || !data.license) {
+              card.innerHTML = `
+                <span class="paymentSuccessMark">Aguardando</span>
+                <h1>Pagamento em processamento</h1>
+                <p>${data.message || "Se o pagamento acabou de ser feito, aguarde alguns segundos e atualize esta pagina."}</p>
+                <a href="${window.location.href}" class="lpPlanButton paymentSuccessBack">Atualizar</a>
+                <a href="/" class="lpPlanButton lpPlanButtonSecondary paymentSuccessBack">Voltar</a>
+              `;
+              return;
+            }
+
+            const expiresAt = data.license.expiresAt
+              ? new Date(data.license.expiresAt).toLocaleDateString("pt-BR")
+              : "-";
+            card.innerHTML = `
+              <span class="paymentSuccessMark">Pago</span>
+              <h1>Pagamento confirmado</h1>
+              <p>Sua compra foi registrada e a chave abaixo ja ficou salva no banco de dados.</p>
+              <div class="paymentLicenseBox">
+                <span>Chave de ativacao</span>
+                <strong>${data.license.key || "-"}</strong>
+              </div>
+              <dl class="paymentLicenseMeta">
+                <div>
+                  <dt>Plano</dt>
+                  <dd>${data.license.plan || "-"}</dd>
+                </div>
+                <div>
+                  <dt>Validade</dt>
+                  <dd>${expiresAt}</dd>
+                </div>
+              </dl>
+              <a href="/" class="lpPlanButton paymentSuccessBack">Voltar para a pagina inicial</a>
+            `;
+          } catch {
+            card.innerHTML = `
+              <span class="paymentSuccessMark">Erro</span>
+              <h1>Nao foi possivel carregar a chave</h1>
+              <p>Se o pagamento acabou de ser feito, aguarde alguns segundos e atualize esta pagina.</p>
+              <a href="${window.location.href}" class="lpPlanButton paymentSuccessBack">Atualizar</a>
+              <a href="/" class="lpPlanButton lpPlanButtonSecondary paymentSuccessBack">Voltar</a>
+            `;
+          }
+        }
       })();
     </script>
   </body>
