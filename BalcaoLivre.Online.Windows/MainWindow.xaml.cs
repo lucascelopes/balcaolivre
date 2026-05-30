@@ -2337,7 +2337,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var dialog = CreateDialog("Novo pedido do cardapio", 820, 660);
+        var dialog = CreateDialog("Novo pedido do cardapio", 900, 720);
         dialog.ResizeMode = ResizeMode.NoResize;
         dialog.Topmost = true;
         dialog.Loaded += (_, _) =>
@@ -2350,11 +2350,11 @@ public partial class MainWindow : Window
         var statusText = new TextBlock
         {
             Text = $"Status: {order.Status} | Tipo: {PublicMenuOrderTypeLabel(order.ExternalOrderType)}",
-            Foreground = Solid("#5B6B7A"),
+            Foreground = Solid("#D8E9EF"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
-            TextAlignment = TextAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Left,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 6, 0, 0)
         };
         var actionMessage = new TextBlock
@@ -2365,7 +2365,7 @@ public partial class MainWindow : Window
             Foreground = Solid("#08A99B"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 10, 0, 0)
+            Margin = new Thickness(0)
         };
 
         void SetOrderStatus(string status, string message)
@@ -2407,56 +2407,24 @@ public partial class MainWindow : Window
             button.Margin = new Thickness(0, 0, 10, 10);
         }
 
-        var header = new Border
-        {
-            Background = Solid("#E6FBF8"),
-            BorderBrush = Solid("#08A99B"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(18, 16, 18, 16),
-            Child = new StackPanel
-            {
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Children =
-                {
-                    new TextBlock
-                    {
-                        Text = "NOVO PEDIDO DO CARDAPIO",
-                        Foreground = Solid("#08A99B"),
-                        FontSize = 30,
-                        FontWeight = FontWeights.Bold,
-                        TextAlignment = TextAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Center
-                    },
-                    new TextBlock
-                    {
-                        Text = $"{order.Number}  |  {order.CustomerName}  |  {Money(order.Total)}",
-                        Foreground = Solid("#071A2C"),
-                        FontSize = 17,
-                        FontWeight = FontWeights.SemiBold,
-                        TextAlignment = TextAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        Margin = new Thickness(0, 8, 0, 0)
-                    },
-                    statusText
-                }
-            }
-        };
+        var header = OrderAlertHero(
+            "Cardapio online",
+            batchCount > 1 ? $"{batchCount} pedidos recebidos" : "Novo pedido",
+            EmptyDash(order.ExternalDisplayId),
+            order.CustomerName,
+            Money(order.Total),
+            "#08A99B",
+            "Pedido caiu direto no Delivery. Avance o status para o cliente acompanhar no cardapio.",
+            statusText);
 
-        var items = new ListBox
-        {
-            ItemsSource = order.Lines
-                .Where(line => !string.Equals(line.Code, "WEB-TOTAL", StringComparison.OrdinalIgnoreCase))
-                .Select(line =>
-                {
-                    var note = string.IsNullOrWhiteSpace(line.Note) ? "" : $" | Obs item: {line.Note.Trim()}";
-                    return $"{line.Quantity:N0}x {line.Name}   {Money(line.Total)}{note}";
-                })
-                .ToList(),
-            MinHeight = 120,
-            MaxHeight = 170,
-            Margin = new Thickness(0, 8, 0, 0)
-        };
+        var itemLines = order.Lines
+            .Where(line => !string.Equals(line.Code, "WEB-TOTAL", StringComparison.OrdinalIgnoreCase))
+            .Select(line =>
+            {
+                var note = string.IsNullOrWhiteSpace(line.Note) ? "" : $" | Obs item: {line.Note.Trim()}";
+                return $"{line.Quantity:N0}x {line.Name}   {Money(line.Total)}{note}";
+            })
+            .ToList();
 
         var details = BorderCard();
         details.Margin = new Thickness(0, 12, 0, 0);
@@ -2465,13 +2433,15 @@ public partial class MainWindow : Window
             Children =
             {
                 SectionTitle("Dados do pedido"),
-                new TextBlock { Text = $"Pedido online: {EmptyDash(order.ExternalDisplayId)} | ID: {EmptyDash(order.ExternalOrderId)}", Foreground = Solid("#071A2C"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Cliente: {order.CustomerName}", Foreground = Solid("#071A2C"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Contato: {EmptyDash(order.Phone)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Endereco: {EmptyDash(order.Address)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Bairro/referencia: {EmptyDash(order.District)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Obs: {EmptyDash(order.Notes)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 4, 0, 8), TextWrapping = TextWrapping.Wrap },
-                items
+                OrderInfoGrid(
+                    ("Pedido online", $"{EmptyDash(order.ExternalDisplayId)} | ID {EmptyDash(order.ExternalOrderId)}", "#0B3A52", "#F8FBFD"),
+                    ("Cliente", order.CustomerName, "#071A2C", "#F8FBFD"),
+                    ("Contato", order.Phone, "#0B3A52", "#FFFFFF"),
+                    ("Tipo", PublicMenuOrderTypeLabel(order.ExternalOrderType), "#08A99B", "#FFFFFF"),
+                    ("Endereco", order.Address, "#071A2C", "#F8FBFD"),
+                    ("Bairro / referencia", order.District, "#071A2C", "#F8FBFD"),
+                    ("Observacao", order.Notes, "#5B6B7A", "#FFFFFF"),
+                    ("Status", order.Status, "#08A99B", "#FFFFFF"))
             }
         };
 
@@ -2483,8 +2453,9 @@ public partial class MainWindow : Window
 
         var panel = DialogPanel();
         panel.Children.Add(header);
+        panel.Children.Add(OrderActionMessageCard(actionMessage));
         panel.Children.Add(details);
-        panel.Children.Add(actionMessage);
+        panel.Children.Add(OrderItemsCard(itemLines, "Itens do pedido", "Confira quantidades e observacoes antes de preparar."));
 
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -11280,7 +11251,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var dialog = CreateDialog(isNewOrder ? "Novo pedido iFood" : "Despacho iFood", 820, 720);
+        var dialog = CreateDialog(isNewOrder ? "Novo pedido iFood" : "Despacho iFood", 940, 760);
         dialog.ResizeMode = ResizeMode.NoResize;
         dialog.Topmost = isNewOrder;
         dialog.Loaded += (_, _) =>
@@ -11293,7 +11264,7 @@ public partial class MainWindow : Window
         var statusText = new TextBlock
         {
             Text = BuildIFoodOrderStatusText(order),
-            Foreground = Solid("#5B6B7A"),
+            Foreground = Solid("#D8E9EF"),
             TextWrapping = TextWrapping.Wrap,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 6, 0, 0)
@@ -11301,11 +11272,11 @@ public partial class MainWindow : Window
         var deadlineText = new TextBlock
         {
             Text = BuildIFoodConfirmationDeadlineText(order),
-            Foreground = IsIFoodConfirmationExpired(order) ? RedText : Solid("#99620D"),
+            Foreground = IsIFoodConfirmationExpired(order) ? Solid("#FFE2DF") : Solid("#BCEFEA"),
             TextWrapping = TextWrapping.Wrap,
             FontWeight = FontWeights.Bold,
-            TextAlignment = TextAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Left,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 6, 0, 0)
         };
         var actionMessage = new TextBlock
@@ -11314,7 +11285,7 @@ public partial class MainWindow : Window
             Foreground = Solid("#08A99B"),
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 8, 0, 0)
+            Margin = new Thickness(0)
         };
         var cancelReasonBox = new ComboBox
         {
@@ -11352,7 +11323,7 @@ public partial class MainWindow : Window
                 {
                     statusText.Text = BuildIFoodOrderStatusText(order);
                     deadlineText.Text = BuildIFoodConfirmationDeadlineText(order);
-                    deadlineText.Foreground = IsIFoodConfirmationExpired(order) ? RedText : Solid("#99620D");
+                    deadlineText.Foreground = IsIFoodConfirmationExpired(order) ? Solid("#FFE2DF") : Solid("#BCEFEA");
                     actionMessage.Text = string.IsNullOrWhiteSpace(result.Message)
                         ? $"Atualizado: {order.Status}."
                         : result.Message;
@@ -11382,7 +11353,7 @@ public partial class MainWindow : Window
         {
             statusText.Text = BuildIFoodOrderStatusText(order);
             deadlineText.Text = BuildIFoodConfirmationDeadlineText(order);
-            deadlineText.Foreground = IsIFoodConfirmationExpired(order) ? RedText : Solid("#99620D");
+            deadlineText.Foreground = IsIFoodConfirmationExpired(order) ? Solid("#FFE2DF") : Solid("#BCEFEA");
             ApplyIFoodActionButtonState(order, confirm, "confirm");
             ApplyIFoodActionButtonState(order, prepare, "prepare");
             ApplyIFoodActionButtonState(order, ready, "ready");
@@ -11426,54 +11397,22 @@ public partial class MainWindow : Window
             button.Margin = new Thickness(0, 0, 10, 10);
         }
 
-        var header = new Border
-        {
-            Background = Solid(isNewOrder ? "#FFE2DF" : "#EAF8F4"),
-            BorderBrush = Solid(isNewOrder ? "#A11D1D" : "#8ACCC2"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(18, 15, 18, 15),
-            Child = new StackPanel
-            {
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Children =
-                {
-                    new TextBlock
-                    {
-                        Text = isNewOrder ? "NOVO PEDIDO IFOOD" : "PEDIDO IFOOD",
-                        Foreground = Solid(isNewOrder ? "#A11D1D" : "#08A99B"),
-                        FontSize = 28,
-                        FontWeight = FontWeights.Bold,
-                        TextAlignment = TextAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Center
-                    },
-                    new TextBlock
-                    {
-                        Text = $"{order.Number}  |  {order.CustomerName}  |  {Money(order.Total)}",
-                        Foreground = Solid("#071A2C"),
-                        FontSize = 16,
-                        FontWeight = FontWeights.SemiBold,
-                        TextAlignment = TextAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        Margin = new Thickness(0, 8, 0, 0)
-                    },
-                    statusText,
-                    deadlineText
-                }
-            }
-        };
+        var header = OrderAlertHero(
+            "iFood",
+            isNewOrder ? "Novo pedido" : "Pedido iFood",
+            EmptyDash(order.ExternalDisplayId),
+            order.CustomerName,
+            Money(order.Total),
+            isNewOrder ? "#F05A50" : "#08A99B",
+            "Revise os dados, confirme quando necessario e avance o fluxo sem editar o pedido.",
+            statusText,
+            deadlineText);
 
-        var items = new ListBox
+        var itemLines = order.Lines.Select(line =>
         {
-            ItemsSource = order.Lines.Select(line =>
-            {
-                var note = string.IsNullOrWhiteSpace(line.Note) ? "" : $" | Obs item: {line.Note.Trim()}";
-                return $"{line.Quantity:N0}x {line.Name}   {Money(line.Total)}{note}";
-            }).ToList(),
-            MinHeight = 105,
-            MaxHeight = 135,
-            Margin = new Thickness(0, 8, 0, 0)
-        };
+            var note = string.IsNullOrWhiteSpace(line.Note) ? "" : $" | Obs item: {line.Note.Trim()}";
+            return $"{line.Quantity:N0}x {line.Name}   {Money(line.Total)}{note}";
+        }).ToList();
 
         var details = BorderCard();
         details.Margin = new Thickness(0, 12, 0, 0);
@@ -11482,21 +11421,21 @@ public partial class MainWindow : Window
             Children =
             {
                 SectionTitle("Dados do pedido"),
-                new TextBlock { Text = $"orderId: {order.ExternalOrderId}", Foreground = Solid("#071A2C"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Pedido iFood: {EmptyDash(order.ExternalDisplayId)} | Status: {NormalizeIFoodBoardStatus(order.Status)}", Foreground = Solid("#071A2C"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Cliente: {order.CustomerName}", Foreground = Solid("#071A2C"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = BuildIFoodOrderTypeText(order), Foreground = Solid("#08A99B"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = BuildIFoodScheduleText(order), Foreground = Solid("#99620D"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Entrega: {BuildIFoodShipmentText(order)}", Foreground = Solid("#08A99B"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = BuildIFoodPaymentText(order), Foreground = Solid("#0B3A52"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = BuildIFoodVoucherText(order), Foreground = Solid("#08A99B"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = BuildIFoodCancellationText(order), Foreground = RedText, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"CPF/CNPJ: {EmptyDash(order.CustomerCpf)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Telefone: {EmptyDash(order.Phone)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Endereco: {EmptyDash(order.Address)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Bairro: {EmptyDash(order.District)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = $"Obs: {EmptyDash(order.Notes)}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 3, 0, 8), TextWrapping = TextWrapping.Wrap },
-                items
+                OrderInfoGrid(
+                    ("orderId", order.ExternalOrderId, "#0B3A52", "#F8FBFD"),
+                    ("Pedido iFood", $"{EmptyDash(order.ExternalDisplayId)} | {NormalizeIFoodBoardStatus(order.Status)}", "#071A2C", "#F8FBFD"),
+                    ("Cliente", order.CustomerName, "#071A2C", "#FFFFFF"),
+                    ("Tipo", BuildIFoodOrderTypeText(order), "#08A99B", "#FFFFFF"),
+                    ("Agendamento", BuildIFoodScheduleText(order), "#99620D", "#FFF7ED"),
+                    ("Entrega", BuildIFoodShipmentText(order), "#08A99B", "#F8FBFD"),
+                    ("Pagamento", BuildIFoodPaymentText(order), "#0B3A52", "#F8FBFD"),
+                    ("Voucher / cupom", BuildIFoodVoucherText(order), "#08A99B", "#FFFFFF"),
+                    ("CPF/CNPJ", order.CustomerCpf, "#5B6B7A", "#FFFFFF"),
+                    ("Telefone", order.Phone, "#5B6B7A", "#FFFFFF"),
+                    ("Endereco", order.Address, "#071A2C", "#F8FBFD"),
+                    ("Bairro", order.District, "#071A2C", "#F8FBFD"),
+                    ("Observacao", order.Notes, "#5B6B7A", "#FFFFFF"),
+                    ("Cancelamento", BuildIFoodCancellationText(order), "#A11D1D", "#FFF5F5"))
             }
         };
 
@@ -11510,10 +11449,11 @@ public partial class MainWindow : Window
 
         var panel = DialogPanel();
         panel.Children.Add(header);
+        panel.Children.Add(OrderActionMessageCard(actionMessage));
         panel.Children.Add(BuildIFoodHomologationChecklistPanel(order));
         panel.Children.Add(details);
+        panel.Children.Add(OrderItemsCard(itemLines, "Itens do pedido", "Itens importados do iFood. Nao edite por fora do fluxo do pedido."));
         panel.Children.Add(DialogField("Motivo para cancelar", cancelReasonBox));
-        panel.Children.Add(actionMessage);
 
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -11547,69 +11487,30 @@ public partial class MainWindow : Window
         var card = BorderCard();
         card.Margin = new Thickness(0, 12, 0, 0);
 
-        var grid = new UniformGrid { Columns = 2, Margin = new Thickness(0, 8, 0, 0) };
-
-        void AddCell(string label, string value)
-        {
-            var hasValue = !string.IsNullOrWhiteSpace(value);
-            grid.Children.Add(new Border
-            {
-                Background = Solid(hasValue ? "#EAF8F4" : "#FFF7ED"),
-                BorderBrush = Solid(hasValue ? "#8ACCC2" : "#FDBA74"),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(10, 8, 10, 8),
-                Margin = new Thickness(0, 0, 8, 8),
-                Child = new StackPanel
-                {
-                    Children =
-                    {
-                        new TextBlock
-                        {
-                            Text = label,
-                            Foreground = Solid("#5B6B7A"),
-                            FontSize = 12,
-                            FontWeight = FontWeights.SemiBold,
-                            TextWrapping = TextWrapping.Wrap
-                        },
-                        new TextBlock
-                        {
-                            Text = hasValue ? value.Trim() : "Nao informado neste pedido",
-                            Foreground = Solid(hasValue ? "#08A99B" : "#9A5B00"),
-                            FontWeight = FontWeights.SemiBold,
-                            Margin = new Thickness(0, 3, 0, 0),
-                            TextWrapping = TextWrapping.Wrap
-                        }
-                    }
-                }
-            });
-        }
-
-        AddCell("orderId para o chamado", order.ExternalOrderId);
-        AddCell("Cliente", order.CustomerName);
-        AddCell("CPF/CNPJ do cliente", order.CustomerCpf);
-        AddCell("Telefone", order.Phone);
-        AddCell("Tipo / entrega / retirada", $"{BuildIFoodOrderTypeText(order)} | {BuildIFoodShipmentText(order)}".Trim(' ', '|'));
-        AddCell("Endereco ou retirada", IsIFoodTakeout(order) ? BuildIFoodShipmentText(order) : order.Address);
-        AddCell("Agendamento visivel", BuildIFoodScheduleText(order));
-        AddCell("Voucher/cupom", BuildIFoodVoucherText(order));
-        AddCell("Pagamento e troco", BuildIFoodPaymentText(order));
-        AddCell("Observacao do pedido", BuildIFoodObservationEvidence(order));
-        AddCell("Cancelamento", BuildIFoodCancellationText(order));
-        AddCell("Status atual", NormalizeIFoodBoardStatus(order.Status));
-
         card.Child = new StackPanel
         {
             Children =
             {
-                SectionTitle("Campos para homologacao"),
+                SectionTitle("Dados para homologacao Order"),
                 new TextBlock
                 {
-                    Text = "Grave esta area no video: ela mostra os dados exigidos no checklist do iFood para Order.",
+                    Text = "Use esta area no video: os campos importantes ficam separados e legiveis para o chamado.",
                     Foreground = Solid("#5B6B7A"),
                     TextWrapping = TextWrapping.Wrap
                 },
-                grid
+                OrderInfoGrid(
+                    ("orderId para o chamado", order.ExternalOrderId, "#0B3A52", "#F8FBFD"),
+                    ("Cliente", order.CustomerName, "#071A2C", "#F8FBFD"),
+                    ("CPF/CNPJ do cliente", order.CustomerCpf, "#5B6B7A", "#FFFFFF"),
+                    ("Telefone", order.Phone, "#5B6B7A", "#FFFFFF"),
+                    ("Tipo / entrega / retirada", $"{BuildIFoodOrderTypeText(order)} | {BuildIFoodShipmentText(order)}".Trim(' ', '|'), "#08A99B", "#F8FBFD"),
+                    ("Endereco ou retirada", IsIFoodTakeout(order) ? BuildIFoodShipmentText(order) : order.Address, "#071A2C", "#F8FBFD"),
+                    ("Agendamento visivel", BuildIFoodScheduleText(order), "#99620D", "#FFF7ED"),
+                    ("Voucher / cupom", BuildIFoodVoucherText(order), "#08A99B", "#FFFFFF"),
+                    ("Pagamento e troco", BuildIFoodPaymentText(order), "#0B3A52", "#FFFFFF"),
+                    ("Observacao do pedido", BuildIFoodObservationEvidence(order), "#5B6B7A", "#F8FBFD"),
+                    ("Cancelamento", BuildIFoodCancellationText(order), "#A11D1D", "#FFF5F5"),
+                    ("Status atual", NormalizeIFoodBoardStatus(order.Status), "#08A99B", "#FFFFFF"))
             }
         };
         return card;
