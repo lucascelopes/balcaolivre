@@ -1,13 +1,9 @@
+using System.IO;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.Json;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 
 namespace BalcaoLivre.Online.Windows;
 
@@ -19,7 +15,9 @@ public sealed class WaiterLocalServer : IAsyncDisposable
     private readonly Func<WaiterBoardNoteRequest, Task<WaiterActionResult>> _saveBoardNote;
     private readonly Func<WaiterRemoveLineRequest, Task<WaiterActionResult>> _removeLine;
     private readonly Func<WaiterBoardRequest, Task<WaiterActionResult>> _requestBill;
-    private WebApplication? _app;
+    private TcpListener? _listener;
+    private CancellationTokenSource? _cts;
+    private Task? _loopTask;
 
     public WaiterLocalServer(
         int port,
@@ -45,53 +43,325 @@ public sealed class WaiterLocalServer : IAsyncDisposable
 
     public async Task StartAsync()
     {
-        if (_app is not null)
+        if (_listener is not null)
         {
             return;
         }
 
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
-        {
-            Args = [],
-            ApplicationName = typeof(WaiterLocalServer).Assembly.FullName
-        });
-        builder.WebHost.UseUrls($"http://0.0.0.0:{Port}");
-        builder.Services.Configure<JsonOptions>(options =>
-        {
-            options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
-            options.SerializerOptions.WriteIndented = false;
-        });
-
-        var app = builder.Build();
-        app.MapGet("/", () => Results.Redirect("/garcom"));
-        app.MapGet("/garcom", () => Results.Content(WaiterWebAssets.Html, "text/html; charset=utf-8"));
-        app.MapGet("/garcom/styles.css", () => Results.Content(WaiterWebAssets.Css, "text/css; charset=utf-8"));
-        app.MapGet("/garcom/app.js", () => Results.Content(WaiterWebAssets.Js, "application/javascript; charset=utf-8"));
-        app.MapGet("/api/waiter/state", async () => Results.Json(await _getState()));
-        app.MapPost("/api/waiter/open", async (WaiterOpenBoardRequest request) => Results.Json(await _openBoard(request)));
-        app.MapPost("/api/waiter/add", async (WaiterAddProductRequest request) => Results.Json(await _addProduct(request)));
-        app.MapPost("/api/waiter/note", async (WaiterBoardNoteRequest request) => Results.Json(await _saveBoardNote(request)));
-        app.MapPost("/api/waiter/remove", async (WaiterRemoveLineRequest request) => Results.Json(await _removeLine(request)));
-        app.MapPost("/api/waiter/bill", async (WaiterBoardRequest request) => Results.Json(await _requestBill(request)));
-        await app.StartAsync();
-        _app = app;
+        _cts = new CancellationTokenSource();
+        _listener = new TcpListener(IPAddress.Any, Port);
+        _listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+        _listener.Start();
+        _loopTask = Task.Run(() => AcceptLoopAsync(_cts.Token));
+        await Task.CompletedTask;
     }
 
     public async Task StopAsync()
     {
-        if (_app is null)
+        var listener = _listener;
+        if (listener is null)
         {
             return;
         }
 
-        await _app.StopAsync(TimeSpan.FromSeconds(2));
-        await _app.DisposeAsync();
-        _app = null;
+        _listener = null;
+        _cts?.Cancel();
+        try
+        {
+            listener.Stop();
+        }
+        catch (SocketException)
+        {
+        }
+
+        if (_loopTask is not null)
+        {
+            try
+            {
+                await _loopTask.WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            catch (Exception ex) when (ex is TimeoutException or OperationCanceledException or SocketException)
+            {
+            }
+        }
+
+        _cts?.Dispose();
+        _cts = null;
+        _loopTask = null;
     }
 
     public async ValueTask DisposeAsync()
     {
         await StopAsync();
+    }
+
+    private async Task AcceptLoopAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested && _listener is not null)
+        {
+            TcpClient client;
+            try
+            {
+                client = await _listener.AcceptTcpClientAsync(token);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or SocketException or ObjectDisposedException or InvalidOperationException)
+            {
+                break;
+            }
+
+            _ = Task.Run(() => HandleClientAsync(client, token), CancellationToken.None);
+        }
+    }
+
+    private async Task HandleClientAsync(TcpClient client, CancellationToken token)
+    {
+        using var _ = client;
+        try
+        {
+            client.NoDelay = true;
+            using var stream = client.GetStream();
+            var request = await ReadRequestAsync(stream, token);
+            if (request is null)
+            {
+                return;
+            }
+
+            var response = await DispatchAsync(request);
+            await WriteResponseAsync(stream, response, token);
+        }
+        catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException or OperationCanceledException or JsonException)
+        {
+        }
+    }
+
+    private async Task<LocalHttpResponse> DispatchAsync(LocalHttpRequest request)
+    {
+        try
+        {
+            if (request.Method.Equals("GET", StringComparison.OrdinalIgnoreCase) &&
+                request.Path.Equals("/", StringComparison.Ordinal))
+            {
+                return Redirect("/garcom");
+            }
+
+            if (request.Method.Equals("GET", StringComparison.OrdinalIgnoreCase))
+            {
+                return request.Path switch
+                {
+                    "/garcom" => Text(WaiterWebAssets.Html, "text/html; charset=utf-8"),
+                    "/garcom/styles.css" => Text(WaiterWebAssets.Css, "text/css; charset=utf-8"),
+                    "/garcom/app.js" => Text(WaiterWebAssets.Js, "application/javascript; charset=utf-8"),
+                    "/api/waiter/state" => Json(await _getState()),
+                    _ => Json(new WaiterActionResult { Ok = false, Message = "Rota nao encontrada." }, 404)
+                };
+            }
+
+            if (request.Method.Equals("POST", StringComparison.OrdinalIgnoreCase))
+            {
+                return request.Path switch
+                {
+                    "/api/waiter/open" => Json(await _openBoard(ReadJson<WaiterOpenBoardRequest>(request.Body))),
+                    "/api/waiter/add" => Json(await _addProduct(ReadJson<WaiterAddProductRequest>(request.Body))),
+                    "/api/waiter/note" => Json(await _saveBoardNote(ReadJson<WaiterBoardNoteRequest>(request.Body))),
+                    "/api/waiter/remove" => Json(await _removeLine(ReadJson<WaiterRemoveLineRequest>(request.Body))),
+                    "/api/waiter/bill" => Json(await _requestBill(ReadJson<WaiterBoardRequest>(request.Body))),
+                    _ => Json(new WaiterActionResult { Ok = false, Message = "Rota nao encontrada." }, 404)
+                };
+            }
+
+            return Json(new WaiterActionResult { Ok = false, Message = "Metodo nao permitido." }, 405);
+        }
+        catch (JsonException ex)
+        {
+            return Json(new WaiterActionResult { Ok = false, Message = ex.Message }, 400);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException)
+        {
+            return Json(new WaiterActionResult { Ok = false, Message = ex.Message }, 500);
+        }
+    }
+
+    private static T ReadJson<T>(byte[] body) where T : new()
+    {
+        if (body.Length == 0)
+        {
+            return new T();
+        }
+
+        return JsonSerializer.Deserialize<T>(body, MainWindowJson.Options) ?? new T();
+    }
+
+    private static async Task<LocalHttpRequest?> ReadRequestAsync(NetworkStream stream, CancellationToken token)
+    {
+        using var bytes = new MemoryStream();
+        var buffer = new byte[8192];
+        var headerEnd = -1;
+
+        while (bytes.Length < 65536)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), token);
+            if (read <= 0)
+            {
+                return null;
+            }
+
+            var scanStart = (int)Math.Max(0, bytes.Length - 3);
+            bytes.Write(buffer, 0, read);
+            headerEnd = FindHeaderEnd(bytes.GetBuffer(), (int)bytes.Length, scanStart);
+            if (headerEnd >= 0)
+            {
+                break;
+            }
+        }
+
+        if (headerEnd < 0)
+        {
+            return null;
+        }
+
+        var all = bytes.ToArray();
+        var headerText = Encoding.ASCII.GetString(all, 0, headerEnd);
+        var lines = headerText.Split("\r\n", StringSplitOptions.None);
+        if (lines.Length == 0)
+        {
+            return null;
+        }
+
+        var requestLine = lines[0].Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+        if (requestLine.Length < 2)
+        {
+            return null;
+        }
+
+        var contentLength = 0;
+        foreach (var line in lines.Skip(1))
+        {
+            var separator = line.IndexOf(':');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var name = line[..separator].Trim();
+            var value = line[(separator + 1)..].Trim();
+            if (name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) &&
+                int.TryParse(value, out var parsed) &&
+                parsed > 0)
+            {
+                contentLength = Math.Min(parsed, 2 * 1024 * 1024);
+            }
+        }
+
+        var body = new byte[contentLength];
+        var bodyStart = headerEnd + 4;
+        var alreadyRead = Math.Min(contentLength, Math.Max(0, all.Length - bodyStart));
+        if (alreadyRead > 0)
+        {
+            Array.Copy(all, bodyStart, body, 0, alreadyRead);
+        }
+
+        var offset = alreadyRead;
+        while (offset < contentLength)
+        {
+            var read = await stream.ReadAsync(body.AsMemory(offset, contentLength - offset), token);
+            if (read <= 0)
+            {
+                break;
+            }
+
+            offset += read;
+        }
+
+        var path = requestLine[1].Split('?', 2)[0];
+        try
+        {
+            path = Uri.UnescapeDataString(path);
+        }
+        catch (UriFormatException)
+        {
+        }
+
+        return new LocalHttpRequest(requestLine[0], path, body);
+    }
+
+    private static int FindHeaderEnd(byte[] buffer, int length, int start)
+    {
+        for (var i = start; i <= length - 4; i++)
+        {
+            if (buffer[i] == '\r' &&
+                buffer[i + 1] == '\n' &&
+                buffer[i + 2] == '\r' &&
+                buffer[i + 3] == '\n')
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private static async Task WriteResponseAsync(NetworkStream stream, LocalHttpResponse response, CancellationToken token)
+    {
+        var header = new StringBuilder();
+        header.Append("HTTP/1.1 ")
+            .Append(response.StatusCode)
+            .Append(' ')
+            .Append(response.Reason)
+            .Append("\r\n");
+        header.Append("Content-Type: ").Append(response.ContentType).Append("\r\n");
+        header.Append("Content-Length: ").Append(response.Body.Length).Append("\r\n");
+        header.Append("Cache-Control: no-store\r\n");
+        header.Append("Connection: close\r\n");
+        foreach (var pair in response.Headers)
+        {
+            header.Append(pair.Key).Append(": ").Append(pair.Value).Append("\r\n");
+        }
+
+        header.Append("\r\n");
+        var headerBytes = Encoding.ASCII.GetBytes(header.ToString());
+        await stream.WriteAsync(headerBytes, token);
+        if (response.Body.Length > 0)
+        {
+            await stream.WriteAsync(response.Body, token);
+        }
+    }
+
+    private static LocalHttpResponse Text(string value, string contentType, int statusCode = 200)
+    {
+        return new LocalHttpResponse(statusCode, Reason(statusCode), contentType, Encoding.UTF8.GetBytes(value));
+    }
+
+    private static LocalHttpResponse Json(object value, int statusCode = 200)
+    {
+        return new LocalHttpResponse(
+            statusCode,
+            Reason(statusCode),
+            "application/json; charset=utf-8",
+            JsonSerializer.SerializeToUtf8Bytes(value, MainWindowJson.Options));
+    }
+
+    private static LocalHttpResponse Redirect(string location)
+    {
+        return new LocalHttpResponse(
+            302,
+            "Found",
+            "text/plain; charset=utf-8",
+            Array.Empty<byte>(),
+            new Dictionary<string, string> { ["Location"] = location });
+    }
+
+    private static string Reason(int statusCode)
+    {
+        return statusCode switch
+        {
+            200 => "OK",
+            302 => "Found",
+            400 => "Bad Request",
+            404 => "Not Found",
+            405 => "Method Not Allowed",
+            500 => "Internal Server Error",
+            _ => "OK"
+        };
     }
 
     private static string GetLanIpAddress()
@@ -164,6 +434,18 @@ public sealed class WaiterLocalServer : IAsyncDisposable
                !name.Contains("tailscale", StringComparison.Ordinal) &&
                !name.Contains("zerotier", StringComparison.Ordinal);
     }
+}
+
+internal sealed record LocalHttpRequest(string Method, string Path, byte[] Body);
+
+internal sealed record LocalHttpResponse(
+    int StatusCode,
+    string Reason,
+    string ContentType,
+    byte[] Body,
+    IReadOnlyDictionary<string, string>? ExtraHeaders = null)
+{
+    public IReadOnlyDictionary<string, string> Headers { get; } = ExtraHeaders ?? new Dictionary<string, string>();
 }
 
 internal static class WaiterWebAssets

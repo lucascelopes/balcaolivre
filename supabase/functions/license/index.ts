@@ -5,9 +5,10 @@ const LICENSE_SECRET = "BalcaoLivrePDV-local-license-v1";
 const ADMIN_STORE_BUCKET = "balcao-livre-admin";
 const ADMIN_STORE_OBJECT = "admin-store.json";
 const OFFLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe";
-const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.5.2026.exe";
+const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.7.2026.exe";
 const TRIAL_SOURCE = "landing_trial_download";
 const TRIAL_DAYS = 7;
+const TRIAL_WHATSAPP_URL = "https://wa.me/5527981267551?text=Ola%2C%20preciso%20liberar%20outro%20teste%20do%20Balcao%20Livre%20PDV.";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -291,12 +292,7 @@ async function createTrialDownload(req: Request) {
       message: "Nova chave de teste bloqueada por IP.",
       payload: { source: TRIAL_SOURCE, installer: kind, trialIpHash, userAgentHash },
     });
-    return trialDownloadPage(
-      "Teste ja gerado neste IP",
-      "Para evitar duplicidade, este IP ja tem uma chave de 7 dias ativa. Chame o vendedor no WhatsApp se precisar liberar outro teste.",
-      false,
-      429,
-    );
+    return Response.redirect(TRIAL_WHATSAPP_URL, 303);
   }
 
   const expiresText = activationExpirationText(expiresAt);
@@ -1401,7 +1397,12 @@ async function ensureLicense(
     return { ok: false, message: "Esta chave esta bloqueada.", status: 401 };
   }
 
-  if (validation.expiresAt.getTime() <= Date.now()) {
+  const dbExpiresAt = dateValue(current?.expires_at);
+  const effectiveExpiresAt = dbExpiresAt && dbExpiresAt.getTime() > validation.expiresAt.getTime()
+    ? dbExpiresAt
+    : validation.expiresAt;
+
+  if (effectiveExpiresAt.getTime() <= Date.now()) {
     await supabase.from("bv_licenses").update({ status: "EXPIRADA", updated_at: now }).eq("key", licenseKey);
     return { ok: false, message: "Esta chave esta expirada.", status: 401 };
   }
@@ -1431,7 +1432,7 @@ async function ensureLicense(
     profile,
     settings: payload.settings ?? {},
     metrics: payload.metrics ?? {},
-    expires_at: validation.expiresAt.toISOString(),
+    expires_at: effectiveExpiresAt.toISOString(),
     activated_at: stringValue(current?.activated_at) || now,
     last_seen_at: now,
     updated_at: now,
@@ -1508,6 +1509,11 @@ function parseExpiration(value: string) {
   const hour = clean.length >= 10 ? Number(clean.slice(8, 10)) : 23;
   const minute = clean.length >= 12 ? Number(clean.slice(10, 12)) : 59;
   return new Date(year, month, day, hour, minute, clean.length >= 12 ? 0 : 59);
+}
+
+function dateValue(value: unknown) {
+  const timestamp = Date.parse(stringValue(value));
+  return Number.isFinite(timestamp) ? new Date(timestamp) : null;
 }
 
 function activationExpirationText(date: Date) {
@@ -1888,14 +1894,14 @@ function isMercadoPagoPaid(status: string, payment: Record<string, unknown>) {
 
 function html(title: string, message: string, ok: boolean) {
   return new Response(`<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><body style="font-family:Segoe UI,Arial,sans-serif;background:#eef3f6;color:#17212b;margin:0;display:grid;place-items:center;min-height:100vh"><main style="max-width:520px;background:white;border:1px solid #d8e2ec;border-radius:14px;padding:28px;box-shadow:0 18px 44px rgba(22,34,45,.10)"><h1 style="margin:0 0 10px;color:${ok ? "#0f766e" : "#a11d1d"}">${escapeHtml(title)}</h1><p style="font-size:17px;line-height:1.5">${escapeHtml(message)}</p><p style="color:#607284">Pode fechar esta janela.</p></main></body></html>`, {
-    status: ok ? 200 : 400,
+    status: 200,
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });
 }
 
 function trialDownloadPage(title: string, message: string, ok: boolean, status = ok ? 200 : 400) {
   return new Response(`<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><body style="font-family:Segoe UI,Arial,sans-serif;background:#eef3f6;color:#17212b;margin:0;display:grid;place-items:center;min-height:100vh"><main style="max-width:560px;background:white;border:1px solid #d8e2ec;border-radius:14px;padding:30px;box-shadow:0 18px 44px rgba(22,34,45,.10)"><h1 style="margin:0 0 12px;color:${ok ? "#0f766e" : "#a11d1d"}">${escapeHtml(title)}</h1><p style="font-size:17px;line-height:1.55">${escapeHtml(message)}</p><a href="https://wa.me/5527981267551?text=Ola%2C%20preciso%20liberar%20um%20teste%20do%20Balcao%20Livre%20PDV." style="display:inline-flex;margin-top:10px;padding:12px 16px;border-radius:8px;background:#0f766e;color:white;text-decoration:none;font-weight:800">Falar no WhatsApp</a></main></body></html>`, {
-    status,
+    status: 200,
     headers: { ...corsHeaders, "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, max-age=0" },
   });
 }

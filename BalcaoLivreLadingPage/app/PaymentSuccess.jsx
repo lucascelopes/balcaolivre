@@ -66,6 +66,11 @@ export default function PaymentSuccess({ sessionId }) {
                 <dd>{new Date(state.data.license.expiresAt).toLocaleDateString("pt-BR")}</dd>
               </div>
             </dl>
+            {state.data.license.installerUrl ? (
+              <a className="lpPlanButton paymentSuccessBack" href={state.data.license.installerUrl}>
+                Baixar instalador
+              </a>
+            ) : null}
           </>
         )}
         <a href="/" className="lpPlanButton paymentSuccessBack">Voltar para a pagina inicial</a>

@@ -123,27 +123,27 @@ export default {
       if (url.pathname === "/admin-api" || url.pathname.startsWith("/admin-api/")) {
         return proxyAdminApi(request, url);
       }
-      return servePrefixedAsset(request, env, "/admin", "/admin/");
+      return servePrefixedAsset(request, env, "/admin", "/admin/index.html");
     }
 
     if (isHost(host, "pdv")) {
-      return servePrefixedAsset(request, env, "/pdv", "/pdv/");
+      return servePrefixedAsset(request, env, "/pdv", "/pdv/index.html");
     }
 
     if (isHost(host, "cardapio")) {
-      return servePrefixedAsset(request, env, "/cardapio", "/cardapio/");
+      return servePrefixedAsset(request, env, "/cardapio", "/cardapio/index.html");
     }
 
     if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
-      return servePathAsset(request, env, "/admin", "/admin/");
+      return servePathAsset(request, env, "/admin", "/admin/index.html");
     }
 
     if (url.pathname === "/pdv" || url.pathname.startsWith("/pdv/")) {
-      return servePathAsset(request, env, "/pdv", "/pdv/");
+      return servePathAsset(request, env, "/pdv", "/pdv/index.html");
     }
 
     if (url.pathname === "/cardapio" || url.pathname.startsWith("/cardapio/")) {
-      return servePathAsset(request, env, "/cardapio", "/cardapio/");
+      return servePathAsset(request, env, "/cardapio", "/cardapio/index.html");
     }
 
     if (url.pathname === "/admin-api" || url.pathname.startsWith("/admin-api/")) {
@@ -164,6 +164,10 @@ async function servePrefixedAsset(request, env, prefix, fallbackPath) {
   const path = stripDuplicatePrefix(originalUrl.pathname, prefix);
   assetUrl.pathname = joinPath(prefix, path);
 
+  if (acceptsHtml(request) && isDocumentPath(path)) {
+    return serveFallbackAsset(request, env, fallbackPath);
+  }
+
   let response = await env.ASSETS.fetch(new Request(assetUrl.toString(), request));
   if (response.status !== 404) {
     return response;
@@ -179,6 +183,10 @@ async function servePrefixedAsset(request, env, prefix, fallbackPath) {
 async function servePathAsset(request, env, prefix, fallbackPath) {
   const url = new URL(request.url);
   if (url.pathname === prefix || url.pathname === fallbackPath) {
+    return serveFallbackAsset(request, env, fallbackPath);
+  }
+
+  if (acceptsHtml(request) && isDocumentPath(url.pathname.slice(prefix.length) || "/")) {
     return serveFallbackAsset(request, env, fallbackPath);
   }
 
@@ -215,6 +223,11 @@ function stripDuplicatePrefix(path, prefix) {
 function acceptsHtml(request) {
   const accept = request.headers.get("accept") || "";
   return accept.includes("text/html") || accept.includes("*/*");
+}
+
+function isDocumentPath(path) {
+  const lastSegment = String(path || "/").split("/").filter(Boolean).pop() || "";
+  return !lastSegment.includes(".");
 }
 
 async function proxyAdminApi(request, sourceUrl) {

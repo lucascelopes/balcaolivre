@@ -185,20 +185,26 @@
         </DataTemplate>
 
         <DataTemplate x:Key="TransferBoardTemplate">
-            <Border x:Name="TransferCard" Background="#FFFFFF" BorderBrush="#D6E2EA" BorderThickness="1" CornerRadius="7" Padding="10">
-                <DockPanel LastChildFill="True">
-                    <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Margin="10,0,0,0">
+            <Border x:Name="TransferCard" Background="#FFFFFF" BorderBrush="#D6E2EA" BorderThickness="1" CornerRadius="12" Padding="12" MinHeight="76">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="22"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Width="12" Height="12" Background="{Binding TileBrush}" CornerRadius="6" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,4,0,0"/>
+                    <StackPanel Grid.Column="1" Margin="0,0,14,0">
+                        <TextBlock Text="{Binding DisplayTitle}" Foreground="#071A2C" FontSize="15" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding TransferSubtitle}" Foreground="#5B6B7A" FontSize="11" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding TransferHint}" Foreground="#0B3A52" FontSize="11" FontWeight="SemiBold" Margin="0,6,0,0"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <TextBlock Text="{Binding TransferTotalText}" Foreground="#0B3A52" FontSize="14" FontWeight="Bold" HorizontalAlignment="Right"/>
-                        <Border Background="{Binding TileBrush}" CornerRadius="6" Padding="6,2" Margin="0,6,0,0" HorizontalAlignment="Right">
+                        <Border Background="{Binding TileBrush}" CornerRadius="8" Padding="7,2" Margin="0,7,0,0" HorizontalAlignment="Right">
                             <TextBlock Text="{Binding DisplayStatus}" Foreground="{Binding StatusForegroundBrush}" FontSize="9" FontWeight="Bold"/>
                         </Border>
                     </StackPanel>
-                    <StackPanel>
-                        <TextBlock Text="{Binding DisplayTitle}" Foreground="#071A2C" FontSize="14" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="{Binding TransferSubtitle}" Foreground="#5B6B7A" FontSize="11" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="{Binding TransferHint}" Foreground="#0B3A52" FontSize="11" FontWeight="SemiBold" Margin="0,5,0,0"/>
-                    </StackPanel>
-                </DockPanel>
+                </Grid>
             </Border>
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsSelected}" Value="True">

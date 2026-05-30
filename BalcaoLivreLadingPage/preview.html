@@ -808,6 +808,9 @@
             const expiresAt = data.license.expiresAt
               ? new Date(data.license.expiresAt).toLocaleDateString("pt-BR")
               : "-";
+            const installerButton = data.license.installerUrl
+              ? `<a href="${data.license.installerUrl}" class="lpPlanButton paymentSuccessBack">Baixar instalador</a>`
+              : "";
             card.innerHTML = `
               <span class="paymentSuccessMark">Pago</span>
               <h1>Pagamento confirmado</h1>
@@ -826,6 +829,7 @@
                   <dd>${expiresAt}</dd>
                 </div>
               </dl>
+              ${installerButton}
               <a href="/" class="lpPlanButton paymentSuccessBack">Voltar para a pagina inicial</a>
             `;
           } catch {

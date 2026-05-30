@@ -294,11 +294,8 @@ public partial class MainWindow : Window
             _deliveryCountdownTimer.Start();
             _supportPollTimer.Start();
             _publicMenuOrderPollTimer.Start();
-            if (_appSettings.AutoCheckUpdates)
-            {
-                _ = Dispatcher.BeginInvoke(async () =>
-                    await CheckForUpdatesAsync(showIfCurrent: false, autoInstall: true));
-            }
+            _ = Dispatcher.BeginInvoke(async () =>
+                await CheckForUpdatesAsync(showIfCurrent: false, autoInstall: _appSettings.AutoCheckUpdates, startupCheck: true));
             QueueAdminCheckIn("startup");
         };
     }
@@ -414,7 +411,7 @@ public partial class MainWindow : Window
         var expiredPlan = _appSettings.ActivationPlan;
         _appSettings.ActivationCompleted = false;
         SaveAppSettings();
-        ShowToast("Ativacao expirada", "A licenca venceu. Pague a assinatura para receber uma nova chave.", "BL", "#A11D1D", "#FFE2DF");
+        ShowToast("Ativacao expirada", "A licenca venceu. Pague a assinatura para renovar esta mesma chave.", "BL", "#A11D1D", "#FFE2DF");
         SetStatus("Ativacao expirada. Abrindo pagamento da assinatura.");
         OpenLicenseRenewalPage(expiredKey, expiredPlan, showMessage: false);
 
@@ -527,16 +524,26 @@ public partial class MainWindow : Window
         return $"{DefaultCheckoutFunctionUrl.TrimEnd('/')}/renew?{string.Join("&", query)}";
     }
 
-    private async Task<AdminActivationResult> TryValidateAdminActivationAsync(string normalizedKey, DateTime? expiresAt, string plan)
+    private async Task<AdminActivationResult> TryValidateAdminActivationAsync(string normalizedKey, DateTime? expiresAt, string plan, bool requireAdminConfirmation = false)
     {
         if (!_appSettings.AdminSyncEnabled)
         {
+            if (requireAdminConfirmation)
+            {
+                return AdminActivationResult.Deny("A chave venceu. Conecte a internet e confirme a renovacao no Supabase depois de pagar pelo Stripe.");
+            }
+
             return AdminActivationResult.Allow(plan, expiresAt, "Sincronizacao admin desligada.");
         }
 
         var endpoints = BuildAdminActivationEndpoints();
         if (endpoints.Count == 0)
         {
+            if (requireAdminConfirmation)
+            {
+                return AdminActivationResult.Deny("Nao consegui confirmar a renovacao porque a URL do admin esta invalida.");
+            }
+
             return AdminActivationResult.Allow(plan, expiresAt, "URL do admin invalida. Ativacao local liberada.");
         }
 
@@ -587,6 +594,11 @@ public partial class MainWindow : Window
         if (lastDeny is not null)
         {
             return lastDeny;
+        }
+
+        if (requireAdminConfirmation)
+        {
+            return AdminActivationResult.Deny("Nao consegui confirmar a renovacao no Supabase. Verifique a internet e tente novamente apos pagar.");
         }
 
         return AdminActivationResult.Allow(plan, expiresAt, "Admin offline. Ativacao local liberada.");
@@ -9740,25 +9752,26 @@ public partial class MainWindow : Window
 
         var settings = _appSettings.IFood ??= new IFoodIntegrationSettings();
         EnsureIFoodCloudSettings(settings);
-        var dialog = CreateDialog("iFood Online", 680, 450);
-        var connectionBox = new TextBlock
-        {
-            Text = BuildIFoodStatusText(settings),
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#5A6B7C"),
-            Margin = new Thickness(0, 4, 0, 0)
-        };
+        var dialog = CreateDialog("iFood Online", 820, 570);
+
+        var connectionValue = new TextBlock();
+        var receivingValue = new TextBlock();
+        var productsValue = new TextBlock();
+        var lastSyncValue = new TextBlock();
         var operationBox = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
             Foreground = Solid("#52687A"),
-            Margin = new Thickness(0, 10, 0, 0),
-            Text = settings.HasCloudConnection
-                ? "Recebimento automatico ligado. Pedidos e produtos do iFood sincronizam em segundo plano com o PDV."
-                : HasIFoodConnectionConfigured(settings)
-                    ? "Loja offline no PDV. Use o botao Loja online no topo para voltar a receber pedidos."
-                : "Clique em conectar uma vez. Depois disso os pedidos entram no Delivery e os produtos aparecem no estoque."
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0)
         };
+
+        string LastSyncText()
+        {
+            return settings.LastSyncUtc.HasValue
+                ? TimeZoneInfo.ConvertTimeFromUtc(settings.LastSyncUtc.Value, TimeZoneInfo.Local).ToString("g", Brazil)
+                : "Ainda nao sincronizou";
+        }
 
         void SaveFields()
         {
@@ -9770,16 +9783,55 @@ public partial class MainWindow : Window
             RefreshOnlineStoreButton();
         }
 
-        void ShowIFoodMessage(string message)
+        var connect = DialogButton("Conectar iFood", "#08A99B");
+        var toggleReceiving = DialogButton("Pausar recebimento", "#0B3A52");
+        var syncProducts = DialogButton("Puxar produtos do iFood", "#08A99B");
+        var openDelivery = DialogButton("Abrir Delivery", "#0B3A52");
+        var disconnect = DialogButton("Sair do iFood", "#A11D1D");
+
+        foreach (var button in new[] { connect, toggleReceiving, syncProducts, openDelivery, disconnect })
         {
-            connectionBox.Text = BuildIFoodStatusText(settings);
-            operationBox.Text = message;
-            SetStatus(message);
+            button.Width = 230;
+            button.MinHeight = 48;
+            button.HorizontalAlignment = HorizontalAlignment.Left;
+            button.Margin = new Thickness(0, 0, 10, 10);
         }
 
-        var connect = DialogButton(settings.HasCloudConnection ? "Reconectar iFood" : "Conectar iFood", "#08A99B");
-        connect.MinHeight = 58;
-        connect.FontSize = 17;
+        void RefreshIFoodUi(string? message = null)
+        {
+            var linked = HasIFoodConnectionConfigured(settings);
+            var receiving = settings.HasCloudConnection;
+            var linkedProducts = Products.Count(HasIFoodCatalogLink);
+
+            connectionValue.Text = linked
+                ? string.IsNullOrWhiteSpace(settings.MerchantName) ? "Conta conectada" : settings.MerchantName.Trim()
+                : string.IsNullOrWhiteSpace(settings.ConnectionId) ? "Nao conectado" : "Aguardando autorizacao";
+            receivingValue.Text = receiving ? "Recebendo pedidos automaticamente" : linked ? "Recebimento pausado" : "Conecte para receber pedidos";
+            productsValue.Text = linkedProducts == 1
+                ? "1 produto vinculado ao iFood"
+                : $"{linkedProducts} produtos vinculados ao iFood";
+            lastSyncValue.Text = LastSyncText();
+
+            connect.Visibility = linked ? Visibility.Collapsed : Visibility.Visible;
+            toggleReceiving.Visibility = linked ? Visibility.Visible : Visibility.Collapsed;
+            syncProducts.Visibility = linked ? Visibility.Visible : Visibility.Collapsed;
+            openDelivery.Visibility = linked ? Visibility.Visible : Visibility.Collapsed;
+            disconnect.Visibility = linked ? Visibility.Visible : Visibility.Collapsed;
+
+            toggleReceiving.Content = receiving ? "Pausar recebimento" : "Ligar recebimento";
+            toggleReceiving.Background = receiving ? Solid("#5B6B7A") : Solid("#08A99B");
+            toggleReceiving.BorderBrush = receiving ? Solid("#5B6B7A") : Solid("#08A99B");
+
+            operationBox.Text = message ?? (linked
+                ? receiving
+                    ? "iFood ligado. Novos pedidos aparecem no Delivery com alerta grande na tela."
+                    : "Conta iFood vinculada. Ligue o recebimento para voltar a entrar pedido no PDV."
+                : "Conecte a loja uma vez. Depois disso o PDV recebe pedidos e atualiza produtos automaticamente.");
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                SetStatus(message);
+            }
+        }
 
         connect.Click += async (_, _) =>
         {
@@ -9787,7 +9839,7 @@ public partial class MainWindow : Window
             {
                 SaveFields();
                 connect.IsEnabled = false;
-                ShowIFoodMessage("Conectando com o iFood...");
+                RefreshIFoodUi("Conectando com o iFood...");
                 var response = await _ifoodClient.StartConnectionAsync(settings.BackendUrl, CreateIFoodCloudContext());
                 settings.ConnectionId = response.ConnectionId;
                 settings.LastUserCode = response.UserCode;
@@ -9803,25 +9855,25 @@ public partial class MainWindow : Window
                 if (string.Equals(settings.ConnectionStatus, "conectado", StringComparison.OrdinalIgnoreCase))
                 {
                     _ifoodSyncTimer.Start();
-                    ShowIFoodMessage("iFood conectado. Pedidos entram no Delivery e produtos do iFood aparecem no estoque.");
                     RefreshOnlineStoreButton();
                     _ = AutoImportIFoodOrdersAsync(force: true);
+                    RefreshIFoodUi("iFood conectado. Pedidos entram no Delivery e produtos do iFood aparecem no estoque.");
                 }
                 else if (!string.IsNullOrWhiteSpace(settings.VerificationUrlComplete))
                 {
                     Process.Start(new ProcessStartInfo(settings.VerificationUrlComplete) { UseShellExecute = true });
-                    ShowIFoodMessage("Finalize a autorizacao no navegador do iFood. O PDV continua aguardando a loja ficar conectada.");
+                    RefreshIFoodUi("Finalize a autorizacao no navegador do iFood. O PDV continua aguardando a loja ficar conectada.");
                 }
                 else
                 {
-                    ShowIFoodMessage(string.IsNullOrWhiteSpace(response.Message)
+                    RefreshIFoodUi(string.IsNullOrWhiteSpace(response.Message)
                         ? "Vinculo iFood iniciado. Aguarde a autorizacao da loja."
                         : response.Message);
                 }
             }
             catch (Exception ex)
             {
-                ShowIFoodMessage($"Falha ao conectar iFood: {ex.Message}");
+                RefreshIFoodUi($"Falha ao conectar iFood: {ex.Message}");
             }
             finally
             {
@@ -9829,59 +9881,192 @@ public partial class MainWindow : Window
             }
         };
 
+        toggleReceiving.Click += (_, _) =>
+        {
+            var enable = !settings.HasCloudConnection;
+            settings.Enabled = enable;
+            _appSettings.PublicMenuStoreOpen = enable;
+            SaveAppSettings();
+            SaveStore();
+            RefreshOnlineStoreButton();
+            if (enable)
+            {
+                _ifoodSyncTimer.Start();
+                _ = AutoImportIFoodOrdersAsync(force: true);
+                _ = SyncIFoodPresenceOnceAsync();
+                RefreshIFoodUi("Recebimento ligado. O PDV vai abrir alerta quando chegar pedido novo.");
+            }
+            else
+            {
+                _ifoodSyncTimer.Stop();
+                RefreshIFoodUi("Recebimento pausado. A conta continua vinculada e pode ser ligada de novo.");
+            }
+        };
+
+        syncProducts.Click += async (_, _) =>
+        {
+            try
+            {
+                settings.Enabled = true;
+                _appSettings.PublicMenuStoreOpen = true;
+                EnsureIFoodCloudSettings(settings);
+                SaveAppSettings();
+                RefreshOnlineStoreButton();
+                _ifoodSyncTimer.Start();
+
+                syncProducts.IsEnabled = false;
+                RefreshIFoodUi("Puxando produtos do iFood para o estoque...");
+                var changed = await SyncIFoodCatalogProductsAsync(force: true, log: RefreshIFoodUi);
+                RefreshIFoodUi(changed <= 0
+                    ? "Produtos conferidos. Nada novo para atualizar agora."
+                    : changed == 1
+                        ? "1 produto do iFood entrou/atualizou no estoque."
+                        : $"{changed} produtos do iFood entraram/atualizaram no estoque.");
+            }
+            catch (Exception ex)
+            {
+                RefreshIFoodUi($"Falha ao puxar produtos do iFood: {ex.Message}");
+            }
+            finally
+            {
+                syncProducts.IsEnabled = true;
+            }
+        };
+
+        openDelivery.Click += (_, _) =>
+        {
+            ModeList.SelectedItem = "Delivery";
+            RefreshBoardForMode();
+            dialog.Close();
+        };
+
+        disconnect.Click += (_, _) =>
+        {
+            var answer = System.Windows.MessageBox.Show(
+                dialog,
+                "Sair do iFood neste PDV? A loja para de receber pedidos ate conectar novamente.",
+                "Sair do iFood",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (answer != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            _ifoodSyncTimer.Stop();
+            settings.Enabled = false;
+            settings.ConnectionId = "";
+            settings.ConnectionStatus = "";
+            settings.MerchantId = "";
+            settings.MerchantName = "";
+            settings.LastUserCode = "";
+            settings.VerificationUrl = "";
+            settings.VerificationUrlComplete = "";
+            settings.LastSyncUtc = null;
+            settings.ImportedEventIds.Clear();
+            _appSettings.PublicMenuStoreOpen = false;
+            SaveAppSettings();
+            SaveStore();
+            RefreshOnlineStoreButton();
+            RefreshIFoodUi("iFood removido deste PDV. Conecte novamente para receber pedidos.");
+        };
+
         var header = BorderCard();
-        header.Background = Solid("#EAF8F4");
+        header.Background = Solid("#F3FBFA");
         header.BorderBrush = Solid("#8ACCC2");
         var headerPanel = new StackPanel();
         headerPanel.Children.Add(new TextBlock
         {
-            Text = "Pedidos iFood automaticos",
+            Text = "iFood conectado ao PDV",
             FontSize = 24,
             FontWeight = FontWeights.Bold,
             Foreground = Solid("#071A2C")
         });
         headerPanel.Children.Add(new TextBlock
         {
-            Text = "Conecte a loja uma vez. Os novos pedidos aparecem no Delivery sem procurar codigo, webhook ou configuracao tecnica.",
+            Text = "Pedidos, produtos e estoque ficam no fluxo do Balcao Livre. O operador so liga a conta e acompanha pelo Delivery.",
             TextWrapping = TextWrapping.Wrap,
             Foreground = Solid("#52687A"),
             Margin = new Thickness(0, 8, 0, 0)
         });
-        headerPanel.Children.Add(connectionBox);
         headerPanel.Children.Add(operationBox);
         header.Child = headerPanel;
 
+        Border Metric(string label, TextBlock value, string accent)
+        {
+            value.Foreground = Solid(accent);
+            value.FontSize = 14;
+            value.FontWeight = FontWeights.Bold;
+            value.TextWrapping = TextWrapping.Wrap;
+            value.Margin = new Thickness(0, 5, 0, 0);
+
+            return new Border
+            {
+                Background = Solid("#F8FBFD"),
+                BorderBrush = Solid("#D6E4F1"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(13, 10, 13, 10),
+                Margin = new Thickness(0, 0, 10, 10),
+                Child = new StackPanel
+                {
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = label,
+                            Foreground = Solid("#5B6B7A"),
+                            FontSize = 12,
+                            FontWeight = FontWeights.SemiBold,
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        value
+                    }
+                }
+            };
+        }
+
+        var statusGrid = new UniformGrid { Columns = 2, Margin = new Thickness(0, 14, 0, 0) };
+        statusGrid.Children.Add(Metric("Conta iFood", connectionValue, "#0B3A52"));
+        statusGrid.Children.Add(Metric("Recebimento", receivingValue, "#08A99B"));
+        statusGrid.Children.Add(Metric("Produtos", productsValue, "#0B3A52"));
+        statusGrid.Children.Add(Metric("Ultima atualizacao", lastSyncValue, "#5B6B7A"));
+
         var flow = BorderCard();
         flow.Margin = new Thickness(0, 14, 0, 0);
-        var flowPanel = new StackPanel();
-        flowPanel.Children.Add(SectionTitle("Recebimento de pedidos"));
-        flowPanel.Children.Add(new TextBlock
+        var actions = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
+        actions.Children.Add(connect);
+        actions.Children.Add(syncProducts);
+        actions.Children.Add(toggleReceiving);
+        actions.Children.Add(openDelivery);
+        actions.Children.Add(disconnect);
+        flow.Child = new StackPanel
         {
-            Text = "O Balcao Livre fica escutando o iFood em segundo plano. Pedido novo abre um aviso grande e produto criado no iFood entra no estoque do PDV.",
-            Foreground = Solid("#5A6B7C"),
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 8)
-        });
-        flowPanel.Children.Add(connect);
-        var homologation = DialogButton("Checklist homologacao Order", "#0B3A52");
-        homologation.MinHeight = 46;
-        homologation.HorizontalAlignment = HorizontalAlignment.Stretch;
-        homologation.Margin = new Thickness(0, 10, 0, 0);
-        homologation.Click += (_, _) => ShowIFoodHomologationDialog();
-        flowPanel.Children.Add(homologation);
-        flowPanel.Children.Add(new TextBlock
-        {
-            Text = "Sem botao de buscar: o PDV atualiza sozinho enquanto estiver aberto e conectado a internet.",
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#5A6B7C"),
-            Margin = new Thickness(0, 10, 0, 0)
-        });
-        flow.Child = flowPanel;
+            Children =
+            {
+                SectionTitle("Operacao da loja"),
+                new TextBlock
+                {
+                    Text = "Pedido novo abre alerta grande, entra no Delivery e pode ser confirmado/despachado sem editar os itens.",
+                    Foreground = Solid("#5A6B7C"),
+                    TextWrapping = TextWrapping.Wrap
+                },
+                actions
+            }
+        };
+
+        RefreshIFoodUi();
 
         var outer = DialogPanel();
         outer.Children.Add(header);
+        outer.Children.Add(statusGrid);
         outer.Children.Add(flow);
-        dialog.Content = outer;
+        dialog.Content = new ScrollViewer
+        {
+            Content = outer,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
         dialog.ShowDialog();
     }
 
@@ -11450,7 +11635,6 @@ public partial class MainWindow : Window
         var panel = DialogPanel();
         panel.Children.Add(header);
         panel.Children.Add(OrderActionMessageCard(actionMessage));
-        panel.Children.Add(BuildIFoodHomologationChecklistPanel(order));
         panel.Children.Add(details);
         panel.Children.Add(OrderItemsCard(itemLines, "Itens do pedido", "Itens importados do iFood. Nao edite por fora do fluxo do pedido."));
         panel.Children.Add(DialogField("Motivo para cancelar", cancelReasonBox));
@@ -11480,40 +11664,6 @@ public partial class MainWindow : Window
 
         dialog.Content = root;
         dialog.ShowDialog();
-    }
-
-    private Border BuildIFoodHomologationChecklistPanel(TableTile order)
-    {
-        var card = BorderCard();
-        card.Margin = new Thickness(0, 12, 0, 0);
-
-        card.Child = new StackPanel
-        {
-            Children =
-            {
-                SectionTitle("Dados para homologacao Order"),
-                new TextBlock
-                {
-                    Text = "Use esta area no video: os campos importantes ficam separados e legiveis para o chamado.",
-                    Foreground = Solid("#5B6B7A"),
-                    TextWrapping = TextWrapping.Wrap
-                },
-                OrderInfoGrid(
-                    ("orderId para o chamado", order.ExternalOrderId, "#0B3A52", "#F8FBFD"),
-                    ("Cliente", order.CustomerName, "#071A2C", "#F8FBFD"),
-                    ("CPF/CNPJ do cliente", order.CustomerCpf, "#5B6B7A", "#FFFFFF"),
-                    ("Telefone", order.Phone, "#5B6B7A", "#FFFFFF"),
-                    ("Tipo / entrega / retirada", $"{BuildIFoodOrderTypeText(order)} | {BuildIFoodShipmentText(order)}".Trim(' ', '|'), "#08A99B", "#F8FBFD"),
-                    ("Endereco ou retirada", IsIFoodTakeout(order) ? BuildIFoodShipmentText(order) : order.Address, "#071A2C", "#F8FBFD"),
-                    ("Agendamento visivel", BuildIFoodScheduleText(order), "#99620D", "#FFF7ED"),
-                    ("Voucher / cupom", BuildIFoodVoucherText(order), "#08A99B", "#FFFFFF"),
-                    ("Pagamento e troco", BuildIFoodPaymentText(order), "#0B3A52", "#FFFFFF"),
-                    ("Observacao do pedido", BuildIFoodObservationEvidence(order), "#5B6B7A", "#F8FBFD"),
-                    ("Cancelamento", BuildIFoodCancellationText(order), "#A11D1D", "#FFF5F5"),
-                    ("Status atual", NormalizeIFoodBoardStatus(order.Status), "#08A99B", "#FFFFFF"))
-            }
-        };
-        return card;
     }
 
     private async Task<IFoodOrderActionResult> SendIFoodOrderActionAsync(TableTile order, string action, string reason)
@@ -13210,14 +13360,14 @@ public partial class MainWindow : Window
             selectedSourceIndex = 0;
         }
 
-        var dialog = CreateDialog("Mover ou juntar comandas", 980, 620);
+        var dialog = CreateDialog("Transferir comanda", 1120, 720);
         var transferBoardTemplate = (DataTemplate)FindResource("TransferBoardTemplate");
         var sourceList = new ListBox
         {
             ItemsSource = sources,
             ItemTemplate = transferBoardTemplate,
             ItemContainerStyle = TransferListBoxItemStyle(),
-            Height = 238,
+            Height = 232,
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             Margin = new Thickness(0, 10, 0, 0)
@@ -13226,7 +13376,7 @@ public partial class MainWindow : Window
         {
             ItemTemplate = transferBoardTemplate,
             ItemContainerStyle = TransferListBoxItemStyle(),
-            Height = 238,
+            Height = 270,
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             Margin = new Thickness(0, 10, 0, 12)
@@ -13234,38 +13384,40 @@ public partial class MainWindow : Window
         var selectedDestination = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#5B6B7A"),
+            Foreground = Solid("#0B3A52"),
             FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 8)
         };
         var sourceDetails = new StackPanel();
         var actionTitle = new TextBlock
         {
-            Text = "Selecione origem e destino",
+            Text = "Escolha o destino",
             Foreground = Solid("#071A2C"),
             FontSize = 17,
             FontWeight = FontWeights.Bold
         };
         var actionDescription = new TextBlock
         {
-            Text = "Quando o destino estiver livre, o pedido e movido. Quando estiver ocupado, o PDV junta as comandas.",
+            Text = "Destino livre move a comanda. Destino ocupado junta os itens e pagamentos.",
             Foreground = Solid("#5B6B7A"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 4, 0, 0)
         };
         var actionCard = new Border
         {
-            Background = Solid("#F8FBFE"),
-            BorderBrush = Solid("#D6E2EA"),
+            Background = Solid("#F2FBFC"),
+            BorderBrush = Solid("#BBDCE5"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(12),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(14),
             Margin = new Thickness(0, 0, 0, 12),
             Child = new StackPanel
             {
                 Children =
                 {
                     actionTitle,
+                    selectedDestination,
                     actionDescription
                 }
             }
@@ -13274,23 +13426,23 @@ public partial class MainWindow : Window
 
         Border Card(string title, string subtitle, UIElement content, string color)
         {
-            var stack = new StackPanel { Margin = new Thickness(16, 14, 16, 16) };
+            var stack = new StackPanel { Margin = new Thickness(18, 18, 18, 18) };
             stack.Children.Add(new TextBlock { Text = title, Foreground = Solid("#071A2C"), FontSize = 16, FontWeight = FontWeights.Bold });
-            stack.Children.Add(new TextBlock { Text = subtitle, Foreground = Solid("#5B6B7A"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 12) });
+            stack.Children.Add(new TextBlock { Text = subtitle, Foreground = Solid("#5B6B7A"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 14) });
             stack.Children.Add(content);
             return new Border
             {
                 Background = Brushes.White,
                 BorderBrush = Solid("#D6E2EA"),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = new CornerRadius(14),
                 Padding = new Thickness(0),
                 Margin = new Thickness(0, 0, 0, 12),
                 Child = new Grid
                 {
                     Children =
                     {
-                        new Border { Width = 4, Background = Solid(color), HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(8, 0, 0, 8) },
+                        new Border { Height = 5, Background = Solid(color), VerticalAlignment = VerticalAlignment.Top, CornerRadius = new CornerRadius(14, 14, 0, 0) },
                         stack
                     }
                 }
@@ -13304,10 +13456,10 @@ public partial class MainWindow : Window
             stack.Children.Add(new TextBlock { Text = value, Foreground = Solid(color), FontSize = 16, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 0) });
             return new Border
             {
-                Background = Solid("#F8FBFE"),
+                Background = Brushes.White,
                 BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = new CornerRadius(10),
                 Margin = new Thickness(0, 0, 8, 0),
                 Child = stack
             };
@@ -13336,10 +13488,10 @@ public partial class MainWindow : Window
             });
             return new Border
             {
-                Background = Solid("#F8FBFE"),
+                Background = Brushes.White,
                 BorderBrush = Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = new CornerRadius(10),
                 Padding = new Thickness(10),
                 Margin = new Thickness(0, 0, 0, 7),
                 Child = row
@@ -13355,8 +13507,14 @@ public partial class MainWindow : Window
                 return;
             }
 
-            sourceDetails.Children.Add(new TextBlock { Text = $"{BoardKindLabel(source)} {source.Number}", Foreground = Solid("#071A2C"), FontSize = 24, FontWeight = FontWeights.Bold });
-            sourceDetails.Children.Add(new TextBlock { Text = $"{source.DisplayStatus}  |  origem selecionada", Foreground = Solid("#0B3A52"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 4, 0, 0) });
+            sourceDetails.Children.Add(new TextBlock { Text = "ORIGEM SELECIONADA", Foreground = Solid("#0B3A52"), FontSize = 11, FontWeight = FontWeights.Bold });
+            sourceDetails.Children.Add(new TextBlock { Text = $"{BoardKindLabel(source)} {source.Number}", Foreground = Solid("#071A2C"), FontSize = 21, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
+            if (!string.Equals(source.DisplayTitle, source.Number, StringComparison.OrdinalIgnoreCase))
+            {
+                sourceDetails.Children.Add(new TextBlock { Text = source.DisplayTitle, Foreground = Solid("#5B6B7A"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
+            }
+
+            sourceDetails.Children.Add(new TextBlock { Text = source.DisplayStatus, Foreground = Solid("#0B3A52"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 4, 0, 0) });
             if (!string.IsNullOrWhiteSpace(source.CustomerName))
             {
                 sourceDetails.Children.Add(new TextBlock { Text = $"Cliente: {source.CustomerName}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap });
@@ -13377,7 +13535,7 @@ public partial class MainWindow : Window
             sourceDetails.Children.Add(new ScrollViewer
             {
                 Content = sourceItems,
-                Height = 128,
+                Height = 96,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 Margin = new Thickness(0, 10, 0, 0)
             });
@@ -13387,23 +13545,25 @@ public partial class MainWindow : Window
         {
             if (destinationList.SelectedItem is not TableTile destination)
             {
-                selectedDestination.Text = "Selecione uma mesa/ficha destino.";
-                actionTitle.Text = "Selecione o destino";
-                actionDescription.Text = "Escolha uma mesa, ficha ou delivery para mover ou juntar.";
+                selectedDestination.Text = "Nenhum destino selecionado.";
+                actionTitle.Text = "Escolha o destino";
+                actionDescription.Text = "Selecione uma mesa, ficha, balcao ou delivery na lista abaixo.";
                 if (transferButton is not null)
                 {
-                    transferButton.Content = "Mover ou juntar";
+                    transferButton.Content = "Escolha origem e destino";
                     transferButton.Background = Solid("#0B3A52");
                 }
                 return;
             }
 
             var occupied = IsBoardOccupiedForTransfer(destination);
-            selectedDestination.Text = $"{BoardKindLabel(destination)} {destination.Number} - {destination.DisplayStatus} - {Money(destination.Total)}";
+            selectedDestination.Text = occupied
+                ? $"Destino ocupado: {BoardKindLabel(destination)} {destination.Number} - vai juntar com a origem"
+                : $"Destino livre: {BoardKindLabel(destination)} {destination.Number} - vai receber a comanda";
             actionTitle.Text = occupied ? "Juntar comandas" : "Mover comanda";
             actionDescription.Text = occupied
-                ? $"O destino ja tem itens. O PDV vai somar os itens e pagamentos da origem em {BoardKindLabel(destination)} {destination.Number}."
-                : $"Destino livre. O PDV vai mover a comanda inteira para {BoardKindLabel(destination)} {destination.Number}.";
+                ? "A origem some da lista e o destino fica com tudo em uma comanda so."
+                : "A origem fica vazia e o pedido passa inteiro para o destino.";
             actionCard.Background = Solid(occupied ? "#FFF8E7" : "#F2FBFC");
             actionCard.BorderBrush = Solid(occupied ? "#E8B85B" : "#BBDCE5");
             if (transferButton is not null)
@@ -13447,7 +13607,7 @@ public partial class MainWindow : Window
         };
         destinationList.SelectionChanged += (_, _) => RefreshDestinationText();
 
-        transferButton = DialogButton("Mover ou juntar", "#0B3A52");
+        transferButton = DialogButton("Escolha origem e destino", "#0B3A52");
         transferButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         transferButton.Width = double.NaN;
         transferButton.IsDefault = true;
@@ -13484,26 +13644,76 @@ public partial class MainWindow : Window
         };
 
         var sourcePanel = new StackPanel();
-        sourcePanel.Children.Add(new TextBlock { Text = "Escolha qual comanda vai sair do lugar atual.", Foreground = Solid("#5B6B7A"), TextWrapping = TextWrapping.Wrap });
+        sourcePanel.Children.Add(new TextBlock { Text = "1. Selecione a comanda que sera transferida.", Foreground = Solid("#5B6B7A"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         sourcePanel.Children.Add(sourceList);
         sourcePanel.Children.Add(new Border { Height = 1, Background = Solid("#CAD6E2"), Margin = new Thickness(0, 10, 0, 10) });
         sourcePanel.Children.Add(sourceDetails);
         var destinationPanel = new StackPanel();
-        destinationPanel.Children.Add(selectedDestination);
+        destinationPanel.Children.Add(new TextBlock { Text = "2. Selecione o destino e confirme a acao.", Foreground = Solid("#5B6B7A"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
         destinationPanel.Children.Add(actionCard);
         destinationPanel.Children.Add(destinationList);
         destinationPanel.Children.Add(transferButton);
 
-        var grid = new Grid { Margin = new Thickness(18) };
+        var grid = new Grid { Margin = new Thickness(20) };
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(64) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(54) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star) });
+
+        var header = new Border
+        {
+            Background = Solid("#F2FBFC"),
+            BorderBrush = Solid("#BBDCE5"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(16, 10, 16, 10),
+            Margin = new Thickness(0, 0, 0, 14),
+            Child = new TextBlock
+            {
+                Text = "Mover troca a comanda para um destino livre. Juntar soma a origem em um destino ocupado.",
+                Foreground = Solid("#0B3A52"),
+                FontWeight = FontWeights.Bold,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap
+            }
+        };
+        Grid.SetColumnSpan(header, 3);
+        grid.Children.Add(header);
+
         var left = new StackPanel();
         left.Children.Add(Card("Origem", "Selecione a comanda completa que sera transferida.", sourcePanel, "#0B3A52"));
+        Grid.SetRow(left, 1);
         Grid.SetColumn(left, 0);
         grid.Children.Add(left);
+
+        var arrow = new Border
+        {
+            Width = 38,
+            Height = 38,
+            Background = Solid("#FFFFFF"),
+            BorderBrush = Solid("#D6E2EA"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(19),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = ">",
+                Foreground = Solid("#0B3A52"),
+                FontSize = 22,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+        Grid.SetRow(arrow, 1);
+        Grid.SetColumn(arrow, 1);
+        grid.Children.Add(arrow);
+
         var right = new StackPanel();
         right.Children.Add(Card("Destino", "Escolha destino livre para mover ou ocupado para juntar.", destinationPanel, "#0B3A52"));
+        Grid.SetRow(right, 1);
         Grid.SetColumn(right, 2);
         grid.Children.Add(right);
         dialog.Content = grid;
@@ -15618,40 +15828,66 @@ public partial class MainWindow : Window
             return;
         }
 
-        var dialog = CreateDialog("Relatorios e BI operacional", 1120, 720);
+        var dialog = CreateDialog("Relatorios e BI operacional", 1200, 820);
         var shell = new Border
         {
-            Background = Solid("#F4F7FA"),
-            Padding = new Thickness(18)
+            Background = Solid("#EEF4F7"),
+            Padding = new Thickness(22)
         };
         var root = new Grid();
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(46) });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(96) });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(76) });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(206) });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(62) });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(76) });
 
         var periodBox = new ComboBox
         {
             ItemsSource = new[] { "Hoje", "Total" },
             SelectedIndex = 0,
-            MinHeight = 36,
-            Width = 170,
-            Padding = new Thickness(8, 0, 8, 0),
+            MinHeight = 40,
+            Width = 190,
+            Padding = new Thickness(12, 0, 12, 0),
             Background = Brushes.White,
             BorderBrush = Solid("#C9D8E7"),
-            Margin = new Thickness(8, 0, 0, 0)
+            Margin = new Thickness(12, 0, 0, 0),
+            FontSize = 14
         };
-        var controls = new Border
+        var toolbar = new Border
         {
-            Background = Brushes.White,
-            BorderBrush = Solid("#DCE7F1"),
+            Background = Solid("#FFFFFF"),
+            BorderBrush = Solid("#D5E4EF"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(12, 6, 12, 6),
-            HorizontalAlignment = HorizontalAlignment.Left,
-            VerticalAlignment = VerticalAlignment.Top
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(18, 10, 18, 10),
+            Margin = new Thickness(0, 0, 0, 12)
         };
-        var controlsContent = new StackPanel { Orientation = Orientation.Horizontal };
+        var toolbarGrid = new Grid();
+        toolbarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        toolbarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var toolbarCopy = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        toolbarCopy.Children.Add(new TextBlock
+        {
+            Text = "Painel operacional",
+            Foreground = Solid("#071A2C"),
+            FontSize = 18,
+            FontWeight = FontWeights.Bold
+        });
+        toolbarCopy.Children.Add(new TextBlock
+        {
+            Text = "Acompanhe comandas, caixa, margem, estoque e integracoes em uma unica visao.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 12,
+            Margin = new Thickness(0, 3, 0, 0)
+        });
+        toolbarGrid.Children.Add(toolbarCopy);
+
+        var controlsContent = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center
+        };
         controlsContent.Children.Add(new TextBlock
         {
             Text = "Periodo do relatorio",
@@ -15661,8 +15897,10 @@ public partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center
         });
         controlsContent.Children.Add(periodBox);
-        controls.Child = controlsContent;
-        root.Children.Add(controls);
+        Grid.SetColumn(controlsContent, 1);
+        toolbarGrid.Children.Add(controlsContent);
+        toolbar.Child = toolbarGrid;
+        root.Children.Add(toolbar);
 
         var metricsHost = new ContentControl();
         Grid.SetRow(metricsHost, 1);
@@ -15695,12 +15933,12 @@ public partial class MainWindow : Window
             var showIFoodReport = IsIFoodReportEnabled();
             var ifoodSummary = showIFoodReport ? GetIFoodReportSummary(period) : default;
 
-            root.RowDefinitions[1].Height = showIFoodReport ? new GridLength(164) : new GridLength(86);
+            root.RowDefinitions[1].Height = showIFoodReport ? new GridLength(206) : new GridLength(104);
             var metrics = new UniformGrid
             {
                 Columns = showIFoodReport ? 3 : 5,
                 Rows = showIFoodReport ? 2 : 1,
-                Margin = new Thickness(0, 4, 0, 0)
+                Margin = new Thickness(0, 0, 0, 10)
             };
             metrics.Children.Add(CreateMetricCard("Em aberto", Money(openTotal), $"{openOrders.Count} comandas/pedidos", "#0B3A52"));
             metrics.Children.Add(CreateMetricCard("Caixa atual", Money(_cashTotal), IsCashOpen() ? "caixa aberto" : "caixa fechado", IsCashOpen() ? "#08A99B" : "#A11D1D"));
@@ -15714,7 +15952,7 @@ public partial class MainWindow : Window
             metrics.Children.Add(CreateMetricCard("Estoque baixo", lowStock.Count.ToString("N0", Brazil), "itens abaixo do minimo", lowStock.Count == 0 ? "#08A99B" : "#A11D1D"));
             metricsHost.Content = metrics;
 
-            var body = new Grid { Margin = new Thickness(0, 8, 0, 0) };
+            var body = new Grid { Margin = new Thickness(0, 0, 0, 0) };
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(showIFoodReport ? 1.08 : 1.15, GridUnitType.Star) });
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(showIFoodReport ? 0.92 : 0.85, GridUnitType.Star) });
             body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -15760,17 +15998,44 @@ public partial class MainWindow : Window
             bodyHost.Content = body;
         }
 
-        var footer = new StackPanel
+        var footer = new Border
+        {
+            Background = Solid("#FFFFFF"),
+            BorderBrush = Solid("#D5E4EF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(16, 10, 16, 10),
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+        var footerGrid = new Grid();
+        footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var footerCopy = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        footerCopy.Children.Add(new TextBlock
+        {
+            Text = "Relatorio pronto para conferencia",
+            Foreground = Solid("#071A2C"),
+            FontWeight = FontWeights.Bold
+        });
+        footerCopy.Children.Add(new TextBlock
+        {
+            Text = "Use exportacao para salvar historico ou impressao para conferencia do caixa.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 12,
+            Margin = new Thickness(0, 2, 0, 0)
+        });
+        footerGrid.Children.Add(footerCopy);
+        var footerActions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center
         };
         var openFolder = DialogButton("Abrir pasta", "#0B3A52");
-        openFolder.Margin = new Thickness(0, 10, 10, 0);
+        openFolder.Margin = new Thickness(0, 0, 10, 0);
         openFolder.Click += (_, _) => Process.Start(new ProcessStartInfo(ExportDir) { UseShellExecute = true });
         var print = DialogButton("Imprimir", "#99620D");
-        print.Margin = new Thickness(0, 10, 10, 0);
+        print.Margin = new Thickness(0, 0, 10, 0);
         print.Click += (_, _) =>
         {
             var period = SelectedPeriod();
@@ -15781,7 +16046,7 @@ public partial class MainWindow : Window
                 : "Relatorio nao impresso. Impressora padrao indisponivel.");
         };
         var export = DialogButton("Exportar TXT", "#08A99B");
-        export.Margin = new Thickness(0, 10, 0, 0);
+        export.Margin = new Thickness(0);
         export.Click += (_, _) =>
         {
             var period = SelectedPeriod();
@@ -15789,9 +16054,12 @@ public partial class MainWindow : Window
             var path = WriteReportFile("relatorio-operacional", reportText);
             SetStatus($"Relatorio {period.ToLowerInvariant()} exportado: {path}");
         };
-        footer.Children.Add(openFolder);
-        footer.Children.Add(print);
-        footer.Children.Add(export);
+        footerActions.Children.Add(openFolder);
+        footerActions.Children.Add(print);
+        footerActions.Children.Add(export);
+        Grid.SetColumn(footerActions, 1);
+        footerGrid.Children.Add(footerActions);
+        footer.Child = footerGrid;
         Grid.SetRow(footer, 3);
         root.Children.Add(footer);
 
@@ -15996,33 +16264,38 @@ public partial class MainWindow : Window
         var root = new Border
         {
             Background = Brushes.White,
-            BorderBrush = Solid("#DCE7F1"),
+            BorderBrush = Solid("#D5E4EF"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Margin = new Thickness(0, 0, 10, 10),
+            CornerRadius = new CornerRadius(14),
+            Margin = new Thickness(0, 0, 12, 10),
             ClipToBounds = true
         };
 
         var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(5) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         grid.Children.Add(new Border { Background = Solid(accentColor) });
 
-        var text = new StackPanel { Margin = new Thickness(14, 10, 14, 10) };
+        var content = new Grid { Margin = new Thickness(16, 10, 16, 10) };
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var text = new StackPanel();
         text.Children.Add(new TextBlock
         {
             Text = title,
             Foreground = Solid("#5B6B7A"),
             FontSize = 12,
-            FontWeight = FontWeights.SemiBold
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
         });
         text.Children.Add(new TextBlock
         {
             Text = value,
             Foreground = Solid("#071A2C"),
-            FontSize = 21,
+            FontSize = 22,
             FontWeight = FontWeights.Bold,
-            Margin = new Thickness(0, 2, 0, 0)
+            Margin = new Thickness(0, 1, 0, 0)
         });
         text.Children.Add(new TextBlock
         {
@@ -16033,8 +16306,31 @@ public partial class MainWindow : Window
             TextTrimming = TextTrimming.CharacterEllipsis
         });
 
-        Grid.SetColumn(text, 1);
-        grid.Children.Add(text);
+        content.Children.Add(text);
+        var chip = new Border
+        {
+            Width = 30,
+            Height = 30,
+            Background = Solid("#F2F8FA"),
+            BorderBrush = Solid("#DCE7F1"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Child = new Border
+            {
+                Width = 12,
+                Height = 12,
+                Background = Solid(accentColor),
+                CornerRadius = new CornerRadius(6),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+        Grid.SetColumn(chip, 1);
+        content.Children.Add(chip);
+        Grid.SetRow(content, 1);
+        grid.Children.Add(content);
         root.Child = grid;
         return root;
     }
@@ -16044,26 +16340,41 @@ public partial class MainWindow : Window
         var section = new Border
         {
             Background = Brushes.White,
-            BorderBrush = Solid("#DCE7F1"),
+            BorderBrush = Solid("#D5E4EF"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Margin = new Thickness(0, 0, 0, 10)
+            CornerRadius = new CornerRadius(14),
+            Margin = new Thickness(0, 0, 0, 12),
+            ClipToBounds = true
         };
 
-        var grid = new Grid { Margin = new Thickness(16, 14, 16, 14) };
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(44) });
+        var grid = new Grid { Margin = new Thickness(18, 14, 18, 14) };
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(50) });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         var header = new Grid();
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.Children.Add(new Border
         {
-            Background = Solid("#0B3A52"),
-            CornerRadius = new CornerRadius(2),
-            Margin = new Thickness(0, 1, 0, 5)
+            Width = 34,
+            Height = 34,
+            Background = Solid("#EAF8FA"),
+            BorderBrush = Solid("#C9D8E7"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Child = new TextBlock
+            {
+                Text = ReportInitials(title),
+                Foreground = Solid("#0B3A52"),
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
         });
-        var headerText = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
+        var headerText = new StackPanel { Margin = new Thickness(2, 0, 0, 0) };
         headerText.Children.Add(new TextBlock
         {
             Text = title,
@@ -16087,7 +16398,7 @@ public partial class MainWindow : Window
             Content = content,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Margin = new Thickness(0, 8, 0, 0),
+            Margin = new Thickness(0, 4, 0, 0),
             Padding = new Thickness(0, 0, 4, 0)
         };
         Grid.SetRow(scroll, 1);
@@ -16222,23 +16533,33 @@ public partial class MainWindow : Window
             Background = Solid("#F8FBFD"),
             BorderBrush = Solid("#E3EBF2"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(7),
-            Margin = new Thickness(0, 0, 0, 7),
-            Padding = new Thickness(10, 8, 10, 8)
+            CornerRadius = new CornerRadius(10),
+            Margin = new Thickness(0, 0, 0, 9),
+            Padding = new Thickness(12, 10, 12, 10),
+            MinHeight = 52
         };
         var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(5) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(112) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        grid.Children.Add(new Border { Background = Solid(accentColor), CornerRadius = new CornerRadius(3), Margin = new Thickness(0, 1, 10, 1) });
+        grid.Children.Add(new Border
+        {
+            Width = 10,
+            Height = 10,
+            Background = Solid(accentColor),
+            CornerRadius = new CornerRadius(5),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center
+        });
 
-        var text = new StackPanel { Margin = new Thickness(10, 0, 8, 0) };
+        var text = new StackPanel { Margin = new Thickness(4, 0, 18, 0) };
         text.Children.Add(new TextBlock
         {
             Text = title,
             Foreground = Solid("#071A2C"),
             FontWeight = FontWeights.SemiBold,
+            FontSize = 13,
             TextTrimming = TextTrimming.CharacterEllipsis
         });
         text.Children.Add(new TextBlock
@@ -16257,6 +16578,7 @@ public partial class MainWindow : Window
             Text = trailing,
             Foreground = Solid("#071A2C"),
             FontWeight = FontWeights.Bold,
+            FontSize = 13,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis
@@ -16286,7 +16608,7 @@ public partial class MainWindow : Window
         var bar = new Border
         {
             Background = Solid(accentColor),
-            Width = Math.Clamp(ratio, 0.05, 1) * 180,
+            Width = Math.Clamp(ratio, 0.05, 1) * 220,
             CornerRadius = new CornerRadius(3),
             HorizontalAlignment = HorizontalAlignment.Left
         };
@@ -16302,8 +16624,9 @@ public partial class MainWindow : Window
             Background = Solid("#F8FBFD"),
             BorderBrush = Solid("#E3EBF2"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(7),
-            Padding = new Thickness(12),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(16),
+            MinHeight = 58,
             Child = new TextBlock
             {
                 Text = text,
@@ -16311,6 +16634,18 @@ public partial class MainWindow : Window
                 FontWeight = FontWeights.SemiBold
             }
         };
+    }
+
+    private static string ReportInitials(string title)
+    {
+        var words = title
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(word => char.IsLetterOrDigit(word[0]))
+            .Take(2)
+            .Select(word => char.ToUpperInvariant(word[0]).ToString())
+            .ToArray();
+
+        return words.Length == 0 ? "BI" : string.Concat(words);
     }
 
     private static string StatusColor(string status)
@@ -17123,7 +17458,7 @@ public partial class MainWindow : Window
             var key = keyBox.Text.Trim();
             try
             {
-                if (!TryActivateLicenseKey(key, out var expiresAt, out var plan, out var licenseMessage))
+                if (!TryActivateLicenseKey(key, out var expiresAt, out var plan, out var licenseMessage, out var requireAdminConfirmation))
                 {
                     error.Text = licenseMessage;
                     keyBox.Focus();
@@ -17227,7 +17562,7 @@ public partial class MainWindow : Window
 
                 var normalizedKey = NormalizeActivationKey(key);
                 error.Text = "Validando chave no admin...";
-                var adminResult = await TryValidateAdminActivationAsync(normalizedKey, expiresAt, plan);
+                var adminResult = await TryValidateAdminActivationAsync(normalizedKey, expiresAt, plan, requireAdminConfirmation);
                 if (!adminResult.Ok)
                 {
                     error.Text = adminResult.Message;
@@ -17244,6 +17579,14 @@ public partial class MainWindow : Window
                 if (!string.IsNullOrWhiteSpace(adminResult.Plan))
                 {
                     plan = adminResult.Plan;
+                }
+
+                if (expiresAt.HasValue && expiresAt.Value < DateTime.Now)
+                {
+                    error.Text = "Pagamento ainda nao confirmou a renovacao desta chave. Conclua o Stripe e tente ativar novamente.";
+                    keyBox.Focus();
+                    keyBox.SelectAll();
+                    return;
                 }
 
                 if (!TryRegisterActivationUse(normalizedKey, expiresAt, plan, out var registerMessage))
@@ -17292,7 +17635,7 @@ public partial class MainWindow : Window
             else
             {
                 error.Foreground = Solid("#0B3A52");
-                error.Text = "Depois do pagamento, a pagina do site mostra uma nova chave. Cole a nova chave aqui e clique em Ativar sistema.";
+                error.Text = "Depois do pagamento, volte aqui e clique em Ativar sistema usando esta mesma chave.";
             }
         };
         keyBox.KeyDown += (_, e) =>
@@ -17406,7 +17749,7 @@ public partial class MainWindow : Window
         panel.Children.Add(keyBox);
         panel.Children.Add(DialogHint($"Codigo deste computador: {GetMachineCode()}. A chave fica vinculada a este PC."));
         panel.Children.Add(renewSubscription);
-        panel.Children.Add(DialogHint("Se a chave venceu, pague pelo Stripe. A renovacao gera uma nova chave para colar neste campo."));
+        panel.Children.Add(DialogHint("Se a chave venceu, pague pelo Stripe. A renovacao libera esta mesma chave no Supabase; depois clique em Ativar sistema."));
         panel.Children.Add(new Border
         {
             Background = Solid("#F8FBFD"),
@@ -17649,10 +17992,11 @@ public partial class MainWindow : Window
         return Users.Count == 0 || Users.All(IsDefaultSeedUser);
     }
 
-    private static bool TryActivateLicenseKey(string key, out DateTime? expiresAt, out string plan, out string message)
+    private static bool TryActivateLicenseKey(string key, out DateTime? expiresAt, out string plan, out string message, out bool requireAdminConfirmation)
     {
         expiresAt = null;
         plan = "";
+        requireAdminConfirmation = false;
         var normalized = NormalizeActivationKey(key);
         if (string.IsNullOrWhiteSpace(normalized))
         {
@@ -17668,10 +18012,17 @@ public partial class MainWindow : Window
             return true;
         }
 
-        if (TryValidateSignedActivationKey(normalized, out var signedExpiration))
+        if (TryReadSignedActivationKey(normalized, out var signedExpiration))
         {
             expiresAt = signedExpiration;
             plan = "Licenca comercial";
+            if (signedExpiration < DateTime.Now)
+            {
+                requireAdminConfirmation = true;
+                message = "Chave vencida localmente. Vou confirmar no Supabase se o Stripe ja renovou esta mesma chave.";
+                return true;
+            }
+
             message = "Chave ativada.";
             return true;
         }
@@ -17682,16 +18033,16 @@ public partial class MainWindow : Window
 
     private static bool TryValidateSignedActivationKey(string normalized, out DateTime expiration)
     {
+        return TryReadSignedActivationKey(normalized, out expiration) && expiration >= DateTime.Now;
+    }
+
+    private static bool TryReadSignedActivationKey(string normalized, out DateTime expiration)
+    {
         expiration = DateTime.MinValue;
         var parts = normalized.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (parts is ["BLV", _, _, _])
         {
             if (!TryParseActivationExpiration(parts[1], out expiration))
-            {
-                return false;
-            }
-
-            if (expiration < DateTime.Now)
             {
                 return false;
             }
@@ -17706,11 +18057,6 @@ public partial class MainWindow : Window
         }
 
         if (!TryParseActivationExpiration(parts[1], out expiration))
-        {
-            return false;
-        }
-
-        if (expiration < DateTime.Now)
         {
             return false;
         }
@@ -17773,6 +18119,10 @@ public partial class MainWindow : Window
         {
             if (string.Equals(existing.MachineHash, machineHash, StringComparison.Ordinal))
             {
+                existing.Plan = plan;
+                existing.ExpiresAt = expiresAt;
+                existing.AppVersion = GetAppVersion();
+                SaveActivationLedger(ledger);
                 message = "Chave ja vinculada a este computador.";
                 return true;
             }
@@ -18419,10 +18769,10 @@ public partial class MainWindow : Window
         return Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
             .InformationalVersion
-            ?? "1.6.2026";
+            ?? "1.7.2026";
     }
 
-    private async Task<bool> CheckForUpdatesAsync(bool showIfCurrent, bool autoInstall = false)
+    private async Task<bool> CheckForUpdatesAsync(bool showIfCurrent, bool autoInstall = false, bool startupCheck = false)
     {
         var manifestUrl = (_appSettings.UpdateManifestUrl ?? "").Trim();
         if (string.IsNullOrWhiteSpace(manifestUrl))
@@ -18443,7 +18793,7 @@ public partial class MainWindow : Window
             _appSettings.LastUpdateCheckAt = DateTime.Now;
             SaveAppSettings();
 
-            if (manifest is null || string.IsNullOrWhiteSpace(manifest.Version) || string.IsNullOrWhiteSpace(manifest.InstallerUrl))
+            if (manifest is null || string.IsNullOrWhiteSpace(manifest.Version) || string.IsNullOrWhiteSpace(manifest.EffectiveInstallerUrl))
             {
                 if (showIfCurrent)
                 {
@@ -18453,25 +18803,40 @@ public partial class MainWindow : Window
                 return false;
             }
 
-            if (!IsVersionNewer(manifest.Version, GetAppVersion()))
+            var installedVersion = GetAppVersion();
+            var updateAvailable = IsVersionNewer(manifest.Version, installedVersion);
+            var required = IsUpdateRequired(manifest, installedVersion);
+            if (!updateAvailable && !required)
             {
                 if (showIfCurrent)
                 {
-                    ShowToast("Sistema atualizado", $"Versao instalada: {GetAppVersion()}.", "AT", "#08A99B", "#E6FBF8");
+                    ShowToast("Sistema atualizado", $"Versao instalada: {installedVersion}.", "AT", "#08A99B", "#E6FBF8");
                     SetStatus("Nenhuma atualizacao disponivel.");
                 }
 
                 return false;
             }
 
-            if (autoInstall)
+            if (autoInstall || required)
             {
-                ShowToast("Atualizacao encontrada", $"Baixando versao {manifest.Version}.", "AT", "#08A99B", "#E6FBF8");
-                SetStatus($"Atualizacao {manifest.Version} encontrada. Baixando instalador automaticamente...");
-                return await DownloadAndOpenInstallerAsync(manifest, status: null, silentInstall: true);
+                ShowToast(required ? "Atualizacao obrigatoria" : "Atualizacao encontrada", $"Baixando versao {manifest.Version}.", "AT", "#08A99B", "#E6FBF8");
+                SetStatus(required
+                    ? $"Atualizacao obrigatoria {manifest.Version}. Baixando instalador..."
+                    : $"Atualizacao {manifest.Version} encontrada. Baixando instalador automaticamente...");
+                var installed = await DownloadAndOpenInstallerAsync(manifest, status: null, silentInstall: true);
+                if (!installed && required)
+                {
+                    ShowUpdateDialog(manifest, requiredMode: true);
+                }
+
+                return installed;
             }
 
-            ShowUpdateDialog(manifest);
+            if (!startupCheck || showIfCurrent)
+            {
+                ShowUpdateDialog(manifest, requiredMode: false);
+            }
+
             return false;
         }
         catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or JsonException or IOException or UnauthorizedAccessException)
@@ -18487,9 +18852,10 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ShowUpdateDialog(UpdateManifest manifest)
+    private void ShowUpdateDialog(UpdateManifest manifest, bool requiredMode = false)
     {
-        var dialog = CreateDialog("Atualizacao disponivel", 560, 420);
+        requiredMode = requiredMode || IsUpdateRequired(manifest, GetAppVersion());
+        var dialog = CreateDialog(requiredMode ? "Atualizacao obrigatoria" : "Atualizacao disponivel", 560, requiredMode ? 460 : 420);
         var panel = DialogPanel();
         var status = new TextBlock
         {
@@ -18514,8 +18880,8 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
         };
-        var download = DialogButton("Baixar instalador", "#08A99B");
-        var later = DialogButton("Depois", "#5B6B7A");
+        var download = DialogButton(requiredMode ? "Atualizar agora" : "Baixar instalador", "#08A99B");
+        var later = DialogButton(requiredMode ? "Sair" : "Depois", "#5B6B7A");
         var buttons = new UniformGrid
         {
             Columns = 2,
@@ -18528,7 +18894,18 @@ public partial class MainWindow : Window
         buttons.Children.Add(later);
         buttons.Children.Add(download);
 
-        later.Click += (_, _) => dialog.Close();
+        var updateStarted = false;
+        later.Click += (_, _) =>
+        {
+            if (requiredMode)
+            {
+                _exitRequested = true;
+                Application.Current.Shutdown();
+                return;
+            }
+
+            dialog.Close();
+        };
         download.Click += async (_, _) =>
         {
             download.IsEnabled = false;
@@ -18536,15 +18913,19 @@ public partial class MainWindow : Window
             status.Text = "Baixando instalador...";
             try
             {
-                if (await DownloadAndOpenInstallerAsync(manifest, status, silentInstall: false))
+                if (await DownloadAndOpenInstallerAsync(manifest, status, silentInstall: requiredMode))
                 {
+                    updateStarted = true;
                     dialog.Close();
                 }
             }
             finally
             {
-                download.IsEnabled = true;
-                later.IsEnabled = true;
+                if (!updateStarted)
+                {
+                    download.IsEnabled = true;
+                    later.IsEnabled = true;
+                }
             }
         };
 
@@ -18558,11 +18939,11 @@ public partial class MainWindow : Window
         });
         panel.Children.Add(version);
         panel.Children.Add(notes);
-        if (manifest.Required)
+        if (requiredMode)
         {
             panel.Children.Add(new TextBlock
             {
-                Text = "Atualizacao obrigatoria para continuar recebendo suporte.",
+                Text = "Atualizacao obrigatoria. Esta versao antiga nao deve continuar em uso.",
                 Foreground = RedText,
                 FontWeight = FontWeights.SemiBold,
                 TextWrapping = TextWrapping.Wrap,
@@ -18573,12 +18954,20 @@ public partial class MainWindow : Window
         panel.Children.Add(status);
         panel.Children.Add(buttons);
         dialog.Content = panel;
+        dialog.Closing += (_, _) =>
+        {
+            if (requiredMode && !updateStarted)
+            {
+                _exitRequested = true;
+                Application.Current.Shutdown();
+            }
+        };
         dialog.ShowDialog();
     }
 
     private async Task<bool> DownloadAndOpenInstallerAsync(UpdateManifest manifest, TextBlock? status, bool silentInstall)
     {
-        if (!Uri.TryCreate(manifest.InstallerUrl.Trim(), UriKind.Absolute, out var uri))
+        if (!Uri.TryCreate(manifest.EffectiveInstallerUrl.Trim(), UriKind.Absolute, out var uri))
         {
             if (status is not null)
             {
@@ -18626,6 +19015,23 @@ public partial class MainWindow : Window
             : "O instalador sera aberto agora.", "AT", "#08A99B", "#E6FBF8");
         try
         {
+            CreatePreUpdateSafetyBackup();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            Debug.WriteLine($"Pre-update backup failed: {ex.Message}");
+            if (status is not null)
+            {
+                status.Text = "Atualizacao bloqueada: nao consegui gerar o backup de seguranca.";
+            }
+
+            SetStatus("Atualizacao bloqueada para proteger os dados. Tente novamente.");
+            ShowToast("Backup obrigatorio", "Nao vou atualizar sem salvar os dados antes.", "AT", "#99620D", "#FFF2CB");
+            return false;
+        }
+
+        try
+        {
             Process.Start(new ProcessStartInfo(destination)
             {
                 UseShellExecute = true,
@@ -18657,6 +19063,49 @@ public partial class MainWindow : Window
         }
 
         return true;
+    }
+
+    private void CreatePreUpdateSafetyBackup()
+    {
+        SaveActiveTicketToCurrentBoard();
+        SaveStore();
+        SaveAppSettings();
+        SaveRestaurantProfile();
+        CreateLocalStoreBackup("pre-update", force: true);
+
+        var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+        var safetyDir = Path.Combine(BackupDir, "pre-update", stamp);
+        Directory.CreateDirectory(safetyDir);
+        CopyIfExists(StoreFile, Path.Combine(safetyDir, "commandas-store.json"));
+        CopyIfExists(SettingsFile, Path.Combine(safetyDir, "app-settings.json"));
+        CopyIfExists(ProfileFile, Path.Combine(safetyDir, "restaurant-profile.json"));
+        CopyIfExists(GetActivationLedgerFile(), Path.Combine(safetyDir, "activation-ledger.json"));
+    }
+
+    private static void CopyIfExists(string source, string destination)
+    {
+        if (string.IsNullOrWhiteSpace(source) || !File.Exists(source))
+        {
+            return;
+        }
+
+        var directory = Path.GetDirectoryName(destination);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        File.Copy(source, destination, overwrite: true);
+    }
+
+    private static bool IsUpdateRequired(UpdateManifest manifest, string installedVersion)
+    {
+        if (!string.IsNullOrWhiteSpace(manifest.MinimumVersion) && IsVersionNewer(manifest.MinimumVersion, installedVersion))
+        {
+            return true;
+        }
+
+        return manifest.Required && IsVersionNewer(manifest.Version, installedVersion);
     }
 
     private static bool IsVersionNewer(string candidate, string installed)
@@ -18692,7 +19141,7 @@ public partial class MainWindow : Window
             builder.Append(invalid.Contains(ch) ? '-' : ch);
         }
 
-        return builder.Length == 0 ? "1.6.2026" : builder.ToString();
+        return builder.Length == 0 ? "1.7.2026" : builder.ToString();
     }
 
     private static string CopyLogoToAppIdentityFolder(string sourcePath)
@@ -23207,12 +23656,33 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
 
         [JsonIgnore] public string TransferDisplay => $"{Kind} {Number}  {Status}  {Money(Total)}";
         [JsonIgnore] public string TransferTotalText => Money(Total);
-        [JsonIgnore] public string TransferSubtitle => $"{BoardKindLabel(this)} {Number}  |  {DisplaySubtitle}";
+        [JsonIgnore]
+        public string TransferSubtitle
+        {
+            get
+            {
+                var boardLabel = $"{BoardKindLabel(this)} {Number}";
+                if (!string.IsNullOrWhiteSpace(CustomerName))
+                {
+                    return boardLabel;
+                }
+
+                var detail = DisplaySubtitle?.Trim();
+                if (string.IsNullOrWhiteSpace(detail)
+                    || string.Equals(detail, Number, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(detail, boardLabel, StringComparison.OrdinalIgnoreCase))
+                {
+                    return boardLabel;
+                }
+
+                return $"{boardLabel}  |  {detail}";
+            }
+        }
         [JsonIgnore] public string TimerText => BuildBoardTileTimerText(this);
         [JsonIgnore] public Brush TimerBrush => BuildBoardTileTimerBrush(this);
         [JsonIgnore] public string TransferHint => Lines.Count > 0 || Payments.Count > 0
-            ? "Tem itens: juntar comandas"
-            : "Livre: mover comanda";
+            ? "Com movimento"
+            : "Livre para receber";
 
         [JsonIgnore]
         public string DisplayTitle
@@ -24209,6 +24679,15 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         [JsonPropertyName("installerUrl")]
         public string InstallerUrl { get; set; } = "";
 
+        [JsonPropertyName("downloadUrl")]
+        public string DownloadUrl { get; set; } = "";
+
+        [JsonPropertyName("url")]
+        public string Url { get; set; } = "";
+
+        [JsonPropertyName("minimumVersion")]
+        public string MinimumVersion { get; set; } = "";
+
         [JsonPropertyName("notes")]
         public string Notes { get; set; } = "";
 
@@ -24217,6 +24696,13 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
 
         [JsonPropertyName("publishedAt")]
         public DateTime? PublishedAt { get; set; }
+
+        [JsonIgnore]
+        public string EffectiveInstallerUrl => !string.IsNullOrWhiteSpace(InstallerUrl)
+            ? InstallerUrl
+            : !string.IsNullOrWhiteSpace(DownloadUrl)
+                ? DownloadUrl
+                : Url;
     }
 
     public abstract class NotifyBase : INotifyPropertyChanged
