@@ -39,3 +39,8 @@ skills-lock.json
 .vscode/
 Thumbs.db
 Desktop.ini
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
