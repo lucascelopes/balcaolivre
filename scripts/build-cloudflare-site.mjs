@@ -123,27 +123,27 @@ export default {
       if (url.pathname === "/admin-api" || url.pathname.startsWith("/admin-api/")) {
         return proxyAdminApi(request, url);
       }
-      return servePrefixedAsset(request, env, "/admin", "/admin/index.html");
+      return servePrefixedAsset(request, env, "/admin", "/admin/");
     }
 
     if (isHost(host, "pdv")) {
-      return servePrefixedAsset(request, env, "/pdv", "/pdv/index.html");
+      return servePrefixedAsset(request, env, "/pdv", "/pdv/");
     }
 
     if (isHost(host, "cardapio")) {
-      return servePrefixedAsset(request, env, "/cardapio", "/cardapio/index.html");
+      return servePrefixedAsset(request, env, "/cardapio", "/cardapio/");
     }
 
     if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
-      return servePathAsset(request, env, "/admin", "/admin/index.html");
+      return servePathAsset(request, env, "/admin", "/admin/");
     }
 
     if (url.pathname === "/pdv" || url.pathname.startsWith("/pdv/")) {
-      return servePathAsset(request, env, "/pdv", "/pdv/index.html");
+      return servePathAsset(request, env, "/pdv", "/pdv/");
     }
 
     if (url.pathname === "/cardapio" || url.pathname.startsWith("/cardapio/")) {
-      return servePathAsset(request, env, "/cardapio", "/cardapio/index.html");
+      return servePathAsset(request, env, "/cardapio", "/cardapio/");
     }
 
     if (url.pathname === "/admin-api" || url.pathname.startsWith("/admin-api/")) {

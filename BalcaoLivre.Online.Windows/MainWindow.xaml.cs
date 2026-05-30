@@ -9225,12 +9225,13 @@ public partial class MainWindow : Window
             return WaiterActionResult.Fail(staffError, state);
         }
 
-        var board = FindWaiterBoard(request.BoardNumber);
-        if (board is null)
+        var boardNumber = NormalizeBoardNumber(request.BoardNumber);
+        if (string.IsNullOrWhiteSpace(boardNumber))
         {
-            return WaiterActionResult.Fail("Mesa nao existe. Crie as mesas no caixa Windows.", state);
+            return WaiterActionResult.Fail("Informe o numero da mesa.", state);
         }
 
+        var board = FindOrCreateWaiterBoard(boardNumber, out var createdBoard);
         if (IsIFoodDeliveryBoard(board))
         {
             return WaiterActionResult.Fail("Pedido iFood nao permite adicionar item manualmente.", state);
@@ -9258,7 +9259,10 @@ public partial class MainWindow : Window
         }
 
         RefreshAfterWaiterMutation(board);
-        return WaiterActionResult.Success($"Mesa {board.Number} aberta para o garcom {waiterNumber}.", BuildWaiterState());
+        var message = createdBoard
+            ? $"Mesa {board.Number} criada e aberta para o garcom {waiterNumber}."
+            : $"Mesa {board.Number} aberta para o garcom {waiterNumber}.";
+        return WaiterActionResult.Success(message, BuildWaiterState());
     }
 
     private WaiterActionResult AddWaiterProduct(WaiterAddProductRequest request)
@@ -9269,10 +9273,24 @@ public partial class MainWindow : Window
             return WaiterActionResult.Fail(staffError, state);
         }
 
-        var board = FindWaiterBoard(request.BoardNumber);
-        if (board is null)
+        var boardNumber = NormalizeBoardNumber(request.BoardNumber);
+        if (string.IsNullOrWhiteSpace(boardNumber))
         {
-            return WaiterActionResult.Fail("Mesa nao existe. Crie as mesas no caixa Windows.", state);
+            return WaiterActionResult.Fail("Informe o numero da mesa.", state);
+        }
+
+        var code = NormalizeProductCode(request.ProductCode);
+        var product = Products.FirstOrDefault(item => string.Equals(item.Code, code, StringComparison.OrdinalIgnoreCase))
+            ?? Products.FirstOrDefault(item => item.Code.Contains(request.ProductCode.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (product is null || !product.Active)
+        {
+            return WaiterActionResult.Fail("Produto nao encontrado no cadastro.", state);
+        }
+
+        var board = FindOrCreateWaiterBoard(boardNumber, out var createdBoard);
+        if (IsIFoodDeliveryBoard(board))
+        {
+            return WaiterActionResult.Fail("Pedido iFood nao permite adicionar item manualmente.", state);
         }
 
         if (HasReceivedPayment(board))
@@ -9283,14 +9301,6 @@ public partial class MainWindow : Window
         if (IsClosedAccountForConference(board))
         {
             return WaiterActionResult.Fail(BuildClosedAccountWaiterMessage(board), state);
-        }
-
-        var code = NormalizeProductCode(request.ProductCode);
-        var product = Products.FirstOrDefault(item => string.Equals(item.Code, code, StringComparison.OrdinalIgnoreCase))
-            ?? Products.FirstOrDefault(item => item.Code.Contains(request.ProductCode.Trim(), StringComparison.OrdinalIgnoreCase));
-        if (product is null || !product.Active)
-        {
-            return WaiterActionResult.Fail("Produto nao encontrado no cadastro.", state);
         }
 
         var qty = Math.Max(1, request.Quantity);
@@ -9332,7 +9342,10 @@ public partial class MainWindow : Window
         }
         PrintWaiterKitchenLine(board, kitchenLine);
         RefreshAfterWaiterMutation(board);
-        return WaiterActionResult.Success($"Incluido: {qty}x {product.Name}.", BuildWaiterState());
+        var message = createdBoard
+            ? $"Mesa {board.Number} criada. Incluido: {qty}x {product.Name}."
+            : $"Incluido: {qty}x {product.Name}.";
+        return WaiterActionResult.Success(message, BuildWaiterState());
     }
 
     private WaiterActionResult SaveWaiterBoardNote(WaiterBoardNoteRequest request)
@@ -9548,6 +9561,35 @@ public partial class MainWindow : Window
     {
         var normalized = NormalizeBoardNumber(number);
         return Tables.FirstOrDefault(table => string.Equals(table.Number, normalized, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private TableTile FindOrCreateWaiterBoard(string number, out bool created)
+    {
+        created = false;
+        var normalized = NormalizeBoardNumber(number);
+        var existing = FindWaiterBoard(normalized);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var board = new TableTile
+        {
+            Number = normalized,
+            Kind = "MESA",
+            Status = "LIVRE",
+            Waiter = 0,
+            CreatedAt = DateTime.Now
+        };
+
+        Tables.Add(board);
+        created = true;
+        if (string.Equals(CurrentMode, "Comandas", StringComparison.OrdinalIgnoreCase))
+        {
+            RefreshBoardForMode();
+        }
+
+        return board;
     }
 
     private bool TryResolveWaiterStaff(string value, out int number, out string error)

@@ -18,7 +18,7 @@ export default {
 function resolveAssetPath(pathname) {
   const path = stripCardapioPrefix(pathname || "/");
   if (path === "/" || isDocumentPath(path)) {
-    return "/index.html";
+    return "/";
   }
 
   return path;

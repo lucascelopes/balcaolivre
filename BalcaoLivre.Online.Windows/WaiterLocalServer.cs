@@ -806,6 +806,15 @@ function normalizeSelection() {
   }
 }
 
+function normalizeBoardNumber(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  return digits ? digits.padStart(6, '0') : '';
+}
+
+function typedBoardNumber() {
+  return normalizeBoardNumber($('tableInput').value) || selectedBoard;
+}
+
 function currentBoard() {
   return state?.boards?.find(b => b.number === selectedBoard) || null;
 }
@@ -875,7 +884,7 @@ function renderTables() {
       <strong>${escapeHtml(b.number)}</strong>
       <span>${escapeHtml(b.status)}</span>
     </button>`;
-  }).join('') : '<div class="empty">Crie as mesas no caixa Windows primeiro.</div>';
+  }).join('') : '<div class="empty">Digite o numero e toque em Abrir mesa para criar a primeira mesa.</div>';
   grid.scrollTop = scrollTop;
 
   qsa('[data-board]').forEach((button) => {
@@ -967,23 +976,57 @@ function setView(view) {
   qsa('[data-view]').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
 }
 
-async function openBoard() {
+async function openBoard(boardNumber = $('tableInput').value) {
   const staff = $('staffSelect').value;
   localStorage.setItem('bl_waiter_staff', staff);
-  const number = $('tableInput').value.trim();
+  const number = normalizeBoardNumber(boardNumber);
+  if (!number) {
+    toast('Digite o numero da mesa.', true);
+    $('tableInput').focus();
+    return null;
+  }
+  $('tableInput').value = number;
   const customerName = $('customerInput').value.trim();
   const result = await runAction('/api/waiter/open', { kind:'MESA', boardNumber:number, waiterNumber:staff, customerName });
-  if (result?.ok && number) selectBoard(number.padStart(6, '0'));
+  if (result?.ok) selectBoard(number);
+  return result;
+}
+
+async function ensureBoardForProduct() {
+  const number = typedBoardNumber();
+  if (!number) {
+    toast('Digite a mesa antes de incluir o produto.', true);
+    setView('tables');
+    $('tableInput').focus();
+    return '';
+  }
+
+  $('tableInput').value = number;
+  const board = state?.boards?.find((item) => item.number === number) || null;
+  if (board && selectedBoard !== number) {
+    selectedBoard = number;
+    localStorage.setItem('bl_waiter_board', selectedBoard);
+    render();
+  }
+
+  if (!board || String(board.status || '').toUpperCase() === 'LIVRE') {
+    const result = await openBoard(number);
+    if (!result?.ok) return '';
+  }
+
+  selectedBoard = number;
+  localStorage.setItem('bl_waiter_board', selectedBoard);
+  return number;
 }
 
 async function addProduct(code) {
-  const board = currentBoard();
-  if (!board) return toast('Selecione ou abra uma mesa primeiro.', true);
+  const boardNumber = await ensureBoardForProduct();
+  if (!boardNumber) return;
   const staff = $('staffSelect').value;
   localStorage.setItem('bl_waiter_staff', staff);
   const quantity = Math.max(1, parseInt($('qtyInput').value || '1', 10));
   const note = $('noteInput').value.trim();
-  const result = await runAction('/api/waiter/add', { kind:'MESA', boardNumber:board.number, waiterNumber:staff, productCode:code, quantity, note });
+  const result = await runAction('/api/waiter/add', { kind:'MESA', boardNumber, waiterNumber:staff, productCode:code, quantity, note });
   if (!result) return;
   $('noteInput').value = '';
   $('qtyInput').value = '1';
