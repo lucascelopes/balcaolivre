@@ -5615,16 +5615,17 @@ public partial class MainWindow : Window
                 return;
             }
 
+            var resolvedDefaultPrinter = GetUsableDefaultPrinterName();
             _appSettings.PreferredPrinterName = string.Equals(selectedPrinter, defaultPrinterOption, StringComparison.Ordinal)
-                ? ""
-                : selectedPrinter.Trim();
+                ? resolvedDefaultPrinter
+                : NormalizePrinterNameSetting(selectedPrinter);
             _appSettings.SectorPrinters = sectorPrinterRows
                 .Select(row => new SectorPrinterSetting
                 {
                     Sector = NormalizeProductDestination(row.SectorBox.Text, ""),
                     PrinterName = string.Equals(row.PrinterBox.SelectedItem?.ToString(), defaultPrinterOption, StringComparison.Ordinal)
-                        ? ""
-                        : (row.PrinterBox.SelectedItem?.ToString() ?? "").Trim()
+                        ? resolvedDefaultPrinter
+                        : NormalizePrinterNameSetting(row.PrinterBox.SelectedItem?.ToString())
                 })
                 .Where(setting => !string.IsNullOrWhiteSpace(setting.Sector))
                 .Where(setting => IsProductionDestinationName(setting.Sector))
@@ -18419,6 +18420,11 @@ public partial class MainWindow : Window
             shouldSaveSettings = true;
         }
 
+        if (NormalizePrinterSettings())
+        {
+            shouldSaveSettings = true;
+        }
+
         if (NormalizeProductionDestinations())
         {
             shouldSaveSettings = true;
@@ -18548,6 +18554,47 @@ public partial class MainWindow : Window
         return NormalizeSectorName(value, "") is "BAR" or "PIZZA" or "SOBREMESA" or "SOBREMESAS";
     }
 
+    private bool NormalizePrinterSettings()
+    {
+        var changed = false;
+        var current = _appSettings.PreferredPrinterName ?? "";
+        var normalized = NormalizePrinterNameSetting(current);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            normalized = GetUsableDefaultPrinterName();
+        }
+
+        if (!string.Equals(current, normalized, StringComparison.Ordinal))
+        {
+            _appSettings.PreferredPrinterName = normalized;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static string NormalizePrinterNameSetting(string? value)
+    {
+        var printer = (value ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(printer))
+        {
+            return "";
+        }
+
+        if (string.Equals(printer, "Usar padrao do Windows", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(printer, "Usar padrão do Windows", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(printer, "Padrao do Windows", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(printer, "Padrão do Windows", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(printer, "nenhuma", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(printer, "none", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(printer, "default", StringComparison.OrdinalIgnoreCase))
+        {
+            return "";
+        }
+
+        return printer;
+    }
+
     private bool NormalizeProductionDestinations()
     {
         _appSettings.SectorPrinters ??= [];
@@ -18556,7 +18603,7 @@ public partial class MainWindow : Window
             .Select(setting => new SectorPrinterSetting
             {
                 Sector = NormalizeProductDestination(setting.Sector, ""),
-                PrinterName = (setting.PrinterName ?? "").Trim()
+                PrinterName = NormalizePrinterNameSetting(setting.PrinterName)
             })
             .Where(setting => !string.IsNullOrWhiteSpace(setting.Sector))
             .Where(setting => IsProductionDestinationName(setting.Sector))
@@ -18565,9 +18612,16 @@ public partial class MainWindow : Window
             .Select(group => group.First())
             .ToList();
 
-        if (normalizedSectorPrinters.All(setting => !string.Equals(setting.Sector, "COZINHA", StringComparison.OrdinalIgnoreCase)))
+        var fallbackPrinter = GetUsableDefaultPrinterName();
+        var kitchenSetting = normalizedSectorPrinters.FirstOrDefault(setting =>
+            string.Equals(setting.Sector, "COZINHA", StringComparison.OrdinalIgnoreCase));
+        if (kitchenSetting is null)
         {
-            normalizedSectorPrinters.Insert(0, new SectorPrinterSetting { Sector = "COZINHA" });
+            normalizedSectorPrinters.Insert(0, new SectorPrinterSetting { Sector = "COZINHA", PrinterName = fallbackPrinter });
+        }
+        else if (string.IsNullOrWhiteSpace(kitchenSetting.PrinterName) && !string.IsNullOrWhiteSpace(fallbackPrinter))
+        {
+            kitchenSetting.PrinterName = fallbackPrinter;
         }
 
         var changed = normalizedSectorPrinters.Count != _appSettings.SectorPrinters.Count
@@ -18731,6 +18785,20 @@ public partial class MainWindow : Window
         }
     }
 
+    private string GetUsableDefaultPrinterName()
+    {
+        var defaultPrinter = NormalizePrinterNameSetting(GetDefaultPrinterName());
+        if (!string.IsNullOrWhiteSpace(defaultPrinter))
+        {
+            return defaultPrinter;
+        }
+
+        return GetInstalledPrinterNames()
+            .Select(NormalizePrinterNameSetting)
+            .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name))
+            ?? "";
+    }
+
     private static List<string> GetInstalledPrinterNames()
     {
         try
@@ -18797,11 +18865,31 @@ public partial class MainWindow : Window
 
         try
         {
-            return LocalPrintServer.GetDefaultPrintQueue();
+            var defaultQueue = LocalPrintServer.GetDefaultPrintQueue();
+            if (defaultQueue is not null)
+            {
+                return defaultQueue;
+            }
         }
         catch (Exception ex) when (ex is PrintSystemException or InvalidOperationException)
         {
             Debug.WriteLine($"Default printer unavailable: {ex.Message}");
+        }
+
+        try
+        {
+            var server = new LocalPrintServer();
+            return server.GetPrintQueues(new[]
+                {
+                    EnumeratedPrintQueueTypes.Local,
+                    EnumeratedPrintQueueTypes.Connections
+                })
+                .OrderBy(queue => string.IsNullOrWhiteSpace(queue.FullName) ? queue.Name : queue.FullName, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault();
+        }
+        catch (Exception ex) when (ex is PrintSystemException or InvalidOperationException)
+        {
+            Debug.WriteLine($"Fallback printer unavailable: {ex.Message}");
             return null;
         }
     }
@@ -20224,9 +20312,20 @@ public partial class MainWindow : Window
         SaveStore();
     }
 
+    private static void ConfirmKitchenPrintedQuantities(IEnumerable<(TicketLine Source, TicketLine PrintLine, int QuantityToPrint)> entries)
+    {
+        foreach (var entry in entries)
+        {
+            entry.Source.KitchenPrintedQuantity = Math.Clamp(
+                entry.Source.KitchenPrintedQuantity + entry.QuantityToPrint,
+                0,
+                entry.Source.Quantity);
+        }
+    }
+
     private void PrintKitchenBatch(TableTile board, IEnumerable<TicketLine> sourceLines)
     {
-        var linesToPrint = new List<TicketLine>();
+        var printEntries = new List<(TicketLine Source, TicketLine PrintLine, int QuantityToPrint)>();
         foreach (var source in sourceLines.Where(ShouldSendLineToProduction))
         {
             var quantityToPrint = source.Quantity - source.KitchenPrintedQuantity;
@@ -20246,10 +20345,10 @@ public partial class MainWindow : Window
             printLine.Quantity = quantityToPrint;
             printLine.Sector = NormalizeProductDestination(source.Sector, "CAIXA");
             printLine.KitchenPrintedQuantity = quantityToPrint;
-            linesToPrint.Add(printLine);
-            source.KitchenPrintedQuantity += quantityToPrint;
+            printEntries.Add((source, printLine, quantityToPrint));
         }
 
+        var linesToPrint = printEntries.Select(entry => entry.PrintLine).ToList();
         if (linesToPrint.Count == 0)
         {
             return;
@@ -20268,22 +20367,29 @@ public partial class MainWindow : Window
 
         if (!_appSettings.AutoPrintKitchen)
         {
+            ConfirmKitchenPrintedQuantities(printEntries);
             SetStatus($"Producao enviada ao monitor: {board.Kind} {board.Number}.");
             return;
         }
 
         var printedDestinations = new List<string>();
         var failedDestinations = new List<string>();
-        foreach (var group in linesToPrint
-                     .GroupBy(line => NormalizeProductDestination(line.Sector, "CAIXA"))
+        foreach (var group in printEntries
+                     .GroupBy(entry => NormalizeProductDestination(entry.PrintLine.Sector, "CAIXA"))
                      .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
         {
             var destination = group.Key;
+            var sectorLines = group.Select(entry => entry.PrintLine).ToList();
             var printed = TryPrintTextToDefaultPrinter(
-                BuildKitchenSectorPrintText(board, destination, group),
+                BuildKitchenSectorPrintText(board, destination, sectorLines),
                 $"Producao {destination} {board.Number}",
                 compact: _appSettings.PrintLayout == "PEQUENO",
                 printerName: GetPrinterNameForSector(destination));
+            if (printed)
+            {
+                ConfirmKitchenPrintedQuantities(group);
+            }
+
             (printed ? printedDestinations : failedDestinations).Add(destination);
         }
 
@@ -20343,7 +20449,6 @@ public partial class MainWindow : Window
             foreach (var line in group.Lines)
             {
                 sb.AppendLine($"{line.Quantity}x {line.Name} [{line.KitchenStatus}] {line.Note}".Trim());
-                line.KitchenPrintedQuantity = Math.Max(line.KitchenPrintedQuantity, line.Quantity);
                 if (!string.IsNullOrWhiteSpace(line.ModifierSummary))
                 {
                     sb.AppendLine($"  {line.ModifierSummary}");
@@ -20363,7 +20468,6 @@ public partial class MainWindow : Window
             Total = TicketLines.Sum(line => line.Total),
             Detail = $"{board.Kind} {board.Number}  {TicketLines.Count(ShouldSendLineToProduction):N0} item(ns)"
         });
-        SaveStore();
         if (_appSettings.AutoPrintKitchen)
         {
             var printedSectors = new List<string>();
@@ -20376,6 +20480,14 @@ public partial class MainWindow : Window
                     $"Pedido {group.Sector} {board.Number}",
                     compact: _appSettings.PrintLayout == "PEQUENO",
                     printerName: GetPrinterNameForSector(group.Sector));
+                if (printed)
+                {
+                    foreach (var line in group.Lines)
+                    {
+                        line.KitchenPrintedQuantity = Math.Max(line.KitchenPrintedQuantity, line.Quantity);
+                    }
+                }
+
                 (printed ? printedSectors : failedSectors).Add(group.Sector);
             }
 
@@ -20385,8 +20497,15 @@ public partial class MainWindow : Window
         }
         else
         {
+            foreach (var line in kitchenGroups.SelectMany(group => group.Lines))
+            {
+                line.KitchenPrintedQuantity = Math.Max(line.KitchenPrintedQuantity, line.Quantity);
+            }
+
             SetStatus($"Pedido de cozinha gerado: {path}");
         }
+
+        SaveStore();
     }
 
     private string BuildKitchenSectorPrintText(TableTile board, string sector, IEnumerable<TicketLine> lines)
