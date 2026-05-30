@@ -7853,6 +7853,8 @@ public partial class MainWindow : Window
         var priceBox = new TextBox();
         var stockBox = new TextBox();
         var minBox = new TextBox();
+        AttachCurrencyField(costBox);
+        AttachCurrencyField(priceBox);
         var imagePath = "";
         var imageText = new TextBlock
         {
@@ -8123,8 +8125,8 @@ public partial class MainWindow : Window
             productsList.SelectedIndex = -1;
             codeBox.Text = NextProductCode();
             nameBox.Text = "";
-            costBox.Text = "0,00";
-            priceBox.Text = "0,00";
+            costBox.Text = Money(0);
+            priceBox.Text = Money(0);
             stockBox.Text = "0";
             minBox.Text = "0";
             groupBox.SelectedIndex = groupBox.Items.Count > 0 ? 0 : -1;
@@ -8149,8 +8151,8 @@ public partial class MainWindow : Window
         {
             codeBox.Text = product.Code;
             nameBox.Text = product.Name;
-            costBox.Text = product.CostPrice.ToString("N2", Brazil);
-            priceBox.Text = product.Price.ToString("N2", Brazil);
+            costBox.Text = Money(product.CostPrice);
+            priceBox.Text = Money(product.Price);
             stockBox.Text = product.StockQuantity.ToString("N0", Brazil);
             minBox.Text = product.MinimumStock.ToString("N0", Brazil);
             groupBox.SelectedItem = product.Category;
@@ -8361,8 +8363,16 @@ public partial class MainWindow : Window
         OnEnter(codeBox, () => FocusAndSelect(nameBox));
         OnEnter(nameBox, () => FocusAndSelect(groupBox));
         OnEnter(groupBox, () => FocusAndSelect(costBox));
-        OnEnter(costBox, () => FocusAndSelect(priceBox));
-        OnEnter(priceBox, () => FocusAndSelect(sectorBox));
+        OnEnter(costBox, () =>
+        {
+            FormatCurrencyField(costBox);
+            FocusAndSelect(priceBox);
+        });
+        OnEnter(priceBox, () =>
+        {
+            FormatCurrencyField(priceBox);
+            FocusAndSelect(sectorBox);
+        });
         OnEnter(sectorBox, () => FocusAndSelect(stockBox));
         OnEnter(stockBox, () => FocusAndSelect(minBox));
         OnEnter(minBox, () =>
@@ -23629,6 +23639,41 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         });
         textBox.TextChanged += (_, _) => Format();
         Format();
+    }
+
+    private static void AttachCurrencyField(TextBox textBox)
+    {
+        textBox.ToolTip = "Valor em reais. Exemplo: 75 ou 75,00 = R$ 75,00.";
+        textBox.HorizontalContentAlignment = HorizontalAlignment.Right;
+        textBox.InputScope = new InputScope
+        {
+            Names = { new InputScopeName(InputScopeNameValue.Number) }
+        };
+
+        textBox.GotKeyboardFocus += (_, _) => textBox.Dispatcher.BeginInvoke(() => textBox.SelectAll());
+        textBox.LostKeyboardFocus += (_, _) => FormatCurrencyField(textBox);
+        textBox.PreviewTextInput += (_, e) =>
+        {
+            e.Handled = e.Text.Any(ch => !char.IsDigit(ch) && ch is not ',' and not '.');
+        };
+        System.Windows.DataObject.AddPastingHandler(textBox, (_, e) =>
+        {
+            var pasted = e.DataObject.GetDataPresent(System.Windows.DataFormats.Text)
+                ? e.DataObject.GetData(System.Windows.DataFormats.Text) as string
+                : "";
+            if (string.IsNullOrWhiteSpace(pasted) || !pasted.Any(char.IsDigit))
+            {
+                e.CancelCommand();
+            }
+        });
+    }
+
+    private static void FormatCurrencyField(TextBox textBox)
+    {
+        var amount = Math.Max(0, ParseMoney(textBox.Text, 0));
+        textBox.Text = Money(amount);
+        textBox.CaretIndex = textBox.Text.Length;
+        textBox.SelectionLength = 0;
     }
 
     private static string DigitsOnly(string value)
