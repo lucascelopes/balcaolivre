@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using TextBox = System.Windows.Controls.TextBox;
 using HorizontalAlignment = System.Windows.HorizontalAlignment;
 
@@ -28,9 +29,7 @@ public partial class MainWindow
             differenceText.Foreground = difference == 0 ? GreenText : RedText;
         }
 
-        var confirm = DialogButton("Confirmar fechamento", "#08A99B");
-        confirm.HorizontalAlignment = HorizontalAlignment.Stretch;
-        confirm.Click += (_, _) =>
+        void Confirm()
         {
             var counted = ParseMoney(countedBox.Text, -1);
             if (counted < 0)
@@ -63,6 +62,28 @@ public partial class MainWindow
                 When = DateTime.Now
             };
             dialog.Close();
+        }
+
+        var cancel = DialogButton("Cancelar", "#5B6B7A");
+        cancel.IsCancel = true;
+        cancel.Margin = new Thickness(8, 0, 0, 0);
+
+        var confirm = DialogButton("Confirmar fechamento", "#08A99B");
+        confirm.IsDefault = true;
+        confirm.MinWidth = 190;
+        confirm.Margin = new Thickness(8, 0, 0, 0);
+        confirm.Click += (_, _) =>
+        {
+            Confirm();
+        };
+
+        dialog.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter && Keyboard.Modifiers != ModifierKeys.Shift)
+            {
+                Confirm();
+                e.Handled = true;
+            }
         };
 
         countedBox.TextChanged += (_, _) => RefreshDifference();
@@ -76,8 +97,45 @@ public partial class MainWindow
         panel.Children.Add(differenceText);
         panel.Children.Add(DialogField("Justificativa de diferenca / observacao", notesBox));
         panel.Children.Add(error);
-        panel.Children.Add(confirm);
-        dialog.Content = panel;
+
+        var shortcut = new TextBlock
+        {
+            Text = "Enter confirma | Esc cancela | Shift+Enter quebra linha na observacao",
+            Foreground = Solid("#5B6B7A"),
+            VerticalAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.Wrap
+        };
+        var actions = new Grid();
+        actions.ColumnDefinitions.Add(new ColumnDefinition());
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(shortcut, 0);
+        Grid.SetColumn(cancel, 1);
+        Grid.SetColumn(confirm, 2);
+        actions.Children.Add(shortcut);
+        actions.Children.Add(cancel);
+        actions.Children.Add(confirm);
+
+        var footer = new Border
+        {
+            Background = System.Windows.Media.Brushes.White,
+            BorderBrush = Solid("#D6E4F1"),
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(18, 12, 18, 18),
+            Child = actions
+        };
+        DockPanel.SetDock(footer, Dock.Bottom);
+
+        var scroll = new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+        };
+
+        var root = new DockPanel { LastChildFill = true };
+        root.Children.Add(footer);
+        root.Children.Add(scroll);
+        dialog.Content = root;
         RefreshDifference();
         dialog.Loaded += (_, _) =>
         {
