@@ -22,7 +22,7 @@ winget install --id JRSoftware.InnoSetup -e --silent --accept-package-agreements
 ```text
 bucket: balcao-livre-updates
 path: windows-online/version.json
-path: windows-online/BalcaoLivrePDVOnline-Setup-1.6.2026.exe
+path: windows-online/BalcaoLivrePDVOnline-Setup-1.7.2026.exe
 ```
 
 Ou publicar direto pelo script, usando a service role apenas no seu terminal:
@@ -48,3 +48,37 @@ https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-u
 6. Suba o `version.json` por ultimo.
 
 Subir o `version.json` por ultimo evita o cliente ver uma versao nova antes do instalador estar disponivel.
+
+## Atualizacao obrigatoria sem perder dados
+
+Os dados do cliente nao ficam na pasta instalada do programa. O instalador troca somente os arquivos do app em:
+
+```text
+%LOCALAPPDATA%\Programs\Balcao Livre PDV Online
+```
+
+Key, conta, produtos, vendas, estoque, configuracoes e backups ficam em:
+
+```text
+%LOCALAPPDATA%\BalcaoLivre.Online.Windows
+```
+
+Antes de abrir o instalador, o app salva os dados atuais e cria uma copia em:
+
+```text
+%LOCALAPPDATA%\BalcaoLivre.Online.Windows\backups\pre-update
+```
+
+Para inutilizar uma versao antiga, publique o instalador novo primeiro e depois atualize o `version.json`:
+
+```json
+{
+  "version": "1.7.2026",
+  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.7.2026.exe",
+  "minimumVersion": "1.7.2026",
+  "required": true,
+  "notes": "Atualizacao obrigatoria."
+}
+```
+
+`minimumVersion` maior que a versao instalada bloqueia o app antigo. `required: true` tambem força a atualizacao quando o `version` publicado for mais novo.

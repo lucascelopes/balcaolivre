@@ -7,7 +7,6 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
-using Windows.Devices.Geolocation;
 using CheckBox = System.Windows.Controls.CheckBox;
 using ListBox = System.Windows.Controls.ListBox;
 using TextBox = System.Windows.Controls.TextBox;
@@ -491,38 +490,8 @@ public partial class MainWindow
 
     private async Task<(bool Ok, double Latitude, double Longitude, string Message)> TryGetCurrentWindowsLocationAsync()
     {
-        try
-        {
-            var access = await Geolocator.RequestAccessAsync();
-            if (access != GeolocationAccessStatus.Allowed)
-            {
-                return (false, 0, 0, "Ative a permissao de localizacao do Windows para usar o ponto atual.");
-            }
-
-            var locator = new Geolocator
-            {
-                DesiredAccuracyInMeters = 50
-            };
-            var position = await locator.GetGeopositionAsync(
-                maximumAge: TimeSpan.FromSeconds(10),
-                timeout: TimeSpan.FromSeconds(18)).AsTask();
-            var point = position.Coordinate.Point.Position;
-            if (!IsValidMapCoordinate(point.Latitude, point.Longitude))
-            {
-                return (false, 0, 0, "O Windows retornou uma coordenada invalida.");
-            }
-
-            var accuracy = position.Coordinate.Accuracy;
-            return (true, point.Latitude, point.Longitude, $"Centro atual: {point.Latitude:N5}, {point.Longitude:N5}  |  precisao {accuracy:N0}m");
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return (false, 0, 0, "Permissao de localizacao negada no Windows.");
-        }
-        catch (Exception ex) when (ex is TimeoutException or InvalidOperationException or TaskCanceledException)
-        {
-            return (false, 0, 0, "Nao consegui pegar a localizacao do Windows agora.");
-        }
+        await Task.CompletedTask;
+        return (false, 0, 0, "Use o mapa para definir o ponto da loja.");
     }
 
     private static bool IsValidMapCoordinate(double latitude, double longitude)

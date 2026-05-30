@@ -2,9 +2,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const LICENSE_SECRET = "BalcaoLivrePDV-local-license-v1";
 const OFFLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe";
-const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.5.2026.exe";
+const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.7.2026.exe";
 const TRIAL_SOURCE = "landing_trial_download";
 const TRIAL_DAYS = 7;
+const TRIAL_WHATSAPP_URL = "https://wa.me/5527981267551?text=Ola%2C%20preciso%20liberar%20outro%20teste%20do%20Balcao%20Livre%20PDV.";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,12 +61,7 @@ async function handleTrialDownload(req: Request) {
       message: "Nova chave de teste bloqueada por IP.",
       payload: { source: TRIAL_SOURCE, installer: kind, trialIpHash, userAgentHash },
     });
-    return html(
-      "Teste ja gerado neste IP",
-      "Para evitar duplicidade, este IP ja tem uma chave de 7 dias ativa. Chame o vendedor no WhatsApp se precisar liberar outro teste.",
-      false,
-      429,
-    );
+    return Response.redirect(TRIAL_WHATSAPP_URL, 303);
   }
 
   const expiresText = activationExpirationText(expiresAt);
@@ -161,7 +157,7 @@ function requestIp(req: Request) {
 
 function html(title: string, message: string, ok: boolean, status = ok ? 200 : 400) {
   return new Response(`<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><body style="font-family:Segoe UI,Arial,sans-serif;background:#eef3f6;color:#17212b;margin:0;display:grid;place-items:center;min-height:100vh"><main style="max-width:560px;background:white;border:1px solid #d8e2ec;border-radius:14px;padding:30px;box-shadow:0 18px 44px rgba(22,34,45,.10)"><h1 style="margin:0 0 12px;color:${ok ? "#0f766e" : "#a11d1d"}">${escapeHtml(title)}</h1><p style="font-size:17px;line-height:1.55">${escapeHtml(message)}</p><a href="https://wa.me/5527981267551?text=Ola%2C%20preciso%20liberar%20um%20teste%20do%20Balcao%20Livre%20PDV." style="display:inline-flex;margin-top:10px;padding:12px 16px;border-radius:8px;background:#0f766e;color:white;text-decoration:none;font-weight:800">Falar no WhatsApp</a></main></body></html>`, {
-    status,
+    status: 200,
     headers: { ...corsHeaders, "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, max-age=0" },
   });
 }

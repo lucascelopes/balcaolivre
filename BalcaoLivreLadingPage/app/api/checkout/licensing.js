@@ -1,6 +1,10 @@
 import crypto from "crypto";
 
 const LICENSE_SECRET = "BalcaoLivrePDV-local-license-v1";
+const OFFLINE_INSTALLER_URL =
+  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe";
+const ONLINE_INSTALLER_URL =
+  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.7.2026.exe";
 
 export const checkoutPlans = {
   "offline-mensal": {
@@ -138,7 +142,7 @@ export async function ensurePaidLicenseFromSession(session) {
     paid_at: now.toISOString()
   };
 
-  const saved = await supabaseRequest("/rest/v1/bv_licenses?select=key,plan,email,customer_name,expires_at,created_at", {
+  const saved = await supabaseRequest("/rest/v1/bv_licenses?select=key,plan,email,customer_name,client_kind,expires_at,created_at", {
     method: "POST",
     headers: { Prefer: "return=representation" },
     body: JSON.stringify({
@@ -174,7 +178,7 @@ export function isPaidSession(session) {
 }
 
 export async function findLicenseByCheckoutSession(sessionId) {
-  const query = `/rest/v1/bv_licenses?select=key,plan,email,customer_name,expires_at,created_at&profile->>checkout_session_id=eq.${encodeURIComponent(sessionId)}&limit=1`;
+  const query = `/rest/v1/bv_licenses?select=key,plan,email,customer_name,client_kind,expires_at,created_at&profile->>checkout_session_id=eq.${encodeURIComponent(sessionId)}&limit=1`;
   const data = await supabaseRequest(query, { method: "GET" });
   return Array.isArray(data) ? data[0] : null;
 }
@@ -186,9 +190,17 @@ function normalizeLicense(license) {
     plan: license.plan,
     email: license.email,
     customerName: license.customer_name,
+    clientKind: license.client_kind,
+    installerUrl: installerUrlForClientKind(license.client_kind),
     expiresAt: license.expires_at,
     createdAt: license.created_at
   };
+}
+
+function installerUrlForClientKind(clientKind) {
+  return String(clientKind || "").toLowerCase().includes("online")
+    ? ONLINE_INSTALLER_URL
+    : OFFLINE_INSTALLER_URL;
 }
 
 async function supabaseRequest(path, init = {}) {

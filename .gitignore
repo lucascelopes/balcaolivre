@@ -40,7 +40,7 @@ skills-lock.json
 Thumbs.db
 Desktop.ini
 
-# wrangler files
-.wrangler
+# Wrangler local state
+.wrangler/
 .dev.vars*
 !.dev.vars.example

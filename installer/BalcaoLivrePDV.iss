@@ -1,9 +1,9 @@
 #define MyAppName "Balcao Livre PDV Online"
-#define MyAppVersion "1.6.2026"
+#define MyAppVersion "1.7.2026"
 #define MyAppPublisher "Balcao Livre"
 #define MyAppExeName "BalcaoLivrePDVOnline.exe"
 #define ProjectRoot AddBackslash(SourcePath) + ".."
-#define PublishDir ProjectRoot + "\BalcaoLivre.Online.Windows\bin\Release\net9.0-windows\win-x64\publish-online-self-contained"
+#define PublishDir ProjectRoot + "\BalcaoLivre.Online.Windows\bin\Release\net9.0-windows\win-x64\publish-online-installer-final"
 #define OutputRoot ProjectRoot + "\dist"
 
 [Setup]
@@ -33,7 +33,7 @@ Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortugue
 Name: "desktopicon"; Description: "Criar atalho na area de trabalho"; GroupDescription: "Atalhos:"
 
 [Files]
-Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb"
+Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,BalcaoLivrePDVOnline.exe.WebView2\*,cs\*,de\*,es\*,fr\*,it\*,ja\*,ko\*,pl\*,ru\*,tr\*,zh-Hans\*,zh-Hant\*,createdump.exe,mscordaccore*.dll,mscordbi.dll,Microsoft.DiaSymReader.Native*.dll,System.Windows.Forms.Design*.dll"
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
