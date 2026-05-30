@@ -24,7 +24,7 @@
         <SolidColorBrush x:Key="GreenSoft" Color="#E6FBF8"/>
         <SolidColorBrush x:Key="AmberSoft" Color="#FFF2CB"/>
         <SolidColorBrush x:Key="RedSoft" Color="#FFE2DF"/>
-        <SolidColorBrush x:Key="Accent" Color="#08A99B"/>
+        <SolidColorBrush x:Key="Accent" Color="#0B3A52"/>
 
         <Style x:Key="PanelCard" TargetType="Border">
             <Setter Property="Background" Value="{StaticResource Panel}"/>
@@ -61,7 +61,7 @@
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter Property="Background" Value="#EAF8FA"/>
-                                <Setter Property="BorderBrush" Value="#08A99B"/>
+                                <Setter Property="BorderBrush" Value="#0B3A52"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -94,7 +94,7 @@
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter Property="Background" Value="#EAF8FA"/>
-                                <Setter Property="BorderBrush" Value="#08A99B"/>
+                                <Setter Property="BorderBrush" Value="#0B3A52"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.36"/>
@@ -185,24 +185,24 @@
         </DataTemplate>
 
         <DataTemplate x:Key="TransferBoardTemplate">
-            <Border x:Name="TransferCard" Background="#F8FBFE" BorderBrush="#CAD6E2" BorderThickness="1" CornerRadius="9" Padding="12">
+            <Border x:Name="TransferCard" Background="#FFFFFF" BorderBrush="#D6E2EA" BorderThickness="1" CornerRadius="7" Padding="10">
                 <DockPanel LastChildFill="True">
-                    <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Margin="12,0,0,0">
-                        <TextBlock Text="{Binding TransferTotalText}" Foreground="#08A99B" FontSize="15" FontWeight="Bold" HorizontalAlignment="Right"/>
-                        <Border Background="{Binding TileBrush}" CornerRadius="7" Padding="7,2" Margin="0,6,0,0" HorizontalAlignment="Right">
-                            <TextBlock Text="{Binding Status}" Foreground="#17351F" FontSize="10" FontWeight="Bold"/>
+                    <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Margin="10,0,0,0">
+                        <TextBlock Text="{Binding TransferTotalText}" Foreground="#0B3A52" FontSize="14" FontWeight="Bold" HorizontalAlignment="Right"/>
+                        <Border Background="{Binding TileBrush}" CornerRadius="6" Padding="6,2" Margin="0,6,0,0" HorizontalAlignment="Right">
+                            <TextBlock Text="{Binding DisplayStatus}" Foreground="{Binding StatusForegroundBrush}" FontSize="9" FontWeight="Bold"/>
                         </Border>
                     </StackPanel>
                     <StackPanel>
-                        <TextBlock Text="{Binding DisplayTitle}" Foreground="#071A2C" FontSize="15" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="{Binding TransferSubtitle}" Foreground="#5B6B7A" FontSize="12" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding DisplayTitle}" Foreground="#071A2C" FontSize="14" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding TransferSubtitle}" Foreground="#5B6B7A" FontSize="11" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
                         <TextBlock Text="{Binding TransferHint}" Foreground="#0B3A52" FontSize="11" FontWeight="SemiBold" Margin="0,5,0,0"/>
                     </StackPanel>
                 </DockPanel>
             </Border>
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsSelected}" Value="True">
-                    <Setter TargetName="TransferCard" Property="Background" Value="#EAF4FF"/>
+                    <Setter TargetName="TransferCard" Property="Background" Value="#F2FBFC"/>
                     <Setter TargetName="TransferCard" Property="BorderBrush" Value="#0B3A52"/>
                     <Setter TargetName="TransferCard" Property="BorderThickness" Value="2"/>
                 </DataTrigger>
@@ -214,6 +214,15 @@
                 <TextBlock x:Name="ModeText" Text="{Binding}" Foreground="{StaticResource Ink}" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding}" Value="Comandas">
+                    <Setter TargetName="ModeText" Property="Text" Value="1 Comanda"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding}" Value="Balcao">
+                    <Setter TargetName="ModeText" Property="Text" Value="2 Balcao"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding}" Value="Delivery">
+                    <Setter TargetName="ModeText" Property="Text" Value="3 Delivery"/>
+                </DataTrigger>
                 <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsMouseOver}" Value="True">
                     <Setter TargetName="ModeRoot" Property="Background" Value="#EEF5FB"/>
                     <Setter TargetName="ModeRoot" Property="BorderBrush" Value="#BFD8EF"/>
@@ -239,16 +248,16 @@
                         <TextBlock Text="{Binding DisplaySubtitle}" Foreground="{StaticResource Muted}" FontSize="8.5" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
                         <TextBlock x:Name="TileTimerText" Text="{Binding TimerText}" Foreground="{Binding TimerBrush}" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
                         <Border Background="{Binding TileBrush}" CornerRadius="7" Padding="5,1" HorizontalAlignment="Center" Margin="0,2,0,0">
-                            <TextBlock Text="{Binding Status}" Foreground="#17351F" FontSize="8" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding DisplayStatus}" Foreground="{Binding StatusForegroundBrush}" FontSize="8" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
                         </Border>
                     </StackPanel>
                 </Grid>
             </Border>
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                    <Setter TargetName="TableRoot" Property="BorderBrush" Value="#08A99B"/>
+                    <Setter TargetName="TableRoot" Property="BorderBrush" Value="#0B3A52"/>
                     <Setter TargetName="TableRoot" Property="BorderThickness" Value="2"/>
-                    <Setter TargetName="TableRoot" Property="Background" Value="#F3FFFD"/>
+                    <Setter TargetName="TableRoot" Property="Background" Value="#F3F7FA"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding TimerText}" Value="">
                     <Setter TargetName="TileTimerText" Property="Visibility" Value="Collapsed"/>
@@ -262,8 +271,8 @@
             </Border>
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                    <Setter TargetName="CategoryRoot" Property="Background" Value="#E6FBF8"/>
-                    <Setter TargetName="CategoryRoot" Property="BorderBrush" Value="#08A99B"/>
+                    <Setter TargetName="CategoryRoot" Property="Background" Value="#F3F7FA"/>
+                    <Setter TargetName="CategoryRoot" Property="BorderBrush" Value="#0B3A52"/>
                     <Setter TargetName="CategoryText" Property="Foreground" Value="#03151F"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
@@ -290,9 +299,9 @@
             </Border>
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                    <Setter TargetName="ProductRoot" Property="BorderBrush" Value="#08A99B"/>
-                    <Setter TargetName="ProductRoot" Property="Background" Value="#F5FFFC"/>
-                    <Setter TargetName="ProductAccent" Property="Background" Value="#08A99B"/>
+                    <Setter TargetName="ProductRoot" Property="BorderBrush" Value="#0B3A52"/>
+                    <Setter TargetName="ProductRoot" Property="Background" Value="#F3F7FA"/>
+                    <Setter TargetName="ProductAccent" Property="Background" Value="#0B3A52"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
@@ -373,8 +382,8 @@
                         Height="32"
                         HorizontalAlignment="Left"
                         VerticalAlignment="Center"
-                        Background="#08A99B"
-                        BorderBrush="#08A99B"
+                        Background="#0B3A52"
+                        BorderBrush="#0B3A52"
                         BorderThickness="1"
                         Foreground="#FFFFFF"
                         FontWeight="Bold"
@@ -403,7 +412,42 @@
                     </StackPanel>
                     </Button>
                     <Button
-                        MinWidth="104"
+                        x:Name="OnlineStoreButton"
+                        MinWidth="124"
+                        Height="32"
+                        Margin="8,0,0,0"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Center"
+                        Background="#0B2633"
+                        BorderBrush="#255665"
+                        BorderThickness="1"
+                        Foreground="#DFFBFA"
+                        FontWeight="Bold"
+                        FocusVisualStyle="{x:Null}"
+                        Cursor="Hand"
+                        Click="OnlineStoreButton_Click"
+                        ToolTip="Liga/desliga a loja online do iFood e do cardapio">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7" Padding="12,0">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Opacity" Value="0.88"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border x:Name="OnlineStoreBadge" Width="24" Height="20" CornerRadius="10" Background="#DFFBF8" Margin="0,0,7,0">
+                            <TextBlock x:Name="OnlineStoreBadgeText" Text="IF" Foreground="#0B3A52" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <TextBlock x:Name="OnlineStoreButtonText" Text="Loja online" FontSize="13" FontWeight="Bold"/>
+                    </StackPanel>
+                    </Button>
+                    <Button
+                        Width="38"
                         Height="32"
                         Margin="8,0,0,0"
                         HorizontalAlignment="Left"
@@ -419,7 +463,7 @@
                         ToolTip="Suporte em tempo real">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
-                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7" Padding="12,0">
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7" Padding="0">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
@@ -431,15 +475,14 @@
                         </ControlTemplate>
                     </Button.Template>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Grid Width="16" Height="16" Margin="0,0,7,0">
+                        <Grid Width="16" Height="16">
                             <Ellipse Width="14" Height="14" Stroke="#73E7DE" StrokeThickness="1.7" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             <TextBlock Text="?" Foreground="#73E7DE" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0"/>
                         </Grid>
-                        <TextBlock Text="Suporte" FontSize="13" FontWeight="Bold"/>
                     </StackPanel>
                     </Button>
                     <Button
-                        MinWidth="92"
+                        Width="38"
                         Height="32"
                         Margin="8,0,0,0"
                         HorizontalAlignment="Left"
@@ -455,7 +498,7 @@
                         ToolTip="Configuracoes do sistema">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
-                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7" Padding="12,0">
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7" Padding="0">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
@@ -467,12 +510,11 @@
                         </ControlTemplate>
                     </Button.Template>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Grid Width="16" Height="16" Margin="0,0,7,0">
+                        <Grid Width="16" Height="16">
                             <Ellipse Width="12" Height="12" Stroke="#73E7DE" StrokeThickness="1.7" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             <Ellipse Width="4" Height="4" Fill="#73E7DE" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             <Path Stroke="#73E7DE" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M8,0 L8,3 M8,13 L8,16 M0,8 L3,8 M13,8 L16,8 M2.4,2.4 L4.5,4.5 M11.5,11.5 L13.6,13.6 M13.6,2.4 L11.5,4.5 M4.5,11.5 L2.4,13.6"/>
                         </Grid>
-                        <TextBlock Text="Config" FontSize="13" FontWeight="Bold"/>
                     </StackPanel>
                     </Button>
                     </StackPanel>
@@ -803,7 +845,7 @@
         <Border Grid.Row="4" Background="#FFFFFF" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0">
             <Grid Margin="10,0">
                 <TextBlock x:Name="StatusText" Text="Pronto" Foreground="{StaticResource Ink}" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                <TextBlock x:Name="KeyboardText" Text="Tab troca area: Comanda > Mesas/Fichas > Venda rapida  |  Enter inclui  |  F3 catalogo  |  Excluir na linha do item  |  F10 abrir/fechar caixa" Foreground="{StaticResource Muted}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                <TextBlock x:Name="KeyboardText" Text="1 Comanda | 2 Balcao | 3 Delivery  |  Tab troca area  |  Enter inclui  |  F3 catalogo  |  F10 abrir/fechar caixa" Foreground="{StaticResource Muted}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
             </Grid>
         </Border>
 

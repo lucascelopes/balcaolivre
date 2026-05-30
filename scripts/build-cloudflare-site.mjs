@@ -123,27 +123,27 @@ export default {
       if (url.pathname === "/admin-api" || url.pathname.startsWith("/admin-api/")) {
         return proxyAdminApi(request, url);
       }
-      return servePrefixedAsset(request, env, "/admin", "/admin/index.html");
+      return servePrefixedAsset(request, env, "/admin", "/admin/");
     }
 
     if (isHost(host, "pdv")) {
-      return servePrefixedAsset(request, env, "/pdv", "/pdv/index.html");
+      return servePrefixedAsset(request, env, "/pdv", "/pdv/");
     }
 
     if (isHost(host, "cardapio")) {
-      return servePrefixedAsset(request, env, "/cardapio", "/cardapio/index.html");
+      return servePrefixedAsset(request, env, "/cardapio", "/cardapio/");
     }
 
     if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
-      return servePathAsset(request, env, "/admin", "/admin/index.html");
+      return servePathAsset(request, env, "/admin", "/admin/");
     }
 
     if (url.pathname === "/pdv" || url.pathname.startsWith("/pdv/")) {
-      return servePathAsset(request, env, "/pdv", "/pdv/index.html");
+      return servePathAsset(request, env, "/pdv", "/pdv/");
     }
 
     if (url.pathname === "/cardapio" || url.pathname.startsWith("/cardapio/")) {
-      return servePathAsset(request, env, "/cardapio", "/cardapio/index.html");
+      return servePathAsset(request, env, "/cardapio", "/cardapio/");
     }
 
     if (url.pathname === "/admin-api" || url.pathname.startsWith("/admin-api/")) {
@@ -161,7 +161,7 @@ function isHost(host, subdomain) {
 async function servePrefixedAsset(request, env, prefix, fallbackPath) {
   const originalUrl = new URL(request.url);
   const assetUrl = new URL(request.url);
-  const path = originalUrl.pathname === "/" ? "/" : originalUrl.pathname;
+  const path = stripDuplicatePrefix(originalUrl.pathname, prefix);
   assetUrl.pathname = joinPath(prefix, path);
 
   let response = await env.ASSETS.fetch(new Request(assetUrl.toString(), request));
@@ -170,9 +170,7 @@ async function servePrefixedAsset(request, env, prefix, fallbackPath) {
   }
 
   if (acceptsHtml(request)) {
-    const fallbackUrl = new URL(request.url);
-    fallbackUrl.pathname = fallbackPath;
-    response = await env.ASSETS.fetch(new Request(fallbackUrl.toString(), request));
+    response = await serveFallbackAsset(request, env, fallbackPath);
   }
 
   return response;
@@ -203,9 +201,15 @@ async function serveFallbackAsset(request, env, fallbackPath) {
 }
 
 function joinPath(prefix, path) {
-  if (path === "/" || path === "") return prefix + "/index.html";
+  if (path === "/" || path === "") return prefix + "/";
   const normalized = path.startsWith("/") ? path : "/" + path;
-  return prefix + (normalized.endsWith("/") ? normalized + "index.html" : normalized);
+  return prefix + normalized;
+}
+
+function stripDuplicatePrefix(path, prefix) {
+  if (path === prefix || path === prefix + "/") return "/";
+  if (path.startsWith(prefix + "/")) return path.slice(prefix.length) || "/";
+  return path;
 }
 
 function acceptsHtml(request) {

@@ -57,6 +57,8 @@ public partial class MainWindow : Window
     private const string DefaultAdminApiUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/license";
     private const string DefaultPaymentsApiUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/payments";
     private const string DefaultPagBankApiUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/pagbank";
+    private const string DefaultCheckoutFunctionUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout";
+    private static bool PagBankIntegrationAvailable => false;
     private const string LegacyAdminApiUrl = "https://balcaolivrepdv.onrender.com";
     private const string DefaultWhatsAppFunctionUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/whatsapp";
     private const string PublicMenuApexHost = "balcaolivrepdv.com.br";
@@ -66,9 +68,9 @@ public partial class MainWindow : Window
     private const string PasswordHashPrefix = "PBKDF2";
     private static readonly CultureInfo Brazil = CultureInfo.GetCultureInfo("pt-BR");
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
-    private static readonly Brush FreeTile = Solid("#73E7DE");
-    private static readonly Brush NewTile = Solid("#8BC7FF");
-    private static readonly Brush OccupiedTile = Solid("#F6B26B");
+    private static readonly Brush FreeTile = Solid("#8FDB7A");
+    private static readonly Brush NewTile = Solid("#0B3A52");
+    private static readonly Brush OccupiedTile = Solid("#F49A93");
     private static readonly Brush PrepTile = Solid("#F4CC61");
     private static readonly Brush PreparingTile = Solid("#F0B15A");
     private static readonly Brush ConfirmedTile = Solid("#D8D96B");
@@ -79,7 +81,7 @@ public partial class MainWindow : Window
     private static readonly Brush ReadyTile = Solid("#8FDB7A");
     private static readonly Brush DispatchedTile = Solid("#67DCCB");
     private static readonly Brush DeliveredTile = Solid("#9BE58F");
-    private static readonly Brush CancellationRequestedTile = Solid("#D8A06D");
+    private static readonly Brush CancellationRequestedTile = Solid("#F49A93");
     private static readonly Brush CancelledTile = Solid("#F49A93");
     private static readonly Brush BlueSoft = Solid("#EAF8FA");
     private static readonly Brush GreenSoft = Solid("#E6FBF8");
@@ -142,8 +144,10 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _publicMenuPublishTimer = new() { Interval = TimeSpan.FromSeconds(7) };
     private readonly DispatcherTimer _publicMenuOrderPollTimer = new() { Interval = TimeSpan.FromSeconds(8) };
     private readonly DispatcherTimer _kitchenPrintBatchTimer = new() { Interval = TimeSpan.FromSeconds(4) };
+    private readonly DispatcherTimer _localBackupTimer = new() { Interval = TimeSpan.FromMinutes(30) };
     private readonly Dictionary<TableTile, HashSet<TicketLine>> _pendingKitchenPrintLines = [];
     private readonly IFoodCloudClient _ifoodClient = new();
+    private const int MaxAutomaticLocalBackupFiles = 336;
 
     private readonly string _dataRoot = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -202,6 +206,11 @@ public partial class MainWindow : Window
     private string StoreFile => Path.Combine(_dataRoot, "commandas-store.json");
     private string SettingsFile => Path.Combine(_dataRoot, "app-settings.json");
     private string ProfileFile => Path.Combine(_dataRoot, "restaurant-profile.json");
+    private string BackupDir => Path.Combine(_dataRoot, "backups");
+    private string AutomaticBackupDir => Path.Combine(BackupDir, "automaticos");
+    private string SqlBackupDir => Path.Combine(BackupDir, "sql");
+    private string LatestLocalBackupFile => Path.Combine(BackupDir, "commandas-store-latest.json");
+    private string LatestSqlBackupFile => Path.Combine(BackupDir, "commandas-store-latest.sql");
     private string ExportDir
     {
         get
@@ -228,6 +237,7 @@ public partial class MainWindow : Window
         _supportPollTimer.Tick += async (_, _) => await PollSupportNotificationsAsync();
         _publicMenuOrderPollTimer.Tick += async (_, _) => await PollPublicMenuOrdersAsync();
         _kitchenPrintBatchTimer.Tick += (_, _) => FlushPendingKitchenPrints();
+        _localBackupTimer.Tick += (_, _) => CreateLocalStoreBackup("auto-30min", force: false);
         _publicMenuPublishTimer.Tick += async (_, _) =>
         {
             _publicMenuPublishTimer.Stop();
@@ -239,6 +249,8 @@ public partial class MainWindow : Window
         ApplyRestaurantIdentity();
         SeedStaticUi();
         LoadStore();
+        CreateLocalStoreBackup("inicializacao", force: false);
+        RefreshOnlineStoreButton();
         _ = SyncIFoodPresenceOnceAsync();
         StartIFoodPresenceLoop();
         ResetWhatsAppRuntimeState();
@@ -269,6 +281,7 @@ public partial class MainWindow : Window
                 return;
             }
 
+            _localBackupTimer.Start();
             TableBox.Focus();
             TableBox.SelectAll();
             SelectArea(KeyboardArea.Ticket);
@@ -397,10 +410,13 @@ public partial class MainWindow : Window
         }
 
         _licenseTimer.Stop();
+        var expiredKey = _appSettings.ActivationKey;
+        var expiredPlan = _appSettings.ActivationPlan;
         _appSettings.ActivationCompleted = false;
         SaveAppSettings();
-        ShowToast("Ativacao expirada", "A licenca venceu. Informe uma nova chave para continuar.", "BL", "#A11D1D", "#FFE2DF");
-        SetStatus("Ativacao expirada. Informe uma nova chave para continuar.");
+        ShowToast("Ativacao expirada", "A licenca venceu. Pague a assinatura para receber uma nova chave.", "BL", "#A11D1D", "#FFE2DF");
+        SetStatus("Ativacao expirada. Abrindo pagamento da assinatura.");
+        OpenLicenseRenewalPage(expiredKey, expiredPlan, showMessage: false);
 
         if (!ShowInstallSetupDialog())
         {
@@ -447,6 +463,68 @@ public partial class MainWindow : Window
         var message = $"Sua licenca expira em {dayText}. Vencimento: {expiresText}.";
         ShowToast("Licenca perto do vencimento", message, "BL", "#99620D", "#FFF2CB");
         SetStatus(message);
+    }
+
+    private bool OpenLicenseRenewalPage(string licenseKey = "", string plan = "", bool showMessage = true)
+    {
+        var key = NormalizeActivationKey(string.IsNullOrWhiteSpace(licenseKey) ? _appSettings.ActivationKey : licenseKey);
+        var url = BuildLicenseRenewalUrl(key, string.IsNullOrWhiteSpace(plan) ? _appSettings.ActivationPlan : plan);
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            if (showMessage)
+            {
+                SetStatus("Nao encontrei a chave para abrir a renovacao.");
+            }
+
+            return false;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            if (showMessage)
+            {
+                SetStatus("Pagamento da assinatura aberto no Stripe.");
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+        {
+            if (showMessage)
+            {
+                SetStatus($"Nao consegui abrir o pagamento: {ex.Message}");
+            }
+
+            return false;
+        }
+    }
+
+    private string BuildLicenseRenewalUrl(string licenseKey, string plan)
+    {
+        var key = NormalizeActivationKey(licenseKey);
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return "";
+        }
+
+        var query = new List<string>
+        {
+            $"license_key={Uri.EscapeDataString(key)}"
+        };
+
+        var planText = string.IsNullOrWhiteSpace(plan) ? _appSettings.ActivationPlan : plan;
+        if (!string.IsNullOrWhiteSpace(planText))
+        {
+            query.Add($"plan={Uri.EscapeDataString(planText)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(_profile.Email))
+        {
+            query.Add($"email={Uri.EscapeDataString(_profile.Email.Trim().ToLowerInvariant())}");
+        }
+
+        return $"{DefaultCheckoutFunctionUrl.TrimEnd('/')}/renew?{string.Join("&", query)}";
     }
 
     private async Task<AdminActivationResult> TryValidateAdminActivationAsync(string normalizedKey, DateTime? expiresAt, string plan)
@@ -1487,7 +1565,7 @@ public partial class MainWindow : Window
     private async Task<PaymentLine?> ProcessIntegratedPaymentAsync(string method, decimal amount, string payer, Window owner)
     {
         var mercadoPagoEnabled = _appSettings.MercadoPago?.Enabled == true;
-        var pagBankEnabled = _appSettings.PagBank?.Enabled == true;
+        var pagBankEnabled = PagBankIntegrationAvailable && _appSettings.PagBank?.Enabled == true;
         if (!mercadoPagoEnabled && !pagBankEnabled)
         {
             return null;
@@ -1559,6 +1637,12 @@ public partial class MainWindow : Window
 
     private async Task<PaymentLine?> ProcessPagBankPaymentAsync(string method, decimal amount, string payer, Window owner)
     {
+        if (!PagBankIntegrationAvailable)
+        {
+            System.Windows.MessageBox.Show(owner, "PagBank esta em breve nesta versao. Use Mercado Pago, Pix manual ou outra forma de pagamento por enquanto.", "PagBank em breve", MessageBoxButton.OK, MessageBoxImage.Information);
+            return null;
+        }
+
         if (!_appSettings.PagBank.Enabled)
         {
             return null;
@@ -3027,6 +3111,7 @@ public partial class MainWindow : Window
         e.Cancel = true;
         SaveActiveTicketToCurrentBoard();
         SaveStore();
+        CreateLocalStoreBackup("fechamento-janela", force: true);
         Hide();
         SetStatus("App rodando em segundo plano na bandeja do Windows.");
     }
@@ -3052,6 +3137,7 @@ public partial class MainWindow : Window
         _exitRequested = true;
         SaveActiveTicketToCurrentBoard();
         SaveStore();
+        CreateLocalStoreBackup("sair", force: true);
         _trayIcon?.Dispose();
         _trayIcon = null;
         Application.Current.Shutdown();
@@ -3065,6 +3151,7 @@ public partial class MainWindow : Window
         _licenseTimer.Stop();
         _toastTimer.Stop();
         _kitchenPrintBatchTimer.Stop();
+        _localBackupTimer.Stop();
 
         if (_waiterServer is not null)
         {
@@ -3136,6 +3223,12 @@ public partial class MainWindow : Window
         if (key == Key.F10)
         {
             ToggleCashRegister();
+            e.Handled = true;
+            return;
+        }
+
+        if (TryHandleModeShortcut(key, Keyboard.FocusedElement is TextBox))
+        {
             e.Handled = true;
             return;
         }
@@ -3280,6 +3373,48 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
         }
+    }
+
+    private bool TryHandleModeShortcut(Key key, bool focusedTextField)
+    {
+        var modifiers = Keyboard.Modifiers;
+        var plainShortcut = !focusedTextField && modifiers == ModifierKeys.None;
+        var textFieldShortcut = focusedTextField && modifiers == ModifierKeys.Alt;
+        if (!plainShortcut && !textFieldShortcut)
+        {
+            return false;
+        }
+
+        var mode = key switch
+        {
+            Key.D1 or Key.NumPad1 => "Comandas",
+            Key.D2 or Key.NumPad2 => "Balcao",
+            Key.D3 or Key.NumPad3 => "Delivery",
+            _ => ""
+        };
+
+        if (string.IsNullOrWhiteSpace(mode))
+        {
+            return false;
+        }
+
+        ModeList.SelectedItem = mode;
+        ModeList.ScrollIntoView(mode);
+        SelectArea(KeyboardArea.Tables);
+        FocusActiveArea();
+        SetStatus($"Modo {mode} selecionado pelo atalho {ModeShortcutText(mode)}.");
+        return true;
+    }
+
+    private static string ModeShortcutText(string mode)
+    {
+        return mode switch
+        {
+            "Comandas" => "1",
+            "Balcao" => "2",
+            "Delivery" => "3",
+            _ => ""
+        };
     }
 
     private void Window_PreviewTextInput(object sender, TextCompositionEventArgs e)
@@ -3582,6 +3717,91 @@ public partial class MainWindow : Window
     private void WhatsAppButton_Click(object sender, RoutedEventArgs e)
     {
         ShowWhatsAppDialog();
+    }
+
+    private async void OnlineStoreButton_Click(object sender, RoutedEventArgs e)
+    {
+        var ifood = _appSettings.IFood ??= new IFoodIntegrationSettings();
+        if (!HasIFoodConnectionConfigured(ifood))
+        {
+            ShowIFoodDialog();
+            RefreshOnlineStoreButton();
+            return;
+        }
+
+        var open = !_appSettings.PublicMenuStoreOpen;
+        _appSettings.PublicMenuStoreOpen = open;
+        ifood.Enabled = open;
+        SaveAppSettings();
+        SaveStore();
+        RefreshOnlineStoreButton();
+
+        if (open)
+        {
+            _ifoodSyncTimer.Start();
+            _ = AutoImportIFoodOrdersAsync(force: true);
+            _ = SyncIFoodPresenceOnceAsync();
+        }
+        else
+        {
+            _ifoodSyncTimer.Stop();
+        }
+
+        var result = await PublishGeneratedPublicMenuAsync(silent: true);
+        RefreshOnlineStoreButton();
+        if (!result.Ok)
+        {
+            SetStatus($"Loja online {(open ? "ligada" : "desligada")} no PDV. Cardapio pendente: {result.Message}");
+            return;
+        }
+
+        SetStatus(open
+            ? "Loja online ligada para iFood e cardapio."
+            : "Loja online desligada para iFood e cardapio.");
+    }
+
+    private static bool HasIFoodConnectionConfigured(IFoodIntegrationSettings? settings)
+    {
+        return settings is not null
+            && !string.IsNullOrWhiteSpace(settings.ConnectionId)
+            && (string.IsNullOrWhiteSpace(settings.ConnectionStatus)
+                || string.Equals(settings.ConnectionStatus, "conectado", StringComparison.OrdinalIgnoreCase)
+                || !string.IsNullOrWhiteSpace(settings.MerchantId));
+    }
+
+    private void RefreshOnlineStoreButton()
+    {
+        if (OnlineStoreButton is null)
+        {
+            return;
+        }
+
+        var ifood = _appSettings.IFood;
+        var connected = HasIFoodConnectionConfigured(ifood);
+        if (!connected)
+        {
+            OnlineStoreButtonText.Text = "Conectar iFood";
+            OnlineStoreBadgeText.Text = "IF";
+            OnlineStoreButton.Background = Solid("#0B2633");
+            OnlineStoreButton.BorderBrush = Solid("#255665");
+            OnlineStoreButton.Foreground = Solid("#DFFBFA");
+            OnlineStoreBadge.Background = Solid("#EAF4F8");
+            OnlineStoreBadgeText.Foreground = Solid("#0B3A52");
+            OnlineStoreButton.ToolTip = "Conectar iFood para ligar/desligar a loja online";
+            return;
+        }
+
+        var open = _appSettings.PublicMenuStoreOpen;
+        OnlineStoreButtonText.Text = open ? "Loja online" : "Loja offline";
+        OnlineStoreBadgeText.Text = open ? "ON" : "OFF";
+        OnlineStoreButton.Background = Solid(open ? "#0B3A52" : "#A11D1D");
+        OnlineStoreButton.BorderBrush = Solid(open ? "#0B3A52" : "#A11D1D");
+        OnlineStoreButton.Foreground = Brushes.White;
+        OnlineStoreBadge.Background = Solid(open ? "#DFFBF8" : "#FFE2DF");
+        OnlineStoreBadgeText.Foreground = Solid(open ? "#0B3A52" : "#A11D1D");
+        OnlineStoreButton.ToolTip = open
+            ? "Clique para deixar iFood e cardapio offline"
+            : "Clique para deixar iFood e cardapio online";
     }
 
     private void SupportButton_Click(object sender, RoutedEventArgs e)
@@ -3903,12 +4123,13 @@ public partial class MainWindow : Window
             LocalLogoPath = _profile.LocalLogoPath,
             LocalCoverPath = _profile.LocalCoverPath
         };
-        var dialog = CreateDialog("Configuracoes do sistema", 940, 700);
+        var dialog = CreateDialog("Configuracoes do sistema", 1040, 720);
         var emailBox = new TextBox { Text = profile.Email };
         var ownerBox = new TextBox { Text = profile.OwnerName };
         var businessBox = new TextBox { Text = profile.BusinessName };
         var legalBox = new TextBox { Text = profile.LegalName };
         var cnpjBox = new TextBox { Text = profile.Cnpj };
+        AttachCnpjMask(cnpjBox);
         var phoneBox = new TextBox { Text = profile.Phone };
         var addressBox = new TextBox { Text = profile.Address };
         var cityBox = new TextBox { Text = profile.City };
@@ -4048,9 +4269,9 @@ public partial class MainWindow : Window
             void Refresh()
             {
                 var enabled = get();
-                card.Background = enabled ? Solid("#E6FBF8") : Brushes.White;
-                card.BorderBrush = enabled ? Solid("#08A99B") : Solid("#CAD6E2");
-                titleText.Foreground = enabled ? Solid("#08A99B") : Solid("#071A2C");
+                card.Background = enabled ? Solid("#F2FBFC") : Brushes.White;
+                card.BorderBrush = enabled ? Solid("#20C8BE") : Solid("#D6E2EA");
+                titleText.Foreground = enabled ? Solid("#03151F") : Solid("#071A2C");
                 titleText.Text = enabled ? $"{title}: ligado" : $"{title}: desligado";
                 subtitleText.Text = subtitle;
             }
@@ -4116,10 +4337,10 @@ public partial class MainWindow : Window
             Margin = new Thickness(0, 0, 0, 8)
         };
         mpEnabledCheck.Visibility = Visibility.Collapsed;
-        var mpConnect = DialogButton("Conectar Mercado Pago", "#08A99B");
+        var mpConnect = DialogButton("Conectar Mercado Pago", "#0B3A52");
         var mpRefresh = DialogButton("Atualizar Point", "#0B3A52");
-        var mpSaveTerminal = DialogButton("Salvar Point", "#08A99B");
-        var mpToggle = DialogButton("Ativar no F9", "#08A99B");
+        var mpSaveTerminal = DialogButton("Salvar Point", "#0B3A52");
+        var mpToggle = DialogButton("Ativar no F9", "#0B3A52");
         var mpConnectionPillText = new TextBlock
         {
             FontSize = 12,
@@ -4175,7 +4396,7 @@ public partial class MainWindow : Window
         }
 
         var mpFlowGrid = new UniformGrid { Columns = 3, Rows = 1, Margin = new Thickness(0, 0, 0, 10) };
-        mpFlowGrid.Children.Add(MpInfoCard("Pix", "QR e copia-e-cola na tela.", "#08A99B"));
+        mpFlowGrid.Children.Add(MpInfoCard("Pix", "QR e copia-e-cola na tela.", "#0B3A52"));
         mpFlowGrid.Children.Add(MpInfoCard("Cartao", "Envia para a Point em modo PDV.", "#0B3A52"));
         mpFlowGrid.Children.Add(MpInfoCard("F9", "Fecha so quando aprovar.", "#99620D"));
 
@@ -4238,7 +4459,7 @@ public partial class MainWindow : Window
                 : Solid("#5B6B7A");
             mpEnabledCheck.IsChecked = mp.Enabled;
             mpToggle.Content = mp.Enabled ? "Desativar no F9" : "Ativar no F9";
-            mpToggle.Background = mp.Enabled ? Brushes.White : Solid("#08A99B");
+            mpToggle.Background = mp.Enabled ? Brushes.White : Solid("#0B3A52");
             mpToggle.Foreground = mp.Enabled ? Solid("#5B6B7A") : Brushes.White;
             mpToggle.BorderThickness = mp.Enabled ? new Thickness(1) : new Thickness(0);
             mpToggle.BorderBrush = mp.Enabled ? Solid("#BFD1E2") : Brushes.Transparent;
@@ -4246,13 +4467,13 @@ public partial class MainWindow : Window
             mpConnectionPillText.Text = mp.Connected
                 ? mp.Enabled ? "Ativo no F9" : "Conectado, desligado"
                 : "Conta nao conectada";
-            mpConnectionPillText.Foreground = mp.Connected && mp.Enabled ? GreenText : Solid("#5B6B7A");
-            mpConnectionPill.Background = mp.Connected && mp.Enabled ? Solid("#E6F6F2") : Solid("#F1F5F8");
+            mpConnectionPillText.Foreground = mp.Connected && mp.Enabled ? Solid("#0B3A52") : Solid("#5B6B7A");
+            mpConnectionPill.Background = mp.Connected && mp.Enabled ? Solid("#F2FBFC") : Solid("#F1F5F8");
             mpTerminalPillText.Text = string.IsNullOrWhiteSpace(terminal)
                 ? "Sem Point selecionada"
                 : $"Point: {terminal}";
             mpTerminalPillText.Foreground = string.IsNullOrWhiteSpace(terminal) ? Solid("#5B6B7A") : Solid("#0B3A52");
-            mpTerminalPill.Background = string.IsNullOrWhiteSpace(terminal) ? Solid("#F1F5F8") : Solid("#EAF8FA");
+            mpTerminalPill.Background = string.IsNullOrWhiteSpace(terminal) ? Solid("#F1F5F8") : Solid("#F2FBFC");
             mpTerminalBox.IsEnabled = mp.Connected;
             mpTerminalField.Visibility = mp.Connected ? Visibility.Visible : Visibility.Collapsed;
             mpSaveTerminal.IsEnabled = mp.Connected;
@@ -4478,11 +4699,10 @@ public partial class MainWindow : Window
         var mpCard = new Border
         {
             Background = Brushes.White,
-            BorderBrush = Solid("#CAD6E2"),
+            BorderBrush = Solid("#D6E2EA"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(9),
-            Padding = new Thickness(14),
-            Margin = new Thickness(0, 0, 0, 10),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(16),
             Child = new StackPanel
             {
                 Children =
@@ -4521,10 +4741,10 @@ public partial class MainWindow : Window
         };
         var pgTerminalField = DialogField("Nome da maquininha", pgTerminalBox);
         var pgComPortField = DialogField("Porta Bluetooth COM", pgComPortBox);
-        var pgConnect = DialogButton("Conectar conta", "#08A99B");
+        var pgConnect = DialogButton("Conectar conta", "#0B3A52");
         var pgRefresh = DialogButton("Atualizar conta", "#0B3A52");
-        var pgToggle = DialogButton("Ativar no F9", "#08A99B");
-        var pgSaveTerminal = DialogButton("Salvar PlugPag", "#08A99B");
+        var pgToggle = DialogButton("Ativar no F9", "#0B3A52");
+        var pgSaveTerminal = DialogButton("Salvar PlugPag", "#0B3A52");
         var pgPlugPagToggle = DialogButton("Ativar maquininha", "#99620D");
         var pgConnectionPillText = new TextBlock
         {
@@ -4561,8 +4781,8 @@ public partial class MainWindow : Window
         pgPillGrid.Children.Add(pgTerminalPill);
         var pgCustomerExplanation = new Border
         {
-            Background = Solid("#EEF7F6"),
-            BorderBrush = Solid("#B6E1DC"),
+            Background = Solid("#F4F8FB"),
+            BorderBrush = Solid("#D6E2EA"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(12),
@@ -4571,14 +4791,14 @@ public partial class MainWindow : Window
             {
                 Children =
                 {
-                    new TextBlock { Text = "Como funciona para o cliente", Foreground = Solid("#08A99B"), FontSize = 13, FontWeight = FontWeights.Bold },
-                    new TextBlock { Text = "Pix abre QR/copia-e-cola PagBank na tela. Credito/debito podem ir para a Moderninha pareada via PlugPag ou virar link PagBank. A venda fecha somente depois do retorno aprovado.", Foreground = Solid("#435466"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) }
+                    new TextBlock { Text = "Em breve", Foreground = Solid("#0B3A52"), FontSize = 13, FontWeight = FontWeights.Bold },
+                    new TextBlock { Text = "O PagBank vai ficar bloqueado ate a integracao estar pronta. Por enquanto, mantenha Mercado Pago ou recebimento manual.", Foreground = Solid("#435466"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) }
                 }
             }
         };
         var pgPointNote = new TextBlock
         {
-            Text = "Maquininha PagBank integrada no Windows usa PlugPag por Bluetooth/porta COM. Nao e USB nem nuvem. Requer Moderninha compativel pareada no Windows.",
+            Text = "Quando for liberado, o PDV mostrara aqui a conexao da conta e a configuracao da maquininha.",
             Foreground = Solid("#5B6B7A"),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
@@ -4589,6 +4809,31 @@ public partial class MainWindow : Window
         void RefreshPagBankCard()
         {
             var pg = _appSettings.PagBank ??= new PagBankPaymentSettings();
+            if (!PagBankIntegrationAvailable)
+            {
+                pg.Enabled = false;
+                pg.PlugPagEnabled = false;
+                pgStatusText.Text = "Em breve. A integracao PagBank ainda nao esta liberada nesta versao do PDV.";
+                pgStatusText.Foreground = Solid("#5B6B7A");
+                pgToggle.Content = "Em breve";
+                pgConnect.Content = "Em breve";
+                pgRefresh.Content = "Em breve";
+                pgPlugPagToggle.Content = "Em breve";
+                pgSaveTerminal.Content = "Em breve";
+                foreach (var control in new Control[] { pgTerminalBox, pgComPortBox, pgToggle, pgConnect, pgRefresh, pgPlugPagToggle, pgSaveTerminal })
+                {
+                    control.IsEnabled = false;
+                }
+
+                pgConnectionPillText.Text = "Em breve";
+                pgConnectionPillText.Foreground = Solid("#0B3A52");
+                pgConnectionPill.Background = Solid("#F1F5F8");
+                pgTerminalPillText.Text = "Bloqueado";
+                pgTerminalPillText.Foreground = Solid("#5B6B7A");
+                pgTerminalPill.Background = Solid("#F1F5F8");
+                return;
+            }
+
             var terminal = string.IsNullOrWhiteSpace(pg.DefaultTerminalLabel)
                 ? pg.DefaultTerminalId
                 : pg.DefaultTerminalLabel;
@@ -4605,7 +4850,7 @@ public partial class MainWindow : Window
 
             pgStatusText.Foreground = pg.Enabled && pg.Connected ? GreenText : Solid("#5B6B7A");
             pgToggle.Content = pg.Enabled ? "Desativar no F9" : "Ativar no F9";
-            pgToggle.Background = pg.Enabled ? Solid("#5B6B7A") : Solid("#08A99B");
+            pgToggle.Background = pg.Enabled ? Solid("#5B6B7A") : Solid("#0B3A52");
             pgPlugPagToggle.Content = pg.PlugPagEnabled ? "Desativar maquininha" : "Ativar maquininha";
             pgPlugPagToggle.Background = pg.PlugPagEnabled ? Solid("#5B6B7A") : Solid("#99620D");
             pgConnect.Content = pg.Connected ? "Reconectar conta" : "Conectar conta";
@@ -4687,6 +4932,13 @@ public partial class MainWindow : Window
 
         pgToggle.Click += (_, _) =>
         {
+            if (!PagBankIntegrationAvailable)
+            {
+                status.Foreground = Solid("#5B6B7A");
+                status.Text = "PagBank esta em breve.";
+                return;
+            }
+
             var pg = _appSettings.PagBank ??= new PagBankPaymentSettings();
             pg.Enabled = !pg.Enabled;
             SaveAppSettings();
@@ -4698,6 +4950,13 @@ public partial class MainWindow : Window
         };
         pgPlugPagToggle.Click += (_, _) =>
         {
+            if (!PagBankIntegrationAvailable)
+            {
+                status.Foreground = Solid("#5B6B7A");
+                status.Text = "Maquininha PagBank esta em breve.";
+                return;
+            }
+
             var pg = _appSettings.PagBank ??= new PagBankPaymentSettings();
             pg.PlugPagEnabled = !pg.PlugPagEnabled;
             SaveAppSettings();
@@ -4709,6 +4968,13 @@ public partial class MainWindow : Window
         };
         pgConnect.Click += async (_, _) =>
         {
+            if (!PagBankIntegrationAvailable)
+            {
+                status.Foreground = Solid("#5B6B7A");
+                status.Text = "Conexao PagBank esta em breve.";
+                return;
+            }
+
             if (!TryApplyProfileInputs())
             {
                 return;
@@ -4748,6 +5014,13 @@ public partial class MainWindow : Window
         };
         pgRefresh.Click += async (_, _) =>
         {
+            if (!PagBankIntegrationAvailable)
+            {
+                status.Foreground = Solid("#5B6B7A");
+                status.Text = "Atualizacao PagBank esta em breve.";
+                return;
+            }
+
             status.Foreground = Solid("#5B6B7A");
             status.Text = "Consultando conta PagBank...";
             pgRefresh.IsEnabled = false;
@@ -4763,6 +5036,13 @@ public partial class MainWindow : Window
         };
         pgSaveTerminal.Click += async (_, _) =>
         {
+            if (!PagBankIntegrationAvailable)
+            {
+                status.Foreground = Solid("#5B6B7A");
+                status.Text = "PlugPag PagBank esta em breve.";
+                return;
+            }
+
             var pg = _appSettings.PagBank ??= new PagBankPaymentSettings();
             var comPort = CompactSingleLine(pgComPortBox.Text).ToUpperInvariant();
             if (string.IsNullOrWhiteSpace(comPort))
@@ -4817,12 +5097,11 @@ public partial class MainWindow : Window
         pgPlugPagGrid.Children.Add(pgSaveTerminal);
         var pgCard = new Border
         {
-            Background = Solid("#F8FBFD"),
-            BorderBrush = Solid("#CAD6E2"),
+            Background = Brushes.White,
+            BorderBrush = Solid("#D6E2EA"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(9),
-            Padding = new Thickness(12),
-            Margin = new Thickness(0, 0, 0, 10),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(16),
             Child = new StackPanel
             {
                 Children =
@@ -5052,7 +5331,7 @@ public partial class MainWindow : Window
 
         var qrTitle = new TextBlock { FontWeight = FontWeights.Bold, Foreground = Solid("#071A2C") };
         var qrSubtitle = new TextBlock { Foreground = Solid("#5B6B7A"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 12, 0) };
-        var qrToggle = DialogButton("Ligar QR", "#08A99B");
+        var qrToggle = DialogButton("Ligar QR", "#0B3A52");
         qrToggle.MinWidth = 110;
         var qrHeader = new Grid();
         qrHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -5078,15 +5357,15 @@ public partial class MainWindow : Window
         void RefreshQrCard()
         {
             var enabled = _appSettings.ReceiptQrEnabled;
-            qrCard.Background = enabled ? Solid("#E6FBF8") : Brushes.White;
-            qrCard.BorderBrush = enabled ? Solid("#08A99B") : Solid("#CAD6E2");
-            qrTitle.Foreground = enabled ? Solid("#08A99B") : Solid("#071A2C");
+            qrCard.Background = enabled ? Solid("#F2FBFC") : Brushes.White;
+            qrCard.BorderBrush = enabled ? Solid("#20C8BE") : Solid("#CAD6E2");
+            qrTitle.Foreground = enabled ? Solid("#03151F") : Solid("#071A2C");
             qrTitle.Text = enabled ? "QR no comprovante: ligado" : "QR no comprovante: desligado";
             qrSubtitle.Text = enabled
                 ? "O comprovante imprime o QR usando o conteudo abaixo. Para Pix, informe sua chave Pix."
                 : "Desligado para nao poluir o comprovante. Ligue somente quando usar Pix, Instagram, Maps ou link.";
             qrToggle.Content = enabled ? "Desligar QR" : "Ligar QR";
-            qrToggle.Background = enabled ? Solid("#5B6B7A") : Solid("#08A99B");
+            qrToggle.Background = enabled ? Solid("#5B6B7A") : Solid("#0B3A52");
             qrOptionsPanel.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -5344,7 +5623,7 @@ public partial class MainWindow : Window
             }
         };
 
-        var save = DialogButton("Salvar configuracoes", "#08A99B");
+        var save = DialogButton("Salvar configuracoes", "#03151F");
         save.HorizontalAlignment = HorizontalAlignment.Stretch;
         save.Click += (_, _) =>
         {
@@ -5377,10 +5656,15 @@ public partial class MainWindow : Window
             var waitMax = Math.Max(waitMin, ParseInt(waitMaxBox.Text, _appSettings.PublicMenuWaitMaxMinutes <= 0 ? 60 : _appSettings.PublicMenuWaitMaxMinutes));
             _appSettings.PublicMenuWaitMinMinutes = waitMin;
             _appSettings.PublicMenuWaitMaxMinutes = waitMax;
-            _appSettings.PublicMenuStoreOpen = true;
             _appSettings.NotificationSoundEnabled = false;
             _appSettings.NotificationSound = "NENHUM";
-            _appSettings.IFoodAlertSoundPath = "";
+            _appSettings.IFoodAlertSoundPath = ifoodSoundPath;
+            if (!PagBankIntegrationAvailable && _appSettings.PagBank is { } pagBank)
+            {
+                pagBank.Enabled = false;
+                pagBank.PlugPagEnabled = false;
+            }
+
             SaveRestaurantProfile();
             SaveAppSettings();
             ApplyRestaurantIdentity();
@@ -5392,10 +5676,119 @@ public partial class MainWindow : Window
             dialog.Close();
         };
 
-        Border SettingsCard(string title, params UIElement[] children)
+        Border SettingsHero()
+        {
+            var badge = new Border
+            {
+                Background = Solid("#0B3A52"),
+                BorderBrush = Solid("#255665"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12, 7, 12, 7),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Child = new TextBlock
+                {
+                    Text = "BL",
+                    Foreground = Brushes.White,
+                    FontWeight = FontWeights.Bold,
+                    FontSize = 13
+                }
+            };
+
+            Border HeroChip(string text)
+            {
+                return new Border
+                {
+                    Background = Solid("#092B3A"),
+                    BorderBrush = Solid("#1D5160"),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(999),
+                    Padding = new Thickness(10, 5, 10, 5),
+                    Margin = new Thickness(0, 0, 6, 0),
+                    Child = new TextBlock
+                    {
+                        Text = text,
+                        Foreground = Solid("#DFFBFA"),
+                        FontSize = 11,
+                        FontWeight = FontWeights.SemiBold
+                    }
+                };
+            }
+
+            var chips = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            chips.Children.Add(HeroChip("Loja"));
+            chips.Children.Add(HeroChip("Pagamentos"));
+            chips.Children.Add(HeroChip("iFood"));
+            chips.Children.Add(HeroChip("Impressao"));
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var copy = new StackPanel
+            {
+                Children =
+                {
+                    badge,
+                    new TextBlock
+                    {
+                        Text = "Ajustes do PDV",
+                        Foreground = Brushes.White,
+                        FontSize = 24,
+                        FontWeight = FontWeights.Bold,
+                        Margin = new Thickness(0, 12, 0, 3)
+                    },
+                    new TextBlock
+                    {
+                        Text = "Conta, cardapio, pedidos, pagamentos e impressao em um painel mais direto.",
+                        Foreground = Solid("#B9D6E3"),
+                        FontSize = 13,
+                        TextWrapping = TextWrapping.Wrap
+                    }
+                }
+            };
+            grid.Children.Add(copy);
+            Grid.SetColumn(chips, 1);
+            grid.Children.Add(chips);
+
+            return new Border
+            {
+                Background = Solid("#03151F"),
+                BorderBrush = Solid("#0E3A4A"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(18),
+                Child = grid
+            };
+        }
+
+        Border SettingsCard(string title, string subtitle, params UIElement[] children)
         {
             var stack = new StackPanel();
-            stack.Children.Add(SectionTitle(title));
+            stack.Children.Add(new TextBlock
+            {
+                Text = title,
+                Foreground = Solid("#071A2C"),
+                FontSize = 18,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 3)
+            });
+            if (!string.IsNullOrWhiteSpace(subtitle))
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = subtitle,
+                    Foreground = Solid("#5B6B7A"),
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 12)
+                });
+            }
+
             foreach (var child in children)
             {
                 stack.Children.Add(child);
@@ -5404,9 +5797,9 @@ public partial class MainWindow : Window
             return new Border
             {
                 Background = Brushes.White,
-                BorderBrush = Solid("#CAD6E2"),
+                BorderBrush = Solid("#D6E2EA"),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(10),
+                CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(16),
                 Child = stack
             };
@@ -5424,32 +5817,74 @@ public partial class MainWindow : Window
             };
         }
 
-        Grid SettingsRow(UIElement left, UIElement right)
+        Border ActionRow(string title, TextBlock detail, Button button)
         {
-            var row = new Grid { Margin = new Thickness(0, 0, 0, 14) };
-            row.ColumnDefinitions.Add(new ColumnDefinition());
-            row.ColumnDefinitions.Add(new ColumnDefinition());
-            var leftHost = new Border { Margin = new Thickness(0, 0, 7, 0), Child = left };
-            var rightHost = new Border { Margin = new Thickness(7, 0, 0, 0), Child = right };
-            row.Children.Add(leftHost);
-            Grid.SetColumn(rightHost, 1);
-            row.Children.Add(rightHost);
-            return row;
+            detail.Margin = new Thickness(0, 2, 0, 0);
+            button.Width = 190;
+            button.Height = 36;
+            button.Margin = new Thickness(14, 0, 0, 0);
+            button.HorizontalAlignment = HorizontalAlignment.Right;
+            button.VerticalAlignment = VerticalAlignment.Center;
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.Children.Add(new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock { Text = title, Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold },
+                    detail
+                }
+            });
+            Grid.SetColumn(button, 1);
+            grid.Children.Add(button);
+
+            return new Border
+            {
+                Background = Solid("#F8FBFD"),
+                BorderBrush = Solid("#D6E2EA"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12),
+                Margin = new Thickness(0, 0, 0, 10),
+                Child = grid
+            };
+        }
+
+        UniformGrid ButtonStrip(params Button[] buttons)
+        {
+            var grid = new UniformGrid
+            {
+                Columns = Math.Max(1, buttons.Length),
+                Rows = 1,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            for (var index = 0; index < buttons.Length; index++)
+            {
+                var button = buttons[index];
+                button.HorizontalAlignment = HorizontalAlignment.Stretch;
+                button.Width = double.NaN;
+                button.Margin = new Thickness(index == 0 ? 0 : 6, 0, index == buttons.Length - 1 ? 0 : 6, 0);
+                grid.Children.Add(button);
+            }
+
+            return grid;
         }
 
         var root = new StackPanel
         {
             Margin = new Thickness(18),
-            Background = Solid("#F4F8FB")
+            Background = Solid("#EEF4F8")
         };
 
-        void AddFull(UIElement element)
+        void AddCard(StackPanel stack, UIElement element)
         {
             if (element is FrameworkElement frameworkElement)
             {
                 frameworkElement.Margin = new Thickness(0, 0, 0, 14);
             }
-            root.Children.Add(element);
+            stack.Children.Add(element);
         }
 
         var siteText = new TextBlock
@@ -5466,8 +5901,11 @@ public partial class MainWindow : Window
             Process.Start(new ProcessStartInfo("https://www.balcaolivrepdv.com.br") { UseShellExecute = true });
         };
 
+        root.Children.Add(SettingsHero());
+
         var accountCard = SettingsCard(
             "Conta e licenca",
+            "Vinculo da loja, chave ativa e sincronizacao com os outros aplicativos.",
             new TextBlock { Text = "Conta vinculada", Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold },
             linkedAccountText,
             licenseText,
@@ -5477,6 +5915,7 @@ public partial class MainWindow : Window
 
         var companyCard = SettingsCard(
             "Empresa",
+            "Dados usados em recibos, cardapio online, impressao e integracoes.",
             TwoColumnFields(("Email da conta", emailBox), ("Responsavel", ownerBox)),
             TwoColumnFields(("Nome fantasia", businessBox), ("Razao social", legalBox)),
             TwoColumnFields(("CNPJ", cnpjBox), ("Telefone", phoneBox)),
@@ -5485,13 +5924,17 @@ public partial class MainWindow : Window
 
         var mediaCard = SettingsCard(
             "Marca e cardapio",
-            new Border { Background = Solid("#F8FBFD"), BorderBrush = Solid("#CAD6E2"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 10), Child = new StackPanel { Children = { new TextBlock { Text = "Foto/logo", Foreground = Solid("#5B6B7A"), FontWeight = FontWeights.SemiBold }, logoText, chooseLogo } } },
-            new Border { Background = Solid("#F8FBFD"), BorderBrush = Solid("#CAD6E2"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 10), Child = new StackPanel { Children = { new TextBlock { Text = "Imagem de capa do cardapio", Foreground = Solid("#5B6B7A"), FontWeight = FontWeights.SemiBold }, coverText, chooseCover } } },
-            MutedText("A loja aparece aberta enquanto o PDV estiver aberto. O tempo abaixo aparece no topo do cardapio.", 11),
-            TwoColumnFields(("Tempo minimo (min)", waitMinBox), ("Tempo maximo (min)", waitMaxBox)));
+            "Visual da loja, tempo exibido no cardapio e alerta sonoro de pedido.",
+            ActionRow("Foto/logo", logoText, chooseLogo),
+            ActionRow("Imagem de capa do cardapio", coverText, chooseCover),
+            MutedText("O botao Loja online no topo liga/desliga o cardapio e o recebimento iFood. O tempo abaixo aparece no topo do cardapio.", 11),
+            TwoColumnFields(("Tempo minimo (min)", waitMinBox), ("Tempo maximo (min)", waitMaxBox)),
+            ActionRow("Toque de pedido iFood", ifoodSoundText, chooseIFoodSound),
+            ButtonStrip(clearIFoodSound, testIFoodSound));
 
         var aboutCard = SettingsCard(
             "Sobre o sistema",
+            "Informacoes de versao e canais oficiais.",
             MutedText("Versao online: pedidos iFood entram no delivery; venda local continua funcionando mesmo se a internet cair.", 12),
             versionText,
             new TextBlock { Text = "2026 Balcao Livre", Foreground = Solid("#071A2C"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 2) },
@@ -5502,11 +5945,14 @@ public partial class MainWindow : Window
 
         var alertsCard = SettingsCard(
             "Avisos do app",
+            "Controle os avisos visuais sem poluir a tela de venda.",
             ToggleCard("Toast visual no app", "Mostra aviso dentro do PDV quando uma acao importante acontecer.", () => _appSettings.WindowsNotificationsEnabled, value => _appSettings.WindowsNotificationsEnabled = value),
-            ToggleCard("Vibracao no app", "Faz uma vibracao visual curta na janela/toast.", () => _appSettings.InAppVibrationEnabled, value => _appSettings.InAppVibrationEnabled = value));
+            ToggleCard("Vibracao no app", "Faz uma vibracao visual curta na janela/toast.", () => _appSettings.InAppVibrationEnabled, value => _appSettings.InAppVibrationEnabled = value),
+            testNotification);
 
         var printCard = SettingsCard(
             "Impressao principal",
+            "Padrao de cupom e impressora usada pelo caixa.",
             ToggleCard("Imprimir delivery automaticamente", "Pedidos novos saem na impressora configurada.", () => _appSettings.AutoPrintDelivery, value => _appSettings.AutoPrintDelivery = value),
             ToggleCard("Enviar producao automaticamente", "Itens com destino COZINHA saem agrupados alguns segundos depois de entrar no pedido. F4 fica para reimprimir.", () => _appSettings.AutoPrintKitchen, value => _appSettings.AutoPrintKitchen = value),
             DialogLabel("Modelo padrao"),
@@ -5515,19 +5961,35 @@ public partial class MainWindow : Window
 
         var productionCard = SettingsCard(
             "Producao e QR",
+            "Destinos de cozinha/balcao e QR impresso no comprovante.",
             sectorPrintersCard,
             qrCard);
 
         var updateCard = SettingsCard(
             "Atualizacoes",
+            "Mantenha o PDV atualizado sem procurar instalador manualmente.",
             ToggleCard("Atualizar automaticamente ao abrir", "Consulta o servidor ao entrar no PDV. Se houver versao nova, baixa, instala e reabre o sistema.", () => _appSettings.AutoCheckUpdates, value => _appSettings.AutoCheckUpdates = value),
             checkUpdate);
 
-        AddFull(SettingsRow(companyCard, accountCard));
-        AddFull(SettingsRow(mediaCard, aboutCard));
-        AddFull(SettingsRow(mpCard, alertsCard));
-        AddFull(SettingsRow(printCard, productionCard));
-        AddFull(updateCard);
+        var contentGrid = new Grid { Margin = new Thickness(0, 14, 0, 0) };
+        contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.08, GridUnitType.Star) });
+        contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.92, GridUnitType.Star) });
+        var leftColumn = new StackPanel { Margin = new Thickness(0, 0, 7, 0) };
+        var rightColumn = new StackPanel { Margin = new Thickness(7, 0, 0, 0) };
+        AddCard(leftColumn, companyCard);
+        AddCard(leftColumn, mediaCard);
+        AddCard(leftColumn, mpCard);
+        AddCard(leftColumn, pgCard);
+        AddCard(rightColumn, accountCard);
+        AddCard(rightColumn, alertsCard);
+        AddCard(rightColumn, printCard);
+        AddCard(rightColumn, productionCard);
+        AddCard(rightColumn, aboutCard);
+        AddCard(rightColumn, updateCard);
+        contentGrid.Children.Add(leftColumn);
+        Grid.SetColumn(rightColumn, 1);
+        contentGrid.Children.Add(rightColumn);
+        root.Children.Add(contentGrid);
 
         var outer = new Grid();
         outer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -6026,8 +6488,9 @@ public partial class MainWindow : Window
             "Balcao" => Tables.Where(table => table.Kind == "BALCAO"),
             "Delivery" => DeliveryTiles
                 .OrderBy(DeliveryBoardSortGroup)
-                .ThenBy(DeliveryBoardDeadlineSort)
-                .ThenByDescending(tile => tile.CreatedAt),
+                .ThenBy(DeliveryBoardTimeSort)
+                .ThenBy(tile => tile.CreatedAt)
+                .ThenBy(DeliveryBoardNumberSort),
             _ => Tables.Where(table => table.Kind == "MESA")
         };
 
@@ -7463,21 +7926,34 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 8)
         };
-        var ifoodCompositionVisible = _appSettings.IFood?.HasCloudConnection == true;
-        var ifoodCompositionBox = new CheckBox { Content = "Produto com adicionais/ficha tecnica no iFood", Margin = new Thickness(0, 2, 0, 8) };
+        var ifoodCompositionVisible = HasIFoodConnectionConfigured(_appSettings.IFood);
+        var ifoodInfoText = new TextBlock
+        {
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+        var ifoodApplyButton = DialogButton("Aplicar no iFood", "#0B3A52");
+        ifoodApplyButton.HorizontalAlignment = HorizontalAlignment.Stretch;
+        ifoodApplyButton.Width = double.NaN;
+        ifoodApplyButton.Margin = new Thickness(0);
         var modifiersBox = new TextBox
         {
             Height = 92,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Visibility = Visibility.Collapsed
         };
         var recipeBox = new TextBox
         {
             Height = 92,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Visibility = Visibility.Collapsed
         };
         var chooseImageButton = DialogButton("Escolher foto", "#0B3A52");
         var clearImageButton = DialogButton("Remover foto", "#5B6B7A");
@@ -7555,7 +8031,7 @@ public partial class MainWindow : Window
             clearImageButton.Width = double.NaN;
             actions.Children.Add(chooseImageButton);
             actions.Children.Add(clearImageButton);
-            actions.Children.Add(DialogHint("A foto aparece no cardapio digital. Se nao tiver foto, o produto fica sem imagem."));
+            actions.Children.Add(DialogHint("A foto aparece no cardapio digital e tambem vai para o iFood ao clicar em Aplicar no iFood."));
             Grid.SetColumn(actions, 1);
             grid.Children.Add(actions);
             return grid;
@@ -7573,60 +8049,19 @@ public partial class MainWindow : Window
                 $"{item.ProductCode};{item.Name};{item.Quantity.ToString("N2", Brazil)};{item.Unit}"));
         }
 
-        List<ProductModifier> ParseModifiers(string text)
-        {
-            var result = new List<ProductModifier>();
-            foreach (var rawLine in text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                var parts = rawLine.Split(';', '|').Select(part => part.Trim()).ToArray();
-                if (parts.Length == 0 || string.IsNullOrWhiteSpace(parts[0]))
-                {
-                    continue;
-                }
-
-                var required = parts.Length > 2
-                    && (parts[2].Equals("SIM", StringComparison.OrdinalIgnoreCase)
-                        || parts[2].Equals("OBRIGATORIO", StringComparison.OrdinalIgnoreCase)
-                        || parts[2].Equals("TRUE", StringComparison.OrdinalIgnoreCase));
-                result.Add(new ProductModifier
-                {
-                    Name = parts[0].ToUpperInvariant(),
-                    Price = parts.Length > 1 ? Math.Max(0, ParseMoney(parts[1], 0)) : 0,
-                    Required = required
-                });
-            }
-
-            return result;
-        }
-
-        List<ProductRecipeItem> ParseRecipeItems(string text)
-        {
-            var result = new List<ProductRecipeItem>();
-            foreach (var rawLine in text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                var parts = rawLine.Split(';', '|').Select(part => part.Trim()).ToArray();
-                if (parts.Length == 0 || string.IsNullOrWhiteSpace(parts[0]))
-                {
-                    continue;
-                }
-
-                result.Add(new ProductRecipeItem
-                {
-                    ProductCode = parts[0],
-                    Name = parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]) ? parts[1].ToUpperInvariant() : parts[0].ToUpperInvariant(),
-                    Quantity = parts.Length > 2 ? Math.Max(0, ParseMoney(parts[2], 1)) : 1,
-                    Unit = parts.Length > 3 && !string.IsNullOrWhiteSpace(parts[3]) ? parts[3].ToUpperInvariant() : "UN"
-                });
-            }
-
-            return result;
-        }
-
         void RefreshIFoodCompositionState()
         {
-            var enabled = ifoodCompositionVisible && ifoodCompositionBox.IsChecked == true;
-            modifiersBox.IsEnabled = enabled;
-            recipeBox.IsEnabled = enabled;
+            var product = productsList.SelectedItem as ProductTile;
+            var hasConnection = HasIFoodConnectionConfigured(_appSettings.IFood);
+            var hasLink = product is not null && HasIFoodCatalogLink(product);
+            ifoodApplyButton.IsEnabled = hasConnection && hasLink;
+            ifoodInfoText.Text = !hasConnection
+                ? "Conecte o iFood para aplicar estoque, disponibilidade e foto."
+                : product is null
+                    ? "Selecione um produto para aplicar no iFood."
+                    : hasLink
+                        ? "Aplica estoque, disponibilidade e foto deste produto no iFood."
+                        : "Produto sem vinculo de catalogo iFood. Importe/sincronize produtos do iFood primeiro.";
         }
 
         void RefreshProductList(ProductTile? selected = null)
@@ -7714,7 +8149,6 @@ public partial class MainWindow : Window
             pizzaBox.IsChecked = false;
             activeBox.IsChecked = true;
             imagePath = "";
-            ifoodCompositionBox.IsChecked = false;
             modifiersBox.Text = "";
             recipeBox.Text = "";
             formTitle.Text = "Novo produto";
@@ -7741,7 +8175,6 @@ public partial class MainWindow : Window
             pizzaBox.IsChecked = product.IsPizza;
             activeBox.IsChecked = product.Active;
             imagePath = product.ImagePath ?? "";
-            ifoodCompositionBox.IsChecked = product.IFoodCompositionEnabled;
             modifiersBox.Text = FormatModifiers(product.Modifiers);
             recipeBox.Text = FormatRecipeItems(product.RecipeItems);
             formTitle.Text = product.Name;
@@ -7834,9 +8267,9 @@ public partial class MainWindow : Window
             product.WhatsAppAliases = "";
             if (ifoodCompositionVisible)
             {
-                product.IFoodCompositionEnabled = ifoodCompositionBox.IsChecked == true;
-                product.Modifiers = product.IFoodCompositionEnabled ? ParseModifiers(modifiersBox.Text) : [];
-                product.RecipeItems = product.IFoodCompositionEnabled ? ParseRecipeItems(recipeBox.Text) : [];
+                product.IFoodCompositionEnabled = false;
+                product.Modifiers = [];
+                product.RecipeItems = [];
             }
             ProductsList.Items.Refresh();
             RefreshProductList(product);
@@ -7848,6 +8281,7 @@ public partial class MainWindow : Window
             var ifoodSummary = ifoodCompositionVisible ? $"  |  {product.IFoodCompositionText}" : "";
             formSubtitle.Text = $"{product.Code}  |  {product.Category}  |  venda {product.PriceText}  |  {product.ProfitMarginText}  |  {product.ImageStatusText}{ifoodSummary}";
             RefreshMarginPreview();
+            RefreshIFoodCompositionState();
             SetStatus($"Produto salvo: {product.Code} {product.Name}");
             QueueIFoodStockSync(product, "Cadastro de produto");
             return true;
@@ -7856,10 +8290,44 @@ public partial class MainWindow : Window
         var addProductButton = DialogButton("Novo produto", "#0B3A52");
         addProductButton.Click += (_, _) => StartNewProduct();
 
-        var saveButton = DialogButton("Salvar produto", "#08A99B");
+        var saveButton = DialogButton("Salvar produto", "#0B3A52");
         saveButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         saveButton.Width = double.NaN;
         saveButton.Click += (_, _) => SaveProduct();
+        ifoodApplyButton.Click += (_, _) =>
+        {
+            var product = productsList.SelectedItem as ProductTile;
+            if (product is null)
+            {
+                statusText.Foreground = RedText;
+                statusText.Text = "Selecione um produto para aplicar no iFood.";
+                return;
+            }
+
+            if (!SaveProduct())
+            {
+                return;
+            }
+
+            product = productsList.SelectedItem as ProductTile ?? Products.FirstOrDefault(item => item.Code == codeBox.Text.Trim().PadLeft(6, '0'));
+            if (product is null)
+            {
+                return;
+            }
+
+            if (!HasIFoodCatalogLink(product))
+            {
+                statusText.Foreground = RedText;
+                statusText.Text = "Produto sem vinculo iFood. Sincronize produtos do iFood antes de aplicar.";
+                RefreshIFoodCompositionState();
+                return;
+            }
+
+            statusText.Foreground = Solid("#0B3A52");
+            statusText.Text = "Aplicando estoque, disponibilidade e foto no iFood...";
+            QueueIFoodStockSync(product, "Aplicado no cadastro de produto");
+            RefreshIFoodCompositionState();
+        };
 
         chooseImageButton.Click += (_, _) =>
         {
@@ -7883,7 +8351,7 @@ public partial class MainWindow : Window
             imagePath = CopyImageToAppIdentityFolder(fileDialog.FileName, $"product-{SafeFileName(codeForFile)}");
             RefreshProductImagePreview();
             statusText.Foreground = GreenText;
-            statusText.Text = "Foto aplicada. Clique em Salvar produto.";
+            statusText.Text = "Foto aplicada. Salve o produto e use Aplicar no iFood para enviar.";
         };
 
         clearImageButton.Click += (_, _) =>
@@ -7923,8 +8391,6 @@ public partial class MainWindow : Window
         OnEnter(saveButton, () => SaveProduct());
         costBox.TextChanged += (_, _) => RefreshMarginPreview();
         priceBox.TextChanged += (_, _) => RefreshMarginPreview();
-        ifoodCompositionBox.Checked += (_, _) => RefreshIFoodCompositionState();
-        ifoodCompositionBox.Unchecked += (_, _) => RefreshIFoodCompositionState();
 
         var root = new Grid { Margin = new Thickness(18) };
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(330) });
@@ -7994,10 +8460,8 @@ public partial class MainWindow : Window
         var stockSection = FormSection("Estoque",
             TwoColumns(DialogField("Quantidade atual", stockBox), DialogField("Estoque minimo", minBox)));
         var ifoodSection = FormSection("iFood",
-            ifoodCompositionBox,
-            DialogHint("Use uma linha por item. Adicional: nome;preco;SIM/NAO. Ficha: codigo;nome;quantidade;unidade."),
-            DialogField("Adicionais", modifiersBox),
-            DialogField("Ficha tecnica", recipeBox));
+            ifoodInfoText,
+            ifoodApplyButton);
 
         var form = new StackPanel();
         form.Children.Add(formHeader);
@@ -8005,10 +8469,7 @@ public partial class MainWindow : Window
         form.Children.Add(photoSection);
         form.Children.Add(saleSection);
         form.Children.Add(stockSection);
-        if (ifoodCompositionVisible)
-        {
-            form.Children.Add(ifoodSection);
-        }
+        form.Children.Add(ifoodSection);
         form.Children.Add(saveButton);
         form.Children.Add(statusText);
 
@@ -9323,15 +9784,19 @@ public partial class MainWindow : Window
             Margin = new Thickness(0, 10, 0, 0),
             Text = settings.HasCloudConnection
                 ? "Recebimento automatico ligado. Pedidos e produtos do iFood sincronizam em segundo plano com o PDV."
+                : HasIFoodConnectionConfigured(settings)
+                    ? "Loja offline no PDV. Use o botao Loja online no topo para voltar a receber pedidos."
                 : "Clique em conectar uma vez. Depois disso os pedidos entram no Delivery e os produtos aparecem no estoque."
         };
 
         void SaveFields()
         {
             settings.Enabled = true;
+            _appSettings.PublicMenuStoreOpen = true;
             EnsureIFoodCloudSettings(settings);
             SaveAppSettings();
             SaveStore();
+            RefreshOnlineStoreButton();
         }
 
         void ShowIFoodMessage(string message)
@@ -9368,6 +9833,7 @@ public partial class MainWindow : Window
                 {
                     _ifoodSyncTimer.Start();
                     ShowIFoodMessage("iFood conectado. Pedidos entram no Delivery e produtos do iFood aparecem no estoque.");
+                    RefreshOnlineStoreButton();
                     _ = AutoImportIFoodOrdersAsync(force: true);
                 }
                 else if (!string.IsNullOrWhiteSpace(settings.VerificationUrlComplete))
@@ -9927,7 +10393,9 @@ public partial class MainWindow : Window
             ProductCode = product.Code,
             ProductName = product.Name,
             Amount = product.Amount,
-            Reason = product.Reason
+            Reason = product.Reason,
+            ImageDataUrl = product.ImageDataUrl,
+            ImageUrl = product.ImageUrl
         };
     }
 
@@ -9937,7 +10405,9 @@ public partial class MainWindow : Window
         string ProductId,
         string ExternalCode,
         int Amount,
-        string Reason);
+        string Reason,
+        string ImageDataUrl,
+        string ImageUrl);
 
     private sealed record IFoodPresenceSyncSnapshot(
         string BackendUrl,
@@ -10020,7 +10490,7 @@ public partial class MainWindow : Window
         }
 
         var settings = _appSettings.IFood ??= new IFoodIntegrationSettings();
-        if (!settings.HasCloudConnection)
+        if (!HasIFoodConnectionConfigured(settings))
         {
             return;
         }
@@ -10038,15 +10508,33 @@ public partial class MainWindow : Window
         }
 
         var amount = Math.Max(0, (int)Math.Floor(product.StockQuantity));
+        var imagePayload = BuildIFoodProductImagePayload(product);
         var snapshot = new IFoodStockSyncSnapshot(
             product.Code,
             product.Name,
             productId,
             externalCode,
             amount,
-            reason);
+            reason,
+            imagePayload.DataUrl,
+            imagePayload.Url);
         _ = SyncIFoodStockSnapshotAsync(settings.BackendUrl, settings.ConnectionId, snapshot);
     }
+
+    private static IFoodProductImageSyncPayload BuildIFoodProductImagePayload(ProductTile product)
+    {
+        var image = BuildPublicMenuProductImageUrl(product).Trim();
+        if (string.IsNullOrWhiteSpace(image))
+        {
+            return new IFoodProductImageSyncPayload("", "");
+        }
+
+        return image.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)
+            ? new IFoodProductImageSyncPayload(image, "")
+            : new IFoodProductImageSyncPayload("", image);
+    }
+
+    private readonly record struct IFoodProductImageSyncPayload(string DataUrl, string Url);
 
     private static bool HasIFoodCatalogLink(ProductTile product)
     {
@@ -10066,6 +10554,19 @@ public partial class MainWindow : Window
                 var message = string.IsNullOrWhiteSpace(response.Message)
                     ? $"Estoque iFood atualizado: {product.Name} = {product.Amount:N0}."
                     : $"{response.Message} {product.Name}.";
+                if ((!string.IsNullOrWhiteSpace(product.ImageDataUrl) || !string.IsNullOrWhiteSpace(product.ImageUrl))
+                    && response.ImageUpdated
+                    && !message.Contains("foto", StringComparison.OrdinalIgnoreCase))
+                {
+                    message = $"{message.TrimEnd()} Foto enviada.";
+                }
+
+                if (!string.IsNullOrWhiteSpace(response.ImageWarning)
+                    && !message.Contains(response.ImageWarning, StringComparison.OrdinalIgnoreCase))
+                {
+                    message = $"{message.TrimEnd()} Foto pendente: {response.ImageWarning}";
+                }
+
                 SetStatus(message.Trim());
             });
         }
@@ -11862,9 +12363,11 @@ public partial class MainWindow : Window
             ? string.IsNullOrWhiteSpace(settings.MerchantName)
                 ? "conectado"
                 : $"conectado: {settings.MerchantName}"
-            : string.IsNullOrWhiteSpace(settings.ConnectionId)
-                ? "nao conectado"
-                : "aguardando autorizacao do iFood";
+            : !settings.Enabled && !string.IsNullOrWhiteSpace(settings.ConnectionId)
+                ? "conectado, loja offline no PDV"
+                : string.IsNullOrWhiteSpace(settings.ConnectionId)
+                    ? "nao conectado"
+                    : "aguardando autorizacao do iFood";
 
         var last = settings.LastSyncUtc.HasValue
             ? TimeZoneInfo.ConvertTimeFromUtc(settings.LastSyncUtc.Value, TimeZoneInfo.Local).ToString("g", Brazil)
@@ -12806,14 +13309,14 @@ public partial class MainWindow : Window
             selectedSourceIndex = 0;
         }
 
-        var dialog = CreateDialog("Transferencia de comanda completa", 1060, 650);
+        var dialog = CreateDialog("Mover ou juntar comandas", 980, 620);
         var transferBoardTemplate = (DataTemplate)FindResource("TransferBoardTemplate");
         var sourceList = new ListBox
         {
             ItemsSource = sources,
             ItemTemplate = transferBoardTemplate,
             ItemContainerStyle = TransferListBoxItemStyle(),
-            Height = 286,
+            Height = 238,
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             Margin = new Thickness(0, 10, 0, 0)
@@ -12822,7 +13325,7 @@ public partial class MainWindow : Window
         {
             ItemTemplate = transferBoardTemplate,
             ItemContainerStyle = TransferListBoxItemStyle(),
-            Height = 286,
+            Height = 238,
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             Margin = new Thickness(0, 10, 0, 12)
@@ -12830,31 +13333,63 @@ public partial class MainWindow : Window
         var selectedDestination = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#0B3A52"),
-            FontWeight = FontWeights.SemiBold,
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 12,
             Margin = new Thickness(0, 0, 0, 8)
         };
         var sourceDetails = new StackPanel();
+        var actionTitle = new TextBlock
+        {
+            Text = "Selecione origem e destino",
+            Foreground = Solid("#071A2C"),
+            FontSize = 17,
+            FontWeight = FontWeights.Bold
+        };
+        var actionDescription = new TextBlock
+        {
+            Text = "Quando o destino estiver livre, o pedido e movido. Quando estiver ocupado, o PDV junta as comandas.",
+            Foreground = Solid("#5B6B7A"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        var actionCard = new Border
+        {
+            Background = Solid("#F8FBFE"),
+            BorderBrush = Solid("#D6E2EA"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12),
+            Margin = new Thickness(0, 0, 0, 12),
+            Child = new StackPanel
+            {
+                Children =
+                {
+                    actionTitle,
+                    actionDescription
+                }
+            }
+        };
+        Button? transferButton = null;
 
         Border Card(string title, string subtitle, UIElement content, string color)
         {
             var stack = new StackPanel { Margin = new Thickness(16, 14, 16, 16) };
-            stack.Children.Add(new TextBlock { Text = title, Foreground = Solid("#071A2C"), FontSize = 17, FontWeight = FontWeights.Bold });
+            stack.Children.Add(new TextBlock { Text = title, Foreground = Solid("#071A2C"), FontSize = 16, FontWeight = FontWeights.Bold });
             stack.Children.Add(new TextBlock { Text = subtitle, Foreground = Solid("#5B6B7A"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 12) });
             stack.Children.Add(content);
             return new Border
             {
                 Background = Brushes.White,
-                BorderBrush = Solid("#CAD6E2"),
+                BorderBrush = Solid("#D6E2EA"),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(10),
+                CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(0),
                 Margin = new Thickness(0, 0, 0, 12),
                 Child = new Grid
                 {
                     Children =
                     {
-                        new Border { Width = 4, Background = Solid(color), HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(10, 0, 0, 10) },
+                        new Border { Width = 4, Background = Solid(color), HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(8, 0, 0, 8) },
                         stack
                     }
                 }
@@ -12920,7 +13455,7 @@ public partial class MainWindow : Window
             }
 
             sourceDetails.Children.Add(new TextBlock { Text = $"{BoardKindLabel(source)} {source.Number}", Foreground = Solid("#071A2C"), FontSize = 24, FontWeight = FontWeights.Bold });
-            sourceDetails.Children.Add(new TextBlock { Text = $"{source.Status}  |  origem selecionada", Foreground = Solid("#08A99B"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 4, 0, 0) });
+            sourceDetails.Children.Add(new TextBlock { Text = $"{source.DisplayStatus}  |  origem selecionada", Foreground = Solid("#0B3A52"), FontWeight = FontWeights.Bold, Margin = new Thickness(0, 4, 0, 0) });
             if (!string.IsNullOrWhiteSpace(source.CustomerName))
             {
                 sourceDetails.Children.Add(new TextBlock { Text = $"Cliente: {source.CustomerName}", Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap });
@@ -12929,7 +13464,7 @@ public partial class MainWindow : Window
             var stats = new UniformGrid { Columns = 3, Margin = new Thickness(0, 12, -8, 0) };
             stats.Children.Add(MiniStat("Itens", source.Lines.Count.ToString("N0", Brazil), "#0B3A52"));
             stats.Children.Add(MiniStat("Pagamentos", Money(source.Payments.Sum(payment => payment.Amount)), "#99620D"));
-            stats.Children.Add(MiniStat("Total", Money(source.Lines.Sum(line => line.Total)), "#08A99B"));
+            stats.Children.Add(MiniStat("Total", Money(source.Lines.Sum(line => line.Total)), "#0B3A52"));
             sourceDetails.Children.Add(stats);
 
             var sourceItems = new StackPanel();
@@ -12952,13 +13487,30 @@ public partial class MainWindow : Window
             if (destinationList.SelectedItem is not TableTile destination)
             {
                 selectedDestination.Text = "Selecione uma mesa/ficha destino.";
+                actionTitle.Text = "Selecione o destino";
+                actionDescription.Text = "Escolha uma mesa, ficha ou delivery para mover ou juntar.";
+                if (transferButton is not null)
+                {
+                    transferButton.Content = "Mover ou juntar";
+                    transferButton.Background = Solid("#0B3A52");
+                }
                 return;
             }
 
-            var mode = destination.Lines.Count > 0 || destination.Payments.Count > 0
-                ? "Destino ocupado: as comandas serao juntadas."
-                : "Destino livre: a comanda sera movida inteira.";
-            selectedDestination.Text = $"{BoardKindLabel(destination)} {destination.Number} - {destination.Status} - {Money(destination.Total)}\n{mode}";
+            var occupied = IsBoardOccupiedForTransfer(destination);
+            selectedDestination.Text = $"{BoardKindLabel(destination)} {destination.Number} - {destination.DisplayStatus} - {Money(destination.Total)}";
+            actionTitle.Text = occupied ? "Juntar comandas" : "Mover comanda";
+            actionDescription.Text = occupied
+                ? $"O destino ja tem itens. O PDV vai somar os itens e pagamentos da origem em {BoardKindLabel(destination)} {destination.Number}."
+                : $"Destino livre. O PDV vai mover a comanda inteira para {BoardKindLabel(destination)} {destination.Number}.";
+            actionCard.Background = Solid(occupied ? "#FFF8E7" : "#F2FBFC");
+            actionCard.BorderBrush = Solid(occupied ? "#E8B85B" : "#BBDCE5");
+            if (transferButton is not null)
+            {
+                transferButton.Content = occupied ? "Juntar comandas" : "Mover comanda";
+                transferButton.Background = Solid(occupied ? "#99620D" : "#0B3A52");
+                transferButton.BorderBrush = transferButton.Background;
+            }
         }
 
         void RefreshDestinationOptions()
@@ -12994,7 +13546,7 @@ public partial class MainWindow : Window
         };
         destinationList.SelectionChanged += (_, _) => RefreshDestinationText();
 
-        var transferButton = DialogButton("Transferir comanda completa", "#08A99B");
+        transferButton = DialogButton("Mover ou juntar", "#0B3A52");
         transferButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         transferButton.Width = double.NaN;
         transferButton.IsDefault = true;
@@ -13037,6 +13589,7 @@ public partial class MainWindow : Window
         sourcePanel.Children.Add(sourceDetails);
         var destinationPanel = new StackPanel();
         destinationPanel.Children.Add(selectedDestination);
+        destinationPanel.Children.Add(actionCard);
         destinationPanel.Children.Add(destinationList);
         destinationPanel.Children.Add(transferButton);
 
@@ -13049,7 +13602,7 @@ public partial class MainWindow : Window
         Grid.SetColumn(left, 0);
         grid.Children.Add(left);
         var right = new StackPanel();
-        right.Children.Add(Card("Destino", "Escolha para onde mover a comanda completa.", destinationPanel, "#08A99B"));
+        right.Children.Add(Card("Destino", "Escolha destino livre para mover ou ocupado para juntar.", destinationPanel, "#0B3A52"));
         Grid.SetColumn(right, 2);
         grid.Children.Add(right);
         dialog.Content = grid;
@@ -13109,8 +13662,8 @@ public partial class MainWindow : Window
 
     private void TransferFullCommand(TableTile source, TableTile destination)
     {
-        var sourceHadContent = source.Lines.Count > 0 || source.Payments.Count > 0;
-        var destinationHadContent = destination.Lines.Count > 0 || destination.Payments.Count > 0;
+        var sourceHadContent = IsBoardOccupiedForTransfer(source);
+        var destinationHadContent = IsBoardOccupiedForTransfer(destination);
         if (!sourceHadContent)
         {
             SetStatus("Comanda vazia para transferir.");
@@ -13186,6 +13739,11 @@ public partial class MainWindow : Window
             : $"{originLabel} transferida para {BoardKindLabel(destination)} {destination.Number}.");
     }
 
+    private static bool IsBoardOccupiedForTransfer(TableTile board)
+    {
+        return board.Lines.Count > 0 || board.Payments.Count > 0;
+    }
+
     private void ShowDiscountDialog()
     {
         if (!RequirePermission(user => user.IsMaster || user.CanDiscount, "Desconto"))
@@ -13215,6 +13773,19 @@ public partial class MainWindow : Window
                 return;
             }
 
+            if (!ShowOperatorPasswordDialog(
+                    "Autorizacao do gerente",
+                    "Para aplicar desconto, informe a conta e senha do gerente.",
+                    "Autorizar desconto",
+                    IsManagerUser,
+                    out var manager)
+                || manager is null)
+            {
+                message.Text = "Desconto cancelado. Somente gerente pode autorizar.";
+                message.Foreground = RedText;
+                return;
+            }
+
             TicketLines.Add(new TicketLine
             {
                 Code = "DESC",
@@ -13226,7 +13797,7 @@ public partial class MainWindow : Window
             SaveActiveTicketToCurrentBoard();
             RefreshTotals();
             SaveStore();
-            SetStatus($"Desconto aplicado: {Money(amount)}");
+            SetStatus($"Desconto aplicado: {Money(amount)} por {manager.Name}.");
             dialog.Close();
         };
 
@@ -14047,17 +14618,17 @@ public partial class MainWindow : Window
             QueuePublicMenuPublish();
             RefreshDiscountPreview();
             RefreshPreview();
-            discountStatus.Text = "Descontos salvos. O cardapio sera publicado automaticamente ou pelo botao Publicar.";
-            discountStatus.Foreground = GreenText;
+            discountStatus.Text = "Descontos salvos. O cardapio atualiza automaticamente.";
+            discountStatus.Foreground = Solid("#0B3A52");
             return true;
         }
 
         var publish = DialogButton("Publicar/atualizar", "#08A99B");
-        var print = DialogButton("Imprimir POS58", "#08A99B");
-        var copy = DialogButton("Copiar QR/link", "#5B6B7A");
+        publish.Visibility = Visibility.Collapsed;
+        var print = DialogButton("Imprimir", "#0B3A52");
+        var copy = DialogButton("Copiar", "#5B6B7A");
         var open = DialogButton("Abrir cardapio", "#0B3A52");
-        var saveDiscounts = DialogButton("Salvar descontos", "#08A99B");
-        var publishDiscounts = DialogButton("Salvar e publicar", "#0B3A52");
+        var saveDiscounts = DialogButton("Salvar descontos", "#0B3A52");
 
         async Task PublishCurrentMenuAsync(bool automatic)
         {
@@ -14093,19 +14664,7 @@ public partial class MainWindow : Window
             }
         }
 
-        publish.Click += async (_, _) => await PublishCurrentMenuAsync(automatic: false);
         saveDiscounts.Click += (_, _) => SaveDiscountSettings();
-        publishDiscounts.Click += async (_, _) =>
-        {
-            if (!SaveDiscountSettings())
-            {
-                return;
-            }
-
-            await PublishCurrentMenuAsync(automatic: false);
-            discountStatus.Text = statusText.Text;
-            discountStatus.Foreground = statusText.Foreground;
-        };
 
         print.Click += (_, _) =>
         {
@@ -14114,16 +14673,13 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var receipt = BuildMenuQrReceiptText(menuUrl);
-            var printed = TryPrintTextToDefaultPrinter(receipt, "Cardapio QR Code", compact: true, qrPayload: menuUrl, qrCaption: "CARDAPIO");
-            if (!printed)
+            if (PrintMenuQrWithWindowsDialog(menuUrl))
             {
-                OpenMenuQrPoster(menuUrl, compact: true, autoPrint: true);
-                SetStatus("Nao consegui imprimir direto; abri o modelo POS58 para imprimir pelo navegador.");
+                SetStatus("Impressao do cardapio enviada.");
                 return;
             }
 
-            SetStatus("QR Code do cardapio enviado para a impressora.");
+            SetStatus("Impressao do cardapio cancelada.");
         };
 
         copy.Click += (_, _) =>
@@ -14191,7 +14747,7 @@ public partial class MainWindow : Window
         });
 
         var actions = new WrapPanel { Margin = new Thickness(0, 16, 0, 0) };
-        foreach (var button in new[] { publish, print, copy, open })
+        foreach (var button in new[] { print, copy, open })
         {
             button.Margin = new Thickness(0, 0, 8, 8);
             button.MinWidth = 152;
@@ -14257,7 +14813,7 @@ public partial class MainWindow : Window
 
         var publishPanel = DialogPanel();
         publishPanel.Children.Add(layout);
-        publishPanel.Children.Add(DialogHint("Depois de publicar, mudancas em nome, logo, produtos, preco, estoque e descontos entram na fila automatica e sao republicadas quando o app salvar esses dados."));
+        publishPanel.Children.Add(DialogHint("Mudancas em nome, logo, produtos, preco, estoque e descontos entram em fila automatica e sao publicadas em tempo real quando o app salva esses dados."));
 
         var discountFields = BorderCard();
         discountFields.Child = new StackPanel
@@ -14280,7 +14836,7 @@ public partial class MainWindow : Window
         };
 
         var discountActions = new WrapPanel { Margin = new Thickness(0, 14, 0, 0) };
-        foreach (var button in new[] { saveDiscounts, publishDiscounts })
+        foreach (var button in new[] { saveDiscounts })
         {
             button.Margin = new Thickness(0, 0, 8, 8);
             button.MinWidth = 180;
@@ -14734,7 +15290,7 @@ public partial class MainWindow : Window
         payload.PublicUrl = BuildPublicMenuUrl(payload.Slug);
         payload.ThemeColor = "#0f766e";
         payload.Description = "Cardapio digital atualizado pelo Balcao Livre PDV.";
-        payload.StoreOpen = true;
+        payload.StoreOpen = _appSettings.PublicMenuStoreOpen;
         payload.WaitMinMinutes = Math.Max(1, _appSettings.PublicMenuWaitMinMinutes);
         payload.WaitMaxMinutes = Math.Max(payload.WaitMinMinutes, _appSettings.PublicMenuWaitMaxMinutes);
         var publishDiscount = _appSettings.PublicMenuDiscountConfigured && _appSettings.PublicMenuDiscountEnabled;
@@ -14988,6 +15544,89 @@ public partial class MainWindow : Window
         sb.AppendLine(divider);
         sb.AppendLine(CenterReceipt("OBRIGADO PELA PREFERENCIA", width));
         return sb.ToString();
+    }
+
+    private bool PrintMenuQrWithWindowsDialog(string menuUrl)
+    {
+        try
+        {
+            var dialog = new PrintDialog();
+            if (dialog.ShowDialog() != true)
+            {
+                return false;
+            }
+
+            var qr = TryCreateQrBitmap(menuUrl, 14);
+            var restaurant = ResolveWaiterRestaurantName();
+            var document = new FlowDocument
+            {
+                FontFamily = new FontFamily("Segoe UI"),
+                PageWidth = dialog.PrintableAreaWidth,
+                PageHeight = dialog.PrintableAreaHeight,
+                PagePadding = new Thickness(44),
+                ColumnWidth = double.PositiveInfinity,
+                TextAlignment = TextAlignment.Center
+            };
+
+            document.Blocks.Add(new Paragraph(new Run(restaurant))
+            {
+                FontSize = 32,
+                FontWeight = FontWeights.Bold,
+                Foreground = Solid("#071A2C"),
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+            document.Blocks.Add(new Paragraph(new Run("CARDAPIO DIGITAL"))
+            {
+                FontSize = 15,
+                FontWeight = FontWeights.Bold,
+                Foreground = Solid("#0B3A52"),
+                Margin = new Thickness(0, 0, 0, 20)
+            });
+
+            if (qr is not null)
+            {
+                document.Blocks.Add(new BlockUIContainer(new System.Windows.Controls.Image
+                {
+                    Source = qr,
+                    Width = 300,
+                    Height = 300,
+                    Stretch = Stretch.Uniform,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                })
+                {
+                    TextAlignment = TextAlignment.Center,
+                    Margin = new Thickness(0, 0, 0, 20)
+                });
+            }
+
+            document.Blocks.Add(new Paragraph(new Run("Aponte a camera do celular para o QR Code"))
+            {
+                FontSize = 22,
+                FontWeight = FontWeights.Bold,
+                Foreground = Solid("#071A2C"),
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+            document.Blocks.Add(new Paragraph(new Run("Veja o cardapio, escolha os itens e chame a equipe para pedir."))
+            {
+                FontSize = 15,
+                Foreground = Solid("#5B6B7A"),
+                Margin = new Thickness(0, 0, 0, 16)
+            });
+            document.Blocks.Add(new Paragraph(new Run(menuUrl))
+            {
+                FontSize = 11,
+                Foreground = Solid("#5B6B7A"),
+                Margin = new Thickness(0, 0, 0, 0)
+            });
+
+            dialog.PrintDocument(((IDocumentPaginatorSource)document).DocumentPaginator, "Cardapio QR Code");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Menu QR Windows print failed: {ex}");
+            return false;
+        }
     }
 
     private void OpenMenuQrPoster(string menuUrl, bool compact, bool autoPrint)
@@ -15803,11 +16442,11 @@ public partial class MainWindow : Window
         }
 
         SaveStore();
-        var dialog = CreateDialog("Backup e exportacao", 760, 570);
+        var dialog = CreateDialog("Backup e exportacao", 800, 640);
         var result = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
-            Foreground = GreenText,
+            Foreground = Solid("#0B3A52"),
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 10, 0, 0)
         };
@@ -15825,6 +16464,7 @@ public partial class MainWindow : Window
         };
         var cloudStatus = new TextBlock();
         var syncStatus = new TextBlock();
+        var lastLocalBackupText = new TextBlock();
         var lastBackupText = new TextBlock();
         var lastSyncText = new TextBlock();
 
@@ -15870,12 +16510,12 @@ public partial class MainWindow : Window
         Border StatusPill(TextBlock text, string onText, bool enabled)
         {
             text.Text = enabled ? onText : "desligado";
-            text.Foreground = enabled ? Solid("#08A99B") : Solid("#5B6B7A");
+            text.Foreground = enabled ? Solid("#0B3A52") : Solid("#5B6B7A");
             text.FontWeight = FontWeights.Bold;
             return new Border
             {
-                Background = enabled ? Solid("#E6FBF8") : Solid("#F1F5F8"),
-                BorderBrush = enabled ? Solid("#08A99B") : Solid("#CAD6E2"),
+                Background = enabled ? Solid("#EAF4F8") : Solid("#F1F5F8"),
+                BorderBrush = enabled ? Solid("#0B3A52") : Solid("#CAD6E2"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(18),
                 Padding = new Thickness(12, 7, 12, 7),
@@ -15894,16 +16534,20 @@ public partial class MainWindow : Window
 
         StyleLastText(lastBackupText);
         StyleLastText(lastSyncText);
+        StyleLastText(lastLocalBackupText);
 
         void RefreshBackupState()
         {
             cloudStatus.Text = _appSettings.CloudBackupEnabled ? "backup ligado" : "backup desligado";
-            cloudStatus.Foreground = _appSettings.CloudBackupEnabled ? Solid("#08A99B") : Solid("#5B6B7A");
+            cloudStatus.Foreground = _appSettings.CloudBackupEnabled ? Solid("#0B3A52") : Solid("#5B6B7A");
             syncStatus.Text = _appSettings.CentralSyncEnabled ? "sync ligado" : "sync desligado";
-            syncStatus.Foreground = _appSettings.CentralSyncEnabled ? Solid("#08A99B") : Solid("#5B6B7A");
+            syncStatus.Foreground = _appSettings.CentralSyncEnabled ? Solid("#0B3A52") : Solid("#5B6B7A");
             lastBackupText.Text = _appSettings.LastCloudBackupAt.HasValue
                 ? $"Ultimo backup online: {_appSettings.LastCloudBackupAt.Value:dd/MM/yyyy HH:mm}"
                 : "Ultimo backup online: ainda nao enviado";
+            lastLocalBackupText.Text = _appSettings.LastLocalBackupAt.HasValue
+                ? $"Ultimo backup local versionado: {_appSettings.LastLocalBackupAt.Value:dd/MM/yyyy HH:mm}"
+                : "Ultimo backup local versionado: ainda nao gerado";
             lastSyncText.Text = _appSettings.LastCentralSyncAt.HasValue
                 ? $"Ultimo sync central: {_appSettings.LastCentralSyncAt.Value:dd/MM/yyyy HH:mm}"
                 : "Ultimo sync central: ainda nao enviado";
@@ -15920,19 +16564,52 @@ public partial class MainWindow : Window
             result.Text = "Automacao online salva.";
             SetStatus("Backup automatico e sync central atualizados.");
         };
-        var backup = DialogButton("Gerar backup agora", "#08A99B");
+        var backup = DialogButton("Gerar backup agora", "#0B3A52");
         backup.Click += (_, _) =>
         {
-            var backupDir = Path.Combine(_dataRoot, "backups");
-            Directory.CreateDirectory(backupDir);
-            var path = Path.Combine(backupDir, $"backup-{DateTime.Now:yyyyMMdd-HHmmss}.json");
-            File.Copy(StoreFile, path, overwrite: true);
+            var path = CreateLocalStoreBackup("manual", force: true);
             QueueCloudBackup(CreateStoreSnapshot(), force: true);
             _appSettings.LastCloudBackupAt = DateTime.Now;
             SaveAppSettings();
             RefreshBackupState();
-            result.Text = path;
-            SetStatus($"Backup local gerado: {path}. Envio online solicitado se a licenca estiver ativa.");
+            result.Text = string.IsNullOrWhiteSpace(path)
+                ? "Nao foi possivel gerar o backup local."
+                : $"{path}\n{LatestSqlBackupFile}";
+            SetStatus(string.IsNullOrWhiteSpace(path)
+                ? "Falha ao gerar backup local. Veja se a pasta de dados esta liberada."
+                : $"Backup local gerado: {path}. Espelho SQL atualizado.");
+        };
+        var restore = DialogButton("Restaurar ultimo backup", "#B45309");
+        restore.Click += (_, _) =>
+        {
+            var confirm = System.Windows.MessageBox.Show(
+                this,
+                "Restaurar o ultimo backup local vai substituir os dados carregados agora. Continuar?",
+                "Restaurar backup",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (confirm != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            if (!TryLoadStoreFromPath(LatestLocalBackupFile, out var backupStore) || backupStore is null || !ApplyStore(backupStore))
+            {
+                result.Text = "Nao encontrei um backup local valido para restaurar.";
+                SetStatus("Restauracao cancelada: backup local invalido ou ausente.");
+                return;
+            }
+
+            WriteStoreFile(CreateStoreSnapshot());
+            RefreshBoardForMode();
+            SelectTable(0);
+            SelectCategory(0);
+            FilterProducts();
+            SelectProduct(0);
+            RefreshTotals();
+            RefreshBackupState();
+            result.Text = $"Restaurado de: {LatestLocalBackupFile}";
+            SetStatus("Backup local restaurado e arquivo principal regravado com seguranca.");
         };
         var open = DialogButton("Abrir pasta de dados", "#5B6B7A");
         open.Click += (_, _) => Process.Start(new ProcessStartInfo(_dataRoot) { UseShellExecute = true });
@@ -15946,7 +16623,7 @@ public partial class MainWindow : Window
             SetStatus($"CSV gerado: {path}");
         };
 
-        foreach (var button in new[] { saveOnline, backup, export, open })
+        foreach (var button in new[] { saveOnline, backup, restore, export, open })
         {
             button.HorizontalAlignment = HorizontalAlignment.Stretch;
             button.Width = double.NaN;
@@ -15954,7 +16631,7 @@ public partial class MainWindow : Window
 
         var pathBox = new TextBox
         {
-            Text = StoreFile,
+            Text = $"{StoreFile}\n{LatestLocalBackupFile}\n{LatestSqlBackupFile}",
             IsReadOnly = true,
             TextWrapping = TextWrapping.Wrap,
             BorderThickness = new Thickness(0),
@@ -15980,13 +16657,16 @@ public partial class MainWindow : Window
 
         var localBox = BackupCard(
             "Dados locais",
-            "Arquivo principal usado pelo PDV neste computador.",
-            pathBox);
+            "O PDV grava com arquivo temporario, mantem .bak, atualiza um espelho JSON/SQL e cria copia versionada a cada 30 minutos.",
+            pathBox,
+            lastLocalBackupText,
+            DialogHint("A pasta automaticos guarda as copias para recuperacao manual mesmo depois de reiniciar o computador."));
 
         var actionsBox = BackupCard(
             "Acoes",
             "Use backup manual antes de formatar, trocar de computador ou fazer alteracao grande.",
             backup,
+            restore,
             export,
             open,
             saveOnline,
@@ -16006,7 +16686,7 @@ public partial class MainWindow : Window
         });
         header.Children.Add(new TextBlock
         {
-            Text = "Backup local, copia versionada na nuvem e sync compacto para manter o PDV seguro.",
+            Text = "Backup local automatico a cada 30 minutos, espelho SQL e copia versionada na nuvem.",
             Foreground = Solid("#5B6B7A"),
             FontSize = 13,
             TextWrapping = TextWrapping.Wrap,
@@ -16330,7 +17010,7 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap
         };
         var approved = false;
-        var button = DialogButton(buttonText, "#08A99B");
+        var button = DialogButton(buttonText, "#03151F");
         button.HorizontalAlignment = HorizontalAlignment.Stretch;
         button.Width = double.NaN;
         var firstAccessButton = DialogButton("Criar primeiro acesso", "#0B3A52");
@@ -16432,6 +17112,7 @@ public partial class MainWindow : Window
         var businessNameBox = new TextBox { Text = _profile.BusinessName };
         var legalNameBox = new TextBox { Text = _profile.LegalName };
         var cnpjBox = new TextBox { Text = _profile.Cnpj };
+        AttachCnpjMask(cnpjBox);
         var phoneBox = new TextBox { Text = _profile.Phone };
         var adminNameBox = new TextBox { Text = _profile.OwnerName };
         var adminNumberBox = new TextBox { Text = GetNextStaffNumber().ToString(Brazil) };
@@ -16447,6 +17128,9 @@ public partial class MainWindow : Window
         var activate = DialogButton(needsAdmin ? "Ativar e criar administrador" : "Ativar sistema", "#08A99B");
         activate.HorizontalAlignment = HorizontalAlignment.Stretch;
         activate.Width = double.NaN;
+        var renewSubscription = DialogButton("Pagar assinatura no Stripe", "#0B3A52");
+        renewSubscription.HorizontalAlignment = HorizontalAlignment.Stretch;
+        renewSubscription.Width = double.NaN;
 
         UIElement CreateLogo()
         {
@@ -16533,6 +17217,7 @@ public partial class MainWindow : Window
             }
 
             activate.IsEnabled = false;
+            error.Foreground = RedText;
             error.Text = "";
             var key = keyBox.Text.Trim();
             try
@@ -16695,6 +17380,20 @@ public partial class MainWindow : Window
         }
 
         activate.Click += async (_, _) => await ConfirmAsync();
+        renewSubscription.Click += (_, _) =>
+        {
+            var key = string.IsNullOrWhiteSpace(keyBox.Text) ? _appSettings.ActivationKey : keyBox.Text;
+            if (!OpenLicenseRenewalPage(key, _appSettings.ActivationPlan, showMessage: true))
+            {
+                error.Foreground = RedText;
+                error.Text = "Informe a chave vencida para abrir a renovacao.";
+            }
+            else
+            {
+                error.Foreground = Solid("#0B3A52");
+                error.Text = "Depois do pagamento, a pagina do site mostra uma nova chave. Cole a nova chave aqui e clique em Ativar sistema.";
+            }
+        };
         keyBox.KeyDown += (_, e) =>
         {
             if (e.Key == Key.Enter)
@@ -16805,6 +17504,8 @@ public partial class MainWindow : Window
         panel.Children.Add(DialogLabel("Chave de ativacao"));
         panel.Children.Add(keyBox);
         panel.Children.Add(DialogHint($"Codigo deste computador: {GetMachineCode()}. A chave fica vinculada a este PC."));
+        panel.Children.Add(renewSubscription);
+        panel.Children.Add(DialogHint("Se a chave venceu, pague pelo Stripe. A renovacao gera uma nova chave para colar neste campo."));
         panel.Children.Add(new Border
         {
             Background = Solid("#F8FBFD"),
@@ -17215,8 +17916,7 @@ public partial class MainWindow : Window
     private static void SaveActivationLedger(ActivationLedger ledger)
     {
         var file = GetActivationLedgerFile();
-        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-        File.WriteAllText(file, JsonSerializer.Serialize(ledger, JsonOptions), Encoding.UTF8);
+        WriteTextAtomic(file, JsonSerializer.Serialize(ledger, JsonOptions));
     }
 
     private static string GetActivationLedgerFile()
@@ -17510,8 +18210,7 @@ public partial class MainWindow : Window
     {
         lock (_settingsFileLock)
         {
-            Directory.CreateDirectory(_dataRoot);
-            File.WriteAllText(SettingsFile, JsonSerializer.Serialize(_appSettings, JsonOptions), Encoding.UTF8);
+            WriteTextAtomic(SettingsFile, JsonSerializer.Serialize(_appSettings, JsonOptions));
         }
     }
 
@@ -17698,8 +18397,7 @@ public partial class MainWindow : Window
 
     private void SaveRestaurantProfile()
     {
-        Directory.CreateDirectory(_dataRoot);
-        File.WriteAllText(ProfileFile, JsonSerializer.Serialize(_profile, JsonOptions), Encoding.UTF8);
+        WriteTextAtomic(ProfileFile, JsonSerializer.Serialize(_profile, JsonOptions));
         QueuePublicMenuPublish();
     }
 
@@ -18151,6 +18849,266 @@ public partial class MainWindow : Window
         };
     }
 
+    private static Border OrderAlertHero(
+        string platform,
+        string title,
+        string orderNumber,
+        string customer,
+        string total,
+        string accent,
+        string subtitle,
+        params UIElement[] extraRows)
+    {
+        var rows = new StackPanel();
+        rows.Children.Add(new TextBlock
+        {
+            Text = platform.ToUpperInvariant(),
+            Foreground = Solid("#BCEFEA"),
+            FontSize = 12,
+            FontWeight = FontWeights.Bold,
+            TextWrapping = TextWrapping.Wrap
+        });
+        rows.Children.Add(new TextBlock
+        {
+            Text = title,
+            Foreground = Brushes.White,
+            FontSize = 28,
+            FontWeight = FontWeights.Bold,
+            Margin = new Thickness(0, 4, 0, 0),
+            TextWrapping = TextWrapping.Wrap
+        });
+        rows.Children.Add(new TextBlock
+        {
+            Text = subtitle,
+            Foreground = Solid("#D8E9EF"),
+            FontSize = 13,
+            Margin = new Thickness(0, 6, 0, 0),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        foreach (var row in extraRows)
+        {
+            rows.Children.Add(row);
+        }
+
+        var summary = new Border
+        {
+            Background = Solid("#FFFFFF"),
+            BorderBrush = Solid("#D8E8EF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(14),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Child = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = orderNumber,
+                        Foreground = Solid(accent),
+                        FontSize = 13,
+                        FontWeight = FontWeights.Bold,
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    new TextBlock
+                    {
+                        Text = EmptyDash(customer),
+                        Foreground = Solid("#071A2C"),
+                        FontSize = 18,
+                        FontWeight = FontWeights.Bold,
+                        Margin = new Thickness(0, 5, 0, 0),
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    new TextBlock
+                    {
+                        Text = total,
+                        Foreground = Solid("#071A2C"),
+                        FontSize = 26,
+                        FontWeight = FontWeights.Bold,
+                        Margin = new Thickness(0, 12, 0, 0),
+                        TextWrapping = TextWrapping.Wrap
+                    }
+                }
+            }
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.45, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.Children.Add(rows);
+        Grid.SetColumn(summary, 1);
+        grid.Children.Add(summary);
+
+        return new Border
+        {
+            Background = Solid("#062230"),
+            BorderBrush = Solid(accent),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(16),
+            Padding = new Thickness(22),
+            Child = grid
+        };
+    }
+
+    private static WrapPanel OrderChipPanel(params (string Label, string Value, string Accent)[] chips)
+    {
+        var panel = new WrapPanel { Margin = new Thickness(0, 14, 0, 0) };
+        foreach (var chip in chips)
+        {
+            if (string.IsNullOrWhiteSpace(chip.Value))
+            {
+                continue;
+            }
+
+            panel.Children.Add(new Border
+            {
+                Background = Solid("#F3F8FB"),
+                BorderBrush = Solid("#D8E8EF"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(999),
+                Padding = new Thickness(10, 6, 10, 6),
+                Margin = new Thickness(0, 0, 8, 8),
+                Child = new TextBlock
+                {
+                    Text = $"{chip.Label}: {chip.Value}",
+                    Foreground = Solid(chip.Accent),
+                    FontSize = 12,
+                    FontWeight = FontWeights.Bold,
+                    TextWrapping = TextWrapping.Wrap
+                }
+            });
+        }
+
+        return panel;
+    }
+
+    private static Border OrderInfoCard(string label, string value, string accent = "#0B3A52", string background = "#F8FBFD")
+    {
+        return new Border
+        {
+            Background = Solid(background),
+            BorderBrush = Solid("#D6E4F1"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(13, 10, 13, 10),
+            Margin = new Thickness(0, 0, 10, 10),
+            Child = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = label,
+                        Foreground = Solid("#5B6B7A"),
+                        FontSize = 12,
+                        FontWeight = FontWeights.SemiBold,
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    new TextBlock
+                    {
+                        Text = EmptyDash(value),
+                        Foreground = Solid(accent),
+                        FontSize = 14,
+                        FontWeight = FontWeights.Bold,
+                        Margin = new Thickness(0, 5, 0, 0),
+                        TextWrapping = TextWrapping.Wrap
+                    }
+                }
+            }
+        };
+    }
+
+    private static UniformGrid OrderInfoGrid(params (string Label, string Value, string Accent, string Background)[] cards)
+    {
+        var grid = new UniformGrid { Columns = 2, Margin = new Thickness(0, 10, 0, 0) };
+        foreach (var card in cards)
+        {
+            grid.Children.Add(OrderInfoCard(card.Label, card.Value, card.Accent, card.Background));
+        }
+
+        return grid;
+    }
+
+    private static Border OrderItemsCard(IEnumerable<string> lines, string title, string subtitle)
+    {
+        var list = new StackPanel();
+        var count = 0;
+        foreach (var line in lines.Where(item => !string.IsNullOrWhiteSpace(item)).Take(60))
+        {
+            count++;
+            list.Children.Add(new Border
+            {
+                Background = Solid(count % 2 == 0 ? "#FFFFFF" : "#F8FBFD"),
+                BorderBrush = Solid("#E3EDF5"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12, 9, 12, 9),
+                Margin = new Thickness(0, 0, 0, 8),
+                Child = new TextBlock
+                {
+                    Text = line,
+                    Foreground = Solid("#071A2C"),
+                    FontSize = 13,
+                    FontWeight = FontWeights.SemiBold,
+                    TextWrapping = TextWrapping.Wrap
+                }
+            });
+        }
+
+        if (count == 0)
+        {
+            list.Children.Add(new TextBlock
+            {
+                Text = "Nenhum item informado.",
+                Foreground = Solid("#5B6B7A"),
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 8, 0, 0)
+            });
+        }
+
+        var card = BorderCard();
+        card.Margin = new Thickness(0, 12, 0, 0);
+        card.Child = new StackPanel
+        {
+            Children =
+            {
+                SectionTitle(title),
+                new TextBlock
+                {
+                    Text = subtitle,
+                    Foreground = Solid("#5B6B7A"),
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap
+                },
+                new ScrollViewer
+                {
+                    Content = list,
+                    MaxHeight = 160,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    Margin = new Thickness(0, 10, 0, 0),
+                    PanningMode = PanningMode.VerticalOnly
+                }
+            }
+        };
+        return card;
+    }
+
+    private static Border OrderActionMessageCard(TextBlock message)
+    {
+        return new Border
+        {
+            Background = Solid("#F3F8FB"),
+            BorderBrush = Solid("#D6E4F1"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12),
+            Margin = new Thickness(0, 12, 0, 0),
+            Child = message
+        };
+    }
+
     private static TextBlock DialogLabel(string text)
     {
         return new TextBlock
@@ -18418,7 +19376,7 @@ public partial class MainWindow : Window
             var rootBorder = new Border
             {
                 Background = Brushes.White,
-                BorderBrush = Solid("#BFD1E2"),
+                BorderBrush = Solid("#0B3A52"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(10),
                 SnapsToDevicePixels = true,
@@ -18432,13 +19390,13 @@ public partial class MainWindow : Window
             };
 
             var root = new Grid();
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(50) });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(54) });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
             var header = new Border
             {
-                Background = Solid("#F8FBFD"),
-                BorderBrush = Solid("#CAD6E2"),
+                Background = Solid("#03151F"),
+                BorderBrush = Solid("#0E3A4A"),
                 BorderThickness = new Thickness(0, 0, 0, 1),
                 CornerRadius = new CornerRadius(10, 10, 0, 0)
             };
@@ -18459,14 +19417,16 @@ public partial class MainWindow : Window
             {
                 Width = 28,
                 Height = 28,
-                Background = Solid("#EAF8FA"),
+                Background = Solid("#0B3A52"),
+                BorderBrush = Solid("#255665"),
+                BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(7),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Center,
                 Child = new TextBlock
                 {
-                    Text = "PDV",
-                    Foreground = Solid("#0B3A52"),
+                    Text = "BL",
+                    Foreground = Brushes.White,
                     FontSize = 10,
                     FontWeight = FontWeights.Bold,
                     HorizontalAlignment = HorizontalAlignment.Center,
@@ -18477,7 +19437,7 @@ public partial class MainWindow : Window
             var titleText = new TextBlock
             {
                 Text = Title,
-                Foreground = Solid("#071A2C"),
+                Foreground = Brushes.White,
                 FontSize = 15,
                 FontWeight = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -18490,10 +19450,10 @@ public partial class MainWindow : Window
                 Content = "X",
                 Width = 30,
                 Height = 30,
-                Background = Solid("#EEF4F8"),
-                BorderBrush = Solid("#CAD6E2"),
+                Background = Solid("#0B3A52"),
+                BorderBrush = Solid("#255665"),
                 BorderThickness = new Thickness(1),
-                Foreground = Solid("#425466"),
+                Foreground = Brushes.White,
                 FontWeight = FontWeights.Bold,
                 Cursor = Cursors.Hand,
                 FocusVisualStyle = null,
@@ -18509,7 +19469,7 @@ public partial class MainWindow : Window
 
             var bodyHost = new Border
             {
-                Background = Brushes.White,
+                Background = Solid("#EEF4F8"),
                 CornerRadius = new CornerRadius(0, 0, 10, 10),
                 Child = new ContentControl
                 {
@@ -19893,6 +20853,7 @@ public partial class MainWindow : Window
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 4, 0, 10)
         };
+        AttachMoneyMask(amountBox);
         var changeText = new TextBlock
         {
             Text = "Sem troco.",
@@ -19921,11 +20882,11 @@ public partial class MainWindow : Window
             Text = hasOpenBalance
                 ? "Escolha a forma e confirme o recebimento."
                 : "Saldo ja pago. Confirme para finalizar e imprimir.",
-            Foreground = GreenText,
+            Foreground = Solid("#0B3A52"),
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 10, 0, 0)
         };
-        var confirm = DialogButton("Finalizar venda", "#08A99B");
+        var confirm = DialogButton("Finalizar venda", "#03151F");
         confirm.HorizontalAlignment = HorizontalAlignment.Stretch;
         confirm.Width = double.NaN;
 
@@ -19937,18 +20898,28 @@ public partial class MainWindow : Window
             foreach (var button in methodButtons)
             {
                 var isSelected = string.Equals(button.Tag?.ToString(), selectedMethod, StringComparison.Ordinal);
-                button.Background = isSelected ? Solid("#E6FBF8") : Brushes.White;
-                button.BorderBrush = isSelected ? Solid("#08A99B") : Solid("#CAD6E2");
-                button.Foreground = isSelected ? Solid("#08A99B") : Solid("#071A2C");
+                button.Background = isSelected ? Solid("#F3F7FA") : Brushes.White;
+                button.BorderBrush = isSelected ? Solid("#0B3A52") : Solid("#CAD6E2");
+                button.Foreground = isSelected ? Solid("#0B3A52") : Solid("#071A2C");
                 button.FontWeight = isSelected ? FontWeights.Bold : FontWeights.SemiBold;
             }
         }
 
         foreach (var method in new[] { "DINHEIRO", "PIX", "CREDITO", "DEBITO", "VALE", "FIADO" })
         {
+            var shortcut = method switch
+            {
+                "DINHEIRO" => "D",
+                "PIX" => "P",
+                "CREDITO" => "C",
+                "DEBITO" => "B",
+                "VALE" => "V",
+                "FIADO" => "F",
+                _ => ""
+            };
             var button = new Button
             {
-                Content = method,
+                Content = $"{shortcut}  {method}",
                 Tag = method,
                 Height = 42,
                 Margin = new Thickness(0, 0, 8, 8),
@@ -19971,8 +20942,8 @@ public partial class MainWindow : Window
 
         var finalizeCard = new Border
         {
-            Background = Solid("#E6FBF8"),
-            BorderBrush = Solid("#08A99B"),
+            Background = Solid("#F3F7FA"),
+            BorderBrush = Solid("#0B3A52"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(12, 10, 12, 10),
@@ -19981,7 +20952,7 @@ public partial class MainWindow : Window
         var finalizeText = new TextBlock
         {
             Text = "Finalizar conta apos este pagamento",
-            Foreground = Solid("#08A99B"),
+            Foreground = Solid("#0B3A52"),
             FontWeight = FontWeights.Bold
         };
         var finalizeHint = new TextBlock
@@ -19994,9 +20965,9 @@ public partial class MainWindow : Window
 
         void RefreshFinalizeCard()
         {
-            finalizeCard.Background = finalizePayment ? Solid("#E6FBF8") : Brushes.White;
-            finalizeCard.BorderBrush = finalizePayment ? Solid("#08A99B") : Solid("#CAD6E2");
-            finalizeText.Foreground = finalizePayment ? Solid("#08A99B") : Solid("#071A2C");
+            finalizeCard.Background = finalizePayment ? Solid("#F3F7FA") : Brushes.White;
+            finalizeCard.BorderBrush = finalizePayment ? Solid("#0B3A52") : Solid("#CAD6E2");
+            finalizeText.Foreground = finalizePayment ? Solid("#0B3A52") : Solid("#071A2C");
             if (!hasOpenBalance)
             {
                 finalizeText.Text = "Finalizar e imprimir comprovante";
@@ -20039,7 +21010,7 @@ public partial class MainWindow : Window
                 changeHint.Text = selectedMethod == "DINHEIRO"
                     ? $"Cliente entregou {Money(tendered)} para uma conta de {Money(balance)}."
                     : "Troco acima do saldo e permitido somente em dinheiro.";
-                changeText.Foreground = selectedMethod == "DINHEIRO" ? Solid("#08A99B") : RedText;
+                changeText.Foreground = selectedMethod == "DINHEIRO" ? Solid("#0B3A52") : RedText;
                 return;
             }
 
@@ -20135,9 +21106,55 @@ public partial class MainWindow : Window
         }
 
         confirm.Click += (_, _) => Confirm();
+        bool SelectPaymentMethodByShortcut(KeyEventArgs e)
+        {
+            if (Keyboard.FocusedElement == payerBox)
+            {
+                return false;
+            }
+
+            var key = e.Key == Key.System ? e.SystemKey : e.Key;
+            if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt)) != ModifierKeys.None)
+            {
+                return false;
+            }
+
+            var method = key switch
+            {
+                Key.D => "DINHEIRO",
+                Key.P => "PIX",
+                Key.C => "CREDITO",
+                Key.B => "DEBITO",
+                Key.V => "VALE",
+                Key.F => "FIADO",
+                Key.F1 => "DINHEIRO",
+                Key.F2 => "PIX",
+                Key.F3 => "CREDITO",
+                Key.F4 => "DEBITO",
+                Key.F5 => "VALE",
+                Key.F6 => "FIADO",
+                _ => ""
+            };
+            if (string.IsNullOrWhiteSpace(method))
+            {
+                return false;
+            }
+
+            selectedMethod = method;
+            RefreshMethodButtons();
+            RefreshTenderedPreview();
+            amountBox.Focus();
+            amountBox.CaretIndex = amountBox.Text.Length;
+            return true;
+        }
+
         dialog.PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Enter)
+            if (SelectPaymentMethodByShortcut(e))
+            {
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Enter)
             {
                 Confirm();
                 e.Handled = true;
@@ -20170,7 +21187,7 @@ public partial class MainWindow : Window
                         {
                             new TextBlock { Text = "Total / pago / saldo", Foreground = Solid("#5B6B7A"), FontSize = 12, FontWeight = FontWeights.SemiBold },
                             new TextBlock { Text = $"{Money(total)}  |  Pago {Money(paidTotal)}", Foreground = Solid("#071A2C"), FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 4, 0, 0) },
-                            new TextBlock { Text = Money(balance), Foreground = hasOpenBalance ? Solid("#08A99B") : Solid("#5B6B7A"), FontSize = 28, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 0) }
+                            new TextBlock { Text = Money(balance), Foreground = hasOpenBalance ? Solid("#0B3A52") : Solid("#5B6B7A"), FontSize = 28, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 0) }
                         }
                     }
                 }
@@ -20182,6 +21199,14 @@ public partial class MainWindow : Window
         panel.Children.Add(methodGrid);
         panel.Children.Add(DialogLabel("Valor recebido"));
         panel.Children.Add(amountBox);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Digite no teclado numerico: 20000 vira R$ 200,00.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, -4, 0, 8)
+        });
         panel.Children.Add(changeCard);
         panel.Children.Add(finalizeCard);
         panel.Children.Add(message);
@@ -21269,27 +22294,21 @@ public partial class MainWindow : Window
 
     private void LoadStore()
     {
-        try
+        if (TryLoadStoreFromPath(StoreFile, out var store) && store is not null && ApplyStore(store))
         {
-            if (!File.Exists(StoreFile))
-            {
-                SeedStore();
-                return;
-            }
-
-            var store = JsonSerializer.Deserialize<AppStore>(File.ReadAllText(StoreFile), JsonOptions);
-            if (store is null || !ApplyStore(store))
-            {
-                SeedStore();
-                return;
-            }
-
             WriteStoreFile(CreateStoreSnapshot());
+            return;
         }
-        catch
+
+        if (TryRecoverStoreFromBackups(out var recoveredPath))
         {
-            SeedStore();
+            WriteStoreFile(CreateStoreSnapshot());
+            SetStatus($"Dados recuperados do backup local: {recoveredPath}");
+            return;
         }
+
+        SeedStore();
+        CreateLocalStoreBackup("primeira-carga", force: true);
     }
 
     private void SaveStore()
@@ -21485,8 +22504,231 @@ public partial class MainWindow : Window
 
     private void WriteStoreFile(AppStore store)
     {
-        Directory.CreateDirectory(_dataRoot);
-        File.WriteAllText(StoreFile, JsonSerializer.Serialize(store, JsonOptions), Encoding.UTF8);
+        var json = JsonSerializer.Serialize(store, JsonOptions);
+        WriteTextAtomic(StoreFile, json);
+        WriteLocalDurabilityMirrors(json, "salvamento");
+    }
+
+    private bool TryLoadStoreFromPath(string path, out AppStore? store)
+    {
+        store = null;
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+
+            store = JsonSerializer.Deserialize<AppStore>(File.ReadAllText(path, Encoding.UTF8), JsonOptions);
+            return store is not null;
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            Debug.WriteLine($"Store load failed from {path}: {ex.Message}");
+            return false;
+        }
+    }
+
+    private bool TryRecoverStoreFromBackups(out string recoveredPath)
+    {
+        recoveredPath = "";
+        foreach (var path in StoreRecoveryCandidates())
+        {
+            if (!TryLoadStoreFromPath(path, out var backupStore) || backupStore is null)
+            {
+                continue;
+            }
+
+            if (!ApplyStore(backupStore))
+            {
+                continue;
+            }
+
+            recoveredPath = path;
+            return true;
+        }
+
+        return false;
+    }
+
+    private IEnumerable<string> StoreRecoveryCandidates()
+    {
+        var paths = new List<string>
+        {
+            $"{StoreFile}.bak",
+            LatestLocalBackupFile
+        };
+
+        AddNewestFiles(paths, AutomaticBackupDir, "*.json");
+        AddNewestFiles(paths, BackupDir, "*.json");
+
+        return paths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(path => !string.Equals(path, StoreFile, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static void AddNewestFiles(List<string> paths, string directory, string pattern)
+    {
+        try
+        {
+            if (!Directory.Exists(directory))
+            {
+                return;
+            }
+
+            paths.AddRange(Directory
+                .EnumerateFiles(directory, pattern, SearchOption.TopDirectoryOnly)
+                .OrderByDescending(File.GetLastWriteTimeUtc));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Debug.WriteLine($"Unable to list backups from {directory}: {ex.Message}");
+        }
+    }
+
+    private string CreateLocalStoreBackup(string reason, bool force)
+    {
+        var now = DateTime.Now;
+        if (!force
+            && _appSettings.LastLocalBackupAt.HasValue
+            && now - _appSettings.LastLocalBackupAt.Value < TimeSpan.FromMinutes(30)
+            && File.Exists(LatestLocalBackupFile))
+        {
+            return "";
+        }
+
+        try
+        {
+            SaveActiveTicketToCurrentBoard();
+            _appSettings.LastLocalBackupAt = now;
+            var store = CreateStoreSnapshot();
+            var json = JsonSerializer.Serialize(store, JsonOptions);
+
+            WriteLocalDurabilityMirrors(json, reason);
+            Directory.CreateDirectory(AutomaticBackupDir);
+            Directory.CreateDirectory(SqlBackupDir);
+
+            var suffix = now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+            var jsonPath = Path.Combine(AutomaticBackupDir, $"store-{suffix}.json");
+            var sqlPath = Path.Combine(SqlBackupDir, $"store-{suffix}.sql");
+            WriteTextAtomic(jsonPath, json);
+            WriteTextAtomic(sqlPath, BuildStoreSqlBackup(json, reason, now));
+            SaveAppSettings();
+            PruneAutomaticBackups();
+            return jsonPath;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            Debug.WriteLine($"Local backup failed: {ex.Message}");
+            return "";
+        }
+    }
+
+    private void WriteLocalDurabilityMirrors(string json, string reason)
+    {
+        try
+        {
+            Directory.CreateDirectory(BackupDir);
+            WriteTextAtomic(LatestLocalBackupFile, json);
+            WriteTextAtomic(LatestSqlBackupFile, BuildStoreSqlBackup(json, reason, DateTime.Now));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            Debug.WriteLine($"Durability mirror failed: {ex.Message}");
+        }
+    }
+
+    private void PruneAutomaticBackups()
+    {
+        PruneBackupDirectory(AutomaticBackupDir, "*.json", MaxAutomaticLocalBackupFiles);
+        PruneBackupDirectory(SqlBackupDir, "*.sql", MaxAutomaticLocalBackupFiles);
+    }
+
+    private static void PruneBackupDirectory(string directory, string pattern, int keep)
+    {
+        try
+        {
+            if (!Directory.Exists(directory))
+            {
+                return;
+            }
+
+            foreach (var path in Directory
+                         .EnumerateFiles(directory, pattern, SearchOption.TopDirectoryOnly)
+                         .OrderByDescending(File.GetLastWriteTimeUtc)
+                         .Skip(keep))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Debug.WriteLine($"Backup prune failed from {directory}: {ex.Message}");
+        }
+    }
+
+    private static string BuildStoreSqlBackup(string json, string reason, DateTime createdAt)
+    {
+        var escapedJson = json.Replace("'", "''");
+        var escapedReason = (reason ?? "").Replace("'", "''");
+        var created = createdAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        return $"""
+-- Balcao Livre PDV local recovery mirror
+-- Generated at {created}
+CREATE TABLE IF NOT EXISTS balcao_store_backup (
+    id BIGSERIAL PRIMARY KEY,
+    backup_kind TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    reason TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+);
+
+DELETE FROM balcao_store_backup WHERE backup_kind = 'latest';
+INSERT INTO balcao_store_backup (backup_kind, created_at, reason, payload_json)
+VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
+""";
+    }
+
+    private static void WriteTextAtomic(string path, string content)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var temp = $"{path}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
+        File.WriteAllText(temp, content, Encoding.UTF8);
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Copy(path, $"{path}.bak", overwrite: true);
+            }
+
+            File.Move(temp, path, overwrite: true);
+        }
+        catch
+        {
+            TryDeleteFile(temp);
+            throw;
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Debug.WriteLine($"Unable to delete temp file {path}: {ex.Message}");
+        }
     }
 
     private static void NormalizeLoadedUser(UserAccount user)
@@ -21557,38 +22799,70 @@ public partial class MainWindow : Window
 
     private static int DeliveryBoardSortGroup(TableTile tile)
     {
-        if (IsIFoodDeliveryBoard(tile) && IsIFoodWaitingForConfirmation(tile))
-        {
-            return HasIFoodActiveConfirmationCountdown(tile) ? 0 : 1;
-        }
-
         var status = NormalizeIFoodBoardStatus(tile.Status);
         return status switch
         {
-            "NOVO" or "PLACED" or "CREATED" => 1,
-            "CONFIRMADO" or "ACEITO" or "PREPARO" or "PREPARANDO" => 2,
-            "PRONTO" => 3,
-            "ROTA" => 4,
-            "DESPACHADO" => 8,
-            "ENTREGUE" or "FINALIZADO" => 9,
-            "CANCELAMENTO" or "CANCELADO" => 10,
-            _ => 5
+            "NOVO" or "PLACED" or "CREATED" => 0,
+            "AGUARDANDO" or "CONFIRMADO" or "ACEITO" or "PREPARO" or "PREPARANDO" or "PRONTO" => 1,
+            "ROTA" or "DESPACHADO" => 2,
+            "ENTREGUE" or "FINALIZADO" => 3,
+            "CANCELAMENTO" or "CANCELADO" => 4,
+            _ => 1
         };
     }
 
-    private static DateTime DeliveryBoardDeadlineSort(TableTile tile)
+    private static DateTime DeliveryBoardTimeSort(TableTile tile)
     {
-        if (IsIFoodWaitingForConfirmation(tile) && GetIFoodConfirmationDeadline(tile) is { } deadline)
+        var status = NormalizeIFoodBoardStatus(tile.Status);
+        return status switch
         {
-            return deadline;
+            "NOVO" or "PLACED" or "CREATED" => FirstKnownTime(
+                tile.ExternalCreatedAt,
+                GetIFoodConfirmationDeadline(tile),
+                tile.CreatedAt),
+
+            "AGUARDANDO" or "CONFIRMADO" or "ACEITO" or "PREPARO" or "PREPARANDO" or "PRONTO" => FirstKnownTime(
+                GetIFoodPreparationStart(tile),
+                tile.ExternalCreatedAt,
+                tile.CreatedAt),
+
+            "ROTA" or "DESPACHADO" => FirstKnownTime(
+                tile.ExternalDeliveryExpectedAt,
+                tile.ExternalCreatedAt,
+                tile.CreatedAt),
+
+            "ENTREGUE" or "FINALIZADO" => FirstKnownTime(
+                tile.ExternalDeliveredAt,
+                tile.ExternalDeliveryExpectedAt,
+                tile.CreatedAt),
+
+            "CANCELAMENTO" or "CANCELADO" => FirstKnownTime(
+                tile.LastClosedAt,
+                tile.ExternalDeliveredAt,
+                tile.ExternalCreatedAt,
+                tile.CreatedAt),
+
+            _ => FirstKnownTime(tile.ExternalDeliveryExpectedAt, tile.ExternalCreatedAt, tile.CreatedAt)
+        };
+    }
+
+    private static DateTime FirstKnownTime(params DateTime?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (value.HasValue)
+            {
+                return value.Value;
+            }
         }
 
-        if (IsIFoodPreparingStatus(tile) && GetIFoodPreparationStart(tile) is { } preparationStart && DateTime.Now < preparationStart)
-        {
-            return preparationStart;
-        }
+        return DateTime.MaxValue;
+    }
 
-        return tile.ExternalDeliveryExpectedAt ?? DateTime.MaxValue;
+    private static int DeliveryBoardNumberSort(TableTile tile)
+    {
+        var digits = new string((tile.Number ?? "").Where(char.IsDigit).ToArray());
+        return int.TryParse(digits, NumberStyles.Integer, Brazil, out var value) ? value : int.MaxValue;
     }
 
     private static string NextKitchenStatus(string status)
@@ -21731,6 +23005,124 @@ public partial class MainWindow : Window
         textBox.Text = current.Remove(start, length).Insert(start, text);
         textBox.CaretIndex = start + text.Length;
         textBox.SelectionLength = 0;
+    }
+
+    private static void AttachCnpjMask(TextBox textBox)
+    {
+        textBox.ToolTip = "CNPJ: 00.000.000/0001-00";
+        var updating = false;
+
+        void Format()
+        {
+            if (updating)
+            {
+                return;
+            }
+
+            updating = true;
+            textBox.Text = FormatCnpj(textBox.Text);
+            textBox.CaretIndex = textBox.Text.Length;
+            textBox.SelectionLength = 0;
+            updating = false;
+        }
+
+        textBox.PreviewTextInput += (_, e) =>
+        {
+            e.Handled = !e.Text.All(char.IsDigit);
+        };
+        System.Windows.DataObject.AddPastingHandler(textBox, (_, e) =>
+        {
+            var pasted = e.DataObject.GetDataPresent(System.Windows.DataFormats.Text)
+                ? e.DataObject.GetData(System.Windows.DataFormats.Text) as string
+                : "";
+            if (string.IsNullOrWhiteSpace(pasted) || !pasted.Any(char.IsDigit))
+            {
+                e.CancelCommand();
+            }
+        });
+        textBox.TextChanged += (_, _) => Format();
+        Format();
+    }
+
+    private static string FormatCnpj(string value)
+    {
+        var digits = DigitsOnly(value);
+        if (digits.Length > 14)
+        {
+            digits = digits[..14];
+        }
+
+        var sb = new StringBuilder();
+        for (var index = 0; index < digits.Length; index++)
+        {
+            if (index == 2 || index == 5)
+            {
+                sb.Append('.');
+            }
+            else if (index == 8)
+            {
+                sb.Append('/');
+            }
+            else if (index == 12)
+            {
+                sb.Append('-');
+            }
+
+            sb.Append(digits[index]);
+        }
+
+        return sb.ToString();
+    }
+
+    private static void AttachMoneyMask(TextBox textBox)
+    {
+        textBox.ToolTip = "Digite centavos no teclado numerico. Exemplo: 20000 = R$ 200,00.";
+        var updating = false;
+
+        void Format()
+        {
+            if (updating)
+            {
+                return;
+            }
+
+            updating = true;
+            var digits = DigitsOnly(textBox.Text);
+            if (digits.Length > 11)
+            {
+                digits = digits[^11..];
+            }
+
+            var cents = string.IsNullOrWhiteSpace(digits)
+                ? 0m
+                : decimal.Parse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture) / 100m;
+            textBox.Text = Money(cents);
+            textBox.CaretIndex = textBox.Text.Length;
+            textBox.SelectionLength = 0;
+            updating = false;
+        }
+
+        textBox.PreviewTextInput += (_, e) =>
+        {
+            e.Handled = !e.Text.All(char.IsDigit);
+        };
+        System.Windows.DataObject.AddPastingHandler(textBox, (_, e) =>
+        {
+            var pasted = e.DataObject.GetDataPresent(System.Windows.DataFormats.Text)
+                ? e.DataObject.GetData(System.Windows.DataFormats.Text) as string
+                : "";
+            if (string.IsNullOrWhiteSpace(pasted) || !pasted.Any(char.IsDigit))
+            {
+                e.CancelCommand();
+            }
+        });
+        textBox.TextChanged += (_, _) => Format();
+        Format();
+    }
+
+    private static string DigitsOnly(string value)
+    {
+        return new string((value ?? "").Where(char.IsDigit).ToArray());
     }
 
     private static int ParseInt(string value, int fallback)
@@ -21883,8 +23275,11 @@ public partial class MainWindow : Window
         public Brush TileBrush => Status switch
         {
             "LIVRE" => FreeTile,
+            "ABERTO" => FreeTile,
+            "ABERTA" => FreeTile,
             "NOVO" => NewTile,
             "OCUPADA" => OccupiedTile,
+            "OCUPADO" => OccupiedTile,
             "PRONTO" => ReadyTile,
             "DESPACHADO" => DispatchedTile,
             "ENTREGUE" => DeliveredTile,
@@ -21896,10 +23291,18 @@ public partial class MainWindow : Window
             "PREPARO" => PrepTile,
             "PREPARANDO" => PreparingTile,
             "ROTA" => RouteTile,
-            "CANCELAMENTO" => CancellationRequestedTile,
+            "CANCELAMENTO" => CancelledTile,
             "CANCELADO" => CancelledTile,
             _ => NewTile
         };
+
+        [JsonIgnore]
+        public Brush StatusForegroundBrush => NormalizeIFoodBoardStatus(Status) is "NOVO" or "PLACED" or "CREATED" or "CANCELAMENTO" or "CANCELADO"
+            ? Brushes.White
+            : Solid("#17351F");
+
+        [JsonIgnore]
+        public string DisplayStatus => NormalizeIFoodBoardStatus(Status) == "CANCELAMENTO" ? "CANCELADO" : Status;
 
         [JsonIgnore] public string TransferDisplay => $"{Kind} {Number}  {Status}  {Money(Total)}";
         [JsonIgnore] public string TransferTotalText => Money(Total);
@@ -21907,8 +23310,8 @@ public partial class MainWindow : Window
         [JsonIgnore] public string TimerText => BuildBoardTileTimerText(this);
         [JsonIgnore] public Brush TimerBrush => BuildBoardTileTimerBrush(this);
         [JsonIgnore] public string TransferHint => Lines.Count > 0 || Payments.Count > 0
-            ? "Ocupada: vai juntar as comandas"
-            : "Livre: vai mover a comanda inteira";
+            ? "Tem itens: juntar comandas"
+            : "Livre: mover comanda";
 
         [JsonIgnore]
         public string DisplayTitle
@@ -21951,6 +23354,7 @@ public partial class MainWindow : Window
         public void RefreshVisualState()
         {
             OnPropertyChanged(nameof(DisplaySubtitle));
+            OnPropertyChanged(nameof(DisplayStatus));
             OnPropertyChanged(nameof(TileBrush));
             OnPropertyChanged(nameof(TimerText));
             OnPropertyChanged(nameof(TimerBrush));
@@ -22354,6 +23758,7 @@ public partial class MainWindow : Window
         public FiscalTefSettings FiscalTef { get; set; } = new();
         public bool CloudBackupEnabled { get; set; } = true;
         public DateTime? LastCloudBackupAt { get; set; }
+        public DateTime? LastLocalBackupAt { get; set; }
         public bool CentralSyncEnabled { get; set; } = true;
         public DateTime? LastCentralSyncAt { get; set; }
         public WhatsAppSettings WhatsApp { get; set; } = new();
@@ -22934,6 +24339,8 @@ public partial class MainWindow : Window
             if (propertyName is nameof(TableTile.Status))
             {
                 OnPropertyChanged(nameof(TableTile.TileBrush));
+                OnPropertyChanged(nameof(TableTile.StatusForegroundBrush));
+                OnPropertyChanged(nameof(TableTile.DisplayStatus));
                 OnPropertyChanged(nameof(TableTile.TimerText));
                 OnPropertyChanged(nameof(TableTile.TimerBrush));
             }

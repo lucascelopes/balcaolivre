@@ -388,6 +388,8 @@ async function handleStockSync(req: Request) {
     productName?: string;
     amount?: number;
     reason?: string;
+    imageDataUrl?: string;
+    imageUrl?: string;
   };
   const productId = text(body.productId);
   const externalCode = text(body.externalCode || body.productCode);
@@ -404,43 +406,73 @@ async function handleStockSync(req: Request) {
   }
 
   let ifoodResponse: Record<string, unknown> = {};
-  let mode = "inventory";
+  const responseParts: Record<string, unknown> = {};
+  const modeParts: string[] = [];
   let statusWarning = "";
-  if (productId) {
+  let inventoryWarning = "";
+  let imageWarning = "";
+  let imageUpdated = false;
+  const inventoryProductId = isUuid(productId) ? productId : "";
+  const statusPayload: { productId?: string; externalCode?: string } = inventoryProductId
+    ? { productId: inventoryProductId }
+    : { externalCode: externalCode || productId };
+  if (inventoryProductId) {
     const inventoryResponse = await ifoodPost(
       `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/inventory`,
       connection.access_token ?? "",
-      { productId, amount },
+      { productId: inventoryProductId, amount },
     );
-    mode = "inventory+status";
+    responseParts.inventory = inventoryResponse;
+    modeParts.push("inventory");
+  } else if (productId) {
+    inventoryWarning = "Produto iFood sem productId UUID; apliquei disponibilidade/foto pelo catalogo.";
+    responseParts.inventoryWarning = inventoryWarning;
+    modeParts.push("inventory-warning");
+  }
+
+  if (statusPayload.externalCode || statusPayload.productId) {
     try {
       const statusResponse = await ifoodPatch(
         `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/products/status`,
         connection.access_token ?? "",
         [{
-          productId,
+          ...statusPayload,
           status: amount > 0 ? "AVAILABLE" : "UNAVAILABLE",
           resources: ["ITEM", "OPTION"],
         }],
       );
-      ifoodResponse = { inventory: inventoryResponse, status: statusResponse };
+      responseParts.status = statusResponse;
+      modeParts.push("status");
     } catch (error) {
       statusWarning = messageFromError(error);
-      ifoodResponse = { inventory: inventoryResponse, statusWarning };
+      responseParts.statusWarning = statusWarning;
     }
-  } else {
-    mode = "status";
-    ifoodResponse = await ifoodPatch(
-      `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/products/status`,
-      connection.access_token ?? "",
-      [{
-        externalCode,
-        status: amount > 0 ? "AVAILABLE" : "UNAVAILABLE",
-        resources: ["ITEM", "OPTION"],
-      }],
-    );
   }
 
+  const imageDataUrl = await resolveIFoodImageDataUrl(body);
+  if (imageDataUrl) {
+    try {
+      responseParts.image = await updateIFoodProductImage(
+        merchantId,
+        connection.access_token ?? "",
+        {
+          productId,
+          externalCode,
+          productName: text(body.productName),
+          imageDataUrl,
+        },
+      );
+      imageUpdated = true;
+      modeParts.push("image");
+    } catch (error) {
+      imageWarning = messageFromError(error);
+      responseParts.imageWarning = imageWarning;
+      modeParts.push("image-warning");
+    }
+  }
+
+  ifoodResponse = responseParts;
+  const mode = modeParts.length > 0 ? modeParts.join("+") : "status";
   await saveStockSync(connection, {
     productId,
     externalCode,
@@ -452,17 +484,231 @@ async function handleStockSync(req: Request) {
     response: ifoodResponse,
   });
 
+  const statusBaseMessage = inventoryProductId
+    ? `Estoque iFood atualizado para ${amount}.`
+    : `Disponibilidade iFood atualizada: ${amount > 0 ? "disponivel" : "indisponivel"}.`;
+  const inventoryMessage = inventoryWarning ? ` ${inventoryWarning}` : "";
+  const imageMessage = imageUpdated
+    ? " Foto enviada."
+    : imageWarning
+      ? ` Foto pendente: ${imageWarning}`
+      : "";
   return json({
     ok: true,
-    message: productId
-      ? `Estoque iFood atualizado para ${amount}.`
-      : `Status iFood atualizado por codigo externo: ${amount > 0 ? "disponivel" : "indisponivel"}.`,
+    message: statusBaseMessage + inventoryMessage + imageMessage,
     productId,
     externalCode,
     amount,
     mode,
     statusWarning,
+    inventoryWarning,
+    imageUpdated,
+    imageWarning,
   });
+}
+
+type IFoodProductImageTarget = {
+  productId: string;
+  externalCode: string;
+  productName: string;
+  imageDataUrl: string;
+};
+
+async function resolveIFoodImageDataUrl(body: { imageDataUrl?: string; imageUrl?: string }) {
+  const dataUrl = text(body.imageDataUrl);
+  if (dataUrl) {
+    if (!isSupportedIFoodImageDataUrl(dataUrl)) {
+      throw new Error("Foto do iFood precisa estar em JPG ou PNG.");
+    }
+
+    return dataUrl;
+  }
+
+  const imageUrl = text(body.imageUrl);
+  if (!imageUrl) {
+    return "";
+  }
+
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    throw new Error(`Nao consegui baixar a foto do produto (${response.status}).`);
+  }
+
+  const contentType = text(response.headers.get("content-type")).split(";")[0].toLowerCase();
+  if (!["image/jpeg", "image/jpg", "image/png"].includes(contentType)) {
+    throw new Error("Foto do iFood precisa estar em JPG ou PNG.");
+  }
+
+  const buffer = await response.arrayBuffer();
+  if (buffer.byteLength > 5_000_000) {
+    throw new Error("Foto do iFood passou de 5MB.");
+  }
+
+  return `data:${contentType === "image/jpg" ? "image/jpeg" : contentType};base64,${bytesToBase64(new Uint8Array(buffer))}`;
+}
+
+function isSupportedIFoodImageDataUrl(value: string) {
+  return /^data:image\/(?:png|jpe?g);base64,/i.test(value)
+    && value.length <= 6_800_000;
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+
+  return btoa(binary);
+}
+
+async function updateIFoodProductImage(
+  merchantId: string,
+  accessToken: string,
+  target: IFoodProductImageTarget,
+) {
+  const upload = await ifoodPost(
+    `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/image/upload`,
+    accessToken,
+    { image: target.imageDataUrl },
+  );
+  const imagePath = text((upload as Record<string, unknown>).imagePath);
+  if (!imagePath) {
+    throw new Error("iFood recebeu a foto, mas nao retornou imagePath.");
+  }
+
+  const link = await findIFoodCatalogProductLink(merchantId, accessToken, target);
+  if (!link.itemId) {
+    throw new Error("Nao encontrei o item do catalogo iFood para aplicar a foto.");
+  }
+
+  const flat = await ifoodJson(
+    `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/items/${encodeURIComponent(link.itemId)}/flat`,
+    accessToken,
+  );
+  const payload = buildIFoodItemImagePayload(flat, link, imagePath, target.productName);
+  const update = await ifoodPut(
+    `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/items`,
+    accessToken,
+    payload,
+  );
+
+  return {
+    imagePath,
+    itemId: link.itemId,
+    productId: link.productId,
+    externalCode: link.externalCode,
+    update,
+  };
+}
+
+async function findIFoodCatalogProductLink(
+  merchantId: string,
+  accessToken: string,
+  target: { productId: string; externalCode: string },
+) {
+  const products = new Map<string, CatalogProduct>();
+  const warnings: string[] = [];
+  const catalogs = await ifoodJson(
+    `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/catalogs`,
+    accessToken,
+  )
+    .then(catalogsFromResponse)
+    .catch((error) => {
+      warnings.push(`Catalogos: ${messageFromError(error)}`);
+      return [] as Record<string, unknown>[];
+    });
+
+  for (const catalog of catalogs) {
+    const catalogId = firstText(catalog.catalogId, catalog.id, catalog.groupId);
+    const groupId = firstText(catalog.groupId, catalog.id, catalog.catalogId);
+    if (groupId) {
+      for (const path of [
+        `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/catalogs/${encodeURIComponent(groupId)}/sellableItems`,
+        `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/catalogs/${encodeURIComponent(groupId)}/unsellableItems`,
+      ]) {
+        await appendCatalogProductsFromPath(path, accessToken, products, warnings);
+      }
+    }
+
+    if (catalogId) {
+      await appendCatalogProductsFromPath(
+        `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/catalogs/${encodeURIComponent(catalogId)}/categories`,
+        accessToken,
+        products,
+        warnings,
+      );
+    }
+  }
+
+  const productId = target.productId.toLowerCase();
+  const externalCode = target.externalCode.toLowerCase();
+  const match = [...products.values()].find((product) =>
+    (productId && [product.productId, product.itemId].some((value) => value.toLowerCase() === productId))
+    || (externalCode && product.externalCode.toLowerCase() === externalCode)
+  );
+
+  if (!match) {
+    const suffix = warnings.length > 0 ? ` ${warnings.join(" | ")}` : "";
+    throw new Error(`Produto vinculado nao apareceu no catalogo iFood.${suffix}`.trim());
+  }
+
+  return match;
+}
+
+function buildIFoodItemImagePayload(
+  flat: unknown,
+  link: CatalogProduct,
+  imagePath: string,
+  fallbackName: string,
+) {
+  const source = isRecord(flat) ? flat : {};
+  const payload = isRecord(source.item)
+    ? structuredClone(source) as Record<string, unknown>
+    : {
+        item: Object.fromEntries(
+          Object.entries(source).filter(([key]) => !["product", "products", "optionGroups", "options"].includes(key)),
+        ),
+        products: source.products,
+        optionGroups: source.optionGroups,
+        options: source.options,
+      } as Record<string, unknown>;
+
+  let products = Array.isArray(payload.products)
+    ? payload.products.filter(isRecord).map((product) => ({ ...product }))
+    : [];
+  if (products.length === 0) {
+    const product = isRecord(payload.product)
+      ? { ...(payload.product as Record<string, unknown>) }
+      : {};
+    products = [product];
+  }
+
+  let updated = false;
+  for (const product of products) {
+    const id = firstText(product.id, product.productId);
+    const externalCode = firstText(product.externalCode, product.ean);
+    if ((link.productId && id && id === link.productId)
+      || (link.externalCode && externalCode && externalCode === link.externalCode)
+      || products.length === 1) {
+      product.imagePath = imagePath;
+      if (!firstText(product.name, product.productName)) {
+        product.name = fallbackName || link.name || "Produto";
+      }
+      updated = true;
+    }
+  }
+
+  if (!updated) {
+    products[0].imagePath = imagePath;
+    if (!firstText(products[0].name, products[0].productName)) {
+      products[0].name = fallbackName || link.name || "Produto";
+    }
+  }
+
+  payload.products = products;
+  delete payload.product;
+  return payload;
 }
 
 type CatalogProduct = {
@@ -834,6 +1080,10 @@ function firstNullableNumber(...values: Array<number | null>) {
   return values.find((value) => value !== null && Number.isFinite(value)) ?? null;
 }
 
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function nullableNumberAt(source: Record<string, unknown>, keys: string[]) {
   const value = valueAt(source, keys);
   if (value === undefined || value === null || value === "") return null;
@@ -1004,6 +1254,19 @@ async function ifoodPost(path: string, accessToken: string, payload?: Record<str
   }
 
   const response = await fetch(`${IFOOD_API_BASE}${path}`, init);
+  return await parseIfoodResponse(response);
+}
+
+async function ifoodPut(path: string, accessToken: string, payload: unknown) {
+  const response = await fetch(`${IFOOD_API_BASE}${path}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
   return await parseIfoodResponse(response);
 }
 

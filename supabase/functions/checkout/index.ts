@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const LICENSE_SECRET = "BalcaoLivrePDV-local-license-v1";
 const STRIPE_CHECKOUT_URL = "https://api.stripe.com/v1/checkout/sessions";
 const STRIPE_API_URL = "https://api.stripe.com/v1";
+const DEFAULT_SITE_URL = "https://www.balcaolivrepdv.com.br";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -86,6 +87,10 @@ Deno.serve(async (req) => {
       return await handleStatus(url);
     }
 
+    if (url.pathname.endsWith("/renew")) {
+      return await handleRenewal(req, url);
+    }
+
     if (req.method === "POST" || req.method === "GET") {
       return await handleCheckout(req, url);
     }
@@ -104,11 +109,7 @@ async function handleCheckout(req: Request, url: URL) {
     return json({ ok: false, message: "Plano invalido." }, 400);
   }
 
-  const origin = stringValue(req.headers.get("origin"))
-    || stringValue(Deno.env.get("BALCAO_CHECKOUT_SUCCESS_URL")).replace(/\/$/, "")
-    || `${url.protocol}//${url.host}`;
-  const successUrl = `${origin}/?checkout=sucesso&session_id={CHECKOUT_SESSION_ID}`;
-  const cancelUrl = `${origin}/#planos`;
+  const { successUrl, cancelUrl } = checkoutReturnUrls(req, url);
 
   const params = new URLSearchParams({
     mode: "subscription",
@@ -136,6 +137,65 @@ async function handleCheckout(req: Request, url: URL) {
 
   if (!response.ok || !data.url) {
     return json({ ok: false, message: data.error?.message || "Nao foi possivel abrir a compra." }, response.status || 500);
+  }
+
+  return new Response(null, {
+    status: 303,
+    headers: { ...corsHeaders, Location: data.url, "Cache-Control": "no-store" },
+  });
+}
+
+async function handleRenewal(req: Request, url: URL) {
+  if (req.method !== "GET" && req.method !== "POST") {
+    return json({ ok: false, message: "Metodo nao permitido." }, 405);
+  }
+
+  const input = await renewalInputFromRequest(req, url);
+  const licenseKey = normalizeLicenseKey(input.licenseKey);
+  const license = licenseKey ? await findLicenseByKey(licenseKey) : null;
+  const planId = resolveRenewalPlanId(input.plan, license);
+  const plan = checkoutPlans[planId];
+  if (!plan) {
+    return json({ ok: false, message: "Plano de renovacao invalido." }, 400);
+  }
+
+  const email = stringValue(input.email) || stringValue(license?.email);
+  const { successUrl, cancelUrl } = checkoutReturnUrls(req, url);
+  const customerId = await resolveStripeCustomerId(license).catch(() => "");
+  const params = new URLSearchParams({
+    mode: "subscription",
+    client_reference_id: licenseKey || planId,
+    "metadata[plan]": planId,
+    "metadata[source]": "license_renewal",
+    "metadata[renewal_license_key]": licenseKey,
+    "line_items[0][quantity]": "1",
+    "line_items[0][price_data][currency]": "brl",
+    "line_items[0][price_data][unit_amount]": String(plan.amount),
+    "line_items[0][price_data][recurring][interval]": plan.interval,
+    "line_items[0][price_data][product_data][name]": `${plan.name} - renovacao`,
+    allow_promotion_codes: "true",
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+  });
+
+  if (customerId) {
+    params.set("customer", customerId);
+  } else if (email) {
+    params.set("customer_email", email);
+  }
+
+  const response = await fetch(STRIPE_CHECKOUT_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${requiredEnv("STRIPE_SECRET_KEY")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: params,
+  });
+  const data = await response.json();
+
+  if (!response.ok || !data.url) {
+    return json({ ok: false, message: data.error?.message || "Nao foi possivel abrir a renovacao." }, response.status || 500);
   }
 
   return new Response(null, {
@@ -181,6 +241,7 @@ async function ensurePaidLicenseFromSession(session: Record<string, unknown>) {
   const sessionId = stringValue(session.id);
   const metadata = session.metadata as Record<string, unknown> | undefined;
   const planId = stringValue(metadata?.plan || session.client_reference_id);
+  const renewalLicenseKey = normalizeLicenseKey(metadata?.renewal_license_key);
   const plan = checkoutPlans[planId];
 
   if (!sessionId || !plan) {
@@ -205,7 +266,9 @@ async function ensurePaidLicenseFromSession(session: Record<string, unknown>) {
   const profile = {
     source: "landing_checkout",
     checkout_session_id: sessionId,
+    renewal_of_license_key: renewalLicenseKey,
     subscription_id: stringValue(session.subscription),
+    stripe_customer_id: stringValue(session.customer),
     payment_status: stringValue(session.payment_status),
     plan_id: planId,
     amount_total: Number(session.amount_total || plan.amount),
@@ -237,12 +300,86 @@ async function ensurePaidLicenseFromSession(session: Record<string, unknown>) {
 
   await serviceClient().from("bv_license_events").insert({
     license_key: licenseKey,
-    event_type: "checkout.paid",
-    message: "Licenca paga gerada automaticamente pela landing.",
+    event_type: renewalLicenseKey ? "checkout.renewed" : "checkout.paid",
+    message: renewalLicenseKey
+      ? `Licenca renovada pelo Stripe. Chave anterior: ${renewalLicenseKey}.`
+      : "Licenca paga gerada automaticamente pela landing.",
     payload: profile,
   });
 
+  if (renewalLicenseKey) {
+    await markLicenseRenewed(renewalLicenseKey, licenseKey, session, planId, expiresAt);
+  }
+
+  await sendMetaPurchaseEvent(session, plan, planId, sessionId, email).catch(async (error) => {
+    await serviceClient().from("bv_license_events").insert({
+      license_key: licenseKey,
+      event_type: "meta.purchase.failed",
+      message: "Falha ao enviar Purchase para Meta.",
+      payload: {
+        checkout_session_id: sessionId,
+        error: messageFromError(error),
+      },
+    });
+  });
+
   return { paid: true, license: normalizeLicense(data) };
+}
+
+async function sendMetaPurchaseEvent(
+  session: Record<string, unknown>,
+  plan: CheckoutPlan,
+  planId: string,
+  sessionId: string,
+  email: string,
+) {
+  const pixelId = stringValue(Deno.env.get("META_PIXEL_ID"));
+  const accessToken = stringValue(Deno.env.get("META_CAPI_ACCESS_TOKEN"));
+
+  if (!pixelId || !accessToken) {
+    return;
+  }
+
+  const amount = Number(session.amount_total || plan.amount) / 100;
+  const currency = stringValue(session.currency || "brl").toUpperCase();
+  const eventSourceUrl = stringValue(Deno.env.get("BALCAO_CHECKOUT_SUCCESS_URL")) || "https://balcaolivrepdv.com.br/";
+  const userData: Record<string, unknown> = {};
+
+  if (email) {
+    userData.em = [await sha256Hex(email.toLowerCase())];
+  }
+
+  const payload = {
+    data: [{
+      event_name: "Purchase",
+      event_time: Math.floor(Date.now() / 1000),
+      event_id: sessionId,
+      action_source: "website",
+      event_source_url: eventSourceUrl,
+      user_data: userData,
+      custom_data: {
+        currency,
+        value: amount,
+        content_name: plan.name,
+        content_ids: [planId],
+        content_type: "product",
+      },
+    }],
+    ...(stringValue(Deno.env.get("META_TEST_EVENT_CODE")) ? { test_event_code: stringValue(Deno.env.get("META_TEST_EVENT_CODE")) } : {}),
+  };
+
+  const response = await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(pixelId)}/events?access_token=${encodeURIComponent(accessToken)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(result?.error?.message || "Meta recusou o evento Purchase.");
+  }
+
+  return result;
 }
 
 async function fetchStripeSession(sessionId: string) {
@@ -258,6 +395,19 @@ async function fetchStripeSession(sessionId: string) {
   return data;
 }
 
+async function fetchStripeSubscription(subscriptionId: string) {
+  const response = await fetch(`${STRIPE_API_URL}/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+    headers: { Authorization: `Bearer ${requiredEnv("STRIPE_SECRET_KEY")}` },
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error?.message || "Nao foi possivel consultar a assinatura Stripe.");
+  }
+
+  return data as Record<string, unknown>;
+}
+
 async function findLicenseByCheckoutSession(sessionId: string) {
   const { data, error } = await serviceClient()
     .from("bv_licenses")
@@ -271,6 +421,61 @@ async function findLicenseByCheckoutSession(sessionId: string) {
   }
 
   return data;
+}
+
+async function findLicenseByKey(licenseKey: string) {
+  const { data, error } = await serviceClient()
+    .from("bv_licenses")
+    .select("*")
+    .eq("key", licenseKey)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Supabase recusou consultar a licenca: ${error.message}`);
+  }
+
+  return data as Record<string, unknown> | null;
+}
+
+async function markLicenseRenewed(
+  previousLicenseKey: string,
+  nextLicenseKey: string,
+  session: Record<string, unknown>,
+  planId: string,
+  expiresAt: Date,
+) {
+  const current = await findLicenseByKey(previousLicenseKey);
+  if (!current) {
+    return;
+  }
+
+  const profile = {
+    ...recordValue(current.profile),
+    renewed_at: new Date().toISOString(),
+    renewed_checkout_session_id: stringValue(session.id),
+    renewal_license_key: nextLicenseKey,
+    renewal_plan_id: planId,
+    renewal_expires_at: expiresAt.toISOString(),
+    subscription_id: stringValue(session.subscription) || stringValue(recordValue(current.profile).subscription_id),
+    stripe_customer_id: stringValue(session.customer) || stringValue(recordValue(current.profile).stripe_customer_id),
+  };
+
+  await serviceClient()
+    .from("bv_licenses")
+    .update({
+      status: "EXPIRADA",
+      profile,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("key", previousLicenseKey);
+
+  await serviceClient().from("bv_license_events").insert({
+    license_key: previousLicenseKey,
+    event_type: "checkout.renewal_linked",
+    message: `Renovacao paga. Nova chave: ${nextLicenseKey}.`,
+    payload: profile,
+  });
 }
 
 function isPaidSession(session: Record<string, unknown>) {
@@ -341,6 +546,13 @@ async function hmacHex(secret: string, message: string) {
     .toUpperCase();
 }
 
+async function sha256Hex(message: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(message));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function safeEqualHex(a: string, b: string) {
   if (a.length !== b.length) return false;
   let result = 0;
@@ -363,6 +575,95 @@ async function planFromRequest(req: Request, url: URL) {
 
   const form = await req.formData();
   return stringValue(form.get("plan")).toLowerCase();
+}
+
+async function renewalInputFromRequest(req: Request, url: URL) {
+  if (req.method === "GET") {
+    return {
+      licenseKey: stringValue(url.searchParams.get("license_key") || url.searchParams.get("licenseKey")),
+      plan: stringValue(url.searchParams.get("plan")),
+      email: stringValue(url.searchParams.get("email")),
+    };
+  }
+
+  const contentType = stringValue(req.headers.get("content-type"));
+  if (contentType.includes("application/json")) {
+    const body = await req.json().catch(() => ({}));
+    return {
+      licenseKey: stringValue(body.licenseKey || body.license_key),
+      plan: stringValue(body.plan),
+      email: stringValue(body.email),
+    };
+  }
+
+  const form = await req.formData();
+  return {
+    licenseKey: stringValue(form.get("licenseKey") || form.get("license_key")),
+    plan: stringValue(form.get("plan")),
+    email: stringValue(form.get("email")),
+  };
+}
+
+function checkoutReturnUrls(req: Request, url: URL) {
+  const origin = stringValue(req.headers.get("origin"))
+    || stringValue(Deno.env.get("BALCAO_CHECKOUT_SUCCESS_URL")).replace(/\/$/, "")
+    || DEFAULT_SITE_URL;
+  return {
+    successUrl: `${origin}/?checkout=sucesso&session_id={CHECKOUT_SESSION_ID}`,
+    cancelUrl: `${origin}/#planos`,
+    origin,
+  };
+}
+
+function resolveRenewalPlanId(requestedPlan: string, license: Record<string, unknown> | null) {
+  const requested = stringValue(requestedPlan).toLowerCase();
+  if (checkoutPlans[requested]) {
+    return requested;
+  }
+
+  const profile = recordValue(license?.profile);
+  const profilePlan = stringValue(profile.plan_id).toLowerCase();
+  if (checkoutPlans[profilePlan]) {
+    return profilePlan;
+  }
+
+  const text = `${stringValue(license?.plan)} ${stringValue(license?.client_kind)} ${requested}`.toLowerCase();
+  const annual = text.includes("anual") || text.includes("year") || text.includes("ano");
+  if (text.includes("complete") || text.includes("completo")) {
+    return annual ? "complete-anual" : "complete-mensal";
+  }
+
+  if (text.includes("online") || text.includes("hibrido") || text.includes("integracoes")) {
+    return annual ? "online-anual" : "online-mensal";
+  }
+
+  return annual ? "offline-anual" : "offline-mensal";
+}
+
+async function resolveStripeCustomerId(license: Record<string, unknown> | null) {
+  const profile = recordValue(license?.profile);
+  const direct = stringValue(profile.stripe_customer_id || profile.customer_id || profile.stripeCustomerId);
+  if (direct) {
+    return direct;
+  }
+
+  const subscriptionId = stringValue(profile.subscription_id || profile.stripe_subscription_id || profile.subscriptionId);
+  if (!subscriptionId) {
+    return "";
+  }
+
+  const subscription = await fetchStripeSubscription(subscriptionId);
+  return stringValue(subscription.customer);
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function normalizeLicenseKey(value: unknown) {
+  return stringValue(value).toUpperCase().replaceAll(" ", "").replaceAll("_", "-");
 }
 
 function serviceClient() {

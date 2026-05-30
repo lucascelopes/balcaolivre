@@ -246,6 +246,8 @@ public sealed class IFoodCloudStockSyncRequest : IFoodCloudStoreContext
     public string ProductName { get; set; } = "";
     public int Amount { get; set; }
     public string Reason { get; set; } = "";
+    public string ImageDataUrl { get; set; } = "";
+    public string ImageUrl { get; set; } = "";
 }
 
 public sealed class IFoodCloudCatalogSyncRequest : IFoodCloudStoreContext
@@ -303,6 +305,8 @@ public sealed class IFoodCloudStockSyncResponse
     public string ExternalCode { get; set; } = "";
     public int Amount { get; set; }
     public string Mode { get; set; } = "";
+    public bool ImageUpdated { get; set; }
+    public string ImageWarning { get; set; } = "";
 }
 
 public sealed class IFoodCloudCatalogSyncResponse
