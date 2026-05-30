@@ -18914,7 +18914,7 @@ public partial class MainWindow : Window
 
     private async Task<bool> CheckForUpdatesAsync(bool showIfCurrent, bool autoInstall = false, bool startupCheck = false)
     {
-        var manifestUrl = (_appSettings.UpdateManifestUrl ?? "").Trim();
+        var manifestUrl = NormalizeUpdateManifestUrl(_appSettings.UpdateManifestUrl);
         if (string.IsNullOrWhiteSpace(manifestUrl))
         {
             manifestUrl = DefaultUpdateManifestUrl;
@@ -18979,17 +18979,64 @@ public partial class MainWindow : Window
 
             return false;
         }
-        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or JsonException or IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (IsUpdateCheckException(ex))
         {
             Debug.WriteLine($"Update check failed: {ex.Message}");
             if (showIfCurrent)
             {
-                SetStatus("Nao foi possivel verificar atualizacoes agora.");
-                ShowToast("Atualizacao indisponivel", "Confira a URL ou a internet e tente novamente.", "AT", "#99620D", "#FFF2CB");
+                SetStatus(BuildUpdateFailureMessage(ex, "verificar"));
+                ShowToast("Atualizacao nao verificada", "Sem internet ou servidor indisponivel. O caixa continua funcionando.", "AT", "#99620D", "#FFF2CB");
+            }
+            else if (startupCheck)
+            {
+                SetStatus("Nao foi possivel verificar atualizacoes agora. O caixa continua funcionando.");
             }
 
             return false;
         }
+    }
+
+    private static string NormalizeUpdateManifestUrl(string? value)
+    {
+        var url = (value ?? "").Trim();
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            || uri.Scheme is not ("http" or "https"))
+        {
+            return "";
+        }
+
+        return uri.ToString();
+    }
+
+    private static bool IsUpdateCheckException(Exception ex)
+    {
+        return ex is System.Net.Http.HttpRequestException
+            or TaskCanceledException
+            or JsonException
+            or IOException
+            or UnauthorizedAccessException
+            or UriFormatException
+            or InvalidOperationException;
+    }
+
+    private static string BuildUpdateFailureMessage(Exception ex, string action)
+    {
+        var message = ex.Message ?? "";
+        if (message.Contains("ERR_ADDRESS_UNREACHABLE", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("NameResolutionFailure", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("No such host", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("host", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("address", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Nao consegui {action} atualizacoes: internet/DNS indisponivel.";
+        }
+
+        if (ex is TaskCanceledException || message.Contains("timeout", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Nao consegui {action} atualizacoes: conexao demorou demais.";
+        }
+
+        return $"Nao consegui {action} atualizacoes agora.";
     }
 
     private void ShowUpdateDialog(UpdateManifest manifest, bool requiredMode = false)
@@ -19118,24 +19165,39 @@ public partial class MainWindow : Window
             return false;
         }
 
-        var downloads = silentInstall
-            ? Path.Combine(_dataRoot, "updates")
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-        Directory.CreateDirectory(downloads);
-        var fileName = Path.GetFileName(Uri.UnescapeDataString(uri.LocalPath));
-        if (string.IsNullOrWhiteSpace(fileName) || !fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        string destination;
+        try
         {
-            fileName = $"BalcaoLivrePDVOnline-Setup-{SafeFileName(manifest.Version)}.exe";
-        }
+            var downloads = silentInstall
+                ? Path.Combine(_dataRoot, "updates")
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+            Directory.CreateDirectory(downloads);
+            var fileName = Path.GetFileName(Uri.UnescapeDataString(uri.LocalPath));
+            if (string.IsNullOrWhiteSpace(fileName) || !fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                fileName = $"BalcaoLivrePDVOnline-Setup-{SafeFileName(manifest.Version)}.exe";
+            }
 
-        var destination = Path.Combine(downloads, fileName);
-        using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        using var response = await client.GetAsync(uri, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
-        response.EnsureSuccessStatusCode();
-        await using (var input = await response.Content.ReadAsStreamAsync())
-        await using (var output = File.Create(destination))
-        {
+            destination = Path.Combine(downloads, fileName);
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+            using var response = await client.GetAsync(uri, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+            await using var input = await response.Content.ReadAsStreamAsync();
+            await using var output = File.Create(destination);
             await input.CopyToAsync(output);
+        }
+        catch (Exception ex) when (IsUpdateCheckException(ex))
+        {
+            Debug.WriteLine($"Installer download failed: {ex.Message}");
+            var message = BuildUpdateFailureMessage(ex, "baixar");
+            if (status is not null)
+            {
+                status.Text = $"{message} Tente novamente quando a internet voltar.";
+            }
+
+            SetStatus($"{message} O caixa continua funcionando.");
+            ShowToast("Atualizacao nao baixada", "Sem internet ou servidor indisponivel. Tente novamente depois.", "AT", "#99620D", "#FFF2CB");
+            return false;
         }
 
         if (status is not null)
