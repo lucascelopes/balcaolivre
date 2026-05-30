@@ -145,8 +145,8 @@ export default function Page({ searchParams }) {
             Caixa, mesas, delivery, estoque, garcom web, iFood, WhatsApp e Mercado Pago em uma rotina so.
           </p>
           <div className="lpHeroActions">
-            <a className="lpSolidButton lpLargeButton" href="#instaladores">Baixar Windows</a>
-            <a className="lpGhostButton lpLargeButton" href={sellers[0].href}>Pedir demonstracao</a>
+            <a className="lpSolidButton lpLargeButton" href="#planos">Ver planos e comprar</a>
+            <a className="lpGhostButton lpLargeButton" href="#beneficios">Ver beneficios</a>
             <a className="lpGhostButton lpLargeButton" href="#demo-pdv">Testar demo</a>
           </div>
           <dl className="lpHeroStats" aria-label="Resumo do produto">
@@ -184,7 +184,7 @@ export default function Page({ searchParams }) {
         </div>
       </section>
 
-      <section className="lpStrip" aria-label="Diferenciais principais">
+      <section className="lpStrip" id="beneficios" aria-label="Diferenciais principais">
         <span><b>Venda offline</b>sem travar o caixa quando a internet cai</span>
         <span><b>Fechamento claro</b>dinheiro, Pix, cartao e retiradas</span>
         <span><b>Comanda simples</b>mesa, balcao, delivery e fiado</span>
@@ -393,7 +393,7 @@ export default function Page({ searchParams }) {
           <img className="lpBrandIcon" src="/brand/bl-modern-icon.png" alt="" aria-hidden="true" />
           <span className="lpBrandText">
             <strong>Balcao Livre</strong>
-            <small>PDV Online</small>
+            <small>PDV Para Restaurantes</small>
           </span>
         </div>
         <div className="lpFooterPitch">
@@ -420,6 +420,10 @@ export default function Page({ searchParams }) {
           <a href={sellers[1].href}>Vendedor Lucas: {sellers[1].phone}</a>
         </div>
       </footer>
+      <a className="lpFloatingWhatsapp" href={sellers[1].href} aria-label="Falar com Lucas no WhatsApp">
+        <span>WhatsApp</span>
+        <strong>Falar com Lucas</strong>
+      </a>
     </main>
   );
 }

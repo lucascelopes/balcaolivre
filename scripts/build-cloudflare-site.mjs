@@ -179,18 +179,27 @@ async function servePrefixedAsset(request, env, prefix, fallbackPath) {
 }
 
 async function servePathAsset(request, env, prefix, fallbackPath) {
+  const url = new URL(request.url);
+  if (url.pathname === prefix || url.pathname === fallbackPath) {
+    return serveFallbackAsset(request, env, fallbackPath);
+  }
+
   let response = await env.ASSETS.fetch(request);
   if (response.status !== 404) {
     return response;
   }
 
   if (acceptsHtml(request)) {
-    const fallbackUrl = new URL(request.url);
-    fallbackUrl.pathname = fallbackPath;
-    response = await env.ASSETS.fetch(new Request(fallbackUrl.toString(), request));
+    response = await serveFallbackAsset(request, env, fallbackPath);
   }
 
   return response;
+}
+
+async function serveFallbackAsset(request, env, fallbackPath) {
+  const fallbackUrl = new URL(request.url);
+  fallbackUrl.pathname = fallbackPath;
+  return env.ASSETS.fetch(new Request(fallbackUrl.toString(), request));
 }
 
 function joinPath(prefix, path) {

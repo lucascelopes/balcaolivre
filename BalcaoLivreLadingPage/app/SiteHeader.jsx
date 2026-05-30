@@ -17,7 +17,7 @@ export default function SiteHeader({ id }) {
         <img className="lpBrandIcon" src="/brand/bl-modern-icon.png" alt="" aria-hidden="true" />
         <span className="lpBrandText">
           <strong>Balcao Livre</strong>
-          <small>PDV Online</small>
+          <small>PDV Para Restaurantes</small>
         </span>
       </a>
       <nav className="lpNav" aria-label="Navegacao principal">
@@ -27,7 +27,7 @@ export default function SiteHeader({ id }) {
       </nav>
       <div className="lpHeaderActions">
         <a className="lpGhostButton" href={sellers[0].href}>WhatsApp</a>
-        <a className="lpSolidButton" href="/#instaladores">Instaladores</a>
+        <a className="lpSolidButton" href="/#planos">Planos</a>
       </div>
     </header>
   );
