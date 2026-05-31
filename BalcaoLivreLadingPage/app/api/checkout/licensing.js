@@ -4,7 +4,7 @@ const LICENSE_SECRET = "BalcaoLivrePDV-local-license-v1";
 const OFFLINE_INSTALLER_URL =
   "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe";
 const ONLINE_INSTALLER_URL =
-  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.7.2026.exe";
+  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.exe";
 
 export const checkoutPlans = {
   "offline-mensal": {

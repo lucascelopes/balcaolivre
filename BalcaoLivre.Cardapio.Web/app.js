@@ -164,10 +164,15 @@ function mapLinks(address) {
 }
 
 function formatInfo(menu) {
-  const location = menuAddress(menu);
-  return [menu.description, menu.phone, location]
-    .filter(Boolean)
-    .join(" - ");
+  const description = String(menu.description || "").trim();
+  const defaultDescription = /^cardapio digital atualizado pelo balcao livre pdv/i.test(normalizeText(description));
+  if (description && !defaultDescription) {
+    return description;
+  }
+
+  return menu.store_open === false
+    ? "Loja pausada no momento."
+    : "Escolha seus itens e envie o pedido para a loja.";
 }
 
 function waitTimeText(menu = currentMenu) {
@@ -324,11 +329,11 @@ function renderOrderProgress(order, statusInfo) {
 }
 
 function setThemeColor(color) {
-  const accent = String(color || "#0f766e").trim();
+  const accent = "#071A2C";
   document.documentElement.style.setProperty("--accent", accent);
-  if (/^#[0-9a-f]{6}$/i.test(accent)) {
-    document.documentElement.style.setProperty("--accent-soft", `${accent}14`);
-  }
+  document.documentElement.style.setProperty("--accent-strong", "#03111f");
+  document.documentElement.style.setProperty("--accent-soft", "#E8F0F6");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", accent);
 }
 
 function normalizePage(value) {

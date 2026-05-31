@@ -853,7 +853,98 @@ public partial class MainWindow
 
     private string BuildWhatsAppGreetingMenuText()
     {
-        return $"{WhatsAppGreetingFor(DateTime.Now)}! Segue nosso cardapio:\n\n{BuildWhatsAppMenuText()}";
+        var menuUrl = BuildWhatsAppPublicMenuUrl();
+        var onlineStatus = _appSettings.PublicMenuStoreOpen
+            ? $"Loja online aberta. Previsao media: {_appSettings.PublicMenuWaitMinMinutes} a {_appSettings.PublicMenuWaitMaxMinutes} min."
+            : "No momento a loja online esta fechada. O cardapio fica disponivel para consulta.";
+        var intro = string.IsNullOrWhiteSpace(menuUrl)
+            ? $"{WhatsAppGreetingFor(DateTime.Now)}! Segue nosso cardapio:"
+            : $"{WhatsAppGreetingFor(DateTime.Now)}! Cardapio online:\n{menuUrl}\n{onlineStatus}\n\nTambem da para pedir por codigo aqui:";
+        return $"{intro}\n\n{BuildWhatsAppMenuText()}";
+    }
+
+    private string BuildWhatsAppPublicMenuUrl()
+    {
+        var existingUrl = (_profile.MenuPublicUrl ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(existingUrl))
+        {
+            return existingUrl;
+        }
+
+        try
+        {
+            var slug = EnsurePublicMenuSlug();
+            return string.IsNullOrWhiteSpace(slug) ? "" : BuildPublicMenuUrl(slug);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or UriFormatException)
+        {
+            Debug.WriteLine($"WhatsApp public menu URL failed: {ex.Message}");
+            return "";
+        }
+    }
+
+    private string BuildWhatsAppStoreHoursText()
+    {
+        var menuUrl = BuildWhatsAppPublicMenuUrl();
+        var storeName = string.IsNullOrWhiteSpace(_profile.BusinessName) ? AppReceiptName : _profile.BusinessName.Trim();
+        var lines = new List<string>();
+        if (_appSettings.PublicMenuStoreOpen)
+        {
+            lines.Add($"{storeName} esta atendendo online agora.");
+            lines.Add($"Previsao media: {_appSettings.PublicMenuWaitMinMinutes} a {_appSettings.PublicMenuWaitMaxMinutes} min.");
+        }
+        else
+        {
+            lines.Add($"{storeName} esta fechada ou fora do horario de atendimento online no momento.");
+            lines.Add("Voce pode consultar o cardapio e chamar o atendimento quando a loja voltar.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(menuUrl))
+        {
+            lines.Add($"Cardapio: {menuUrl}");
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    private string BuildWhatsAppLocalOrderStatusText(string customerName, string phone)
+    {
+        var order = FindLatestWhatsAppCustomerOrder(customerName, phone);
+        if (order is null)
+        {
+            var menuUrl = BuildWhatsAppPublicMenuUrl();
+            return string.IsNullOrWhiteSpace(menuUrl)
+                ? "Nao encontrei pedido recente para este WhatsApp. Envie CARDAPIO para ver os produtos ou ATENDENTE para falar com a loja."
+                : $"Nao encontrei pedido recente para este WhatsApp.\nPara fazer um novo pedido: {menuUrl}\nPara falar com atendente, envie ATENDENTE.";
+        }
+
+        var status = NormalizeIFoodBoardStatus(order.Status);
+        var phrase = status switch
+        {
+            "NOVO" or "RECEBIDO" or "IMPORTADO" or "CONFIRMADO" or "ACEITO" => "recebido pela loja e aguardando preparo.",
+            "PREPARO" or "PREPARANDO" => "em preparo.",
+            "PRONTO" => "pronto.",
+            "ROTA" or "DESPACHADO" => "saiu para entrega e esta a caminho.",
+            "ENTREGUE" or "FINALIZADO" => "entregue/finalizado.",
+            "CANCELAMENTO" or "CANCELADO" => "cancelado.",
+            _ => "em acompanhamento pela loja."
+        };
+
+        return $"Pedido {order.Number} - {phrase}\nTotal: {Money(order.Total)}.";
+    }
+
+    private TableTile? FindLatestWhatsAppCustomerOrder(string customerName, string phone)
+    {
+        var normalizedPhone = NormalizeWhatsAppPhone(phone, GetWhatsAppSettings().DefaultCountryCode);
+        var normalizedName = NormalizeWhatsAppText(customerName);
+        return DeliveryTiles
+            .Where(tile =>
+                (!string.IsNullOrWhiteSpace(normalizedPhone)
+                    && PhoneMatchesBot(normalizedPhone, NormalizeWhatsAppPhone(tile.Phone, GetWhatsAppSettings().DefaultCountryCode)))
+                || (!string.IsNullOrWhiteSpace(normalizedName)
+                    && NormalizeWhatsAppText(tile.CustomerName) == normalizedName))
+            .OrderByDescending(tile => tile.ExternalCreatedAt ?? tile.CreatedAt)
+            .FirstOrDefault();
     }
 
     private static string WhatsAppGreetingFor(DateTime when)
@@ -991,6 +1082,21 @@ public partial class MainWindow
             AddWhatsAppInteractionLog(customerName, normalizedPhone, text, status, total: total);
             SaveStore();
             return text;
+        }
+
+        if (IsWhatsAppHumanRequest(clean))
+        {
+            return Reply("Certo. Vou deixar registrado para o atendimento continuar por aqui. Se for urgente, envie tambem o numero do pedido.", "ATENDENTE_SOLICITADO");
+        }
+
+        if (IsWhatsAppHoursRequest(clean))
+        {
+            return Reply(BuildWhatsAppStoreHoursText(), "HORARIO_ENVIADO");
+        }
+
+        if (IsWhatsAppStatusRequest(clean))
+        {
+            return Reply(BuildWhatsAppLocalOrderStatusText(customerName, normalizedPhone), "STATUS_ENVIADO");
         }
 
         if (IsWhatsAppMenuRequest(clean) || IsSimpleWhatsAppGreeting(clean))
@@ -1290,12 +1396,40 @@ public partial class MainWindow
 
     private static bool IsWhatsAppMenuRequest(string clean)
     {
-        return clean is "CARDAPIO" or "MENU" or "CATALOGO" or "VER CARDAPIO" or "MANDAR CARDAPIO" or "ENVIAR CARDAPIO";
+        return clean is "CARDAPIO" or "CARDAPIO ONLINE" or "MENU" or "CATALOGO" or "VER CARDAPIO" or "MANDAR CARDAPIO" or "ENVIAR CARDAPIO" or "PRECO" or "PRECOS" or "VALOR";
     }
 
     private static bool IsSimpleWhatsAppGreeting(string clean)
     {
         return clean is "OI" or "OLA" or "BOM DIA" or "BOA TARDE" or "BOA NOITE" or "QUERO PEDIR" or "QUERO FAZER PEDIDO" or "PEDIDO";
+    }
+
+    private static bool IsWhatsAppStatusRequest(string clean)
+    {
+        return clean is "STATUS" or "MEU PEDIDO" or "ACOMPANHAR PEDIDO" or "PEDIDO A CAMINHO" or "CADE MEU PEDIDO"
+            || clean.Contains("STATUS", StringComparison.Ordinal)
+            || clean.Contains("ACOMPANHAR", StringComparison.Ordinal)
+            || clean.Contains("CAMINHO", StringComparison.Ordinal)
+            || clean.Contains("ROTA", StringComparison.Ordinal)
+            || clean.Contains("SAIU", StringComparison.Ordinal);
+    }
+
+    private static bool IsWhatsAppHoursRequest(string clean)
+    {
+        return clean.Contains("HORARIO", StringComparison.Ordinal)
+            || clean.Contains("ABERTO", StringComparison.Ordinal)
+            || clean.Contains("FECHADO", StringComparison.Ordinal)
+            || clean.Contains("FUNCIONA", StringComparison.Ordinal)
+            || clean.Contains("ATENDENDO", StringComparison.Ordinal);
+    }
+
+    private static bool IsWhatsAppHumanRequest(string clean)
+    {
+        return clean.Contains("ATENDENTE", StringComparison.Ordinal)
+            || clean.Contains("HUMANO", StringComparison.Ordinal)
+            || clean.Contains("PESSOA", StringComparison.Ordinal)
+            || clean.Contains("SUPORTE", StringComparison.Ordinal)
+            || clean.Contains("FALAR COM", StringComparison.Ordinal);
     }
 
     private static string CategoryCodePrefix(string category)

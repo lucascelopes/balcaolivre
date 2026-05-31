@@ -22,7 +22,7 @@ winget install --id JRSoftware.InnoSetup -e --silent --accept-package-agreements
 ```text
 bucket: balcao-livre-updates
 path: windows-online/version.json
-path: windows-online/BalcaoLivrePDVOnline-Setup-1.7.2026.exe
+path: windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.exe
 ```
 
 Ou publicar direto pelo script, usando a service role apenas no seu terminal:
@@ -73,9 +73,9 @@ Para inutilizar uma versao antiga, publique o instalador novo primeiro e depois 
 
 ```json
 {
-  "version": "1.7.2026",
-  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.7.2026.exe",
-  "minimumVersion": "1.7.2026",
+  "version": "1.8.2026",
+  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.exe",
+  "minimumVersion": "1.8.2026",
   "required": true,
   "notes": "Atualizacao obrigatoria."
 }

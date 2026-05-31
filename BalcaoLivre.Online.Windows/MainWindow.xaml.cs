@@ -94,6 +94,41 @@ public partial class MainWindow : Window
     private const string ServiceCode = "900002";
     private const double RibbonScrollStep = 260;
     private static readonly int[] ActivationWarningDays = [1, 3, 7, 15, 30];
+    private sealed record ActivationCheckoutPlan(
+        string Name,
+        string Description,
+        string MonthlyPrice,
+        string AnnualPrice,
+        string MonthlyPlanId,
+        string AnnualPlanId,
+        string Features);
+    private static readonly ActivationCheckoutPlan[] ActivationCheckoutPlans =
+    [
+        new(
+            "Balcao Livre PDV Offline",
+            "Caixa Windows local para vender sem depender da internet.",
+            "R$ 17,00",
+            "R$ 200,00",
+            "offline-mensal",
+            "offline-anual",
+            "Venda local, mesas, balcao, delivery, estoque, fechamento e comprovante."),
+        new(
+            "Balcao Livre PDV Hibrido Online",
+            "PDV local com web, cardapio digital, garcom e nuvem.",
+            "R$ 139,00",
+            "R$ 1.390,00",
+            "online-mensal",
+            "online-anual",
+            "Inclui PDV web, cardapio, garcom, taxas por zona e sincronizacao."),
+        new(
+            "Completo com Integracoes",
+            "Tudo do Hibrido Online com atendimento e pedidos pelo WhatsApp.",
+            "R$ 179,00",
+            "R$ 1.790,00",
+            "complete-mensal",
+            "complete-anual",
+            "Inclui WhatsApp, iFood, Mercado Pago conforme escopo e fluxo completo.")
+    ];
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
     public struct PlugPagTransactionResult
@@ -143,7 +178,6 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _supportPollTimer = new() { Interval = TimeSpan.FromSeconds(10) };
     private readonly DispatcherTimer _publicMenuPublishTimer = new() { Interval = TimeSpan.FromSeconds(7) };
     private readonly DispatcherTimer _publicMenuOrderPollTimer = new() { Interval = TimeSpan.FromSeconds(8) };
-    private readonly DispatcherTimer _kitchenPrintBatchTimer = new() { Interval = TimeSpan.FromSeconds(4) };
     private readonly DispatcherTimer _localBackupTimer = new() { Interval = TimeSpan.FromMinutes(30) };
     private readonly Dictionary<TableTile, HashSet<TicketLine>> _pendingKitchenPrintLines = [];
     private readonly IFoodCloudClient _ifoodClient = new();
@@ -236,7 +270,6 @@ public partial class MainWindow : Window
         _deliveryCountdownTimer.Tick += (_, _) => RefreshDeliveryCountdownTiles();
         _supportPollTimer.Tick += async (_, _) => await PollSupportNotificationsAsync();
         _publicMenuOrderPollTimer.Tick += async (_, _) => await PollPublicMenuOrdersAsync();
-        _kitchenPrintBatchTimer.Tick += (_, _) => FlushPendingKitchenPrints();
         _localBackupTimer.Tick += (_, _) => CreateLocalStoreBackup("auto-30min", force: false);
         _publicMenuPublishTimer.Tick += async (_, _) =>
         {
@@ -412,8 +445,7 @@ public partial class MainWindow : Window
         _appSettings.ActivationCompleted = false;
         SaveAppSettings();
         ShowToast("Ativacao expirada", "A licenca venceu. Pague a assinatura para renovar esta mesma chave.", "BL", "#A11D1D", "#FFE2DF");
-        SetStatus("Ativacao expirada. Abrindo pagamento da assinatura.");
-        OpenLicenseRenewalPage(expiredKey, expiredPlan, showMessage: false);
+        SetStatus("Ativacao expirada. Escolha um plano mensal ou anual para renovar.");
 
         if (!ShowInstallSetupDialog())
         {
@@ -699,17 +731,28 @@ public partial class MainWindow : Window
             using var content = new StringContent(JsonSerializer.Serialize(payload, payload.GetType(), JsonOptions), Encoding.UTF8, "application/json");
             using var response = await client.PostAsync(endpoint, content);
             var body = await response.Content.ReadAsStringAsync();
-            var result = JsonSerializer.Deserialize<T>(body, JsonOptions) ?? new T
+            T result;
+            try
             {
-                Ok = response.IsSuccessStatusCode,
-                Message = response.IsSuccessStatusCode ? "" : body
-            };
+                result = JsonSerializer.Deserialize<T>(body, JsonOptions) ?? new T
+                {
+                    Ok = response.IsSuccessStatusCode,
+                    Message = response.IsSuccessStatusCode ? "" : BuildPaymentsGatewayMessage(path, response, body)
+                };
+            }
+            catch (JsonException ex)
+            {
+                Debug.WriteLine($"Payments operation returned non-json ({path}): {ex.Message}");
+                return new T
+                {
+                    Ok = false,
+                    Message = BuildPaymentsGatewayMessage(path, response, body, ex.Message)
+                };
+            }
 
             if (!response.IsSuccessStatusCode && string.IsNullOrWhiteSpace(result.Message))
             {
-                result.Message = string.IsNullOrWhiteSpace(body)
-                    ? $"Admin retornou {(int)response.StatusCode}."
-                    : body;
+                result.Message = BuildPaymentsGatewayMessage(path, response, body);
             }
 
             return result;
@@ -717,8 +760,87 @@ public partial class MainWindow : Window
         catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException)
         {
             Debug.WriteLine($"Admin operation failed ({path}): {ex.Message}");
-            return new T { Ok = false, Message = "Nao foi possivel falar com o Supabase agora." };
+            var reason = ex is TaskCanceledException
+                ? "tempo esgotado"
+                : ex.Message;
+            return new T { Ok = false, Message = $"Falha ao chamar pagamentos online ({path}): {reason}" };
         }
+    }
+
+    private static string BuildPaymentsGatewayMessage<T>(string path, System.Net.Http.HttpResponseMessage response, string body, string parseError = "")
+        where T : AdminMercadoPagoResult, new()
+    {
+        return BuildPaymentsGatewayMessage(path, response, body, parseError);
+    }
+
+    private static string BuildPaymentsGatewayMessage(string path, System.Net.Http.HttpResponseMessage response, string body, string parseError = "")
+    {
+        var message = TryReadJsonMessage(body);
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            message = CompactResponseText(body);
+        }
+
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            message = $"HTTP {(int)response.StatusCode}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(parseError))
+        {
+            message = $"{message} (resposta invalida: {parseError})";
+        }
+
+        return $"Pagamentos online retornou {(int)response.StatusCode} em {path}: {message}";
+    }
+
+    private static string TryReadJsonMessage(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return "";
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return "";
+            }
+
+            if (doc.RootElement.TryGetProperty("message", out var message))
+            {
+                return message.ToString();
+            }
+
+            if (doc.RootElement.TryGetProperty("error", out var error))
+            {
+                return error.ToString();
+            }
+        }
+        catch (JsonException)
+        {
+            return "";
+        }
+
+        return "";
+    }
+
+    private static string CompactResponseText(string value)
+    {
+        var clean = (value ?? "").Replace("\r", " ").Replace("\n", " ").Replace("\t", " ").Trim();
+        while (clean.Contains("  ", StringComparison.Ordinal))
+        {
+            clean = clean.Replace("  ", " ");
+        }
+
+        if (clean.Length > 360)
+        {
+            clean = clean[..360] + "...";
+        }
+
+        return clean;
     }
 
     private async Task<T> PostPagBankOperationAsync<T>(string path, AdminClientPayload payload, TimeSpan timeout)
@@ -2711,6 +2833,7 @@ public partial class MainWindow : Window
 
         DeliveryTiles.Add(tile);
         ScheduleKitchenPrint(tile, tile.Lines);
+        FlushPendingKitchenPrintsForBoard(tile);
         if (!string.IsNullOrWhiteSpace(tile.CustomerName))
         {
             UpsertCustomerRecord(tile.CustomerCpf, tile.CustomerName, tile.Phone, tile.Address, tile.District, tile.Notes);
@@ -3007,7 +3130,7 @@ public partial class MainWindow : Window
             : $"{displayName} - {AppDisplayName}";
 
         var meta = new List<string>();
-        if (!string.IsNullOrWhiteSpace(profile.Cnpj)) meta.Add($"CNPJ {profile.Cnpj}");
+        if (!string.IsNullOrWhiteSpace(profile.Cnpj)) meta.Add($"{BusinessTaxIdLabel(profile.Cnpj)} {profile.Cnpj}");
         if (!string.IsNullOrWhiteSpace(profile.Phone)) meta.Add(profile.Phone);
         meta.Add(BuildHeaderSyncText());
         BrandMetaText.Text = string.Join("  |  ", meta);
@@ -3093,6 +3216,7 @@ public partial class MainWindow : Window
 
         e.Cancel = true;
         SaveActiveTicketToCurrentBoard();
+        FlushPendingKitchenPrintsForBoard(CurrentBoard);
         SaveStore();
         CreateLocalStoreBackup("fechamento-janela", force: true);
         Hide();
@@ -3119,6 +3243,7 @@ public partial class MainWindow : Window
     {
         _exitRequested = true;
         SaveActiveTicketToCurrentBoard();
+        FlushPendingKitchenPrintsForBoard(CurrentBoard);
         SaveStore();
         CreateLocalStoreBackup("sair", force: true);
         _trayIcon?.Dispose();
@@ -3133,7 +3258,6 @@ public partial class MainWindow : Window
         _ifoodSyncTimer.Stop();
         _licenseTimer.Stop();
         _toastTimer.Stop();
-        _kitchenPrintBatchTimer.Stop();
         _localBackupTimer.Stop();
 
         if (_waiterServer is not null)
@@ -3616,7 +3740,9 @@ public partial class MainWindow : Window
     {
         if (ModeList.SelectedItem is string mode)
         {
+            var previousBoard = CurrentBoard;
             SaveActiveTicketToCurrentBoard();
+            FlushPendingKitchenPrintsForBoard(previousBoard);
             RefreshBoardForMode();
             SelectTable(0, saveCurrent: false);
             SetStatus($"Modo: {mode}");
@@ -4112,7 +4238,7 @@ public partial class MainWindow : Window
         var businessBox = new TextBox { Text = profile.BusinessName };
         var legalBox = new TextBox { Text = profile.LegalName };
         var cnpjBox = new TextBox { Text = profile.Cnpj };
-        AttachCnpjMask(cnpjBox);
+        AttachCpfCnpjMask(cnpjBox);
         var phoneBox = new TextBox { Text = profile.Phone };
         var addressBox = new TextBox { Text = profile.Address };
         var cityBox = new TextBox { Text = profile.City };
@@ -4208,7 +4334,7 @@ public partial class MainWindow : Window
         };
         var qrHint = new TextBlock
         {
-            Text = "Exemplos: chave Pix, @instagram, link do Google Maps ou qualquer URL. Se ficar vazio, o PDV imprime um QR simples com dados da loja e total.",
+            Text = "Pix aceita chave normal da loja (CPF/CNPJ, email, telefone ou chave aleatoria) ou Pix copia-e-cola do banco. Se for telefone, pode digitar com DDD que o PDV monta no formato do Pix. Se ficar vazio, imprime um QR simples com dados da loja e total.",
             Foreground = Solid("#5B6B7A"),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
@@ -4502,15 +4628,25 @@ public partial class MainWindow : Window
                     mpTerminalBox.ItemsSource = list;
                     mpTerminalBox.SelectedItem = list.FirstOrDefault(item =>
                         string.Equals(item.Id, mp.DefaultTerminalId, StringComparison.OrdinalIgnoreCase));
-                    status.Foreground = GreenText;
-                    status.Text = list.Count == 0
-                        ? "Conta conectada. Sem maquininha ativa; o F9 usa Pix QR e link de pagamento."
-                        : "Maquininhas Mercado Pago atualizadas. O F9 tambem pode usar Pix QR e link.";
+                    if (list.Count == 0)
+                    {
+                        mp.DefaultTerminalId = "";
+                        mp.DefaultTerminalLabel = "";
+                        mp.LastError = "Conta conectada, mas a autorizacao atual nao retornou Point em modo PDV.";
+                        status.Foreground = Solid("#99620D");
+                        status.Text = "Conta conectada, mas nenhuma Point apareceu para esta chave. Reconnecte o Mercado Pago com a conta da maquininha ou use Pix QR/link.";
+                    }
+                    else
+                    {
+                        mp.LastError = "";
+                        status.Foreground = GreenText;
+                        status.Text = "Maquininhas Mercado Pago atualizadas. O F9 tambem pode usar Point, Pix QR e link.";
+                    }
                 }
                 else
                 {
                     status.Foreground = Solid("#99620D");
-                    status.Text = "Conta Mercado Pago conectada. Nao encontrei maquininha agora; o F9 usa Pix QR e link de pagamento.";
+                    status.Text = TextOrDefault(terminals.Message, "Conta Mercado Pago conectada, mas nao consegui listar as maquininhas. Reconnecte a conta ou use Pix QR/link.");
                 }
             }
             else if (connection.Connected)
@@ -5052,7 +5188,7 @@ public partial class MainWindow : Window
                 status.Foreground = result.Ok ? GreenText : Solid("#99620D");
                 status.Text = result.Ok
                     ? "Moderninha salva. No F9, credito/debito podem sair pelo PlugPag."
-                    : TextOrDefault(result.Message, "Salvei localmente, mas nao consegui sincronizar com o Supabase agora.");
+                    : TextOrDefault(result.Message, "Salvei localmente, mas nao consegui atualizar a conta online agora.");
             }
             finally
             {
@@ -5287,7 +5423,7 @@ public partial class MainWindow : Window
                     Children =
                     {
                         new TextBlock { Text = "Destinos de producao", Foreground = Solid("#5B6B7A"), FontWeight = FontWeights.SemiBold },
-                        new TextBlock { Text = "COZINHA ja vem criada. Produto em CAIXA nao imprime producao; produto em COZINHA ou outro destino sai agrupado na impressora escolhida.", Foreground = Solid("#5B6B7A"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 8) },
+                        new TextBlock { Text = "COZINHA ja vem criada. Produto em CAIXA nao imprime producao; produto em COZINHA ou outro destino sai agrupado na impressora escolhida quando a comanda for trocada ou fechada.", Foreground = Solid("#5B6B7A"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 8) },
                         sectorPrinterList,
                         addSector
                     }
@@ -5345,7 +5481,7 @@ public partial class MainWindow : Window
             qrTitle.Foreground = enabled ? Solid("#03151F") : Solid("#071A2C");
             qrTitle.Text = enabled ? "QR no comprovante: ligado" : "QR no comprovante: desligado";
             qrSubtitle.Text = enabled
-                ? "O comprovante imprime o QR usando o conteudo abaixo. Para Pix, informe sua chave Pix."
+                ? "O comprovante imprime o QR usando o conteudo abaixo. Para Pix normal, informe a chave da loja; Mercado Pago continua separado no F9."
                 : "Desligado para nao poluir o comprovante. Ligue somente quando usar Pix, Instagram, Maps ou link.";
             qrToggle.Content = enabled ? "Desligar QR" : "Ligar QR";
             qrToggle.Background = enabled ? Solid("#5B6B7A") : Solid("#0B3A52");
@@ -5479,7 +5615,7 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(accountEmail))
             {
                 status.Foreground = RedText;
-                status.Text = "Informe o email da conta. Ele cria/vincula o login no Supabase para Android e PDV Web.";
+                status.Text = "Informe o email da conta para identificar esta loja e manter os recursos online funcionando.";
                 emailBox.Focus();
                 return false;
             }
@@ -5504,7 +5640,7 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(cnpj))
             {
                 status.Foreground = RedText;
-                status.Text = "Informe o CNPJ para vincular a conta.";
+                status.Text = "Informe o CPF ou CNPJ para vincular a conta.";
                 cnpjBox.Focus();
                 return false;
             }
@@ -5546,7 +5682,7 @@ public partial class MainWindow : Window
             SaveAppSettings();
             var payload = CreateAdminClientPayload("profile.sync", _appSettings.ActivationKey, _appSettings.ActivationExpiresAt, _appSettings.ActivationPlan);
             status.Foreground = Solid("#5B6B7A");
-            status.Text = "Sincronizando conta com o admin/Supabase...";
+            status.Text = "Sincronizando dados da loja...";
             syncAccount.IsEnabled = false;
             try
             {
@@ -5557,12 +5693,12 @@ public partial class MainWindow : Window
                     ApplyRestaurantIdentity();
                     licenseText.Text = BuildActivationSummary();
                     status.Foreground = GreenText;
-                    status.Text = "Conta sincronizada. Android e Web usam esses dados vinculados a chave.";
+                    status.Text = "Conta sincronizada. Seus acessos usam estes dados da loja.";
                 }
                 else
                 {
                     status.Foreground = RedText;
-                    status.Text = "Nao consegui sincronizar agora. Verifique internet/admin.";
+                    status.Text = "Nao consegui sincronizar agora. Verifique a internet e tente novamente.";
                 }
             }
             finally
@@ -5893,7 +6029,7 @@ public partial class MainWindow : Window
             new TextBlock { Text = "Conta vinculada", Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold },
             linkedAccountText,
             licenseText,
-            MutedText("Esses dados ficam ligados a chave para o Android, PDV Web e admin reconhecerem a mesma loja.", 11),
+            MutedText("Esses dados ficam ligados a chave para os acessos da loja reconhecerem a mesma conta.", 11),
             syncAccount,
             logoutAccount);
 
@@ -5902,7 +6038,7 @@ public partial class MainWindow : Window
             "Dados usados em recibos, cardapio online, impressao e integracoes.",
             TwoColumnFields(("Email da conta", emailBox), ("Responsavel", ownerBox)),
             TwoColumnFields(("Nome fantasia", businessBox), ("Razao social", legalBox)),
-            TwoColumnFields(("CNPJ", cnpjBox), ("Telefone", phoneBox)),
+            TwoColumnFields(("CPF/CNPJ", cnpjBox), ("Telefone", phoneBox)),
             TwoColumnFields(("Cidade", cityBox), ("UF", stateBox)),
             DialogField("Endereco", addressBox));
 
@@ -5938,7 +6074,7 @@ public partial class MainWindow : Window
             "Impressao principal",
             "Padrao de cupom e impressora usada pelo caixa.",
             ToggleCard("Imprimir delivery automaticamente", "Pedidos novos saem na impressora configurada.", () => _appSettings.AutoPrintDelivery, value => _appSettings.AutoPrintDelivery = value),
-            ToggleCard("Enviar producao automaticamente", "Itens com destino COZINHA saem agrupados alguns segundos depois de entrar no pedido. F4 fica para reimprimir.", () => _appSettings.AutoPrintKitchen, value => _appSettings.AutoPrintKitchen = value),
+            ToggleCard("Enviar producao automaticamente", "Itens com destino COZINHA saem agrupados quando a comanda for trocada ou fechada. F4 fica para reimprimir.", () => _appSettings.AutoPrintKitchen, value => _appSettings.AutoPrintKitchen = value),
             DialogLabel("Modelo padrao"),
             sizeGrid,
             printerCard);
@@ -6978,12 +7114,18 @@ public partial class MainWindow : Window
     {
         if (BoardTiles.Count == 0) return;
 
+        var previousBoard = CurrentBoard;
+        var nextIndex = Wrap(index, BoardTiles.Count);
         if (saveCurrent)
         {
             SaveActiveTicketToCurrentBoard();
+            if (previousBoard is not null && !ReferenceEquals(previousBoard, BoardTiles[nextIndex]))
+            {
+                FlushPendingKitchenPrintsForBoard(previousBoard);
+            }
         }
 
-        _selectedTableIndex = Wrap(index, BoardTiles.Count);
+        _selectedTableIndex = nextIndex;
         foreach (var table in Tables) table.IsSelected = false;
         foreach (var delivery in DeliveryTiles) delivery.IsSelected = false;
         foreach (var kitchen in KitchenTiles) kitchen.IsSelected = false;
@@ -9641,6 +9783,7 @@ public partial class MainWindow : Window
     private void PrintWaiterKitchenLine(TableTile board, TicketLine line)
     {
         ScheduleKitchenPrint(board, [line]);
+        FlushPendingKitchenPrintsForBoard(board);
     }
 
     private string BuildWaiterKitchenText(TableTile board, IEnumerable<TicketLine> lines)
@@ -11014,6 +11157,7 @@ public partial class MainWindow : Window
 
         DeliveryTiles.Add(tile);
         ScheduleKitchenPrint(tile, tile.Lines);
+        FlushPendingKitchenPrintsForBoard(tile);
         UpsertCustomerRecord(tile.CustomerCpf, tile.CustomerName, tile.Phone, tile.Address, tile.District, tile.Notes);
         if (_appSettings.AutoPrintDelivery && !IsIFoodDeliveryBoard(tile))
         {
@@ -15669,7 +15813,7 @@ public partial class MainWindow : Window
 
         if (!string.IsNullOrWhiteSpace(_profile.Cnpj))
         {
-            sb.AppendLine(CenterReceipt($"CNPJ: {_profile.Cnpj.Trim()}", width));
+            sb.AppendLine(CenterReceipt($"{BusinessTaxIdLabel(_profile.Cnpj)}: {_profile.Cnpj.Trim()}", width));
         }
 
         if (!string.IsNullOrWhiteSpace(_profile.Phone))
@@ -15849,7 +15993,7 @@ public partial class MainWindow : Window
         sb.AppendLine("<div class=\"line\"></div>");
         if (!string.IsNullOrWhiteSpace(cnpj))
         {
-            sb.AppendLine($"<div class=\"meta\">CNPJ: {cnpj}</div>");
+            sb.AppendLine($"<div class=\"meta\">{BusinessTaxIdLabel(_profile.Cnpj)}: {cnpj}</div>");
         }
 
         if (!string.IsNullOrWhiteSpace(phone))
@@ -17401,7 +17545,7 @@ public partial class MainWindow : Window
         var businessNameBox = new TextBox { Text = _profile.BusinessName };
         var legalNameBox = new TextBox { Text = _profile.LegalName };
         var cnpjBox = new TextBox { Text = _profile.Cnpj };
-        AttachCnpjMask(cnpjBox);
+        AttachCpfCnpjMask(cnpjBox);
         var phoneBox = new TextBox { Text = _profile.Phone };
         var adminNameBox = new TextBox { Text = _profile.OwnerName };
         var adminNumberBox = new TextBox { Text = GetNextStaffNumber().ToString(Brazil) };
@@ -17540,7 +17684,7 @@ public partial class MainWindow : Window
 
                 if (string.IsNullOrWhiteSpace(cnpj))
                 {
-                    error.Text = "Informe o CNPJ da loja para vincular a chave.";
+                    error.Text = "Informe o CPF ou CNPJ da loja para vincular a chave.";
                     cnpjBox.Focus();
                     return;
                 }
@@ -17816,11 +17960,11 @@ public partial class MainWindow : Window
                 Children =
                 {
                     new TextBlock { Text = "Conta da loja", Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold, FontSize = 15, Margin = new Thickness(0, 0, 0, 8) },
-                    DialogHint("Vincule chave, email, nome e CNPJ. O admin salva esses dados no Supabase para o Android e o PDV Web reconhecerem a mesma loja."),
+                    DialogHint("Vincule chave, email, nome e CPF/CNPJ para identificar esta loja nos acessos do sistema."),
                     DialogField("Email da conta", accountEmailBox),
                     DialogField("Nome fantasia", businessNameBox),
                     DialogField("Razao social", legalNameBox),
-                    DialogField("CNPJ", cnpjBox),
+                    DialogField("CPF/CNPJ", cnpjBox),
                     DialogField("Telefone", phoneBox)
                 }
             }
@@ -18909,7 +19053,7 @@ public partial class MainWindow : Window
         return Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
             .InformationalVersion
-            ?? "1.7.2026";
+            ?? "1.8.2026";
     }
 
     private async Task<bool> CheckForUpdatesAsync(bool showIfCurrent, bool autoInstall = false, bool startupCheck = false)
@@ -19343,7 +19487,7 @@ public partial class MainWindow : Window
             builder.Append(invalid.Contains(ch) ? '-' : ch);
         }
 
-        return builder.Length == 0 ? "1.7.2026" : builder.ToString();
+        return builder.Length == 0 ? "1.8.2026" : builder.ToString();
     }
 
     private static string CopyLogoToAppIdentityFolder(string sourcePath)
@@ -20224,7 +20368,7 @@ public partial class MainWindow : Window
         sb.AppendLine(displayName);
         if (!string.IsNullOrWhiteSpace(_profile.Cnpj))
         {
-            sb.AppendLine($"CNPJ: {_profile.Cnpj}");
+            sb.AppendLine($"{BusinessTaxIdLabel(_profile.Cnpj)}: {_profile.Cnpj}");
         }
 
         sb.AppendLine("FECHAMENTO DE CAIXA");
@@ -20356,16 +20500,16 @@ public partial class MainWindow : Window
 
         foreach (var line in productionLines)
         {
-            pending.Add(line);
+            if (!pending.Any(existing => ReferenceEquals(existing, line)))
+            {
+                pending.Add(line);
+            }
         }
 
-        _kitchenPrintBatchTimer.Stop();
-        _kitchenPrintBatchTimer.Start();
     }
 
     private void FlushPendingKitchenPrints()
     {
-        _kitchenPrintBatchTimer.Stop();
         if (_pendingKitchenPrintLines.Count == 0)
         {
             return;
@@ -20577,6 +20721,30 @@ public partial class MainWindow : Window
             SetStatus($"Pedido de cozinha gerado: {path}");
         }
 
+        SaveStore();
+    }
+
+    private void FlushPendingKitchenPrintsForBoard(TableTile? board)
+    {
+        if (board is null)
+        {
+            return;
+        }
+
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => FlushPendingKitchenPrintsForBoard(board));
+            return;
+        }
+
+        if (!_pendingKitchenPrintLines.TryGetValue(board, out var pending) || pending.Count == 0)
+        {
+            return;
+        }
+
+        var lines = pending.ToList();
+        _pendingKitchenPrintLines.Remove(board);
+        PrintKitchenBatch(board, lines);
         SaveStore();
     }
 
@@ -21262,6 +21430,7 @@ public partial class MainWindow : Window
             }
 
             board.Status = board.Kind == "DELIVERY" ? "AGUARDANDO" : "CONTA";
+            FlushPendingKitchenPrintsForBoard(board);
         }
 
         var printText = BuildReceipt("CONFERENCIA DA CONTA", NextReceiptNumber());
@@ -21316,6 +21485,8 @@ public partial class MainWindow : Window
             SetStatus("Recebimento cancelado.");
             return;
         }
+
+        FlushPendingKitchenPrintsForBoard(board);
 
         if (receive.Value.Payment is { } payment)
         {
@@ -21939,7 +22110,7 @@ public partial class MainWindow : Window
 
         if (!string.IsNullOrWhiteSpace(_profile.Cnpj))
         {
-            lines.Add($"CNPJ: {_profile.Cnpj.Trim()}");
+            lines.Add($"{BusinessTaxIdLabel(_profile.Cnpj)}: {_profile.Cnpj.Trim()}");
         }
 
         if (!string.IsNullOrWhiteSpace(_profile.Phone))
@@ -21993,15 +22164,15 @@ public partial class MainWindow : Window
     private string BuildPixQrPayload(string content, decimal amount)
     {
         content = content.Trim();
-        if (content.StartsWith("000201", StringComparison.OrdinalIgnoreCase))
+        if (TryExtractPixCopyPastePayload(content, out var existingPayload))
         {
-            return BuildPixPayloadWithAmount(content, amount);
+            return BuildPixPayloadWithAmount(existingPayload, amount);
         }
 
         var pixKey = NormalizePixKey(content);
         var merchantName = NormalizePixText(_profile.BusinessName, 25, AppReceiptName);
         var city = NormalizePixText(_profile.City, 15, "BRASIL");
-        var merchantAccount = Emv("00", "BR.GOV.BCB.PIX") + Emv("01", pixKey);
+        var merchantAccount = Emv("00", "br.gov.bcb.pix") + Emv("01", pixKey);
         var additionalData = Emv("05", "***");
         var payloadWithoutCrc =
             Emv("00", "01") +
@@ -22019,6 +22190,28 @@ public partial class MainWindow : Window
         return payloadWithoutCrc + PixCrc16(payloadWithoutCrc);
     }
 
+    private static bool TryExtractPixCopyPastePayload(string content, out string payload)
+    {
+        payload = "";
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return false;
+        }
+
+        var normalized = content
+            .Replace("\r", "", StringComparison.Ordinal)
+            .Replace("\n", "", StringComparison.Ordinal)
+            .Trim();
+        var start = normalized.IndexOf("000201", StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+        {
+            return false;
+        }
+
+        payload = normalized[start..].Trim();
+        return true;
+    }
+
     private static string BuildPixAmountField(decimal amount)
     {
         if (amount <= 0)
@@ -22032,14 +22225,11 @@ public partial class MainWindow : Window
 
     private static string BuildPixPayloadWithAmount(string payload, decimal amount)
     {
-        var clean = new string(payload.Where(c => !char.IsWhiteSpace(c)).ToArray());
-        if (amount <= 0)
-        {
-            return clean;
-        }
-
+        var clean = payload
+            .Replace("\r", "", StringComparison.Ordinal)
+            .Replace("\n", "", StringComparison.Ordinal)
+            .Trim();
         var body = StripPixCrc(clean);
-        var amountField = BuildPixAmountField(amount);
         var fields = new List<(string Id, string Raw)>();
         var index = 0;
         while (index + 4 <= body.Length)
@@ -22058,7 +22248,7 @@ public partial class MainWindow : Window
             }
 
             var raw = body.Substring(index, 4 + length);
-            if (id != "54")
+            if (amount <= 0 || id != "54")
             {
                 fields.Add((id, raw));
             }
@@ -22071,8 +22261,9 @@ public partial class MainWindow : Window
             return clean;
         }
 
+        var amountField = BuildPixAmountField(amount);
         var rebuilt = new StringBuilder();
-        var inserted = false;
+        var inserted = amount <= 0 || string.IsNullOrWhiteSpace(amountField);
         foreach (var field in fields)
         {
             if (!inserted && string.CompareOrdinal(field.Id, "54") > 0)
@@ -22131,6 +22322,11 @@ public partial class MainWindow : Window
             return $"+{digits}";
         }
 
+        if (LooksLikeBrazilianPixPhone(value, digits))
+        {
+            return digits.StartsWith("55", StringComparison.Ordinal) ? $"+{digits}" : $"+55{digits}";
+        }
+
         if (digits.Length is 11 or 14)
         {
             return digits;
@@ -22142,6 +22338,22 @@ public partial class MainWindow : Window
         }
 
         return value.Replace(" ", "", StringComparison.Ordinal);
+    }
+
+    private static bool LooksLikeBrazilianPixPhone(string original, string digits)
+    {
+        if (digits.Length is 12 or 13 && digits.StartsWith("55", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (digits.Length == 11 && digits[2] == '9')
+        {
+            return true;
+        }
+
+        return digits.Length == 10
+            && (original.Contains('(') || original.Contains(')') || original.Contains('-') || original.Contains(' '));
     }
 
     private static string NormalizePixText(string value, int maxLength, string fallback)
@@ -22239,7 +22451,7 @@ public partial class MainWindow : Window
 
         if (!string.IsNullOrWhiteSpace(_profile.Cnpj))
         {
-            sb.AppendLine(CenterReceipt($"CNPJ: {_profile.Cnpj.Trim()}", width));
+            sb.AppendLine(CenterReceipt($"{BusinessTaxIdLabel(_profile.Cnpj)}: {_profile.Cnpj.Trim()}", width));
         }
 
         if (!string.IsNullOrWhiteSpace(_profile.Phone))
@@ -23590,9 +23802,9 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         textBox.SelectionLength = 0;
     }
 
-    private static void AttachCnpjMask(TextBox textBox)
+    private static void AttachCpfCnpjMask(TextBox textBox)
     {
-        textBox.ToolTip = "CNPJ: 00.000.000/0001-00";
+        textBox.ToolTip = "CPF: 000.000.000-00 ou CNPJ: 00.000.000/0001-00";
         var updating = false;
 
         void Format()
@@ -23603,7 +23815,7 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
             }
 
             updating = true;
-            textBox.Text = FormatCnpj(textBox.Text);
+            textBox.Text = FormatCpfCnpj(textBox.Text);
             textBox.CaretIndex = textBox.Text.Length;
             textBox.SelectionLength = 0;
             updating = false;
@@ -23627,6 +23839,55 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         Format();
     }
 
+    private static string BusinessTaxIdLabel(string value)
+    {
+        var digits = DigitsOnly(value);
+        if (digits.Length == 11)
+        {
+            return "CPF";
+        }
+
+        if (digits.Length == 14)
+        {
+            return "CNPJ";
+        }
+
+        return "CPF/CNPJ";
+    }
+
+    private static string FormatCpfCnpj(string value)
+    {
+        var digits = DigitsOnly(value);
+        if (digits.Length > 14)
+        {
+            digits = digits[..14];
+        }
+
+        return digits.Length <= 11
+            ? FormatCpfDigits(digits)
+            : FormatCnpjDigits(digits);
+    }
+
+    private static string FormatCpfDigits(string digits)
+    {
+        var sb = new StringBuilder();
+        for (var index = 0; index < digits.Length; index++)
+        {
+            if (index == 3 || index == 6)
+            {
+                sb.Append('.');
+            }
+            else if (index == 9)
+            {
+                sb.Append('-');
+            }
+
+            sb.Append(digits[index]);
+        }
+
+        return sb.ToString();
+    }
+
     private static string FormatCnpj(string value)
     {
         var digits = DigitsOnly(value);
@@ -23635,6 +23896,11 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
             digits = digits[..14];
         }
 
+        return FormatCnpjDigits(digits);
+    }
+
+    private static string FormatCnpjDigits(string digits)
+    {
         var sb = new StringBuilder();
         for (var index = 0; index < digits.Length; index++)
         {

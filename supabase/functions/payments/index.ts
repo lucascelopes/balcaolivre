@@ -187,7 +187,7 @@ async function startMercadoPagoConnect(req: Request) {
   auth.searchParams.set("platform_id", "mp");
   auth.searchParams.set("state", state);
   auth.searchParams.set("redirect_uri", mercadoPagoRedirectUri());
-  auth.searchParams.set("scope", "offline_access");
+  auth.searchParams.set("scope", mercadoPagoOAuthScope());
   return json({ ok: true, authUrl: auth.toString() });
 }
 
@@ -1498,6 +1498,14 @@ async function setupMercadoPagoTerminalForPdv(accessToken: string, terminalId: s
     };
   } catch (error) {
     const message = messageFromError(error);
+    if (message.toLowerCase().includes("not_found") || message.toLowerCase().includes("not found")) {
+      return {
+        ok: false,
+        status: 404,
+        message: "A Point selecionada nao foi encontrada na conta Mercado Pago conectada. Reconnecte usando a conta dona da maquininha e salve a Point de novo.",
+      };
+    }
+
     return {
       ok: false,
       status: 400,
@@ -1576,6 +1584,23 @@ function mercadoPagoClientId() {
 
 function mercadoPagoClientSecret() {
   return stringValue(Deno.env.get("MERCADO_PAGO_CLIENT_SECRET"));
+}
+
+function mercadoPagoOAuthScope() {
+  return [
+    "offline_access",
+    "payments",
+    "read",
+    "write",
+    "urn:global:admin:oauth:/read-write",
+    "urn:mp:instore:terminal:list/read-only",
+    "urn:mp:instore:terminal:setup/read-only",
+    "urn:mp:instore:terminal:actions/read-only",
+    "urn:mp:online:payments/read-only",
+    "urn:mp:online:payments:cancel/read-only",
+    "urn:mp:online:payments:refunds/read-only",
+    "urn:mp:online:preference/read-write",
+  ].join(" ");
 }
 
 function mercadoPagoRedirectUri() {
@@ -1992,7 +2017,17 @@ function mercadoPagoErrorMessage(data: Record<string, unknown>, rawText: string,
         .filter(Boolean)
         .join(" | ")
     : "";
-  return stringValue(data.message || data.error || cause || rawText || status);
+  const errors = Array.isArray(data.errors)
+    ? data.errors
+        .map((item) => {
+          if (!item || typeof item !== "object") return stringValue(item);
+          const errorItem = item as Record<string, unknown>;
+          return stringValue(errorItem.description || errorItem.message || errorItem.code);
+        })
+        .filter(Boolean)
+        .join(" | ")
+    : "";
+  return stringValue(data.message || data.error || cause || errors || rawText || status);
 }
 
 function onlyDigits(value: unknown) {
@@ -2043,11 +2078,48 @@ function providerHtml(provider: string, title: string, message: string, ok: bool
     message: stringValue(message),
   });
 
-  return new Response(null, {
-    status: 302,
+  const statusText = ok ? "Conectado" : "Atencao";
+  const statusColor = ok ? "#0f766e" : "#a11d1d";
+  const statusBackground = ok ? "#e6fbf8" : "#ffe2df";
+  const payloadScript = JSON.stringify(params.toString());
+  return new Response(`<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    body{font-family:Segoe UI,Arial,sans-serif;background:#eef3f6;color:#0b1f33;margin:0;min-height:100vh;display:grid;place-items:center}
+    main{width:min(560px,calc(100vw - 32px));background:white;border:1px solid #d6e3ee;border-radius:18px;padding:30px;box-shadow:0 24px 60px rgba(8,31,51,.14)}
+    .badge{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:${statusBackground};color:${statusColor};font-weight:800;margin-bottom:16px}
+    h1{margin:0 0 10px;font-size:30px;line-height:1.1}
+    p{font-size:17px;line-height:1.5;color:#526579;margin:0 0 18px}
+    .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
+    button,a{border:0;border-radius:10px;padding:13px 16px;font-weight:800;font-size:15px;cursor:pointer;text-decoration:none}
+    button{background:#0f766e;color:white}
+    a{background:#e8f1f7;color:#0b3a52}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="badge">${statusText}</div>
+    <h1>${escapeHtml(title)}</h1>
+    <p>${escapeHtml(message)}</p>
+    <p>Volte ao Balcao Livre PDV. A janela de configuracao confirma a conexao automaticamente.</p>
+    <div class="actions">
+      <button onclick="window.close()">Fechar esta aba</button>
+      <a href="https://www.balcaolivrepdv.com.br">Site Balcao Livre</a>
+    </div>
+  </main>
+  <script>
+    try { window.opener && window.opener.postMessage(${payloadScript}, "*"); } catch (_) {}
+  </script>
+</body>
+</html>`, {
+    status: 200,
     headers: {
       ...corsHeaders,
-      "location": `https://balcaolivrepdv.com.br/?${params.toString()}`,
+      "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
     },
   });

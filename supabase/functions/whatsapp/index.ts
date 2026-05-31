@@ -4,10 +4,12 @@ const DEFAULT_GRAPH_VERSION = "v25.0";
 const DEFAULT_ADMIN_BUCKET = "balcao-livre-admin";
 const DEFAULT_ADMIN_OBJECT = "admin-store.json";
 const DEFAULT_VERIFY_TOKEN = "balcao_livre_meta_webhook_2026";
+const PUBLIC_MENU_BASE_URL = "https://cardapio.balcaolivrepdv.com.br";
 const DEFAULT_PHONE_NUMBER_ID = "154114447792775";
 const DEFAULT_META_APP_ID = "355393956897950";
 const CENTRAL_BOT_ID = "META_CLOUD";
 const ONBOARDING_STATE_MINUTES = 30;
+const BOT_ORDER_LOOKBACK_DAYS = 3;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -145,6 +147,35 @@ type MetaWebhookEvent = {
   status: string;
   rawMessage?: MetaWebhookMessage;
   rawStatus?: MetaWebhookStatus;
+};
+
+type PublicMenuBotSnapshot = {
+  id?: string;
+  store_id?: string;
+  slug?: string;
+  name?: string;
+  description?: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  store_open?: boolean;
+  wait_min_minutes?: number;
+  wait_max_minutes?: number;
+  is_published?: boolean;
+};
+
+type PublicOrderBotSnapshot = {
+  id?: string;
+  status?: string;
+  order_type?: string;
+  customer_phone?: string;
+  table_label?: string;
+  address?: string;
+  total?: number;
+  pdv_order_id?: string;
+  created_at?: string;
+  updated_at?: string;
 };
 
 Deno.serve(async (req) => {
@@ -531,7 +562,7 @@ async function processWebhookEvents(events: MetaWebhookEvent[]) {
     }
 
     if (event.rawMessage && shouldAutoReply(event, store, connection)) {
-      const reply = buildIncomingReply(event);
+      const reply = await buildIncomingReply(event, license);
       const sent = await sendMetaText(event.customerPhone, reply, { store, connection });
       if (store) {
         appendEvent(store, clientPayload, sent.ok ? "whatsapp.meta.reply_sent" : "whatsapp.meta.reply_failed",
@@ -561,18 +592,339 @@ function shouldAutoReply(event: MetaWebhookEvent, store: AdminStore | null, conn
   return store ? !hasProcessedWebhookMessage(store, event.messageId) : false;
 }
 
-function buildIncomingReply(event: MetaWebhookEvent) {
-  const text = normalizeText(event.text);
-  const greeting = "Ola! Recebemos sua mensagem no Balcao Livre.";
-  if (text.includes("cardapio") || text.includes("menu")) {
-    return `${greeting} Envie os itens que deseja pedir que o restaurante acompanha por aqui.`;
+async function buildIncomingReply(event: MetaWebhookEvent, license: AdminLicense | null) {
+  const licenseKey = normalizeLicense(license?.key);
+  const menu = licenseKey ? await readPublicMenuForBot(licenseKey) : null;
+  const text = normalizeBotText(event.text);
+  const storeName = firstNonEmpty(menu?.name, license?.businessName, license?.customerName, "nossa loja");
+
+  if (isBotIntent(text, ["atendente", "humano", "pessoa", "suporte", "falar com alguem", "falar com atendente"])) {
+    return buildHumanReply(storeName);
   }
 
-  if (text.includes("pedido") || text.includes("entrega")) {
-    return `${greeting} O restaurante ja foi notificado e vai acompanhar seu pedido por aqui.`;
+  if (isBotIntent(text, ["cancelar", "cancelamento", "cancela", "alterar", "mudar pedido", "trocar pedido"])) {
+    return [
+      `Entendi. Vou chamar o atendimento da ${storeName} para conferir isso com voce.`,
+      "Se for um pedido em andamento, aguarde a confirmacao da loja antes de refazer ou cancelar.",
+    ].join("\n");
   }
 
-  return `${greeting} Em instantes o restaurante responde por aqui.`;
+  if (isBotIntent(text, [
+    "status",
+    "status do pedido",
+    "meu pedido",
+    "acompanhar pedido",
+    "andamento",
+    "pedido a caminho",
+    "cade meu pedido",
+    "chegou",
+    "caminho",
+    "rota",
+    "saiu",
+  ])) {
+    const order = licenseKey ? await readLatestPublicOrderForCustomer(licenseKey, event.customerPhone) : null;
+    return buildOrderStatusReply(storeName, menu, order);
+  }
+
+  if (isBotIntent(text, ["horario", "hora", "aberto", "fechado", "funciona", "funcionamento", "atendendo"])) {
+    return buildStoreHoursReply(storeName, menu);
+  }
+
+  if (isBotIntent(text, ["cardapio", "cardápio", "menu", "catalogo", "catalogo", "preco", "precos", "valor"])) {
+    return buildGreetingReply(storeName, menu);
+  }
+
+  if (isBotIntent(text, ["delivery", "entrega", "retirada", "retirar", "buscar", "balcao", "mesa", "comanda", "quero pedir", "fazer pedido", "pedir"])) {
+    return buildOrderStartReply(storeName, menu);
+  }
+
+  if (isBotIntent(text, ["pix", "cartao", "cartao", "debito", "credito", "dinheiro", "pagamento", "pagar"])) {
+    return [
+      `Na ${storeName}, a forma de pagamento pode ser combinada no pedido.`,
+      "Para pedir pelo cardapio online, acesse:",
+      publicMenuUrlLine(menu),
+      "Se preferir, envie ATENDENTE que alguem da loja continua por aqui.",
+    ].filter(Boolean).join("\n");
+  }
+
+  if (isSimpleGreetingIntent(text)) {
+    return buildGreetingReply(storeName, menu);
+  }
+
+  if (isThanksIntent(text)) {
+    return `Por nada! Quando precisar, envie CARDAPIO para ver os produtos ou STATUS para acompanhar seu pedido na ${storeName}.`;
+  }
+
+  return buildFallbackReply(storeName, menu);
+}
+
+async function readPublicMenuForBot(licenseKey: string) {
+  const supabase = serviceClient();
+  if (!supabase || !licenseKey) return null;
+
+  const { data, error } = await supabase
+    .from("bv_public_menus")
+    .select("id, store_id, slug, name, description, phone, address, city, state, store_open, wait_min_minutes, wait_max_minutes, is_published")
+    .eq("store_id", licenseKey)
+    .eq("is_published", true)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("whatsapp.bot.menu_lookup_failed", error.message);
+    return null;
+  }
+
+  return data as PublicMenuBotSnapshot | null;
+}
+
+async function readLatestPublicOrderForCustomer(licenseKey: string, customerPhone: string) {
+  const supabase = serviceClient();
+  const phone = normalizePhone(customerPhone);
+  if (!supabase || !licenseKey || !phone) return null;
+
+  const since = new Date(Date.now() - BOT_ORDER_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("bv_public_orders")
+    .select("id, status, order_type, customer_phone, table_label, address, total, pdv_order_id, created_at, updated_at")
+    .eq("store_id", licenseKey)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(30);
+
+  if (error) {
+    console.error("whatsapp.bot.order_lookup_failed", error.message);
+    return null;
+  }
+
+  return ((data ?? []) as PublicOrderBotSnapshot[])
+    .find((order) => phoneMatches(phone, order.customer_phone)) ?? null;
+}
+
+function buildGreetingReply(storeName: string, menu: PublicMenuBotSnapshot | null) {
+  return [
+    `${greetingForNow()}! Bem-vindo ao atendimento da ${storeName}.`,
+    "Cardapio online:",
+    publicMenuUrlLine(menu),
+    storeOpenLine(menu),
+    "Para acompanhar um pedido, envie STATUS. Para falar com alguem da loja, envie ATENDENTE.",
+  ].filter(Boolean).join("\n");
+}
+
+function buildOrderStartReply(storeName: string, menu: PublicMenuBotSnapshot | null) {
+  return [
+    `Para fazer seu pedido na ${storeName}, abra o cardapio online:`,
+    publicMenuUrlLine(menu),
+    storeOpenLine(menu),
+    "No cardapio voce escolhe entrega, retirada, mesa ou comanda quando estiver disponivel.",
+  ].filter(Boolean).join("\n");
+}
+
+function buildStoreHoursReply(storeName: string, menu: PublicMenuBotSnapshot | null) {
+  if (!menu) {
+    return [
+      `${storeName} ainda nao tem cardapio online publicado neste numero.`,
+      "Envie ATENDENTE para confirmar o horario diretamente com a loja.",
+    ].join("\n");
+  }
+
+  if (menu.store_open === false) {
+    return [
+      `No momento a ${storeName} esta fechada ou fora do horario de atendimento online.`,
+      "Voce ainda pode consultar o cardapio:",
+      publicMenuUrlLine(menu),
+      "Quando a loja voltar, os pedidos online ficam disponiveis novamente.",
+    ].join("\n");
+  }
+
+  return [
+    `${storeName} esta atendendo online agora.`,
+    waitTimeLine(menu),
+    "Cardapio:",
+    publicMenuUrlLine(menu),
+  ].filter(Boolean).join("\n");
+}
+
+function buildOrderStatusReply(storeName: string, menu: PublicMenuBotSnapshot | null, order: PublicOrderBotSnapshot | null) {
+  if (!order) {
+    return [
+      "Nao encontrei um pedido recente para este WhatsApp.",
+      "Se voce acabou de pedir, aguarde alguns instantes e envie STATUS novamente.",
+      "Para fazer um novo pedido:",
+      publicMenuUrlLine(menu),
+      "Para atendimento humano, envie ATENDENTE.",
+    ].filter(Boolean).join("\n");
+  }
+
+  const orderId = shortOrderId(order.id);
+  const status = normalizeOrderStatus(order.status);
+  const phrase = orderStatusPhrase(status, order.order_type);
+  const total = Number(order.total ?? 0) > 0 ? `Total: ${moneyText(Number(order.total))}.` : "";
+  const pdv = order.pdv_order_id ? `Referencia no PDV: ${order.pdv_order_id}.` : "";
+  return [
+    `Pedido ${orderId} - ${phrase}`,
+    total,
+    pdv,
+    status === "DESPACHADO" || status === "ROTA"
+      ? "Ele saiu para entrega e esta a caminho."
+      : "",
+    status === "PRONTO"
+      ? "Se for retirada, pode ir ate a loja. Se for entrega, aguarde a saida para rota."
+      : "",
+    status === "CANCELADO" || status === "ERRO"
+      ? `Se precisar conferir, envie ATENDENTE para falar com a ${storeName}.`
+      : "",
+  ].filter(Boolean).join("\n");
+}
+
+function buildHumanReply(storeName: string) {
+  return [
+    `Certo. Vou deixar registrado para o atendimento da ${storeName} continuar por aqui.`,
+    "Se for urgente, envie tambem o numero do pedido ou o nome usado no pedido.",
+  ].join("\n");
+}
+
+function buildFallbackReply(storeName: string, menu: PublicMenuBotSnapshot | null) {
+  return [
+    `Recebi sua mensagem no atendimento da ${storeName}.`,
+    "Para ver produtos e fazer pedido, envie CARDAPIO ou acesse:",
+    publicMenuUrlLine(menu),
+    "Para acompanhar pedido, envie STATUS. Para falar com atendente, envie ATENDENTE.",
+  ].filter(Boolean).join("\n");
+}
+
+function publicMenuUrlLine(menu: PublicMenuBotSnapshot | null) {
+  const slug = normalizePublicMenuSlug(menu?.slug);
+  return slug ? `${PUBLIC_MENU_BASE_URL}/${slugToPath(slug)}` : "Cardapio online ainda nao publicado.";
+}
+
+function storeOpenLine(menu: PublicMenuBotSnapshot | null) {
+  if (!menu) return "";
+  if (menu.store_open === false) {
+    return "A loja online esta fechada agora. O cardapio fica disponivel para consulta.";
+  }
+
+  return `Loja online aberta. ${waitTimeLine(menu)}`.trim();
+}
+
+function waitTimeLine(menu: PublicMenuBotSnapshot | null) {
+  if (!menu) return "";
+  const min = Math.max(1, Math.round(Number(menu.wait_min_minutes ?? 30) || 30));
+  const max = Math.max(min, Math.round(Number(menu.wait_max_minutes ?? 60) || 60));
+  if (!min || !max) return "";
+  return min === max
+    ? `Previsao media: ${min} min.`
+    : `Previsao media: ${min} a ${max} min.`;
+}
+
+function orderStatusPhrase(status: string, orderType: unknown) {
+  const type = String(orderType ?? "").toUpperCase();
+  const delivery = type === "DELIVERY";
+  switch (status) {
+    case "NOVO":
+    case "RECEBIDO":
+    case "IMPORTADO":
+    case "CONFIRMADO":
+    case "ACEITO":
+      return "recebido pela loja e aguardando preparo.";
+    case "AGUARDANDO":
+    case "PENDENTE":
+    case "PENDING":
+      return "aguardando confirmacao da loja.";
+    case "PREPARO":
+    case "PREPARANDO":
+      return "em preparo.";
+    case "PRONTO":
+      return delivery ? "pronto e aguardando sair para entrega." : "pronto para retirada/consumo.";
+    case "ROTA":
+    case "DESPACHADO":
+      return "saiu para entrega.";
+    case "ENTREGUE":
+    case "FINALIZADO":
+      return "entregue/finalizado.";
+    case "CANCELADO":
+    case "CANCELAMENTO":
+    case "EXPIRADO":
+    case "ERRO":
+      return "cancelado.";
+    default:
+      return "em acompanhamento pela loja.";
+  }
+}
+
+function normalizeOrderStatus(value: unknown) {
+  const status = String(value ?? "").toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+  return status === "IN_DELIVERY" || status === "ON_THE_WAY" ? "DESPACHADO" : status;
+}
+
+function shortOrderId(value: unknown) {
+  const clean = String(value ?? "").trim();
+  return clean ? clean.split("-")[0].toUpperCase() : "ONLINE";
+}
+
+function moneyText(value: number) {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+}
+
+function phoneMatches(left: string, right: unknown) {
+  const a = normalizePhone(left);
+  const b = normalizePhone(right);
+  return Boolean(a && b && (a === b || a.endsWith(b) || b.endsWith(a)));
+}
+
+function normalizePublicMenuSlug(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function slugToPath(slug: string) {
+  return encodeURIComponent(slug).replace(/%2F/gi, "/");
+}
+
+function normalizeBotText(value: unknown) {
+  return normalizeText(value)
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isBotIntent(text: string, terms: string[]) {
+  return terms.some((term) => {
+    const normalized = normalizeBotText(term);
+    return normalized && (` ${text} `).includes(` ${normalized} `);
+  });
+}
+
+function isSimpleGreetingIntent(text: string) {
+  return [
+    "oi",
+    "ola",
+    "bom dia",
+    "boa tarde",
+    "boa noite",
+    "e ai",
+    "quero atendimento",
+  ].includes(text);
+}
+
+function isThanksIntent(text: string) {
+  return ["obrigado", "obrigada", "valeu", "blz", "beleza"].includes(text);
+}
+
+function greetingForNow() {
+  const hour = Number(new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    hour: "2-digit",
+    hour12: false,
+  }).format(new Date()));
+  if (hour < 12) return "Bom dia";
+  if (hour < 18) return "Boa tarde";
+  return "Boa noite";
 }
 
 function findWhatsAppLicense(store: AdminStore, businessPhone: string, phoneNumberIdValue = "") {
