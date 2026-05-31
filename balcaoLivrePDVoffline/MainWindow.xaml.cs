@@ -55,6 +55,7 @@ public partial class MainWindow : Window
     private const string AppReceiptName = "BALCAO LIVRE PDV";
     private const string DefaultUpdateManifestUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/version.json";
     private const string DefaultAdminApiUrl = "https://balcaolivrepdv.onrender.com";
+    private const string DefaultCheckoutFunctionUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout";
     private const string SupabaseUrlEnvironment = "BALCAO_SUPABASE_URL";
     private const string SupabaseAnonKeyEnvironment = "BALCAO_SUPABASE_ANON_KEY";
     private static readonly CultureInfo Brazil = CultureInfo.GetCultureInfo("pt-BR");
@@ -73,6 +74,38 @@ public partial class MainWindow : Window
     private const string ServiceCode = "900002";
     private const double RibbonScrollStep = 260;
     private static readonly int[] ActivationWarningDays = [1, 3, 7, 15, 30];
+    private sealed record OnlineUpgradePlan(
+        string Badge,
+        string Name,
+        string Description,
+        string MonthlyPrice,
+        string AnnualPrice,
+        string MonthlyPlanId,
+        string AnnualPlanId,
+        string Features);
+
+    private static readonly OnlineUpgradePlan[] OnlineUpgradePlans =
+    [
+        new(
+            "Plano 2",
+            "PDV Hibrido Online",
+            "Cardapio digital e pedidos do iFood integrados ao caixa.",
+            "R$ 139,00",
+            "R$ 1.390,00",
+            "online-mensal",
+            "online-anual",
+            "Sem WhatsApp: ideal para cardapio online, iFood e operacao local."),
+        new(
+            "Plano 3",
+            "Completo com WhatsApp",
+            "Tudo do Hibrido + atendimento e pedidos pelo WhatsApp.",
+            "R$ 179,00",
+            "R$ 1.790,00",
+            "complete-mensal",
+            "complete-anual",
+            "Com WhatsApp: cardapio, iFood, atendimento e pedidos no mesmo fluxo.")
+    ];
+
     private readonly DispatcherTimer _toastTimer = new() { Interval = TimeSpan.FromSeconds(2.8) };
     private readonly DispatcherTimer _licenseTimer = new() { Interval = TimeSpan.FromSeconds(5) };
 
@@ -112,6 +145,7 @@ public partial class MainWindow : Window
     public ObservableCollection<CashMovement> CashMovements { get; } = [];
 
     private string StoreFile => Path.Combine(_dataRoot, "commandas-store.json");
+    private string StoreBackupFile => Path.Combine(_dataRoot, "commandas-store.bak.json");
     private string SettingsFile => Path.Combine(_dataRoot, "app-settings.json");
     private string ProfileFile => Path.Combine(_dataRoot, "restaurant-profile.json");
     private string ExportDir
@@ -1226,6 +1260,214 @@ public partial class MainWindow : Window
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
         ShowSettingsDialog();
+    }
+
+    private void OnlineUpgradeCard_Click(object sender, RoutedEventArgs e)
+    {
+        ShowOnlineUpgradeDialog();
+    }
+
+    private void ShowOnlineUpgradeDialog()
+    {
+        var dialog = CreateDialog("Trocar para PDV Online", 700, 470);
+        if (dialog is ModernDialogWindow upgradeDialog)
+        {
+            upgradeDialog.HeaderBackground = Solid("#082F43");
+            upgradeDialog.HeaderBorderBrush = Solid("#43D6C9");
+            upgradeDialog.HeaderTitleForeground = Brushes.White;
+            upgradeDialog.HeaderBadgeBackground = Brushes.Transparent;
+            upgradeDialog.HeaderBadgeForeground = Solid("#0B3A52");
+            upgradeDialog.HeaderBadgeIcon = new BitmapImage(new Uri("pack://application:,,,/Assets/app-icon.png", UriKind.Absolute));
+            upgradeDialog.CloseButtonBackground = Solid("#12495F");
+            upgradeDialog.CloseButtonBorderBrush = Solid("#43D6C9");
+            upgradeDialog.CloseButtonForeground = Brushes.White;
+        }
+
+        var panel = DialogPanel();
+        var status = new TextBlock
+        {
+            Foreground = Solid("#C9F6F2"),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+
+        var hero = new Border
+        {
+            Background = Solid("#0B3A52"),
+            BorderBrush = Solid("#43D6C9"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(16, 14, 16, 14),
+            Margin = new Thickness(0, 0, 0, 14)
+        };
+        hero.Child = new StackPanel
+        {
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Leve este caixa para o Online",
+                    Foreground = Brushes.White,
+                    FontSize = 24,
+                    FontWeight = FontWeights.Bold,
+                    TextWrapping = TextWrapping.Wrap
+                },
+                new TextBlock
+                {
+                    Text = "Cardapio digital, iFood e WhatsApp com checkout Stripe.",
+                    Foreground = Solid("#C9F6F2"),
+                    FontSize = 14,
+                    FontWeight = FontWeights.SemiBold,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 6, 0, 0)
+                }
+            }
+        };
+
+        var plansGrid = new UniformGrid
+        {
+            Columns = 2,
+            Rows = 1,
+            Margin = new Thickness(0, 0, 0, 2)
+        };
+
+        foreach (var plan in OnlineUpgradePlans)
+        {
+            plansGrid.Children.Add(CreateOnlineUpgradePlanCard(plan, status));
+        }
+
+        panel.Children.Add(hero);
+        panel.Children.Add(plansGrid);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Os valores sao os mesmos da landing page. O pagamento abre no Stripe pelo endpoint oficial do Balcao Livre PDV Online.",
+            Foreground = Solid("#C9F6F2"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 10, 0, 0)
+        });
+        panel.Children.Add(status);
+        dialog.Content = new Border
+        {
+            Background = Solid("#0B3A52"),
+            CornerRadius = new CornerRadius(0, 0, 10, 10),
+            Child = panel
+        };
+        dialog.ShowDialog();
+    }
+
+    private Border CreateOnlineUpgradePlanCard(OnlineUpgradePlan plan, TextBlock status)
+    {
+        var monthly = DialogButton($"Stripe mensal - {plan.MonthlyPrice}", "#0B3A52");
+        var annual = DialogButton($"Anual - {plan.AnnualPrice}", "#2F6FAE");
+        monthly.HorizontalAlignment = HorizontalAlignment.Stretch;
+        annual.HorizontalAlignment = HorizontalAlignment.Stretch;
+        monthly.Width = double.NaN;
+        annual.Width = double.NaN;
+        monthly.Margin = new Thickness(0, 12, 0, 0);
+        annual.Margin = new Thickness(0, 8, 0, 0);
+        monthly.Click += (_, _) => OpenCheckoutPlan(plan.MonthlyPlanId, status);
+        annual.Click += (_, _) => OpenCheckoutPlan(plan.AnnualPlanId, status);
+
+        var content = new StackPanel
+        {
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = plan.Name,
+                    Foreground = Solid("#18222B"),
+                    FontSize = 18,
+                    FontWeight = FontWeights.Bold,
+                    Margin = new Thickness(0, 3, 0, 0),
+                    TextWrapping = TextWrapping.Wrap
+                },
+                new Border
+                {
+                    Background = Solid(plan.MonthlyPlanId.StartsWith("complete", StringComparison.OrdinalIgnoreCase) ? "#E6FBF9" : "#EAF8FA"),
+                    BorderBrush = Solid(plan.MonthlyPlanId.StartsWith("complete", StringComparison.OrdinalIgnoreCase) ? "#43D6C9" : "#C9E8EF"),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(999),
+                    Padding = new Thickness(10, 4, 10, 4),
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    Margin = new Thickness(0, 8, 0, 0),
+                    Child = new TextBlock
+                    {
+                        Text = plan.MonthlyPlanId.StartsWith("complete", StringComparison.OrdinalIgnoreCase)
+                            ? "Cardapio + garcom no celular + Mercado Pago + iFood + WhatsApp"
+                            : "Cardapio + garcom no celular + Mercado Pago + iFood",
+                        Foreground = Solid("#0B3A52"),
+                        FontSize = 11,
+                        FontWeight = FontWeights.Bold,
+                        TextWrapping = TextWrapping.Wrap
+                    }
+                },
+                new TextBlock
+                {
+                    Text = plan.Description,
+                    Foreground = Solid("#405366"),
+                    FontSize = 13,
+                    FontWeight = FontWeights.SemiBold,
+                    Margin = new Thickness(0, 8, 0, 0),
+                    TextWrapping = TextWrapping.Wrap
+                },
+                new Border
+                {
+                    Background = Solid("#EAF8FA"),
+                    CornerRadius = new CornerRadius(7),
+                    Padding = new Thickness(10, 8, 10, 8),
+                    Margin = new Thickness(0, 12, 0, 0),
+                    Child = new TextBlock
+                    {
+                        Text = plan.Features,
+                        Foreground = Solid("#0B3A52"),
+                        FontSize = 12,
+                        FontWeight = FontWeights.SemiBold,
+                        TextWrapping = TextWrapping.Wrap
+                    }
+                },
+                monthly,
+                annual
+            }
+        };
+
+        return new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#D5DEE7"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(9),
+            Padding = new Thickness(14),
+            Margin = new Thickness(0, 0, 10, 0),
+            Child = content
+        };
+    }
+
+    private bool OpenCheckoutPlan(string planId, TextBlock? status = null)
+    {
+        var url = $"{DefaultCheckoutFunctionUrl.TrimEnd('/')}?plan={Uri.EscapeDataString(planId)}";
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            var message = "Checkout Stripe aberto no navegador.";
+            status ??= StatusText;
+            status.Text = message;
+            status.Foreground = Solid("#0B3A52");
+            SetStatus(message);
+            return true;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            var message = $"Nao consegui abrir o checkout: {ex.Message}";
+            if (status is not null)
+            {
+                status.Text = message;
+                status.Foreground = RedText;
+            }
+
+            SetStatus("Nao consegui abrir o checkout Stripe.");
+            return false;
+        }
     }
 
     private void ShowSettingsDialog()
@@ -2588,13 +2830,20 @@ public partial class MainWindow : Window
 
         VisibleProducts.Clear();
         foreach (var product in filtered
-                     .OrderByDescending(product => product.SoldQuantity)
-                     .ThenBy(product => product.Name))
+                     .OrderBy(ProductCodeSortKey)
+                     .ThenBy(product => product.Code, StringComparer.OrdinalIgnoreCase))
         {
             VisibleProducts.Add(product);
         }
 
         SelectProduct(0);
+    }
+
+    private static int ProductCodeSortKey(ProductTile product)
+    {
+        return int.TryParse(product.Code, NumberStyles.Integer, CultureInfo.InvariantCulture, out var code)
+            ? code
+            : int.MaxValue;
     }
 
     private void SelectProductByCode(string code)
@@ -3142,8 +3391,8 @@ public partial class MainWindow : Window
                     || product.Code.Contains(query, StringComparison.OrdinalIgnoreCase)
                     || product.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
                     || product.Category.Contains(query, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(product => product.Category)
-                .ThenBy(product => product.Name)
+                .OrderBy(ProductCodeSortKey)
+                .ThenBy(product => product.Code, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             list.ItemsSource = filtered;
             if (filtered.Count > 0) list.SelectedIndex = 0;
@@ -3252,6 +3501,7 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 0)
         };
+        var isCreatingProduct = true;
 
         var codeBox = new TextBox();
         var nameBox = new TextBox();
@@ -3351,7 +3601,7 @@ public partial class MainWindow : Window
                 productsList.SelectedItem = selected;
                 productsList.ScrollIntoView(selected);
             }
-            else if (filtered.Count > 0 && productsList.SelectedItem is null)
+            else if (!isCreatingProduct && filtered.Count > 0 && productsList.SelectedItem is null)
             {
                 productsList.SelectedIndex = 0;
             }
@@ -3367,8 +3617,93 @@ public partial class MainWindow : Window
             marginText.Foreground = profit < 0 ? RedText : profit == 0 ? Solid("#667684") : GreenText;
         }
 
+        static string NormalizeCategoryCandidate(string value)
+        {
+            var normalized = (value ?? "").Normalize(NormalizationForm.FormD);
+            var sb = new StringBuilder(normalized.Length);
+            foreach (var c in normalized)
+            {
+                if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+                {
+                    sb.Append(char.ToUpperInvariant(c));
+                }
+            }
+
+            return $" {sb} ";
+        }
+
+        static string SuggestedCategoryFromProductName(string productName)
+        {
+            var text = NormalizeCategoryCandidate(productName);
+            static bool HasAny(string text, params string[] words) => words.Any(word => text.Contains(word, StringComparison.OrdinalIgnoreCase));
+
+            if (HasAny(text, " PASTEL", " COXINHA", " KIBE", " QUIBE", " EMPADA", " ESFIHA", " RISSOLE", " RISOLE", " ENROLADINHO", " SALGADO", " PAO DE QUEIJO"))
+            {
+                return "SALGADOS";
+            }
+
+            if (HasAny(text, " AGUA", " REFRI", " REFRIGERANTE", " COCA", " GUARANA", " SUCO", " CERVEJA", " CAFE", " CHA", " VITAMINA", " ENERGETICO"))
+            {
+                return "BEBIDAS";
+            }
+
+            if (HasAny(text, " PIZZA", " BROTINHO", " CALZONE"))
+            {
+                return "PIZZAS";
+            }
+
+            if (HasAny(text, " HAMBURGUER", " BURGER", " X-", " X ", " LANCH", " HOT DOG", " CACHORRO QUENTE", " MISTO", " SANDUICHE", " BATATA FRITA"))
+            {
+                return "LANCHES";
+            }
+
+            if (HasAny(text, " MARMITA", " PRATO", " FEIJOADA", " ARROZ", " MACARRAO", " STROGONOFF", " ALMOCO", " JANTAR", " REFEICAO"))
+            {
+                return "REFEICOES";
+            }
+
+            if (HasAny(text, " BOLO", " TORTA", " PUDIM", " SORVETE", " ACAI", " DOCE", " SOBREMESA", " BRIGADEIRO", " MOUSSE"))
+            {
+                return "SOBREMESAS";
+            }
+
+            return "";
+        }
+
+        void ApplySuggestedCategory()
+        {
+            var suggested = SuggestedCategoryFromProductName(nameBox.Text);
+            if (string.IsNullOrWhiteSpace(suggested))
+            {
+                return;
+            }
+
+            var existingCategory = Categories
+                .Select(category => category.Name)
+                .FirstOrDefault(category => string.Equals(category, suggested, StringComparison.OrdinalIgnoreCase));
+            if (existingCategory is not null)
+            {
+                groupBox.SelectedItem = existingCategory;
+            }
+            else
+            {
+                groupBox.SelectedItem = null;
+                groupBox.Text = suggested;
+            }
+
+            sectorBox.SelectedItem = suggested switch
+            {
+                "BEBIDAS" => "BAR",
+                "PIZZAS" => "PIZZA",
+                "SOBREMESAS" => "SOBREMESA",
+                "SALGADOS" or "LANCHES" or "REFEICOES" => "COZINHA",
+                _ => sectorBox.SelectedItem
+            };
+        }
+
         void StartNewProduct()
         {
+            isCreatingProduct = true;
             productsList.SelectedIndex = -1;
             codeBox.Text = NextProductCode();
             nameBox.Text = "";
@@ -3390,6 +3725,7 @@ public partial class MainWindow : Window
 
         void LoadProduct(ProductTile product)
         {
+            isCreatingProduct = false;
             codeBox.Text = product.Code;
             nameBox.Text = product.Name;
             costBox.Text = product.CostPrice.ToString("N2", Brazil);
@@ -3411,6 +3747,7 @@ public partial class MainWindow : Window
             if (productsList.SelectedItem is ProductTile product) LoadProduct(product);
         };
         queryBox.TextChanged += (_, _) => RefreshProductList();
+        nameBox.TextChanged += (_, _) => ApplySuggestedCategory();
 
         bool SaveProduct()
         {
@@ -3454,11 +3791,31 @@ public partial class MainWindow : Window
                 groupBox.ItemsSource = Categories.Select(item => item.Name).ToList();
             }
 
-            var product = Products.FirstOrDefault(item => item.Code == code);
-            if (product is null)
+            ProductTile product;
+            if (isCreatingProduct || productsList.SelectedItem is not ProductTile selectedProduct)
             {
+                if (Products.Any(item => string.Equals(item.Code, code, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var nextCode = Products
+                        .Select(item => int.TryParse(item.Code, out var number) ? number : 0)
+                        .DefaultIfEmpty(0)
+                        .Max() + 1;
+                    code = nextCode.ToString("000000", Brazil);
+                }
+
                 product = new ProductTile();
                 Products.Add(product);
+            }
+            else
+            {
+                product = selectedProduct;
+                if (Products.Any(item => !ReferenceEquals(item, product) && string.Equals(item.Code, code, StringComparison.OrdinalIgnoreCase)))
+                {
+                    statusText.Foreground = RedText;
+                    statusText.Text = $"Codigo {code} ja esta em uso por outro produto.";
+                    FocusAndSelect(codeBox);
+                    return false;
+                }
             }
 
             product.Code = code;
@@ -3490,7 +3847,16 @@ public partial class MainWindow : Window
         var saveButton = DialogButton("Salvar produto", "#0F766E");
         saveButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         saveButton.Width = double.NaN;
-        saveButton.Click += (_, _) => SaveProduct();
+        saveButton.Click += (_, _) =>
+        {
+            var wasCreating = isCreatingProduct;
+            if (SaveProduct() && wasCreating)
+            {
+                StartNewProduct();
+                statusText.Foreground = GreenText;
+                statusText.Text = "Produto salvo. Cadastre o proximo produto.";
+            }
+        };
 
         void OnEnter(UIElement element, Action action)
         {
@@ -3607,14 +3973,7 @@ public partial class MainWindow : Window
         dialog.Content = root;
 
         RefreshProductList();
-        if (Products.Count == 0)
-        {
-            StartNewProduct();
-        }
-        else
-        {
-            productsList.SelectedIndex = 0;
-        }
+        StartNewProduct();
 
         nameBox.Focus();
         nameBox.SelectAll();
@@ -3994,7 +4353,11 @@ public partial class MainWindow : Window
         }
 
         var dialog = CreateDialog("Estoque operacional", 1020, 680);
-        var sortedProducts = Products.OrderBy(product => product.Category).ThenBy(product => product.Name).ToList();
+        var sortedProducts = Products
+            .OrderBy(ProductCodeSortKey)
+            .ThenBy(product => product.Code, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(product => product.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
         var qtyBox = new TextBox();
         var minBox = new TextBox();
         var movementBox = new TextBox { Text = "1" };
@@ -4270,8 +4633,14 @@ public partial class MainWindow : Window
             button.HorizontalAlignment = HorizontalAlignment.Stretch;
             button.Width = double.NaN;
         }
-        inButton.Margin = new Thickness(0, 8, 6, 0);
-        outButton.Margin = new Thickness(6, 8, 0, 0);
+        foreach (var button in new[] { inButton, outButton })
+        {
+            button.Height = 32;
+            button.FontSize = 12;
+            button.Padding = new Thickness(12, 0, 12, 0);
+        }
+        inButton.Margin = new Thickness(0, 6, 6, 0);
+        outButton.Margin = new Thickness(6, 6, 0, 0);
 
         var movementButtons = new UniformGrid
         {
@@ -4694,55 +5063,83 @@ public partial class MainWindow : Window
             selectedSourceIndex = 0;
         }
 
-        var dialog = CreateDialog("Transferencia de comanda completa", 1060, 650);
+        var dialog = CreateDialog("Transferir comanda", 1220, 760);
+        if (dialog is ModernDialogWindow transferDialog)
+        {
+            transferDialog.HeaderBackground = Solid("#0F766E");
+            transferDialog.HeaderBorderBrush = Solid("#0A5C55");
+            transferDialog.HeaderTitleForeground = Brushes.White;
+            transferDialog.HeaderBadgeBackground = Solid("#DDF7F2");
+            transferDialog.HeaderBadgeForeground = Solid("#0F766E");
+            transferDialog.CloseButtonBackground = Solid("#0A5C55");
+            transferDialog.CloseButtonBorderBrush = Solid("#57D8CB");
+            transferDialog.CloseButtonForeground = Brushes.White;
+        }
+
         var transferBoardTemplate = (DataTemplate)FindResource("TransferBoardTemplate");
         var sourceList = new ListBox
         {
             ItemsSource = sources,
             ItemTemplate = transferBoardTemplate,
             ItemContainerStyle = TransferListBoxItemStyle(),
-            Height = 286,
+            Height = 225,
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
-            Margin = new Thickness(0, 10, 0, 0)
+            Margin = new Thickness(0, 12, 0, 0)
         };
         var destinationList = new ListBox
         {
             ItemTemplate = transferBoardTemplate,
             ItemContainerStyle = TransferListBoxItemStyle(),
-            Height = 286,
+            Height = 285,
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
-            Margin = new Thickness(0, 10, 0, 12)
+            Margin = new Thickness(0, 14, 0, 12)
         };
         var selectedDestination = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#245B91"),
+            Foreground = Solid("#0B3D39"),
             FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 0, 0, 8)
+            FontSize = 14
+        };
+        var destinationSummary = new Border
+        {
+            Background = Solid("#E8F7F4"),
+            BorderBrush = Solid("#A9D8D1"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(16, 14, 16, 14),
+            Margin = new Thickness(0, 0, 0, 14),
+            Child = selectedDestination
         };
         var sourceDetails = new StackPanel();
 
         Border Card(string title, string subtitle, UIElement content, string color)
         {
-            var stack = new StackPanel { Margin = new Thickness(16, 14, 16, 16) };
-            stack.Children.Add(new TextBlock { Text = title, Foreground = Solid("#18222B"), FontSize = 17, FontWeight = FontWeights.Bold });
-            stack.Children.Add(new TextBlock { Text = subtitle, Foreground = Solid("#667684"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 12) });
+            var stack = new StackPanel { Margin = new Thickness(22, 20, 22, 22) };
+            stack.Children.Add(new TextBlock { Text = title, Foreground = Solid("#18222B"), FontSize = 22, FontWeight = FontWeights.Bold });
+            stack.Children.Add(new TextBlock { Text = subtitle, Foreground = Solid("#667684"), FontSize = 14, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 16) });
             stack.Children.Add(content);
+            Grid.SetRow(stack, 1);
             return new Border
             {
                 Background = Brushes.White,
                 BorderBrush = Solid("#D8E2EC"),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(10),
+                CornerRadius = new CornerRadius(14),
                 Padding = new Thickness(0),
-                Margin = new Thickness(0, 0, 0, 12),
+                Margin = new Thickness(0),
                 Child = new Grid
                 {
+                    RowDefinitions =
+                    {
+                        new RowDefinition { Height = new GridLength(5) },
+                        new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }
+                    },
                     Children =
                     {
-                        new Border { Width = 4, Background = Solid(color), HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(10, 0, 0, 10) },
+                        new Border { Background = Solid(color), CornerRadius = new CornerRadius(14, 14, 0, 0) },
                         stack
                     }
                 }
@@ -4844,9 +5241,12 @@ public partial class MainWindow : Window
             }
 
             var mode = destination.Lines.Count > 0 || destination.Payments.Count > 0
-                ? "Destino ocupado: as comandas serao juntadas."
-                : "Destino livre: a comanda sera movida inteira.";
-            selectedDestination.Text = $"{BoardKindLabel(destination)} {destination.Number} - {destination.Status} - {Money(destination.Total)}\n{mode}";
+                ? "Juntar comandas"
+                : "Mover comanda";
+            var explanation = destination.Lines.Count > 0 || destination.Payments.Count > 0
+                ? "Destino ocupado: os itens da origem serao somados ao destino."
+                : "Destino livre: a origem fica vazia e o pedido passa inteiro para o destino.";
+            selectedDestination.Text = $"{mode}\nDestino: {BoardKindLabel(destination)} {destination.Number} - {destination.Status} - {Money(destination.Total)}\n{explanation}";
         }
 
         void RefreshDestinationOptions()
@@ -4919,27 +5319,76 @@ public partial class MainWindow : Window
         };
 
         var sourcePanel = new StackPanel();
-        sourcePanel.Children.Add(new TextBlock { Text = "Escolha qual comanda vai sair do lugar atual.", Foreground = Solid("#667684"), TextWrapping = TextWrapping.Wrap });
+        sourcePanel.Children.Add(new TextBlock { Text = "1. Selecione a comanda que sera transferida.", Foreground = Solid("#667684"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         sourcePanel.Children.Add(sourceList);
         sourcePanel.Children.Add(new Border { Height = 1, Background = Solid("#D8E2EC"), Margin = new Thickness(0, 10, 0, 10) });
         sourcePanel.Children.Add(sourceDetails);
         var destinationPanel = new StackPanel();
-        destinationPanel.Children.Add(selectedDestination);
+        destinationPanel.Children.Add(new TextBlock { Text = "2. Selecione o destino e confirme a acao.", Foreground = Solid("#667684"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12) });
+        destinationPanel.Children.Add(destinationSummary);
         destinationPanel.Children.Add(destinationList);
         destinationPanel.Children.Add(transferButton);
 
-        var grid = new Grid { Margin = new Thickness(18) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star) });
+        var instruction = new Border
+        {
+            Background = Solid("#E8F7F4"),
+            BorderBrush = Solid("#A9D8D1"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(18, 14, 18, 14),
+            Margin = new Thickness(0, 0, 0, 18),
+            Child = new TextBlock
+            {
+                Text = "Mover troca a comanda para um destino livre. Juntar soma a origem em um destino ocupado.",
+                Foreground = Solid("#0B3D39"),
+                FontSize = 15,
+                FontWeight = FontWeights.Bold,
+                TextWrapping = TextWrapping.Wrap
+            }
+        };
+
+        var workGrid = new Grid();
+        workGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        workGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(68) });
+        workGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star) });
         var left = new StackPanel();
-        left.Children.Add(Card("Origem", "Selecione a comanda completa que sera transferida.", sourcePanel, "#245B91"));
+        left.Children.Add(Card("Origem", "Selecione a comanda completa que sera transferida.", sourcePanel, "#0F766E"));
         Grid.SetColumn(left, 0);
-        grid.Children.Add(left);
+        workGrid.Children.Add(left);
+        var arrow = new Border
+        {
+            Width = 46,
+            Height = 46,
+            Background = Brushes.White,
+            BorderBrush = Solid("#D8E2EC"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(23),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = ">",
+                Foreground = Solid("#0F766E"),
+                FontSize = 28,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+        Grid.SetColumn(arrow, 1);
+        workGrid.Children.Add(arrow);
         var right = new StackPanel();
         right.Children.Add(Card("Destino", "Escolha para onde mover a comanda completa.", destinationPanel, "#0F766E"));
         Grid.SetColumn(right, 2);
-        grid.Children.Add(right);
+        workGrid.Children.Add(right);
+
+        var grid = new Grid { Margin = new Thickness(26), Background = Solid("#EEF2F5") };
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        Grid.SetRow(instruction, 0);
+        Grid.SetRow(workGrid, 1);
+        grid.Children.Add(instruction);
+        grid.Children.Add(workGrid);
         dialog.Content = grid;
         sourceList.SelectedIndex = selectedSourceIndex;
         RefreshSourceDetails();
@@ -4991,7 +5440,15 @@ public partial class MainWindow : Window
         style.Setters.Add(new Setter(Control.MarginProperty, new Thickness(0, 0, 0, 8)));
         style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
         style.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
+        style.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.Transparent));
+        style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0)));
         style.Setters.Add(new Setter(Control.FocusVisualStyleProperty, null));
+        var template = new ControlTemplate(typeof(ListBoxItem));
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, new TemplateBindingExtension(Control.HorizontalContentAlignmentProperty));
+        presenter.SetValue(ContentPresenter.VerticalAlignmentProperty, new TemplateBindingExtension(Control.VerticalContentAlignmentProperty));
+        template.VisualTree = presenter;
+        style.Setters.Add(new Setter(Control.TemplateProperty, template));
         return style;
     }
 
@@ -7981,6 +8438,14 @@ public partial class MainWindow : Window
         style.Setters.Add(new Setter(Control.BorderBrushProperty, Solid("#BFD1E2")));
         style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
         style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(10, 0, 8, 0)));
+        style.Setters.Add(new Setter(Control.VerticalContentAlignmentProperty, VerticalAlignment.Center));
+        style.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
+
+        var itemStyle = new Style(typeof(ComboBoxItem));
+        itemStyle.Setters.Add(new Setter(Control.MinHeightProperty, 34d));
+        itemStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(10, 7, 10, 7)));
+        itemStyle.Setters.Add(new Setter(Control.VerticalContentAlignmentProperty, VerticalAlignment.Center));
+        style.Setters.Add(new Setter(ItemsControl.ItemContainerStyleProperty, itemStyle));
         return style;
     }
 
@@ -8062,6 +8527,16 @@ public partial class MainWindow : Window
     {
         private bool _isApplyingShell;
 
+        public Brush HeaderBackground { get; set; } = Solid("#F8FBFD");
+        public Brush HeaderBorderBrush { get; set; } = Solid("#D5DEE7");
+        public Brush HeaderTitleForeground { get; set; } = Solid("#18222B");
+        public Brush HeaderBadgeBackground { get; set; } = Solid("#E8F1FA");
+        public Brush HeaderBadgeForeground { get; set; } = Solid("#245B91");
+        public ImageSource? HeaderBadgeIcon { get; set; }
+        public Brush CloseButtonBackground { get; set; } = Solid("#EEF4F8");
+        public Brush CloseButtonBorderBrush { get; set; } = Solid("#D5DEE7");
+        public Brush CloseButtonForeground { get; set; } = Solid("#425466");
+
         public ModernDialogWindow()
         {
             WindowStyle = WindowStyle.None;
@@ -8108,8 +8583,8 @@ public partial class MainWindow : Window
 
             var header = new Border
             {
-                Background = Solid("#F8FBFD"),
-                BorderBrush = Solid("#D5DEE7"),
+                Background = HeaderBackground,
+                BorderBrush = HeaderBorderBrush,
                 BorderThickness = new Thickness(0, 0, 0, 1),
                 CornerRadius = new CornerRadius(10, 10, 0, 0)
             };
@@ -8130,16 +8605,27 @@ public partial class MainWindow : Window
             {
                 Width = 28,
                 Height = 28,
-                Background = Solid("#E8F1FA"),
+                Background = HeaderBadgeBackground,
                 CornerRadius = new CornerRadius(7),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Center,
-                Child = new TextBlock
+                ClipToBounds = true,
+                Child = HeaderBadgeIcon is null
+                    ? new TextBlock
+                    {
+                        Text = "PDV",
+                        Foreground = HeaderBadgeForeground,
+                        FontSize = 10,
+                        FontWeight = FontWeights.Bold,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
+                    : new System.Windows.Controls.Image
                 {
-                    Text = "PDV",
-                    Foreground = Solid("#245B91"),
-                    FontSize = 10,
-                    FontWeight = FontWeights.Bold,
+                    Source = HeaderBadgeIcon,
+                    Width = 28,
+                    Height = 28,
+                    Stretch = Stretch.UniformToFill,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 }
@@ -8148,7 +8634,7 @@ public partial class MainWindow : Window
             var titleText = new TextBlock
             {
                 Text = Title,
-                Foreground = Solid("#18222B"),
+                Foreground = HeaderTitleForeground,
                 FontSize = 15,
                 FontWeight = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -8161,10 +8647,10 @@ public partial class MainWindow : Window
                 Content = "X",
                 Width = 30,
                 Height = 30,
-                Background = Solid("#EEF4F8"),
-                BorderBrush = Solid("#D5DEE7"),
+                Background = CloseButtonBackground,
+                BorderBrush = CloseButtonBorderBrush,
                 BorderThickness = new Thickness(1),
-                Foreground = Solid("#425466"),
+                Foreground = CloseButtonForeground,
                 FontWeight = FontWeights.Bold,
                 Cursor = Cursors.Hand,
                 FocusVisualStyle = null,
@@ -10379,7 +10865,15 @@ public partial class MainWindow : Window
     private void WriteStoreFile(AppStore store)
     {
         Directory.CreateDirectory(_dataRoot);
-        File.WriteAllText(StoreFile, JsonSerializer.Serialize(store, JsonOptions), Encoding.UTF8);
+        if (File.Exists(StoreFile))
+        {
+            File.Copy(StoreFile, StoreBackupFile, overwrite: true);
+        }
+
+        var tempFile = StoreFile + ".tmp";
+        File.WriteAllText(tempFile, JsonSerializer.Serialize(store, JsonOptions), Encoding.UTF8);
+        File.Copy(tempFile, StoreFile, overwrite: true);
+        File.Delete(tempFile);
     }
 
     private static void NormalizeLoadedUser(UserAccount user)

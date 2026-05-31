@@ -185,32 +185,38 @@
         </DataTemplate>
 
         <DataTemplate x:Key="TransferBoardTemplate">
-            <Border x:Name="TransferCard" Background="#F8FBFE" BorderBrush="#D8E2EC" BorderThickness="1" CornerRadius="9" Padding="12">
-                <DockPanel LastChildFill="True">
-                    <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Margin="12,0,0,0">
-                        <TextBlock Text="{Binding TransferTotalText}" Foreground="#0F766E" FontSize="15" FontWeight="Bold" HorizontalAlignment="Right"/>
-                        <Border Background="{Binding TileBrush}" CornerRadius="7" Padding="7,2" Margin="0,6,0,0" HorizontalAlignment="Right">
+            <Border x:Name="TransferCard" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,0,0,10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="18"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Ellipse Width="13" Height="13" Fill="{Binding TileBrush}" VerticalAlignment="Top" Margin="0,4,0,0"/>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="{Binding DisplayTitle}" Foreground="#18222B" FontSize="18" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding TransferSubtitle}" Foreground="#667684" FontSize="12" Margin="0,5,0,0" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding TransferHint}" Foreground="#0F5F58" FontSize="12" FontWeight="SemiBold" Margin="0,7,0,0"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" HorizontalAlignment="Right" Margin="14,0,0,0">
+                        <TextBlock Text="{Binding TransferTotalText}" Foreground="#0F766E" FontSize="18" FontWeight="Bold" HorizontalAlignment="Right"/>
+                        <Border Background="{Binding TileBrush}" CornerRadius="8" Padding="8,3" Margin="0,8,0,0" HorizontalAlignment="Right">
                             <TextBlock Text="{Binding Status}" Foreground="#17351F" FontSize="10" FontWeight="Bold"/>
                         </Border>
                     </StackPanel>
-                    <StackPanel>
-                        <TextBlock Text="{Binding DisplayTitle}" Foreground="#18222B" FontSize="15" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="{Binding TransferSubtitle}" Foreground="#667684" FontSize="12" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="{Binding TransferHint}" Foreground="#245B91" FontSize="11" FontWeight="SemiBold" Margin="0,5,0,0"/>
-                    </StackPanel>
-                </DockPanel>
+                </Grid>
             </Border>
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsSelected}" Value="True">
-                    <Setter TargetName="TransferCard" Property="Background" Value="#EAF4FF"/>
-                    <Setter TargetName="TransferCard" Property="BorderBrush" Value="#245B91"/>
+                    <Setter TargetName="TransferCard" Property="Background" Value="#E8F7F4"/>
+                    <Setter TargetName="TransferCard" Property="BorderBrush" Value="#0F766E"/>
                     <Setter TargetName="TransferCard" Property="BorderThickness" Value="2"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
 
         <DataTemplate x:Key="ModeTemplate">
-            <Border x:Name="ModeRoot" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="1" CornerRadius="9" Padding="20,0" Height="34" MinWidth="110">
+            <Border x:Name="ModeRoot" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="1" CornerRadius="9" Padding="22,0" Height="38" MinWidth="120" Margin="0,2" SnapsToDevicePixels="True">
                 <TextBlock x:Name="ModeText" Text="{Binding}" Foreground="{StaticResource Ink}" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <DataTemplate.Triggers>
@@ -294,14 +300,14 @@
         </DataTemplate>
 
         <DataTemplate x:Key="TicketLineTemplate">
-            <Border x:Name="LineRoot" BorderBrush="#DFE7EE" BorderThickness="0,0,0,1" Padding="8,7">
+            <Border x:Name="LineRoot" BorderBrush="#DFE7EE" BorderThickness="0,0,0,1" Padding="8,5">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="58"/>
+                        <ColumnDefinition Width="72"/>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="36"/>
-                        <ColumnDefinition Width="78"/>
-                        <ColumnDefinition Width="62"/>
+                        <ColumnDefinition Width="56"/>
+                        <ColumnDefinition Width="92"/>
+                        <ColumnDefinition Width="72"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Text="{Binding Code}" Foreground="{StaticResource Muted}" FontSize="12" TextTrimming="CharacterEllipsis"/>
                     <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="{StaticResource Ink}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
@@ -316,7 +322,7 @@
                             BorderThickness="1"
                             FontWeight="SemiBold"
                             Height="24"
-                            Padding="6,0"
+                            Padding="8,0"
                             Margin="8,-2,0,-2"
                             Cursor="Hand"/>
                 </Grid>
@@ -328,7 +334,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="54"/>
             <RowDefinition Height="118"/>
-            <RowDefinition Height="46"/>
+            <RowDefinition Height="50"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="34"/>
         </Grid.RowDefinitions>
@@ -350,6 +356,7 @@
                 </Grid>
                 <Grid Grid.Column="1" VerticalAlignment="Center" Margin="0,0,14,0">
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
@@ -358,6 +365,53 @@
                         <TextBlock x:Name="BrandMetaText" Text="PDV offline 100%" Foreground="#DDEBFA" FontSize="11"/>
                     </StackPanel>
                     <Button Grid.Column="1"
+                            x:Name="OnlineUpgradeCard"
+                            Height="40"
+                            MinWidth="238"
+                            MaxWidth="280"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            Margin="0,0,14,0"
+                            Background="#0B3A52"
+                            BorderBrush="#43D6C9"
+                            BorderThickness="1"
+                            Foreground="White"
+                            Cursor="Hand"
+                            FocusVisualStyle="{x:Null}"
+                            Click="OnlineUpgradeCard_Click"
+                            ToolTip="Ver plano online com checkout Stripe">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        CornerRadius="8"
+                                        Padding="9,4">
+                                    <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="#0F4B68"/>
+                                        <Setter Property="BorderBrush" Value="#74EFE5"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="PDV ONLINE" Foreground="#D9FFFB" FontSize="11" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="Cardapio + iFood + WhatsApp" Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                            <Border Grid.Column="1" Background="#43D6C9" CornerRadius="10" Padding="8,2" VerticalAlignment="Center" Margin="10,0,0,0">
+                                <TextBlock Text="Ver" Foreground="#0B3A52" FontSize="11" FontWeight="Bold"/>
+                            </Border>
+                        </Grid>
+                    </Button>
+                    <Button Grid.Column="2"
                         MinWidth="92"
                         Height="34"
                         HorizontalAlignment="Left"
@@ -464,8 +518,10 @@
                      SelectionChanged="ModeList_SelectionChanged"
                      BorderThickness="0"
                      Background="Transparent"
-                     Margin="12,6,0,6"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                     Margin="12,4,0,4"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                     ClipToBounds="False">
                 <ListBox.ItemsPanel>
                     <ItemsPanelTemplate>
                         <StackPanel Orientation="Horizontal"/>
@@ -479,86 +535,85 @@
 
         <Grid Grid.Row="3" Margin="10">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="440"/>
+                <ColumnDefinition Width="540"/>
                 <ColumnDefinition Width="330"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0" Style="{StaticResource PanelCard}" Margin="0,0,10,0">
-                <Grid Margin="12">
+                <Grid Margin="14">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
-                        <RowDefinition Height="86"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock x:Name="CommandTitleText" Text="Comanda" Foreground="{StaticResource Ink}" FontSize="24" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="CommandTitleText" Text="Comanda" Foreground="{StaticResource Ink}" FontSize="28" FontWeight="SemiBold"/>
 
-                    <Grid Grid.Row="1" Margin="0,12,0,8">
+                    <Grid Grid.Row="1" Margin="0,10,0,6">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="88"/>
-                            <ColumnDefinition Width="96"/>
+                            <ColumnDefinition Width="112"/>
+                            <ColumnDefinition Width="112"/>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="58"/>
+                            <ColumnDefinition Width="64"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel>
-                            <TextBlock x:Name="TableFieldLabel" Text="Mesa / cliente" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
-                            <TextBox x:Name="TableBox" Text="000001" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
+                            <TextBlock x:Name="TableFieldLabel" Text="Mesa / cliente" Foreground="{StaticResource Muted}" FontSize="13" FontWeight="SemiBold"/>
+                            <TextBox x:Name="TableBox" Text="000001" Height="38" FontSize="15" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Margin="8,0,0,0">
-                            <TextBlock x:Name="WaiterFieldLabel" Text="Oper/Garcom" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
-                            <TextBox x:Name="WaiterBox" Text="1" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
+                            <TextBlock x:Name="WaiterFieldLabel" Text="Oper/Garcom" Foreground="{StaticResource Muted}" FontSize="13" FontWeight="SemiBold"/>
+                            <TextBox x:Name="WaiterBox" Text="1" Height="38" FontSize="15" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
                         </StackPanel>
                         <StackPanel Grid.Column="2" Margin="8,0,0,0">
-                            <TextBlock Text="Codigo" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
-                            <TextBox x:Name="CodeBox" Text="" TextChanged="CodeBox_TextChanged" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
+                            <TextBlock Text="Codigo" Foreground="{StaticResource Muted}" FontSize="13" FontWeight="SemiBold"/>
+                            <TextBox x:Name="CodeBox" Text="" Height="38" FontSize="15" TextChanged="CodeBox_TextChanged" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
                         </StackPanel>
                         <StackPanel Grid.Column="3" Margin="8,0,0,0">
-                            <TextBlock Text="Qtd" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
-                            <TextBox x:Name="QuantityBox" Text="1" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
+                            <TextBlock Text="Qtd" Foreground="{StaticResource Muted}" FontSize="13" FontWeight="SemiBold"/>
+                            <TextBox x:Name="QuantityBox" Text="1" Height="38" FontSize="15" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
                         </StackPanel>
                     </Grid>
 
                     <Grid Grid.Row="2" Margin="0,0,0,10">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="86"/>
+                            <ColumnDefinition Width="110"/>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="112"/>
+                            <ColumnDefinition Width="130"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel>
-                            <TextBlock Text="Couvert" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
-                            <TextBox x:Name="PriceBox" Text="0,00" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
+                            <TextBlock Text="Couvert" Foreground="{StaticResource Muted}" FontSize="13" FontWeight="SemiBold"/>
+                            <TextBox x:Name="PriceBox" Text="0,00" Height="38" FontSize="15" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Margin="8,0,0,0">
-                            <TextBlock Text="% Garcom" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
-                            <TextBox x:Name="NoteBox" Text="10" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
+                            <TextBlock Text="% Garcom" Foreground="{StaticResource Muted}" FontSize="13" FontWeight="SemiBold"/>
+                            <TextBox x:Name="NoteBox" Text="10" Height="38" FontSize="15" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
                         </StackPanel>
-                        <Button Grid.Column="2" x:Name="ChargeToggleButton" Content="Ativar" Click="ConfirmInclude_Click" Style="{StaticResource CommandButton}" Margin="8,19,0,0"/>
+                        <Button Grid.Column="2" x:Name="ChargeToggleButton" Content="Ativar" Click="ConfirmInclude_Click" Style="{StaticResource CommandButton}" Height="42" Margin="10,18,0,0"/>
                     </Grid>
 
-                    <Border Grid.Row="3" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="6">
+                    <Border Grid.Row="3" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="7" MinHeight="126">
                         <Grid>
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="30"/>
+                                <RowDefinition Height="34"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
                             <Border Background="#F3F6F8" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
                                 <Grid Margin="8,0">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="58"/>
+                                        <ColumnDefinition Width="72"/>
                                         <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="36"/>
-                                        <ColumnDefinition Width="78"/>
-                                        <ColumnDefinition Width="62"/>
+                                        <ColumnDefinition Width="56"/>
+                                        <ColumnDefinition Width="92"/>
+                                        <ColumnDefinition Width="72"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Codigo" VerticalAlignment="Center" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
-                                    <TextBlock Grid.Column="1" Text="Produto" VerticalAlignment="Center" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
-                                    <TextBlock Grid.Column="2" Text="Qtd" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
-                                    <TextBlock Grid.Column="3" Text="Total" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
-                                    <TextBlock Grid.Column="4" Text="Acao" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
+                                    <TextBlock Text="Codigo" VerticalAlignment="Center" Foreground="{StaticResource Muted}" FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="1" Text="Produto" VerticalAlignment="Center" Foreground="{StaticResource Muted}" FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="2" Text="Qtd" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{StaticResource Muted}" FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="3" Text="Total" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource Muted}" FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="4" Text="Acao" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource Muted}" FontSize="13" FontWeight="SemiBold"/>
                                 </Grid>
                             </Border>
                             <ListBox Grid.Row="1"
@@ -566,25 +621,33 @@
                                      ItemsSource="{Binding TicketLines}"
                                      ItemTemplate="{StaticResource TicketLineTemplate}"
                                      SelectionMode="Single"
+                                     ScrollViewer.VerticalScrollBarVisibility="Disabled"
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                     HorizontalContentAlignment="Stretch"/>
+                                     HorizontalContentAlignment="Stretch">
+                                <ListBox.Template>
+                                    <ControlTemplate TargetType="ListBox">
+                                        <ItemsPresenter/>
+                                    </ControlTemplate>
+                                </ListBox.Template>
+                                <ListBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel/>
+                                    </ItemsPanelTemplate>
+                                </ListBox.ItemsPanel>
+                            </ListBox>
                         </Grid>
                     </Border>
 
-                    <Border Grid.Row="4" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="6" Margin="0,10,0,0">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="28"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-                            <Border Background="#F3F6F8" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
-                                <TextBlock Text="Pagamentos antecipados / saldo" Foreground="{StaticResource Muted}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0"/>
-                            </Border>
-                            <ListBox Grid.Row="1" x:Name="PaymentsList" ItemsSource="{Binding Payments}" DisplayMemberPath="Display"/>
-                        </Grid>
-                    </Border>
+                    <ListBox x:Name="PaymentsList"
+                             Grid.Row="4"
+                             Height="0"
+                             Visibility="Collapsed"
+                             ItemsSource="{Binding Payments}"
+                             DisplayMemberPath="Display"
+                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
 
-                    <Grid Grid.Row="5" Margin="0,12,0,0">
+                    <Grid Grid.Row="4" Margin="0,8,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
