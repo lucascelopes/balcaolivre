@@ -17,7 +17,7 @@ const bingSiteVerification =
   process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION ||
   process.env.BING_SITE_VERIFICATION ||
   "";
-const gaMeasurementId = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || "";
+const gaMeasurementId = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || "G-CPJ89TNX9Q";
 const clarityProjectId = process.env.NEXT_PUBLIC_CLARITY_PROJECT_ID || "";
 const publicMenuSupabaseUrl = process.env.BALCAO_SUPABASE_URL || "https://hzvplpotsdzxygkxrgyi.supabase.co";
 const publicMenuPublishableKey =
