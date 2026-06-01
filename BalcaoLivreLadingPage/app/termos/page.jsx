@@ -3,7 +3,10 @@ import SiteHeader from "../SiteHeader";
 export const metadata = {
   title: "Termos, condicoes e privacidade | Balcao Livre PDV",
   description:
-    "Termos de uso, politica de privacidade, regras de app stores, WhatsApp Cloud, dados e suporte do Balcao Livre PDV."
+    "Termos de uso, politica de privacidade, regras de app stores, WhatsApp Cloud, dados e suporte do Balcao Livre PDV.",
+  alternates: {
+    canonical: "/termos/"
+  }
 };
 
 export default function TermsPage() {

@@ -2,6 +2,7 @@ import CashierDemo from "./CashierDemo";
 import PaymentSuccess from "./PaymentSuccess";
 import SiteHeader from "./SiteHeader";
 import { checkoutFunctionUrl, downloadUrl, onlineDownloadUrl, sellers } from "./siteLinks";
+import { absoluteUrl, defaultDescription, defaultTitle, siteName, siteUrl } from "./seo";
 
 const modules = [
   ["01", "Caixa e pagamentos", "Venda por codigo, quantidade, desconto, Pix, dinheiro, credito, debito e troco calculado."],
@@ -113,12 +114,71 @@ const faqs = [
   ["Posso testar antes de contratar?", "Sim. A pagina tem demo do caixa e o instalador Windows para conhecer o fluxo. Para Online, chame no WhatsApp e alinhamos seu cenario."]
 ];
 
+const landingJsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: siteName,
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Windows",
+    url: siteUrl,
+    image: absoluteUrl("/brand/pdv-online-screen.png"),
+    description: defaultDescription,
+    offers: plans
+      .filter((plan) => !plan.whatsappOnly)
+      .flatMap((plan) => [
+        {
+          "@type": "Offer",
+          name: `${plan.title} mensal`,
+          price: plan.monthly.replace("R$ ", "").replace(".", "").replace(",", "."),
+          priceCurrency: "BRL",
+          availability: "https://schema.org/InStock",
+          url: `${siteUrl}/#planos`
+        },
+        {
+          "@type": "Offer",
+          name: `${plan.title} anual`,
+          price: plan.annual.replace("R$ ", "").replace(".", "").replace(",", "."),
+          priceCurrency: "BRL",
+          availability: "https://schema.org/InStock",
+          url: `${siteUrl}/#planos`
+        }
+      ])
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqs.map(([question, answer]) => ({
+      "@type": "Question",
+      name: question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: answer
+      }
+    }))
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: defaultTitle,
+    url: siteUrl,
+    description: defaultDescription,
+    inLanguage: "pt-BR"
+  }
+];
+
 function SellerLinks() {
   return (
     <div className="lpSellerBox">
       <span>Comprar no WhatsApp</span>
       {sellers.map((seller) => (
-        <a key={seller.name} href={seller.href}>
+        <a
+          key={seller.name}
+          href={seller.href}
+          data-analytics-action="whatsapp_click"
+          data-analytics-seller={seller.name}
+          data-analytics-location="seller_box"
+        >
           {seller.name} {seller.phone}
         </a>
       ))}
@@ -135,6 +195,10 @@ export default function Page({ searchParams }) {
 
   return (
     <main className="lpPage">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(landingJsonLd) }}
+      />
       <SiteHeader id="inicio" />
 
       <section className="lpHero lpHeroProduct lpHeroDark">
@@ -145,7 +209,14 @@ export default function Page({ searchParams }) {
             Caixa, mesas, delivery, estoque, garcom web, iFood, WhatsApp e Mercado Pago em uma rotina so.
           </p>
           <div className="lpHeroActions">
-            <a className="lpSolidButton lpLargeButton" href="#planos">Ver planos e comprar</a>
+            <a
+              className="lpSolidButton lpLargeButton"
+              href="#planos"
+              data-analytics-action="plans_view_click"
+              data-analytics-location="hero"
+            >
+              Ver planos e comprar
+            </a>
             <a className="lpGhostButton lpLargeButton" href="#beneficios">Ver beneficios</a>
             <a className="lpGhostButton lpLargeButton" href="#demo-pdv">Testar demo</a>
           </div>
@@ -202,7 +273,14 @@ export default function Page({ searchParams }) {
             <div className="lpInstallerTop"><span>Offline</span><b>Caixa local</b></div>
             <h3>Instalador PDV Offline</h3>
             <p>Para testar o caixa Windows local, vendas, mesas, estoque, pagamentos e impressao sem depender da internet.</p>
-            <a className="lpSolidButton lpLargeButton" href={downloadUrl}>Baixar instalador Offline</a>
+            <a
+              className="lpSolidButton lpLargeButton"
+              href={downloadUrl}
+              data-analytics-action="trial_download"
+              data-analytics-plan="offline"
+            >
+              Baixar instalador Offline
+            </a>
             <div className="lpTrialFlow">
               <span>Teste completo do caixa</span>
               <p>Venda no Windows, imprima comprovante, controle estoque e teste Mercado Pago no fluxo do PDV.</p>
@@ -212,7 +290,14 @@ export default function Page({ searchParams }) {
             <div className="lpInstallerTop"><span>Online</span><b>Conectado</b></div>
             <h3>Instalador PDV Online</h3>
             <p>Para testar PDV conectado, cardapio, web, sincronizacao e equipe. iFood e WhatsApp sao liberados somente em plano pago.</p>
-            <a className="lpSolidButton lpLargeButton" href={onlineDownloadUrl}>Baixar instalador Online</a>
+            <a
+              className="lpSolidButton lpLargeButton"
+              href={onlineDownloadUrl}
+              data-analytics-action="trial_download"
+              data-analytics-plan="online"
+            >
+              Baixar instalador Online
+            </a>
             <div className="lpTrialFlow">
               <span>Teste conectado</span>
               <p>Use PDV web, cardapio, sincronizacao e Mercado Pago. WhatsApp e iFood ficam para contratacao paga.</p>
@@ -346,14 +431,35 @@ export default function Page({ searchParams }) {
                 {plan.features.slice(0, 6).map((feature) => <li key={feature}>{feature}</li>)}
               </ul>
               {plan.whatsappOnly ? (
-                <a className="lpPlanButton" href={sellers[0].href}>Consultar no WhatsApp</a>
+                <a
+                  className="lpPlanButton"
+                  href={sellers[0].href}
+                  data-analytics-action="whatsapp_click"
+                  data-analytics-seller={sellers[0].name}
+                  data-analytics-location="plan_custom"
+                  data-analytics-plan={plan.id}
+                >
+                  Consultar no WhatsApp
+                </a>
               ) : (
                 <div className="lpPlanActions">
-                  <form action={checkoutFunctionUrl} method="post">
+                  <form
+                    action={checkoutFunctionUrl}
+                    method="post"
+                    data-analytics-action="plan_checkout"
+                    data-analytics-plan={plan.id}
+                    data-analytics-billing="mensal"
+                  >
                     <input type="hidden" name="plan" value={`${plan.id}-mensal`} />
                     <button className="lpPlanButton" type="submit">Comprar mensal</button>
                   </form>
-                  <form action={checkoutFunctionUrl} method="post">
+                  <form
+                    action={checkoutFunctionUrl}
+                    method="post"
+                    data-analytics-action="plan_checkout"
+                    data-analytics-plan={plan.id}
+                    data-analytics-billing="anual"
+                  >
                     <input type="hidden" name="plan" value={`${plan.id}-anual`} />
                     <button className="lpPlanButton lpPlanButtonSecondary" type="submit">Comprar anual</button>
                   </form>
@@ -406,7 +512,13 @@ export default function Page({ searchParams }) {
           <a href="#demo-pdv">Demo PDV</a>
           <a href="#impressao">Impressao</a>
           <a href="#operacao">Operacao</a>
-          <a href="#planos">Planos</a>
+          <a
+            href="#planos"
+            data-analytics-action="plans_view_click"
+            data-analytics-location="footer"
+          >
+            Planos
+          </a>
         </div>
         <div className="lpFooterColumn">
           <b>Suporte</b>
@@ -416,11 +528,32 @@ export default function Page({ searchParams }) {
         </div>
         <div className="lpFooterWhatsapp">
           <b>Compre no WhatsApp</b>
-          <a href={sellers[0].href}>Vendedor Wender: {sellers[0].phone}</a>
-          <a href={sellers[1].href}>Vendedor Lucas: {sellers[1].phone}</a>
+          <a
+            href={sellers[0].href}
+            data-analytics-action="whatsapp_click"
+            data-analytics-seller={sellers[0].name}
+            data-analytics-location="footer"
+          >
+            Vendedor Wender: {sellers[0].phone}
+          </a>
+          <a
+            href={sellers[1].href}
+            data-analytics-action="whatsapp_click"
+            data-analytics-seller={sellers[1].name}
+            data-analytics-location="footer"
+          >
+            Vendedor Lucas: {sellers[1].phone}
+          </a>
         </div>
       </footer>
-      <a className="lpFloatingWhatsapp" href={sellers[1].href} aria-label="Falar com Lucas no WhatsApp">
+      <a
+        className="lpFloatingWhatsapp"
+        href={sellers[1].href}
+        aria-label="Falar com Lucas no WhatsApp"
+        data-analytics-action="whatsapp_click"
+        data-analytics-seller={sellers[1].name}
+        data-analytics-location="floating_button"
+      >
         <span>WhatsApp</span>
         <strong>Falar com Lucas</strong>
       </a>

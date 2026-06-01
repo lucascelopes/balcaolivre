@@ -3,7 +3,10 @@ import SiteHeader from "../SiteHeader";
 export const metadata = {
   title: "Guia completo do app Windows | Balcao Livre PDV",
   description:
-    "Manual completo para instalar, configurar e operar o Balcao Livre PDV no Windows: caixa, produtos, mesas, delivery, pagamentos, impressao, estoque e fechamento."
+    "Manual completo para instalar, configurar e operar o Balcao Livre PDV no Windows: caixa, produtos, mesas, delivery, pagamentos, impressao, estoque e fechamento.",
+  alternates: {
+    canonical: "/como-usar/"
+  }
 };
 
 const quickStart = [
