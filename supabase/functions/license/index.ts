@@ -134,6 +134,20 @@ type MercadoPagoPointStatusPayload = ClientPayload & {
   localReference?: string;
 };
 
+type MobileSyncEvent = {
+  id?: string;
+  type?: string;
+  payload?: Record<string, unknown>;
+  status?: string;
+  createdAt?: string;
+};
+
+type MobilePayload = ClientPayload & {
+  events?: MobileSyncEvent[];
+  snapshot?: Record<string, unknown>;
+  localWhen?: string | null;
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -165,6 +179,18 @@ Deno.serve(async (req) => {
 
     if (route === "/checkin" || route === "/api/app/checkin") {
       return checkIn(req);
+    }
+
+    if (route === "/mobile/bootstrap" || route === "/api/mobile/bootstrap") {
+      return mobileBootstrap(req);
+    }
+
+    if (route === "/mobile/sync" || route === "/api/mobile/sync") {
+      return mobileSync(req);
+    }
+
+    if (route === "/mobile/backup" || route === "/api/mobile/backup") {
+      return mobileBackup(req);
     }
 
     if (route === "/support/list" || route === "/api/app/support/list") {
@@ -253,6 +279,86 @@ async function checkIn(req: Request) {
   }
 
   return json({ ok: true, message: "Licenca sincronizada no Supabase.", mode: "supabase" });
+}
+
+async function mobileBootstrap(req: Request) {
+  const payload = normalizePayloadKeys(await readJson<MobilePayload>(req));
+  const result = await ensureLicense(payload, { bindMachine: false, eventType: "mobile.bootstrap", skipEvent: true });
+  if (!result.ok) {
+    return json({ ok: false, message: result.message }, result.status ?? 401);
+  }
+
+  const licenseKey = normalizeLicense(payload.licenseKey);
+  const latest = await readMobileSnapshot(licenseKey, stringValue(payload.machineHash));
+  await appendEvent("mobile.bootstrap", "Mobile bootstrap solicitado.", payload);
+
+  return json({
+    ok: true,
+    message: "Snapshot mobile carregado.",
+    plan: result.license.plan,
+    expiresAt: result.license.expires_at,
+    snapshot: latest ?? emptyMobileSnapshot(payload),
+    serverTime: new Date().toISOString(),
+  });
+}
+
+async function mobileSync(req: Request) {
+  const payload = normalizePayloadKeys(await readJson<MobilePayload>(req));
+  const result = await ensureLicense(payload, { bindMachine: false, eventType: "mobile.sync", skipEvent: true });
+  if (!result.ok) {
+    return json({ ok: false, message: result.message }, result.status ?? 401);
+  }
+
+  const licenseKey = normalizeLicense(payload.licenseKey);
+  const machineHash = stringValue(payload.machineHash);
+  const events = Array.isArray(payload.events) ? payload.events : [];
+  if (payload.snapshot && typeof payload.snapshot === "object") {
+    await writeMobileSnapshot(licenseKey, machineHash, payload.snapshot, "latest.json");
+  }
+  if (events.length > 0) {
+    await writeMobileEventBatch(licenseKey, machineHash, events, payload);
+  }
+
+  const store = await readAdminStore();
+  upsertAdminStoreLicense(store, payload, result.license);
+  upsertAdminStoreDevice(store, payload);
+  appendAdminStoreEvent(store, "mobile.sync", `Mobile sync: ${events.length} evento(s)`, payload);
+  trimAdminStore(store);
+  await writeAdminStore(store);
+  await appendEvent("mobile.sync", `Mobile sync recebeu ${events.length} evento(s).`, payload);
+
+  return json({
+    ok: true,
+    message: "Sync mobile recebido.",
+    acceptedEventIds: events.map((event) => stringValue(event.id)).filter(Boolean),
+    pullEvents: [],
+    serverTime: new Date().toISOString(),
+  });
+}
+
+async function mobileBackup(req: Request) {
+  const payload = normalizePayloadKeys(await readJson<MobilePayload>(req));
+  const result = await ensureLicense(payload, { bindMachine: false, eventType: "mobile.backup", skipEvent: true });
+  if (!result.ok) {
+    return json({ ok: false, message: result.message }, result.status ?? 401);
+  }
+
+  const licenseKey = normalizeLicense(payload.licenseKey);
+  const machineHash = stringValue(payload.machineHash);
+  const snapshot = payload.snapshot && typeof payload.snapshot === "object"
+    ? payload.snapshot
+    : emptyMobileSnapshot(payload);
+  const fileName = `${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+  await writeMobileSnapshot(licenseKey, machineHash, snapshot, "latest.json");
+  await writeMobileSnapshot(licenseKey, machineHash, snapshot, `backups/${fileName}`);
+  await appendEvent("mobile.backup", "Backup mobile versionado.", payload);
+
+  return json({
+    ok: true,
+    message: "Backup mobile salvo.",
+    fileName,
+    serverTime: new Date().toISOString(),
+  });
 }
 
 async function createTrialDownload(req: Request) {
@@ -1142,6 +1248,117 @@ async function getMercadoPagoPointStatus(req: Request) {
   });
 }
 
+async function readMobileSnapshot(licenseKey: string, machineHash: string) {
+  const machinePath = mobileStoragePath(licenseKey, machineHash, "latest.json");
+  const sharedPath = mobileStoragePath(licenseKey, "shared", "latest.json");
+  return await readStorageJson(machinePath) ?? await readStorageJson(sharedPath);
+}
+
+async function writeMobileSnapshot(
+  licenseKey: string,
+  machineHash: string,
+  snapshot: Record<string, unknown>,
+  fileName: string,
+) {
+  const path = mobileStoragePath(licenseKey, machineHash || "mobile", fileName);
+  await writeStorageJson(path, {
+    ...snapshot,
+    _mobileSavedAt: new Date().toISOString(),
+  });
+}
+
+async function writeMobileEventBatch(
+  licenseKey: string,
+  machineHash: string,
+  events: MobileSyncEvent[],
+  payload: MobilePayload,
+) {
+  const now = new Date().toISOString();
+  const path = mobileStoragePath(
+    licenseKey,
+    "events",
+    `${safeStorageSegment(machineHash || "mobile")}-${now.replace(/[:.]/g, "-")}-${crypto.randomUUID()}.json`,
+  );
+  await writeStorageJson(path, {
+    licenseKey,
+    machineHash,
+    machineCode: stringValue(payload.machineCode),
+    clientKind: normalizeClientKind(payload.clientKind),
+    receivedAt: now,
+    events: events.map((event) => ({
+      id: stringValue(event.id) || crypto.randomUUID(),
+      type: stringValue(event.type) || "mobile.event",
+      payload: event.payload && typeof event.payload === "object" ? event.payload : {},
+      status: stringValue(event.status) || "pending",
+      createdAt: stringValue(event.createdAt) || now,
+    })),
+  });
+}
+
+async function readStorageJson(path: string): Promise<Record<string, unknown> | null> {
+  const supabase = serviceClient();
+  await ensureAdminStoreBucket(supabase);
+  const { data, error } = await supabase.storage.from(ADMIN_STORE_BUCKET).download(path);
+  if (error || !data) return null;
+  try {
+    return JSON.parse(await data.text()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+async function writeStorageJson(path: string, value: Record<string, unknown>) {
+  const supabase = serviceClient();
+  await ensureAdminStoreBucket(supabase);
+  const body = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
+  const { error } = await supabase.storage
+    .from(ADMIN_STORE_BUCKET)
+    .upload(path, body, { contentType: "application/json", upsert: true });
+  if (error) {
+    throw new Error(`Supabase recusou salvar arquivo mobile: ${error.message}`);
+  }
+}
+
+function mobileStoragePath(licenseKey: string, machineHash: string, fileName: string) {
+  return [
+    "mobile",
+    safeStorageSegment(licenseKey),
+    safeStorageSegment(machineHash),
+    ...fileName.split("/").map(safeStorageSegment),
+  ].join("/");
+}
+
+function safeStorageSegment(value: unknown) {
+  const clean = stringValue(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return clean || "item";
+}
+
+function emptyMobileSnapshot(payload: MobilePayload): Record<string, unknown> {
+  return {
+    settings: {
+      id: "main",
+      storeId: "loja_mobile",
+      terminalId: "mobile_01",
+      adminApiUrl: `${stringValue(Deno.env.get("SUPABASE_URL")).replace(/\/$/, "")}/functions/v1/license`,
+      ifoodApiUrl: `${stringValue(Deno.env.get("SUPABASE_URL")).replace(/\/$/, "")}/functions/v1/ifood`,
+      windowsBridgeUrl: "",
+      printMode: "WINDOWS_BRIDGE",
+      autoSync: 1,
+      cashOpen: 0,
+      lastSyncAt: "",
+    },
+    profile: payload.profile ?? {},
+    products: [],
+    orders: [],
+    orderItems: [],
+    payments: [],
+    cashMovements: [],
+  };
+}
+
 async function readAdminStore(): Promise<Record<string, unknown>> {
   const supabase = serviceClient();
   await ensureAdminStoreBucket(supabase);
@@ -1597,7 +1814,11 @@ function requestIp(req: Request) {
 function isMultiDeviceClient(payload: ClientPayload) {
   const kind = normalizeClientKind(payload.clientKind);
   const code = stringValue(payload.machineCode).toUpperCase();
-  return ["android", "web", "browser"].includes(kind) || code.startsWith("AND-") || code.startsWith("WEB-");
+  return ["android", "web", "browser", "mobile", "mobile-expo"].includes(kind) ||
+    kind.includes("mobile") ||
+    code.startsWith("AND-") ||
+    code.startsWith("MOB-") ||
+    code.startsWith("WEB-");
 }
 
 function businessName(profile?: Record<string, unknown>) {

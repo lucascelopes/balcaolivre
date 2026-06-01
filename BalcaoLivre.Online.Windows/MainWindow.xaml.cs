@@ -205,6 +205,8 @@ public partial class MainWindow : Window
     private Forms.NotifyIcon? _trayIcon;
     private WaiterLocalServer? _waiterServer;
     private WhatsAppLocalConnectorServer? _whatsAppConnectorServer;
+    private int _whatsAppLastInjectionProcessId;
+    private bool _whatsAppInjectionRunning;
     private bool _exitRequested;
     private bool _activationPromptOpen;
     private bool _ifoodSyncRunning;
@@ -286,7 +288,7 @@ public partial class MainWindow : Window
         RefreshOnlineStoreButton();
         _ = SyncIFoodPresenceOnceAsync();
         StartIFoodPresenceLoop();
-        ResetWhatsAppRuntimeState();
+        RestoreWhatsAppRuntimeStateOnStartup();
         SaveAppSettings();
         DataContext = this;
         ModeList.SelectedIndex = 0;
@@ -988,12 +990,17 @@ public partial class MainWindow : Window
         _appSettings.MercadoPago.Connected = result.Ok && result.Connected;
         _appSettings.MercadoPago.SellerUserId = result.SellerUserId ?? "";
         _appSettings.MercadoPago.LastError = result.LastError ?? "";
-        if (!string.IsNullOrWhiteSpace(result.SelectedTerminalId))
+        if (result.Ok && result.Connected && !string.IsNullOrWhiteSpace(result.SelectedTerminalId))
         {
             _appSettings.MercadoPago.DefaultTerminalId = result.SelectedTerminalId.Trim();
             _appSettings.MercadoPago.DefaultTerminalLabel = string.IsNullOrWhiteSpace(result.SelectedTerminalLabel)
                 ? result.SelectedTerminalId.Trim()
                 : result.SelectedTerminalLabel.Trim();
+        }
+        else if (result.Ok && result.Connected)
+        {
+            _appSettings.MercadoPago.DefaultTerminalId = "";
+            _appSettings.MercadoPago.DefaultTerminalLabel = "";
         }
 
         if (DateTime.TryParse(result.LastSyncAt, Brazil, DateTimeStyles.AssumeLocal, out var lastSync))
@@ -1024,6 +1031,8 @@ public partial class MainWindow : Window
             return null;
         }
 
+        await RefreshMercadoPagoStatusBeforePaymentAsync(method);
+
         if (!_appSettings.MercadoPago.Connected)
         {
             System.Windows.MessageBox.Show(owner, "Conecte a conta Mercado Pago em Config antes de cobrar.", "Mercado Pago", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1044,23 +1053,24 @@ public partial class MainWindow : Window
 
     private string ChooseMercadoPagoCollectionMode(string method, bool hasTerminal, Window owner)
     {
-        if (!hasTerminal)
+        if (method == "PIX")
         {
             return "WEB";
         }
 
+        if (hasTerminal)
+        {
+            return "POINT";
+        }
+
         var result = "";
-        var isPix = method == "PIX";
-        var dialog = CreateDialog("Mercado Pago", 500, 360);
+        var dialog = CreateDialog("Mercado Pago", 500, 330);
         dialog.Owner = owner;
         dialog.ResizeMode = ResizeMode.NoResize;
 
-        var primaryMode = isPix ? "WEB" : "POINT";
-        var secondaryMode = "WEB";
-        var primary = DialogButton(isPix ? "Gerar QR Pix" : "Enviar para Point", "#08A99B");
-        var secondary = DialogButton(isPix ? "Usar Pix copia-e-cola" : "Gerar link", "#2D73B9");
+        var primary = DialogButton("Gerar link Mercado Pago", "#2D73B9");
         var cancel = DialogButton("Cancelar", "#5B6B7A");
-        foreach (var button in new[] { primary, secondary, cancel })
+        foreach (var button in new[] { primary, cancel })
         {
             button.HorizontalAlignment = HorizontalAlignment.Stretch;
             button.Width = double.NaN;
@@ -1068,36 +1078,55 @@ public partial class MainWindow : Window
 
         primary.Click += (_, _) =>
         {
-            result = primaryMode;
-            dialog.Close();
-        };
-        secondary.Click += (_, _) =>
-        {
-            result = secondaryMode;
+            result = "WEB";
             dialog.Close();
         };
         cancel.Click += (_, _) => dialog.Close();
 
         var panel = DialogPanel();
-        panel.Children.Add(SectionTitle(isPix ? "Como cobrar este Pix?" : "Como cobrar este cartao?"));
+        panel.Children.Add(SectionTitle("Point nao selecionada"));
         panel.Children.Add(new TextBlock
         {
-            Text = isPix
-                ? "O Pix sai por QR na tela ou copia-e-cola do Mercado Pago. A Point integrada via API fica para debito/credito; assim o PDV nao promete Pix na maquininha quando o Mercado Pago nao liberar."
-                : "A Point recebe a cobranca online pela conta Mercado Pago. Nao e por cabo USB: a maquininha precisa estar conectada na conta da loja e selecionada em Config.",
+            Text = "O cartao nao vai fechar como recebido sem confirmacao. Selecione uma Point em Config para enviar direto para a maquininha, ou gere um link Mercado Pago para este pagamento.",
             Foreground = Solid("#5B6B7A"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 14)
         });
         panel.Children.Add(primary);
-        if (!isPix)
-        {
-            panel.Children.Add(secondary);
-        }
         panel.Children.Add(cancel);
         dialog.Content = panel;
         dialog.ShowDialog();
         return result;
+    }
+
+    private async Task RefreshMercadoPagoStatusBeforePaymentAsync(string method)
+    {
+        if (!_appSettings.AdminSyncEnabled || string.IsNullOrWhiteSpace(_appSettings.ActivationKey))
+        {
+            return;
+        }
+
+        var mp = _appSettings.MercadoPago ??= new MercadoPagoPaymentSettings();
+        var shouldRefresh =
+            !mp.Connected
+            || method is "CREDITO" or "DEBITO"
+            || !mp.LastSyncAt.HasValue
+            || DateTime.Now - mp.LastSyncAt.Value > TimeSpan.FromMinutes(5);
+        if (!shouldRefresh)
+        {
+            return;
+        }
+
+        var connection = await FetchMercadoPagoConnectionStatusAsync();
+        if (!connection.Ok)
+        {
+            mp.LastError = TextOrDefault(connection.Message, "Nao consegui sincronizar o Mercado Pago antes da cobranca.");
+            SaveAppSettings();
+            return;
+        }
+
+        ApplyMercadoPagoStatus(connection);
+        SaveAppSettings();
     }
 
     private async Task<PaymentLine?> ProcessMercadoPagoPointPaymentAsync(string method, decimal amount, string payer, Window owner)
@@ -4555,8 +4584,8 @@ public partial class MainWindow : Window
                 : mp.DefaultTerminalLabel;
             mpStatusText.Text = mp.Connected
                 ? string.IsNullOrWhiteSpace(terminal)
-                    ? "Conta conectada. Escolha a Point para debito/credito; Pix ja usa QR/link."
-                    : $"Point selecionada: {terminal}. Pix continua por QR/link."
+                    ? "Conta conectada. Escolha a Point para debito/credito; Pix usa QR/link."
+                    : $"Point selecionada: {terminal}. Cartao no F9 vai direto para a maquininha; Pix usa QR/link."
                 : "Conecte a conta da loja para liberar Pix, link e Point no F9.";
             if (!string.IsNullOrWhiteSpace(mp.LastError))
             {
@@ -4640,7 +4669,7 @@ public partial class MainWindow : Window
                     {
                         mp.LastError = "";
                         status.Foreground = GreenText;
-                        status.Text = "Maquininhas Mercado Pago atualizadas. O F9 tambem pode usar Point, Pix QR e link.";
+                        status.Text = "Maquininhas Mercado Pago atualizadas. No F9, cartao vai direto para a Point; Pix usa QR/link.";
                     }
                 }
                 else
@@ -4782,7 +4811,7 @@ public partial class MainWindow : Window
                     mp.LastError = "";
                     SaveAppSettings();
                     status.Foreground = GreenText;
-                    status.Text = "Maquininha salva. No F9 voce pode escolher Point, QR Pix ou link.";
+                    status.Text = "Maquininha salva. No F9, cartao vai direto para esta Point; Pix usa QR/link.";
                     RefreshMercadoPagoCard();
                     return;
                 }
@@ -7655,14 +7684,25 @@ public partial class MainWindow : Window
         }
 
         var chargesWereActive = HasAppliedTableCharges();
-        TicketLines.Remove(line);
+        var removedQuantity = Math.Min(1, Math.Max(0, line.Quantity));
+        var removedWholeLine = line.Quantity <= 1;
+        if (line.Quantity > 1)
+        {
+            line.Quantity -= 1;
+            TicketList.Items.Refresh();
+        }
+        else
+        {
+            TicketLines.Remove(line);
+            _selectedTicketIndex = Math.Min(_selectedTicketIndex, TicketLines.Count - 1);
+        }
+
         var restoredProduct = Products.FirstOrDefault(product => string.Equals(product.Code, line.Code, StringComparison.OrdinalIgnoreCase));
         if (restoredProduct is not null)
         {
-            restoredProduct.StockQuantity += Math.Max(0, line.Quantity);
+            restoredProduct.StockQuantity += removedQuantity;
         }
 
-        _selectedTicketIndex = Math.Min(_selectedTicketIndex, TicketLines.Count - 1);
         if (chargesWereActive)
         {
             ApplyTableCharges(showStatus: false);
@@ -7674,7 +7714,7 @@ public partial class MainWindow : Window
             SaveStore();
         }
 
-        SetStatus($"Removido: {line.Name}");
+        SetStatus(removedWholeLine ? $"Removido: {line.Name}" : $"Removida 1 unidade: {line.Name}");
         if (restoredProduct is not null)
         {
             QueueIFoodStockSync(restoredProduct, "Item removido da venda");
@@ -9108,7 +9148,8 @@ public partial class MainWindow : Window
                 request => RunOnUiAsync(() => AddWaiterProduct(request)),
                 request => RunOnUiAsync(() => SaveWaiterBoardNote(request)),
                 request => RunOnUiAsync(() => RemoveWaiterLine(request)),
-                request => RunOnUiAsync(() => RequestWaiterBill(request)));
+                request => RunOnUiAsync(() => RequestWaiterBill(request)),
+                request => RunOnUiAsync(() => PrintMobileBridge(request)));
 
             try
             {
@@ -9125,6 +9166,28 @@ public partial class MainWindow : Window
         }
 
         SetStatus("Nao foi possivel iniciar o Garcom Web. Portas 5050-5055 ocupadas.");
+    }
+
+    private WaiterActionResult PrintMobileBridge(MobilePrintRequest request)
+    {
+        var content = (request.Content ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return WaiterActionResult.Fail("Conteudo de impressao vazio.", BuildWaiterState());
+        }
+
+        var jobName = string.IsNullOrWhiteSpace(request.JobName)
+            ? $"Balcao Livre Mobile {request.Kind}"
+            : request.JobName.Trim();
+        var printed = TryPrintTextToDefaultPrinter(
+            content,
+            jobName,
+            request.Compact,
+            printerName: request.PrinterName);
+
+        return printed
+            ? WaiterActionResult.Success("Impresso pelo Windows bridge.", BuildWaiterState())
+            : WaiterActionResult.Fail("Windows bridge nao encontrou impressora disponivel.", BuildWaiterState());
     }
 
     private Task<T> RunOnUiAsync<T>(Func<T> action)
@@ -11471,7 +11534,7 @@ public partial class MainWindow : Window
             "READY_TO_PICKUP" or "READY" or "PRONTO" => "PRONTO",
             "DISPATCHED" or "IN_DELIVERY" or "ON_THE_WAY" or "ROUTE" or "ROTA" or "DESPACHADO" => "DESPACHADO",
             "CANCELLATION_REQUESTED" or "CANCEL_REQUESTED" or "CANCELAMENTO" => "CANCELAMENTO",
-            "CANCELLED" or "CANCELED" or "CANCELADO" => "CANCELADO",
+            "CANCELLED" or "CANCELED" or "CANCELADO" or "EXPIRED" or "EXPIRADO" => "CANCELADO",
             "CONCLUDED" or "DELIVERED" or "ENTREGUE" or "FINALIZADO" => "ENTREGUE",
             "PLACED" or "CREATED" or "NOVO" or "" => "NOVO",
             _ => normalized
@@ -12963,6 +13026,75 @@ public partial class MainWindow : Window
             table.Items.Refresh();
         }
 
+        int CountOpenProductUsage(ProductTile product)
+        {
+            var code = product.Code;
+            var count = TicketLines.Count(line => string.Equals(line.Code, code, StringComparison.OrdinalIgnoreCase));
+            count += Tables
+                .Concat(DeliveryTiles)
+                .Concat(KitchenTiles)
+                .Sum(board => board.Lines.Count(line => string.Equals(line.Code, code, StringComparison.OrdinalIgnoreCase)));
+            return count;
+        }
+
+        void DeleteSelectedProduct()
+        {
+            if (table.SelectedItem is not ProductTile product)
+            {
+                SetStatus("Selecione um produto para apagar.");
+                return;
+            }
+
+            var openUsage = CountOpenProductUsage(product);
+            var message = $"Apagar definitivamente o produto abaixo?\n\n{product.Code} - {product.Name}\n\nEle sai do estoque, cadastro, cardapio digital, WhatsApp e busca do PDV.";
+            if (openUsage > 0)
+            {
+                message += $"\n\nAtencao: existem {openUsage:N0} item(ns) ja lancados em comanda/pedido aberto. Essas linhas continuam na conta para nao quebrar o recebimento.";
+            }
+
+            message += "\n\nEsta acao nao tem desfazer.";
+            var confirmDelete = System.Windows.MessageBox.Show(
+                dialog,
+                message,
+                "Apagar produto",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No);
+            if (confirmDelete != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            var code = product.Code;
+            var selectedIndex = Math.Max(0, sortedProducts.IndexOf(product));
+            Products.Remove(product);
+            sortedProducts.Remove(product);
+            foreach (var item in Products)
+            {
+                item.RecipeItems.RemoveAll(recipe =>
+                    string.Equals(recipe.ProductCode, code, StringComparison.OrdinalIgnoreCase));
+            }
+
+            FilterProducts();
+            UpdateMetrics();
+            SaveStore();
+            var nextProduct = sortedProducts.Count == 0
+                ? null
+                : sortedProducts[Math.Clamp(selectedIndex, 0, sortedProducts.Count - 1)];
+            ApplySearch(nextProduct);
+            table.Items.Refresh();
+            if (table.SelectedItem is ProductTile selectedAfterDelete)
+            {
+                LoadStock(selectedAfterDelete);
+            }
+            else if (nextProduct is null)
+            {
+                ClearStockSelection("Nenhum produto cadastrado");
+            }
+
+            SetStatus($"Produto apagado: {code} - {product.Name}");
+        }
+
         void ChangeStock(decimal multiplier, string type)
         {
             if (table.SelectedItem is not ProductTile product)
@@ -13045,6 +13177,8 @@ public partial class MainWindow : Window
 
             ChangeStock(-1, "SAIDA");
         };
+        var deleteProductButton = DialogButton("Apagar produto definitivamente", "#A11D1D");
+        deleteProductButton.Click += (_, _) => DeleteSelectedProduct();
 
         movementBox.KeyDown += (_, e) =>
         {
@@ -13064,13 +13198,14 @@ public partial class MainWindow : Window
             }
         };
 
-        foreach (var button in new[] { setButton, inButton, outButton })
+        foreach (var button in new[] { setButton, inButton, outButton, deleteProductButton })
         {
             button.HorizontalAlignment = HorizontalAlignment.Stretch;
             button.Width = double.NaN;
         }
         inButton.Margin = new Thickness(0, 8, 0, 0);
         outButton.Margin = new Thickness(0, 8, 0, 0);
+        deleteProductButton.Margin = new Thickness(0, 8, 0, 0);
 
         var movementButtons = new StackPanel
         {
@@ -13147,6 +13282,10 @@ public partial class MainWindow : Window
             DialogLabel("Motivo"),
             reasonBox,
             movementButtons));
+        panel.Children.Add(SideSection(
+            "Excluir produto",
+            "Remove o produto por completo do cadastro e do estoque. Use somente quando ele nao deve mais aparecer no PDV.",
+            deleteProductButton));
         panel.Children.Add(movementSummary);
         sideCard.Child = new ScrollViewer
         {
@@ -13468,6 +13607,11 @@ public partial class MainWindow : Window
 
     private static bool IsCashPendingBoard(TableTile board)
     {
+        if (IsIgnoredIFoodOperationalPending(board))
+        {
+            return false;
+        }
+
         var total = board.Lines.Sum(line => line.Total);
         if (total <= 0 && board.Total > 0)
         {
@@ -13483,6 +13627,18 @@ public partial class MainWindow : Window
 
         return board.Kind == "MESA"
                && board.Status is not ("LIVRE" or "FINALIZADO" or "ENTREGUE" or "CANCELADO");
+    }
+
+    private static bool IsIgnoredIFoodOperationalPending(TableTile board)
+    {
+        if (!IsIFoodOrder(board))
+        {
+            return false;
+        }
+
+        var status = NormalizeIFoodBoardStatus(board.Status);
+        return status is "CANCELAMENTO" or "CANCELADO"
+               || IsIFoodConfirmationExpired(board);
     }
 
     private void ShowPendingCashCloseDialog(IReadOnlyList<TableTile> pending)
@@ -16271,6 +16427,7 @@ public partial class MainWindow : Window
     {
         return Tables
             .Concat(DeliveryTiles)
+            .Where(tile => !IsIgnoredIFoodOperationalPending(tile))
             .Where(tile => tile.Total > 0 || tile.Status is not ("LIVRE" or "FINALIZADO" or "ENTREGUE"))
             .OrderByDescending(tile => tile.Total)
             .ThenBy(tile => tile.Kind)
@@ -18543,7 +18700,7 @@ public partial class MainWindow : Window
             shouldSaveSettings = true;
         }
 
-        if (NormalizeWhatsAppSendPulseOnlySettings())
+        if (NormalizeWhatsAppBaseSettings())
         {
             shouldSaveSettings = true;
         }
@@ -19053,7 +19210,7 @@ public partial class MainWindow : Window
         return Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
             .InformationalVersion
-            ?? "1.8.2026";
+            ?? "1.8.2026.1";
     }
 
     private async Task<bool> CheckForUpdatesAsync(bool showIfCurrent, bool autoInstall = false, bool startupCheck = false)
@@ -19487,7 +19644,7 @@ public partial class MainWindow : Window
             builder.Append(invalid.Contains(ch) ? '-' : ch);
         }
 
-        return builder.Length == 0 ? "1.8.2026" : builder.ToString();
+        return builder.Length == 0 ? "1.8.2026.1" : builder.ToString();
     }
 
     private static string CopyLogoToAppIdentityFolder(string sourcePath)
@@ -21584,6 +21741,14 @@ public partial class MainWindow : Window
         board.ServicePercent = 10m;
     }
 
+    private string GetDefaultReceivePaymentMethod()
+    {
+        return _appSettings.MercadoPago?.Enabled == true
+            || (PagBankIntegrationAvailable && _appSettings.PagBank?.Enabled == true)
+            ? "CREDITO"
+            : "DINHEIRO";
+    }
+
     private (PaymentLine? Payment, bool Finalize)? ShowReceiveDialog(decimal balance, decimal total, decimal paidTotal)
     {
         (PaymentLine? Payment, bool Finalize)? result = null;
@@ -21592,7 +21757,7 @@ public partial class MainWindow : Window
 
         var hasOpenBalance = balance > 0;
         var board = CurrentBoard;
-        var selectedMethod = "DINHEIRO";
+        var selectedMethod = GetDefaultReceivePaymentMethod();
         var finalizePayment = true;
         var payerBox = new TextBox
         {
@@ -21634,7 +21799,9 @@ public partial class MainWindow : Window
         var message = new TextBlock
         {
             Text = hasOpenBalance
-                ? "Escolha a forma e confirme o recebimento."
+                ? selectedMethod == "CREDITO" && (_appSettings.MercadoPago.Enabled || _appSettings.PagBank.Enabled)
+                    ? "Pagamento integrado ativo: Enter cobra no cartao e a venda so fecha depois da aprovacao. Para dinheiro, pressione D."
+                    : "Escolha a forma e confirme o recebimento."
                 : "Saldo ja pago. Confirme para finalizar e imprimir.",
             Foreground = Solid("#0B3A52"),
             FontWeight = FontWeights.SemiBold,
@@ -23176,7 +23343,7 @@ public partial class MainWindow : Window
             var loadedAppSettings = _appSettings;
             _appSettings = store.AppSettings;
             MergeWhatsAppSendPulseSettings(loadedAppSettings.WhatsApp, _appSettings.WhatsApp ??= new WhatsAppSettings());
-            NormalizeWhatsAppSendPulseOnlySettings();
+            RestoreWhatsAppRuntimeStateOnStartup();
             NormalizeProductionDestinations();
             SaveAppSettings();
         }

@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Balcao Livre Mobile",
+    "slug": "balcao-livre-mobile",
+    "scheme": "balcaolivremobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "br.com.balcaolivrepdv.mobile"
+    },
+    "android": {
+      "package": "br.com.balcaolivrepdv.mobile",
+      "versionCode": 1,
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "BLUETOOTH",
+        "BLUETOOTH_CONNECT"
+      ]
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-secure-store"
+    ],
+    "extra": {
+      "adminApiUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/license",
+      "ifoodApiUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/ifood"
+    }
+  }
+}

@@ -15,6 +15,7 @@ public sealed class WaiterLocalServer : IAsyncDisposable
     private readonly Func<WaiterBoardNoteRequest, Task<WaiterActionResult>> _saveBoardNote;
     private readonly Func<WaiterRemoveLineRequest, Task<WaiterActionResult>> _removeLine;
     private readonly Func<WaiterBoardRequest, Task<WaiterActionResult>> _requestBill;
+    private readonly Func<MobilePrintRequest, Task<WaiterActionResult>> _printMobile;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _loopTask;
@@ -26,7 +27,8 @@ public sealed class WaiterLocalServer : IAsyncDisposable
         Func<WaiterAddProductRequest, Task<WaiterActionResult>> addProduct,
         Func<WaiterBoardNoteRequest, Task<WaiterActionResult>> saveBoardNote,
         Func<WaiterRemoveLineRequest, Task<WaiterActionResult>> removeLine,
-        Func<WaiterBoardRequest, Task<WaiterActionResult>> requestBill)
+        Func<WaiterBoardRequest, Task<WaiterActionResult>> requestBill,
+        Func<MobilePrintRequest, Task<WaiterActionResult>> printMobile)
     {
         Port = port;
         _getState = getState;
@@ -35,6 +37,7 @@ public sealed class WaiterLocalServer : IAsyncDisposable
         _saveBoardNote = saveBoardNote;
         _removeLine = removeLine;
         _requestBill = requestBill;
+        _printMobile = printMobile;
     }
 
     public int Port { get; }
@@ -152,6 +155,15 @@ public sealed class WaiterLocalServer : IAsyncDisposable
                     "/garcom/styles.css" => Text(WaiterWebAssets.Css, "text/css; charset=utf-8"),
                     "/garcom/app.js" => Text(WaiterWebAssets.Js, "application/javascript; charset=utf-8"),
                     "/api/waiter/state" => Json(await _getState()),
+                    "/api/mobile/status" => Json(new MobileBridgeStatus
+                    {
+                        Ok = true,
+                        Message = "Balcao Livre Windows bridge ativo.",
+                        LocalUrl = LocalUrl,
+                        NetworkUrl = NetworkUrl,
+                        ServerTime = DateTime.Now,
+                        State = await _getState()
+                    }),
                     _ => Json(new WaiterActionResult { Ok = false, Message = "Rota nao encontrada." }, 404)
                 };
             }
@@ -165,6 +177,8 @@ public sealed class WaiterLocalServer : IAsyncDisposable
                     "/api/waiter/note" => Json(await _saveBoardNote(ReadJson<WaiterBoardNoteRequest>(request.Body))),
                     "/api/waiter/remove" => Json(await _removeLine(ReadJson<WaiterRemoveLineRequest>(request.Body))),
                     "/api/waiter/bill" => Json(await _requestBill(ReadJson<WaiterBoardRequest>(request.Body))),
+                    "/api/mobile/print" => Json(await _printMobile(ReadJson<MobilePrintRequest>(request.Body))),
+                    "/api/mobile/import" => Json(await ImportMobileEventsAsync(ReadJson<MobileImportRequest>(request.Body))),
                     _ => Json(new WaiterActionResult { Ok = false, Message = "Rota nao encontrada." }, 404)
                 };
             }
@@ -179,6 +193,86 @@ public sealed class WaiterLocalServer : IAsyncDisposable
         {
             return Json(new WaiterActionResult { Ok = false, Message = ex.Message }, 500);
         }
+    }
+
+    private async Task<WaiterActionResult> ImportMobileEventsAsync(MobileImportRequest request)
+    {
+        var imported = 0;
+        foreach (var item in request.Events)
+        {
+            var type = item.Type.Trim().ToLowerInvariant();
+            if (type == "order.opened")
+            {
+                var result = await _openBoard(new WaiterOpenBoardRequest
+                {
+                    Kind = JsonText(item.Payload, "kind", "MESA"),
+                    BoardNumber = JsonText(item.Payload, "number", JsonText(item.Payload, "boardNumber", "")),
+                    WaiterNumber = JsonText(item.Payload, "waiter", "1"),
+                    CustomerName = JsonText(item.Payload, "customerName", "")
+                });
+                if (result.Ok) imported++;
+                continue;
+            }
+
+            if (type == "order.item_added")
+            {
+                var order = item.Payload.TryGetProperty("order", out var orderJson) ? orderJson : item.Payload;
+                var line = item.Payload.TryGetProperty("item", out var itemJson) ? itemJson : item.Payload;
+                var result = await _addProduct(new WaiterAddProductRequest
+                {
+                    Kind = JsonText(order, "kind", "MESA"),
+                    BoardNumber = JsonText(order, "number", JsonText(item.Payload, "number", "")),
+                    WaiterNumber = JsonText(order, "waiter", "1"),
+                    ProductCode = JsonText(line, "code", JsonText(item.Payload, "code", "")),
+                    Quantity = Math.Max(1, JsonInt(line, "quantity", 1)),
+                    Note = JsonText(line, "note", "")
+                });
+                if (result.Ok) imported++;
+                continue;
+            }
+
+            if (type == "order.closed" || type == "payment.created")
+            {
+                var result = await _requestBill(new WaiterBoardRequest
+                {
+                    Kind = JsonText(item.Payload, "kind", "MESA"),
+                    BoardNumber = JsonText(item.Payload, "number", JsonText(item.Payload, "boardNumber", "")),
+                    Paid = true,
+                    PaymentMethod = JsonText(item.Payload, "method", "DINHEIRO"),
+                    TenderedAmount = JsonDecimal(item.Payload, "amount", 0)
+                });
+                if (result.Ok) imported++;
+            }
+        }
+
+        return WaiterActionResult.Success($"Mobile importou {imported} evento(s).", await _getState());
+    }
+
+    private static string JsonText(JsonElement payload, string name, string fallback)
+    {
+        return payload.ValueKind == JsonValueKind.Object &&
+            payload.TryGetProperty(name, out var value) &&
+            value.ValueKind is JsonValueKind.String or JsonValueKind.Number
+            ? value.ToString()
+            : fallback;
+    }
+
+    private static int JsonInt(JsonElement payload, string name, int fallback)
+    {
+        return payload.ValueKind == JsonValueKind.Object &&
+            payload.TryGetProperty(name, out var value) &&
+            value.TryGetInt32(out var parsed)
+            ? parsed
+            : fallback;
+    }
+
+    private static decimal JsonDecimal(JsonElement payload, string name, decimal fallback)
+    {
+        return payload.ValueKind == JsonValueKind.Object &&
+            payload.TryGetProperty(name, out var value) &&
+            value.TryGetDecimal(out var parsed)
+            ? parsed
+            : fallback;
     }
 
     private static T ReadJson<T>(byte[] body) where T : new()

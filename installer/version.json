@@ -1,8 +1,8 @@
 {
-  "version": "1.8.2026",
-  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.exe",
-  "minimumVersion": "1.8.2026",
-  "notes": "Balcao Livre PDV Online 1.8.2026. Atualizacao obrigatoria com melhorias no cardapio digital, Mercado Pago, relatorios, estoque, backup, pagamentos e ajustes gerais do PDV Online.",
+  "version": "1.8.2026.1",
+  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.1.exe",
+  "minimumVersion": "1.8.2026.1",
+  "notes": "Balcao Livre PDV Online 1.8.2026.1. Correcao obrigatoria no F9 Mercado Pago: cartao vai direto para a Point quando configurada e a venda so fecha/imprime apos aprovacao.",
   "required": true,
-  "publishedAt": "2026-05-30T00:00:00-03:00"
+  "publishedAt": "2026-05-31T00:00:00-03:00"
 }
