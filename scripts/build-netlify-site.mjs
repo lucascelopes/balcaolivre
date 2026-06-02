@@ -301,6 +301,12 @@ function googleTagScript() {
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
+      gtag('consent', 'default', {
+        analytics_storage: 'granted',
+        ad_storage: 'granted',
+        ad_user_data: 'granted',
+        ad_personalization: 'granted'
+      });
       gtag('config', '${escapeHtml(gaMeasurementId)}');
     </script>`;
 }
