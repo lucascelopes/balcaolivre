@@ -210,14 +210,15 @@ function enhanceLandingHtml(html, options = {}) {
     `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${escapeHtml(options.title || "Balcao Livre PDV")}" />`,
     `<meta name="twitter:description" content="${escapeHtml(description)}" />`,
-    gaMeasurementId
-      ? `<script async src="https://www.googletagmanager.com/gtag/js?id=${escapeHtml(gaMeasurementId)}"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag("js",new Date());gtag("config","${escapeHtml(gaMeasurementId)}",{send_page_view:true});</script>`
-      : "",
     clarityProjectId
       ? `<script>(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y)})(window,document,"clarity","script","${escapeHtml(clarityProjectId)}");</script>`
       : "",
     `<script type="application/ld+json">${JSON.stringify(structuredData(canonicalUrl, description, Boolean(options.mainPage)))}</script>`
   ].filter(Boolean).join("\n    ");
+
+  if (gaMeasurementId) {
+    nextHtml = nextHtml.replace("<head>", `<head>\n    ${googleTagScript()}`);
+  }
 
   nextHtml = nextHtml.replace("</head>", `    ${headTags}\n  </head>`);
   return nextHtml.replace("</body>", `    ${staticConversionScript()}\n  </body>`);
@@ -290,6 +291,16 @@ function staticConversionScript() {
         function publish(eventName,params,metaEvent){var payload=Object.assign({event_category:"landing",page_location:window.location.href},params||{});window.dataLayer=window.dataLayer||[];window.dataLayer.push(Object.assign({event:eventName},payload));if(window.gtag)window.gtag("event",eventName,payload);if(window.fbq){if(metaEvent)window.fbq("track",metaEvent,payload);window.fbq("trackCustom",eventName,payload)}}
         document.addEventListener("click",function(event){var target=event.target&&event.target.closest?event.target.closest("a[href]"):null;if(!target)return;var href=target.getAttribute("href")||"";if(href.indexOf("/trial-download")!==-1){var trialUrl=safeUrl(href);var trialPlan=(trialUrl&&trialUrl.searchParams.get("plan"))||"offline";publish("trial_download_click",{content_name:"Teste "+trialPlan+" 7 dias",content_category:"teste_7_dias",content_ids:[trialPlan],plan:trialPlan,trial_days:7,currency:"BRL",value:0},"Lead");return}if(href.indexOf("wa.me/")!==-1){publish("whatsapp_click",{content_name:"WhatsApp comercial",content_category:"contato"},"Contact");return}if(href.indexOf("/checkout")!==-1){var checkoutUrl=safeUrl(href);var checkoutPlan=(checkoutUrl&&checkoutUrl.searchParams.get("plan"))||"";var split=splitPlan(checkoutPlan);publish("plan_checkout_click",{content_name:"Balcao Livre PDV "+split.plan,content_category:"planos",content_ids:[checkoutPlan],plan:split.plan,billing:split.billing,value:planPrices[checkoutPlan]||0,currency:"BRL"});return}if(href.indexOf("#planos")!==-1){publish("plans_view_click",{content_name:"Planos Balcao Livre PDV",content_category:"planos"},"ViewContent")}},true);
       })();
+    </script>`;
+}
+
+function googleTagScript() {
+  return `<script async src="https://www.googletagmanager.com/gtag/js?id=${escapeHtml(gaMeasurementId)}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag("js", new Date());
+      gtag("config", "${escapeHtml(gaMeasurementId)}");
     </script>`;
 }
 
