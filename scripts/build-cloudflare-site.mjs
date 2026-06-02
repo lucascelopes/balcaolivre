@@ -282,12 +282,13 @@ function staticConversionScript() {
 }
 
 function googleTagScript() {
-  return `<script async src="https://www.googletagmanager.com/gtag/js?id=${escapeHtml(gaMeasurementId)}"></script>
+  return `<!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=${escapeHtml(gaMeasurementId)}"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
-      gtag("js", new Date());
-      gtag("config", "${escapeHtml(gaMeasurementId)}");
+      gtag('js', new Date());
+      gtag('config', '${escapeHtml(gaMeasurementId)}');
     </script>`;
 }
 
