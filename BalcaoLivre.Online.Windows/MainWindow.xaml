@@ -525,7 +525,7 @@
                     </Button>
                     </StackPanel>
                 </Grid>
-                <TextBlock Grid.Column="2" Text="Setas navegam  |  Enter confirma  |  Numerico digita codigo  |  F2 incluir  F4 cozinha  F5 fechar  F8 antecipado  F9 receber  F10 abrir/fechar caixa" Foreground="#DDEBFA" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Grid.Column="2" Text="Setas navegam  |  Enter confirma  |  Numerico digita codigo  |  F2 incluir  F4 cozinha  F5 fechar  F8 antecipado  F9 receber/avulso  F10 abrir/fechar caixa" Foreground="#DDEBFA" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
             </Grid>
         </Border>
 
@@ -727,7 +727,7 @@
                                        Foreground="#A11D1D"
                                        FontWeight="SemiBold"
                                        TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Text="F5 fecha conta  |  F8 antecipado  |  F9 recebe pagamento"
+                            <TextBlock Text="F5 fecha conta  |  F8 antecipado  |  F9 recebe pagamento ou cobra avulso"
                                        Foreground="{StaticResource Muted}"
                                        FontSize="12"
                                        TextTrimming="CharacterEllipsis"/>

@@ -1,457 +1,382 @@
-const PDV_ENDPOINT = "http://127.0.0.1:8787/whatsapp/message";
-const seenMessages = new Set();
-const initializedChats = new Set();
-const startupUnreadBaselines = new Map();
-let readyForNewMessages = false;
-let pendingUnreadOpen = null;
-let startupUnreadBaselineCaptured = false;
+(() => {
+  const VERSION = "0.2.0";
+  const INSTANCE = `${VERSION}:${Date.now()}`;
+  const PDV_ENDPOINT = "http://127.0.0.1:8787/whatsapp/message";
+  const ATTR = "data-balcao-livre-whatsapp";
+  const LAST_ATTR = "data-balcao-livre-whatsapp-last";
 
-function textOf(element) {
-  return (element?.innerText || element?.textContent || "").replace(/\s+/g, " ").trim();
-}
+  window.__balcaoLivreWhatsAppConnectorInstance = INSTANCE;
 
-function plain(value) {
-  return (value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-}
+  const seenMessages = new Set();
+  const startupUnread = new Map();
+  const knownRows = new Map();
+  const sentReplies = new Map();
 
-function isUnreadLabel(value) {
-  const label = plain(value);
-  return (
-    label.includes("unread") ||
-    label.includes("unread-count") ||
-    label.includes("nao lida") ||
-    label.includes("nao lidas") ||
-    label.includes("nao lido") ||
-    label.includes("nao lidos") ||
-    label.includes("nova mensagem") ||
-    label.includes("novas mensagens")
-  );
-}
+  let ready = false;
+  let pendingChat = null;
+  let activeChat = "";
 
-function getChatName() {
-  return (
-    document.querySelector("header span[title]")?.getAttribute("title") ||
-    textOf(document.querySelector("header")) ||
-    "WhatsApp"
-  );
-}
-
-function chatNameFromRow(row) {
-  return (
-    row.querySelector("span[title]")?.getAttribute("title") ||
-    textOf(row).split(/\d{1,2}:\d{2}|Ontem|Yesterday/i)[0]?.trim() ||
-    ""
-  );
-}
-
-function chatRowKey(row) {
-  const title = chatNameFromRow(row);
-  const rowText = textOf(row)
-    .replace(/\d{1,2}:\d{2}.*/g, "")
-    .slice(0, 120);
-  return plain(title || rowText || row.getAttribute("data-id") || "");
-}
-
-function chatRowSignature(row) {
-  const pieces = [
-    chatNameFromRow(row),
-    ...[...row.querySelectorAll("span[title], span[dir='auto'], div[dir='auto']")]
-      .map(textOf)
-      .filter(Boolean)
-  ];
-  return plain([...new Set(pieces)].join("|").slice(0, 240));
-}
-
-function getIncomingMessages() {
-  const nodes = [
-    ...document.querySelectorAll("div.message-in"),
-    ...document.querySelectorAll("[data-testid='msg-container']")
-  ];
-
-  return nodes
-    .filter((node) => !node.closest("div.message-out"))
-    .map((node, index) => {
-      const bubbleText =
-        textOf(node.querySelector("span.selectable-text")) ||
-        textOf(node.querySelector("[dir='ltr']")) ||
-        textOf(node);
-      return { node, text: bubbleText, index };
-    })
-    .filter((item) => item.text && item.text.length <= 2000);
-}
-
-function messageKey(chatName, item) {
-  const id =
-    item.node.getAttribute("data-id") ||
-    item.node.querySelector("[data-id]")?.getAttribute("data-id") ||
-    `${item.index}::${item.text}`;
-  return `${chatName}::${id}`;
-}
-
-function rememberMessage(chatName, item) {
-  seenMessages.add(messageKey(chatName, item));
-  if (seenMessages.size > 800) {
-    const first = seenMessages.values().next().value;
-    seenMessages.delete(first);
+  function mark(state) {
+    document.documentElement.setAttribute(ATTR, `${VERSION}:${state}:${Date.now()}`);
   }
-}
 
-function rememberVisibleMessages(chatName, messages) {
-  for (const item of messages) {
-    rememberMessage(chatName, item);
+  function log(message) {
+    document.documentElement.setAttribute(LAST_ATTR, `${Date.now()}:${message}`.slice(0, 260));
+    console.debug(`[Balcao Livre WhatsApp] ${message}`);
   }
-}
 
-function unreadMarkerOf(row) {
-  const markers = [
-    ...row.querySelectorAll("span[aria-label], div[aria-label], span[data-icon], [data-testid]")
-  ];
-  return markers.find((marker) => {
-    const label = `${marker.getAttribute("aria-label") || ""} ${marker.getAttribute("data-icon") || ""} ${marker.getAttribute("data-testid") || ""}`.toLowerCase();
+  function sameInstance() {
+    return window.__balcaoLivreWhatsAppConnectorInstance === INSTANCE;
+  }
+
+  function textOf(element) {
+    return (element?.innerText || element?.textContent || "").replace(/\s+/g, " ").trim();
+  }
+
+  function plain(value) {
+    return (value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  }
+
+  function visible(element) {
+    if (!element) return false;
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function isLoggedIn() {
+    return Boolean(document.querySelector("#pane-side"));
+  }
+
+  function currentChatName() {
     return (
-      label.includes("unread") ||
-      label.includes("não lida") ||
-      label.includes("nao lida") ||
-      label.includes("não lidas") ||
-      label.includes("nao lidas") ||
-      label.includes("unread-count")
+      document.querySelector("header span[title]")?.getAttribute("title") ||
+      textOf(document.querySelector("header")) ||
+      "Cliente WhatsApp"
     );
-  });
-}
-
-function unreadCountOf(row, marker) {
-  const label = marker?.getAttribute("aria-label") || "";
-  const labelNumber = label.match(/\d+/)?.[0];
-  if (labelNumber) return Math.max(1, Number(labelNumber));
-
-  const markerText = textOf(marker);
-  const markerNumber = markerText.match(/^\d+$/)?.[0];
-  if (markerNumber) return Math.max(1, Number(markerNumber));
-
-  const smallNumbers = [...row.querySelectorAll("span")]
-    .map((span) => textOf(span))
-    .map((text) => text.match(/^\d{1,2}$/)?.[0])
-    .filter(Boolean)
-    .map(Number);
-  return Math.max(1, smallNumbers.at(-1) || 1);
-}
-
-function findUnreadChat() {
-  const listRoots = [
-    ...document.querySelectorAll("[aria-label*='Chat' i], [aria-label*='conversa' i], [role='grid']")
-  ];
-  const rows = [
-    ...listRoots.flatMap((root) => [
-      ...root.querySelectorAll("[role='row'], [role='listitem'], [data-testid='cell-frame-container']")
-    ]),
-    ...document.querySelectorAll("[data-testid='cell-frame-container']")
-  ];
-
-  for (const row of rows) {
-    if (row.closest("footer") || row.closest("header")) continue;
-    const marker = unreadMarkerOf(row);
-    if (!marker) continue;
-    if (row.closest(".message-in, .message-out")) continue;
-
-    return {
-      row,
-      count: unreadCountOf(row, marker)
-    };
   }
 
-  return null;
-}
+  function chatRows() {
+    const pane = document.querySelector("#pane-side");
+    if (!pane) return [];
 
-function clickUnreadChat() {
-  const unread = findUnreadChat();
-  if (!unread) return false;
+    const rows = [
+      ...pane.querySelectorAll("[data-testid='cell-frame-container'], [role='listitem'], [role='row'], div[aria-label][tabindex='0'], div[aria-label][tabindex='-1']")
+    ];
 
-  const clickable =
-    unread.row.querySelector("[role='gridcell']") ||
-    unread.row.querySelector("[data-testid='cell-frame-container']") ||
-    unread.row;
+    return [...new Set(rows)].filter((row) => {
+      if (!visible(row) || row.closest("footer") || row.closest("header")) return false;
+      const rect = row.getBoundingClientRect();
+      const value = textOf(row);
+      if (value.length < 2 || value.length > 650) return false;
+      if (/^arquivadas?\b/i.test(value)) return false;
+      return rect.width > 180 && rect.height >= 42 && rect.height <= 145;
+    });
+  }
 
-  clickable.scrollIntoView({ block: "center" });
-  clickable.click();
-  pendingUnreadOpen = {
-    count: unread.count,
-    clickedAt: Date.now()
-  };
-  return true;
-}
+  function rowName(row) {
+    return row.querySelector("span[title]")?.getAttribute("title") || textOf(row).split(/\d{1,2}:\d{2}|Ontem|Yesterday/i)[0]?.trim() || "";
+  }
 
-function visible(element) {
-  if (!element) return false;
-  const rect = element.getBoundingClientRect();
-  return rect.width > 0 && rect.height > 0;
-}
+  function rowKey(row) {
+    return plain(rowName(row) || textOf(row).replace(/\d{1,2}:\d{2}.*/g, "").slice(0, 140));
+  }
 
-function chatRows() {
-  const listRoots = [
-    document.querySelector("#pane-side"),
-    ...document.querySelectorAll("[data-testid='chat-list'], [aria-label*='Chat' i], [aria-label*='conversa' i], [aria-label*='Lista' i], [role='grid']")
-  ].filter(Boolean);
+  function rowSignature(row) {
+    const parts = [
+      rowName(row),
+      ...[...row.querySelectorAll("span[title], span[dir='auto'], div[dir='auto']")]
+        .slice(0, 10)
+        .map(textOf)
+        .filter(Boolean)
+    ];
+    return plain([...new Set(parts)].join("|").replace(/\b\d{1,2}:\d{2}\b/g, "").slice(0, 320));
+  }
 
-  const rows = [
-    ...listRoots.flatMap((root) => [
-      ...root.querySelectorAll("[role='row'], [role='listitem'], [data-testid='cell-frame-container'], [tabindex='0'], [tabindex='-1']")
-    ]),
-    ...document.querySelectorAll("#pane-side [role='row'], #pane-side [role='listitem'], #pane-side [data-testid='cell-frame-container'], #pane-side [tabindex='0'], #pane-side [tabindex='-1']")
-  ];
+  function looksUnread(value) {
+    const label = plain(value);
+    return label.includes("unread")
+      || label.includes("nao lida")
+      || label.includes("nao lidas")
+      || label.includes("nao lido")
+      || label.includes("nao lidos")
+      || label.includes("nova mensagem")
+      || label.includes("novas mensagens");
+  }
 
-  return [...new Set(rows)].filter((row) => {
-    if (!row || row.closest("footer") || row.closest("header") || row.closest(".message-in, .message-out")) return false;
-    if (!visible(row)) return false;
+  function unreadCount(row) {
+    const labelled = [...row.querySelectorAll("[aria-label], [data-icon], [data-testid], [title]")]
+      .find((el) => looksUnread(`${el.getAttribute("aria-label") || ""} ${el.getAttribute("data-icon") || ""} ${el.getAttribute("data-testid") || ""} ${el.getAttribute("title") || ""}`));
+
+    const labelledNumber = labelled?.getAttribute("aria-label")?.match(/\d+/)?.[0];
+    if (labelledNumber) return Math.max(1, Number(labelledNumber));
+
     const rect = row.getBoundingClientRect();
-    return rect.width > 180 && rect.height >= 38;
-  });
-}
-
-function unreadMarkerOf(row) {
-  const markers = [
-    row,
-    ...row.querySelectorAll("span[aria-label], div[aria-label], span[data-icon], div[data-icon], [data-testid], span, div")
-  ];
-  const labelMarker = markers.find((marker) => {
-    const label = `${marker.getAttribute("aria-label") || ""} ${marker.getAttribute("data-icon") || ""} ${marker.getAttribute("data-testid") || ""} ${marker.getAttribute("title") || ""}`;
-    return isUnreadLabel(label);
-  });
-  if (labelMarker) return labelMarker;
-
-  const rowRect = row.getBoundingClientRect();
-  return [...row.querySelectorAll("span, div")].find((marker) => {
-    const markerText = textOf(marker);
-    if (!/^\d{1,3}$/.test(markerText) || !visible(marker)) return false;
-    const rect = marker.getBoundingClientRect();
-    return rect.width <= 36
-      && rect.height <= 28
-      && rect.left > rowRect.left + rowRect.width * 0.55;
-  });
-}
-
-function findUnreadChatsRaw() {
-  const found = [];
-  const seenRows = new Set();
-
-  function add(row, marker) {
-    if (!row || seenRows.has(row)) return;
-    if (row.closest("footer") || row.closest("header") || row.closest(".message-in, .message-out")) return;
-    if (!visible(row)) return;
-    seenRows.add(row);
-    found.push({
-      row,
-      count: unreadCountOf(row, marker),
-      name: chatNameFromRow(row),
-      key: chatRowKey(row),
-      signature: chatRowSignature(row)
+    const numberBubble = [...row.querySelectorAll("span, div")].find((el) => {
+      const value = textOf(el);
+      if (!/^\d{1,3}$/.test(value) || !visible(el)) return false;
+      const itemRect = el.getBoundingClientRect();
+      return itemRect.left > rect.left + rect.width * 0.55 && itemRect.width <= 42 && itemRect.height <= 32;
     });
+
+    if (numberBubble) return Math.max(1, Number(textOf(numberBubble)));
+    return labelled ? 1 : 0;
   }
 
-  const directMarkers = [
-    ...document.querySelectorAll("#pane-side span[aria-label], #pane-side div[aria-label], #pane-side span[data-icon], #pane-side div[data-icon], #pane-side [data-testid]")
-  ];
-  for (const marker of directMarkers) {
-    const label = `${marker.getAttribute("aria-label") || ""} ${marker.getAttribute("data-icon") || ""} ${marker.getAttribute("data-testid") || ""} ${marker.getAttribute("title") || ""}`;
-    if (!isUnreadLabel(label)) continue;
-    add(marker.closest("[role='row'], [role='listitem'], [data-testid='cell-frame-container'], #pane-side [tabindex='0'], #pane-side [tabindex='-1']"), marker);
+  function captureStartupState() {
+    startupUnread.clear();
+    knownRows.clear();
+
+    for (const row of chatRows()) {
+      const key = rowKey(row);
+      const signature = rowSignature(row);
+      if (key) knownRows.set(key, signature);
+      const count = unreadCount(row);
+      if (key && count > 0) startupUnread.set(key, { count, signature });
+    }
+
+    markCurrentVisibleMessages();
+    ready = true;
+    mark("ready");
+    log(`Leitor ativo. ${startupUnread.size} conversa(s) antiga(s) ignorada(s).`);
   }
 
-  for (const row of chatRows()) {
-    const marker = unreadMarkerOf(row);
-    if (marker) add(row, marker);
+  function newestUnreadChat() {
+    for (const row of chatRows()) {
+      const key = rowKey(row);
+      if (!key) continue;
+
+      const count = unreadCount(row);
+      const signature = rowSignature(row);
+      const baseline = startupUnread.get(key);
+      knownRows.set(key, signature);
+
+      if (count <= 0) continue;
+      if (baseline && count <= baseline.count && signature === baseline.signature) continue;
+
+      return {
+        row,
+        name: rowName(row),
+        key,
+        count: baseline ? Math.max(1, count - baseline.count) : count
+      };
+    }
+
+    return null;
   }
 
-  return found;
-}
+  function clickElement(element) {
+    if (!element) return false;
+    const rect = element.getBoundingClientRect();
+    const options = {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      clientX: rect.left + Math.max(8, rect.width / 2),
+      clientY: rect.top + Math.max(8, rect.height / 2)
+    };
 
-function captureStartupUnreadBaselines() {
-  startupUnreadBaselines.clear();
-  for (const unread of findUnreadChatsRaw()) {
-    if (!unread.key) continue;
-    startupUnreadBaselines.set(unread.key, {
-      count: unread.count,
-      signature: unread.signature
+    element.dispatchEvent(new PointerEvent("pointerover", options));
+    element.dispatchEvent(new MouseEvent("mouseover", options));
+    element.dispatchEvent(new PointerEvent("pointerdown", options));
+    element.dispatchEvent(new MouseEvent("mousedown", options));
+    element.dispatchEvent(new PointerEvent("pointerup", options));
+    element.dispatchEvent(new MouseEvent("mouseup", options));
+    element.dispatchEvent(new MouseEvent("click", options));
+    return true;
+  }
+
+  function openUnreadChat(candidate) {
+    if (!candidate) return false;
+    const clickable = candidate.row.querySelector("[role='gridcell']") || candidate.row;
+    clickable.scrollIntoView({ block: "center" });
+    pendingChat = {
+      count: Math.max(1, candidate.count || 1),
+      clickedAt: Date.now(),
+      previousChat: currentChatName(),
+      name: candidate.name || candidate.key || "cliente"
+    };
+    log(`Abrindo conversa nova: ${pendingChat.name}`);
+    return clickElement(clickable);
+  }
+
+  function incomingMessages() {
+    const nodes = [
+      ...document.querySelectorAll("div.message-in"),
+      ...document.querySelectorAll("[data-testid='msg-container']"),
+      ...document.querySelectorAll("div[data-id]")
+    ];
+
+    return [...new Set(nodes)]
+      .filter((node) => !node.closest(".message-out") && !node.classList.contains("message-out"))
+      .map((node, index) => ({
+        node,
+        index,
+        text: textOf(node.querySelector("span.selectable-text")) || textOf(node.querySelector("[dir='ltr']")) || textOf(node)
+      }))
+      .filter((item) => item.text && item.text.length <= 2000);
+  }
+
+  function messageKey(chat, item) {
+    const id = item.node.getAttribute("data-id") || item.node.querySelector("[data-id]")?.getAttribute("data-id") || `${item.index}:${item.text}`;
+    return `${chat}:${id}`;
+  }
+
+  function remember(chat, item) {
+    seenMessages.add(messageKey(chat, item));
+    if (seenMessages.size > 1000) seenMessages.delete(seenMessages.values().next().value);
+  }
+
+  function markCurrentVisibleMessages() {
+    const chat = currentChatName();
+    activeChat = chat;
+    for (const item of incomingMessages()) remember(chat, item);
+  }
+
+  function processCurrentChat(latestCount = 1) {
+    const chat = currentChatName();
+    const unseen = incomingMessages().filter((item) => !seenMessages.has(messageKey(chat, item)));
+    if (unseen.length === 0) return;
+
+    const limit = Math.max(1, latestCount || 1);
+    const oldItems = unseen.length > limit ? unseen.slice(0, -limit) : [];
+    for (const item of oldItems) remember(chat, item);
+
+    for (const item of unseen.slice(-limit)) {
+      remember(chat, item);
+      postToPdv(chat, item.text).catch((error) => log(`Falha PDV: ${error?.message || error}`));
+    }
+  }
+
+  async function postToPdv(chat, message) {
+    log(`Mensagem recebida de ${chat}: ${message.slice(0, 80)}`);
+    const response = await fetch(PDV_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        customerName: chat,
+        chatId: chat,
+        phone: "",
+        message
+      })
     });
-  }
-  startupUnreadBaselineCaptured = true;
-}
 
-function findUnreadChat() {
-  for (const unread of findUnreadChatsRaw()) {
-    const baseline = startupUnreadBaselines.get(unread.key);
-    if (startupUnreadBaselineCaptured && baseline) {
-      if (unread.count <= baseline.count && unread.signature === baseline.signature) {
-        continue;
+    if (!response.ok) {
+      log(`PDV respondeu HTTP ${response.status}`);
+      return;
+    }
+
+    const result = await response.json();
+    if (result?.autoReply && result?.reply) await sendReply(result.reply);
+  }
+
+  function inputBox() {
+    return [
+      ...document.querySelectorAll("footer div[contenteditable='true'][role='textbox'], footer div[contenteditable='true'], div[contenteditable='true'][role='textbox']")
+    ].find(visible) || null;
+  }
+
+  function sendButton() {
+    const candidate = [
+      ...document.querySelectorAll("footer button[aria-label*='Enviar' i], footer button[aria-label*='Send' i], button[aria-label*='Enviar' i], button[aria-label*='Send' i], span[data-icon='send']")
+    ].find(visible);
+    return candidate?.closest("button") || candidate || null;
+  }
+
+  function replyKey(chat, text) {
+    return `${chat}:${String(text || "").slice(0, 500)}`;
+  }
+
+  function recentlySent(chat, text) {
+    const key = replyKey(chat, text);
+    const now = Date.now();
+    for (const [itemKey, sentAt] of sentReplies) {
+      if (now - sentAt > 120000) sentReplies.delete(itemKey);
+    }
+    return sentReplies.has(key);
+  }
+
+  async function writeText(text) {
+    const box = inputBox();
+    if (!box) {
+      log("Campo de mensagem nao encontrado.");
+      return null;
+    }
+
+    box.focus();
+    document.execCommand("selectAll", false, null);
+    document.execCommand("insertText", false, text);
+    box.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    return box;
+  }
+
+  async function sendReply(text) {
+    const chat = currentChatName();
+    if (recentlySent(chat, text)) {
+      log("Resposta duplicada ignorada.");
+      return;
+    }
+
+    const box = await writeText(text);
+    if (!box) return;
+
+    const button = sendButton();
+    if (button) {
+      clickElement(button);
+    } else {
+      const options = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+      box.dispatchEvent(new KeyboardEvent("keydown", options));
+      box.dispatchEvent(new KeyboardEvent("keyup", options));
+    }
+
+    sentReplies.set(replyKey(chat, text), Date.now());
+    log("Resposta enviada.");
+  }
+
+  function tick() {
+    if (!sameInstance()) return;
+
+    if (!isLoggedIn()) {
+      mark("waiting-login");
+      log("Aguardando WhatsApp logado.");
+      return;
+    }
+
+    if (!ready) {
+      captureStartupState();
+      return;
+    }
+
+    if (pendingChat) {
+      if (Date.now() - pendingChat.clickedAt < 1000) return;
+      if (Date.now() - pendingChat.clickedAt > 7000) {
+        log("Nao consegui abrir a conversa nova.");
+        pendingChat = null;
+        markCurrentVisibleMessages();
+        return;
       }
-      unread.count = Math.max(1, unread.count - baseline.count);
-    }
-    return unread;
-  }
 
-  return null;
-}
+      if (currentChatName() === pendingChat.previousChat && Date.now() - pendingChat.clickedAt < 2500) return;
 
-function clickElement(element) {
-  if (!element) return false;
-  const rect = element.getBoundingClientRect();
-  const options = {
-    bubbles: true,
-    cancelable: true,
-    view: window,
-    clientX: rect.left + Math.max(4, rect.width / 2),
-    clientY: rect.top + Math.max(4, rect.height / 2)
-  };
-  element.dispatchEvent(new PointerEvent("pointerover", options));
-  element.dispatchEvent(new MouseEvent("mouseover", options));
-  element.dispatchEvent(new PointerEvent("pointerdown", options));
-  element.dispatchEvent(new MouseEvent("mousedown", options));
-  element.dispatchEvent(new PointerEvent("pointerup", options));
-  element.dispatchEvent(new MouseEvent("mouseup", options));
-  element.dispatchEvent(new MouseEvent("click", options));
-  return true;
-}
-
-function clickUnreadChat() {
-  const unread = findUnreadChat();
-  if (!unread) return false;
-
-  const clickable =
-    unread.row.querySelector("[role='gridcell']") ||
-    unread.row.querySelector("[data-testid='cell-frame-container']") ||
-    unread.row;
-
-  clickable.scrollIntoView({ block: "center" });
-  clickElement(clickable);
-  pendingUnreadOpen = {
-    count: Math.max(1, unread.count || 1),
-    clickedAt: Date.now(),
-    chatBefore: getChatName(),
-    targetName: unread.name || ""
-  };
-  return true;
-}
-
-function processMessages(chatName, messages, processLatestCount = 0) {
-  let itemsToProcess = messages;
-  if (processLatestCount > 0 && messages.length > processLatestCount) {
-    const oldMessages = messages.slice(0, -processLatestCount);
-    rememberVisibleMessages(chatName, oldMessages);
-    itemsToProcess = messages.slice(-processLatestCount);
-  }
-
-  for (const item of itemsToProcess) {
-    const key = messageKey(chatName, item);
-    if (seenMessages.has(key)) continue;
-    rememberMessage(chatName, item);
-    postToPdv(item.text).catch(() => {});
-  }
-}
-
-function scanCurrentChat(options = {}) {
-  const chatName = getChatName();
-  const messages = getIncomingMessages();
-
-  if (!readyForNewMessages) {
-    rememberVisibleMessages(chatName, messages);
-    return;
-  }
-
-  if (!initializedChats.has(chatName)) {
-    initializedChats.add(chatName);
-    if (options.processLatestCount) {
-      processMessages(chatName, messages, options.processLatestCount);
+      const count = pendingChat.count;
+      pendingChat = null;
+      activeChat = currentChatName();
+      processCurrentChat(count);
       return;
     }
 
-    rememberVisibleMessages(chatName, messages);
-    return;
-  }
-
-  processMessages(chatName, messages);
-}
-
-async function postToPdv(message) {
-  const response = await fetch(PDV_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      customerName: getChatName(),
-      chatId: getChatName(),
-      phone: "",
-      message
-    })
-  });
-
-  if (!response.ok) return;
-  const result = await response.json();
-  if (result?.autoReply && result?.reply) {
-    await sendReply(result.reply);
-  }
-}
-
-async function sendReply(text) {
-  const editable =
-    document.querySelector("footer div[contenteditable='true'][role='textbox']") ||
-    document.querySelector("footer div[contenteditable='true']");
-  if (!editable) return;
-
-  editable.focus();
-  document.execCommand("selectAll", false, null);
-  document.execCommand("insertText", false, text);
-  editable.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
-  await new Promise((resolve) => setTimeout(resolve, 250));
-
-  const sendButton =
-    document.querySelector("footer button[aria-label*='Send']") ||
-    document.querySelector("footer button[aria-label*='Enviar']") ||
-    document.querySelector("span[data-icon='send']")?.closest("button");
-  if (sendButton) clickElement(sendButton);
-}
-
-function isWhatsAppLoggedIn() {
-  return Boolean(document.querySelector("#pane-side, [data-testid='chat-list'], [aria-label*='Chat' i], [aria-label*='conversa' i], [role='grid'], footer div[contenteditable='true']"));
-}
-
-function armForNewMessages() {
-  if (readyForNewMessages) return true;
-  if (!isWhatsAppLoggedIn()) return false;
-
-  captureStartupUnreadBaselines();
-  const chatName = getChatName();
-  rememberVisibleMessages(chatName, getIncomingMessages());
-  initializedChats.add(chatName);
-  readyForNewMessages = true;
-  return true;
-}
-
-function scan() {
-  if (!armForNewMessages()) {
-    return;
-  }
-
-  if (pendingUnreadOpen) {
-    if (Date.now() - pendingUnreadOpen.clickedAt < 900) return;
-    if (pendingUnreadOpen.chatBefore
-        && getChatName() === pendingUnreadOpen.chatBefore
-        && Date.now() - pendingUnreadOpen.clickedAt < 2200) {
+    if (currentChatName() !== activeChat) {
+      markCurrentVisibleMessages();
+      log("Conversa manual marcada como historico.");
       return;
     }
-    const latestCount = pendingUnreadOpen.count || 1;
-    pendingUnreadOpen = null;
-    scanCurrentChat({ processLatestCount: latestCount });
-    return;
+
+    processCurrentChat(1);
+    openUnreadChat(newestUnreadChat());
   }
 
-  scanCurrentChat();
-
-  if (clickUnreadChat()) {
-    return;
-  }
-}
-
-const observer = new MutationObserver(() => window.clearTimeout(window.__balcaoLivreScanSoon) || (window.__balcaoLivreScanSoon = window.setTimeout(scan, 300)));
-observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-label", "data-icon", "data-testid", "class"] });
-
-setTimeout(scan, 1500);
-setInterval(scan, 1800);
-scan();
+  mark("loaded");
+  window.setTimeout(tick, 1200);
+  window.setInterval(tick, 1800);
+  return true;
+})();

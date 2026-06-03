@@ -487,7 +487,7 @@
 
 .lpPlanCompare {
   display: grid;
-  grid-template-columns: 1.05fr 1.1fr 1.1fr 1fr;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.3fr) minmax(0, 1fr);
   gap: 0;
   width: min(1180px, 100%);
   margin: 0 auto;
@@ -593,6 +593,19 @@
   padding: 12px;
 }
 
+.lpPlanNote {
+  margin: 0;
+  padding: 13px 14px;
+  border: 1px solid rgba(8, 169, 155, 0.28);
+  border-left: 4px solid #08a99b;
+  border-radius: 8px;
+  background: #eef8f6;
+  color: #0a5953;
+  font-size: 0.92rem;
+  font-weight: 850;
+  line-height: 1.42;
+}
+
 .lpPlanColumn ul {
   display: grid;
   align-content: start;
@@ -642,6 +655,90 @@
 
 .lpPlanButtonSecondary:hover {
   background: #f4f8fa;
+}
+
+.lpPlanAddOn {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(160px, 0.34fr) minmax(0, 1.3fr) minmax(170px, 0.34fr);
+  align-items: center;
+  gap: 22px;
+  width: min(1180px, 100%);
+  margin: 18px auto 0;
+  padding: clamp(20px, 2.8vw, 30px);
+  border: 1px solid rgba(8, 169, 155, 0.35);
+  border-radius: 14px;
+  background:
+    linear-gradient(115deg, #071a2c, #0b343d 70%, #0f766e);
+  color: #ffffff;
+  box-shadow: 0 24px 70px rgba(7, 26, 44, 0.12);
+}
+
+.lpPlanAddOn span {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 28px;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(8, 169, 155, 0.18);
+  color: #8ce1d8;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lpPlanAddOn h3 {
+  margin: 12px 0 8px;
+  color: #ffffff;
+  font-size: clamp(1.45rem, 2.5vw, 2.2rem);
+  line-height: 1.05;
+}
+
+.lpPlanAddOn p {
+  margin: 0;
+  color: #c8dce2;
+  line-height: 1.5;
+}
+
+.lpPlanAddOn > strong {
+  color: #8ce1d8;
+  font-size: clamp(1.25rem, 2.2vw, 1.9rem);
+  line-height: 1.05;
+}
+
+.lpPlanAddOn ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lpPlanAddOn li {
+  position: relative;
+  padding-left: 19px;
+  color: #e4eff2;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+.lpPlanAddOn li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #08a99b;
+}
+
+.lpPlanAddOn .lpPlanButton {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: #08a99b;
+  color: #ffffff;
 }
 
 .paymentSuccessShell {
@@ -6838,6 +6935,15 @@ body,
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .lpPlanAddOn {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .lpPlanAddOn .lpPlanButton {
+    width: min(320px, 100%);
+  }
+
   .lpPlans {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -6910,6 +7016,7 @@ body,
 
   .lpInstallerCard,
   .lpPlan,
+  .lpPlanAddOn,
   .lpTrialFlow,
   .lpPaidOnlyNote {
     width: 100%;
@@ -6926,6 +7033,7 @@ body,
   .lpFlowGrid,
   .lpFaqGrid,
   .lpPlanCompare,
+  .lpPlanAddOn ul,
   .lpPriceRows,
   .lpFooter {
     grid-template-columns: 1fr;

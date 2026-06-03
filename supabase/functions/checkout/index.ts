@@ -4,8 +4,8 @@ const LICENSE_SECRET = "BalcaoLivrePDV-local-license-v1";
 const STRIPE_CHECKOUT_URL = "https://api.stripe.com/v1/checkout/sessions";
 const STRIPE_API_URL = "https://api.stripe.com/v1";
 const DEFAULT_SITE_URL = "https://www.balcaolivrepdv.com.br";
-const OFFLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe";
-const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.exe";
+const OFFLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.2.2026.1.exe";
+const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.5.exe";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,7 +40,7 @@ const checkoutPlans: Record<string, CheckoutPlan> = {
     clientKind: "windows-offline",
   },
   "online-mensal": {
-    name: "Balcao Livre PDV Restaurante Hibrido Online",
+    name: "Balcao Livre PDV Restaurante Profissional",
     amount: 13900,
     interval: "month",
     periodAmount: 1,
@@ -48,24 +48,8 @@ const checkoutPlans: Record<string, CheckoutPlan> = {
     clientKind: "windows-online",
   },
   "online-anual": {
-    name: "Balcao Livre PDV Restaurante Hibrido Online",
+    name: "Balcao Livre PDV Restaurante Profissional",
     amount: 139000,
-    interval: "year",
-    periodAmount: 1,
-    periodUnit: "years",
-    clientKind: "windows-online",
-  },
-  "complete-mensal": {
-    name: "Balcao Livre PDV Restaurantes Completo com Integracoes",
-    amount: 17900,
-    interval: "month",
-    periodAmount: 1,
-    periodUnit: "months",
-    clientKind: "windows-online",
-  },
-  "complete-anual": {
-    name: "Balcao Livre PDV Restaurantes Completo com Integracoes",
-    amount: 179000,
     interval: "year",
     periodAmount: 1,
     periodUnit: "years",
@@ -610,7 +594,7 @@ function parseDateValue(value: unknown) {
 
 async function createLicenseKey(expiresAt: Date, planId: string) {
   const expiresText = activationExpirationText(expiresAt);
-  const prefix = planId.includes("online") || planId.includes("complete") ? "ONL" : "OFF";
+  const prefix = planId.includes("online") ? "ONL" : "OFF";
   const serial = `${prefix}${crypto.randomUUID().replaceAll("-", "").slice(0, 9).toUpperCase()}`;
   const signature = (await hmacHex(LICENSE_SECRET, `BLV|${expiresText}|${serial}`)).slice(0, 10);
   return `BLV-${expiresText}-${serial}-${signature}`;
@@ -735,7 +719,7 @@ function resolveRenewalPlanId(requestedPlan: string, license: Record<string, unk
   const text = `${stringValue(license?.plan)} ${stringValue(license?.client_kind)} ${requested}`.toLowerCase();
   const annual = text.includes("anual") || text.includes("year") || text.includes("ano");
   if (text.includes("complete") || text.includes("completo")) {
-    return annual ? "complete-anual" : "complete-mensal";
+    return annual ? "online-anual" : "online-mensal";
   }
 
   if (text.includes("online") || text.includes("hibrido") || text.includes("integracoes")) {

@@ -3,7 +3,10 @@ import SiteHeader from "../SiteHeader";
 export const metadata = {
   title: "Termos, condicoes e privacidade | Balcao Livre PDV",
   description:
-    "Termos de uso, politica de privacidade, regras de app stores, WhatsApp Cloud, dados e suporte do Balcao Livre PDV."
+    "Termos de uso, politica de privacidade, regras de app stores, WhatsApp Cloud, dados e suporte do Balcao Livre PDV.",
+  alternates: {
+    canonical: "/termos/"
+  }
 };
 
 export default function TermsPage() {
@@ -81,7 +84,7 @@ export default function TermsPage() {
               </p>
               <ul>
                 <li><strong>Balcao Livre PDV Offline:</strong> foco em operacao local no Windows, com ativacao por chave, instalador Windows, PDV offline e atualizacoes inclusas no periodo contratado. Referencia comercial atual: R$ 17,00 mensal ou R$ 200,00 anual.</li>
-                <li><strong>Balcao Livre PDV Online:</strong> recursos conectados, uso web, WhatsApp, iFood e/ou integracoes de delivery, zonas de entrega, garcom no celular em tempo real, sincronizacao e rotinas em nuvem conforme contratacao. Mensalidade e consultiva pelo WhatsApp; anual abaixo de R$ 999,00, conforme proposta vigente.</li>
+                <li><strong>Balcao Livre PDV Restaurante Profissional:</strong> recursos conectados, uso web, cardapio online, WhatsApp com IA basica, iFood e/ou integracoes de delivery, zonas de entrega, garcom no celular em tempo real, sincronizacao e rotinas em nuvem conforme contratacao. Mensalidade padrao exibida no site; adicionais, alto volume de WhatsApp e projetos especiais podem ser cobrados separadamente.</li>
                 <li>Taxas de app stores, gateway de pagamento, maquininha, iFood, Meta, provedor cloud, hospedagem especial, dominio, certificado, integracao personalizada ou implantacao fora do padrao podem ser cobradas separadamente.</li>
               </ul>
               <p>

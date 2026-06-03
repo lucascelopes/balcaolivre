@@ -22,12 +22,34 @@ export default function SiteHeader({ id }) {
       </a>
       <nav className="lpNav" aria-label="Navegacao principal">
         {navLinks.map(([label, href]) => (
-          <a key={label} href={href}>{label}</a>
+          <a
+            key={label}
+            href={href}
+            data-analytics-action={href.includes("#planos") ? "plans_view_click" : undefined}
+            data-analytics-location={href.includes("#planos") ? "header_nav" : undefined}
+          >
+            {label}
+          </a>
         ))}
       </nav>
       <div className="lpHeaderActions">
-        <a className="lpGhostButton" href={sellers[0].href}>WhatsApp</a>
-        <a className="lpSolidButton" href="/#planos">Planos</a>
+        <a
+          className="lpGhostButton"
+          href={sellers[0].href}
+          data-analytics-action="whatsapp_click"
+          data-analytics-seller={sellers[0].name}
+          data-analytics-location="header"
+        >
+          WhatsApp
+        </a>
+        <a
+          className="lpSolidButton"
+          href="/#planos"
+          data-analytics-action="plans_view_click"
+          data-analytics-location="header"
+        >
+          Planos
+        </a>
       </div>
     </header>
   );

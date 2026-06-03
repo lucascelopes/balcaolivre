@@ -205,6 +205,8 @@ public partial class MainWindow : Window
     private Forms.NotifyIcon? _trayIcon;
     private WaiterLocalServer? _waiterServer;
     private WhatsAppLocalConnectorServer? _whatsAppConnectorServer;
+    private int _whatsAppLastInjectionProcessId;
+    private bool _whatsAppInjectionRunning;
     private bool _exitRequested;
     private bool _activationPromptOpen;
     private bool _ifoodSyncRunning;
@@ -286,7 +288,7 @@ public partial class MainWindow : Window
         RefreshOnlineStoreButton();
         _ = SyncIFoodPresenceOnceAsync();
         StartIFoodPresenceLoop();
-        ResetWhatsAppRuntimeState();
+        RestoreWhatsAppRuntimeStateOnStartup();
         SaveAppSettings();
         DataContext = this;
         ModeList.SelectedIndex = 0;
@@ -988,12 +990,17 @@ public partial class MainWindow : Window
         _appSettings.MercadoPago.Connected = result.Ok && result.Connected;
         _appSettings.MercadoPago.SellerUserId = result.SellerUserId ?? "";
         _appSettings.MercadoPago.LastError = result.LastError ?? "";
-        if (!string.IsNullOrWhiteSpace(result.SelectedTerminalId))
+        if (result.Ok && result.Connected && !string.IsNullOrWhiteSpace(result.SelectedTerminalId))
         {
             _appSettings.MercadoPago.DefaultTerminalId = result.SelectedTerminalId.Trim();
             _appSettings.MercadoPago.DefaultTerminalLabel = string.IsNullOrWhiteSpace(result.SelectedTerminalLabel)
                 ? result.SelectedTerminalId.Trim()
                 : result.SelectedTerminalLabel.Trim();
+        }
+        else if (result.Ok && result.Connected)
+        {
+            _appSettings.MercadoPago.DefaultTerminalId = "";
+            _appSettings.MercadoPago.DefaultTerminalLabel = "";
         }
 
         if (DateTime.TryParse(result.LastSyncAt, Brazil, DateTimeStyles.AssumeLocal, out var lastSync))
@@ -1017,12 +1024,14 @@ public partial class MainWindow : Window
         return method is "CREDITO" or "DEBITO";
     }
 
-    private async Task<PaymentLine?> ProcessMercadoPagoPaymentAsync(string method, decimal amount, string payer, Window owner)
+    private async Task<PaymentLine?> ProcessMercadoPagoPaymentAsync(string method, decimal amount, string payer, Window owner, string description = "")
     {
         if (!_appSettings.MercadoPago.Enabled)
         {
             return null;
         }
+
+        await RefreshMercadoPagoStatusBeforePaymentAsync(method);
 
         if (!_appSettings.MercadoPago.Connected)
         {
@@ -1038,29 +1047,30 @@ public partial class MainWindow : Window
         }
 
         return mode == "POINT"
-            ? await ProcessMercadoPagoPointPaymentAsync(method, amount, payer, owner)
-            : await ProcessMercadoPagoWebPaymentAsync(method, amount, payer, owner);
+            ? await ProcessMercadoPagoPointPaymentAsync(method, amount, payer, owner, description)
+            : await ProcessMercadoPagoWebPaymentAsync(method, amount, payer, owner, description);
     }
 
     private string ChooseMercadoPagoCollectionMode(string method, bool hasTerminal, Window owner)
     {
-        if (!hasTerminal)
+        if (method == "PIX")
         {
             return "WEB";
         }
 
+        if (hasTerminal)
+        {
+            return "POINT";
+        }
+
         var result = "";
-        var isPix = method == "PIX";
-        var dialog = CreateDialog("Mercado Pago", 500, 360);
+        var dialog = CreateDialog("Mercado Pago", 500, 330);
         dialog.Owner = owner;
         dialog.ResizeMode = ResizeMode.NoResize;
 
-        var primaryMode = isPix ? "WEB" : "POINT";
-        var secondaryMode = "WEB";
-        var primary = DialogButton(isPix ? "Gerar QR Pix" : "Enviar para Point", "#08A99B");
-        var secondary = DialogButton(isPix ? "Usar Pix copia-e-cola" : "Gerar link", "#2D73B9");
+        var primary = DialogButton("Gerar link Mercado Pago", "#2D73B9");
         var cancel = DialogButton("Cancelar", "#5B6B7A");
-        foreach (var button in new[] { primary, secondary, cancel })
+        foreach (var button in new[] { primary, cancel })
         {
             button.HorizontalAlignment = HorizontalAlignment.Stretch;
             button.Width = double.NaN;
@@ -1068,39 +1078,58 @@ public partial class MainWindow : Window
 
         primary.Click += (_, _) =>
         {
-            result = primaryMode;
-            dialog.Close();
-        };
-        secondary.Click += (_, _) =>
-        {
-            result = secondaryMode;
+            result = "WEB";
             dialog.Close();
         };
         cancel.Click += (_, _) => dialog.Close();
 
         var panel = DialogPanel();
-        panel.Children.Add(SectionTitle(isPix ? "Como cobrar este Pix?" : "Como cobrar este cartao?"));
+        panel.Children.Add(SectionTitle("Point nao selecionada"));
         panel.Children.Add(new TextBlock
         {
-            Text = isPix
-                ? "O Pix sai por QR na tela ou copia-e-cola do Mercado Pago. A Point integrada via API fica para debito/credito; assim o PDV nao promete Pix na maquininha quando o Mercado Pago nao liberar."
-                : "A Point recebe a cobranca online pela conta Mercado Pago. Nao e por cabo USB: a maquininha precisa estar conectada na conta da loja e selecionada em Config.",
+            Text = "O cartao nao vai fechar como recebido sem confirmacao. Selecione uma Point em Config para enviar direto para a maquininha, ou gere um link Mercado Pago para este pagamento.",
             Foreground = Solid("#5B6B7A"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 14)
         });
         panel.Children.Add(primary);
-        if (!isPix)
-        {
-            panel.Children.Add(secondary);
-        }
         panel.Children.Add(cancel);
         dialog.Content = panel;
         dialog.ShowDialog();
         return result;
     }
 
-    private async Task<PaymentLine?> ProcessMercadoPagoPointPaymentAsync(string method, decimal amount, string payer, Window owner)
+    private async Task RefreshMercadoPagoStatusBeforePaymentAsync(string method)
+    {
+        if (!_appSettings.AdminSyncEnabled || string.IsNullOrWhiteSpace(_appSettings.ActivationKey))
+        {
+            return;
+        }
+
+        var mp = _appSettings.MercadoPago ??= new MercadoPagoPaymentSettings();
+        var shouldRefresh =
+            !mp.Connected
+            || method is "CREDITO" or "DEBITO"
+            || !mp.LastSyncAt.HasValue
+            || DateTime.Now - mp.LastSyncAt.Value > TimeSpan.FromMinutes(5);
+        if (!shouldRefresh)
+        {
+            return;
+        }
+
+        var connection = await FetchMercadoPagoConnectionStatusAsync();
+        if (!connection.Ok)
+        {
+            mp.LastError = TextOrDefault(connection.Message, "Nao consegui sincronizar o Mercado Pago antes da cobranca.");
+            SaveAppSettings();
+            return;
+        }
+
+        ApplyMercadoPagoStatus(connection);
+        SaveAppSettings();
+    }
+
+    private async Task<PaymentLine?> ProcessMercadoPagoPointPaymentAsync(string method, decimal amount, string payer, Window owner, string description = "")
     {
         if (!_appSettings.MercadoPago.Enabled)
         {
@@ -1124,7 +1153,7 @@ public partial class MainWindow : Window
             amount,
             method,
             localReference,
-            BuildMercadoPagoChargeDescription(method, amount));
+            string.IsNullOrWhiteSpace(description) ? BuildMercadoPagoChargeDescription(method, amount) : ClipMercadoPagoDescription(description));
 
         if (!charge.Ok)
         {
@@ -1228,7 +1257,7 @@ public partial class MainWindow : Window
         return null;
     }
 
-    private async Task<PaymentLine?> ProcessMercadoPagoWebPaymentAsync(string method, decimal amount, string payer, Window owner)
+    private async Task<PaymentLine?> ProcessMercadoPagoWebPaymentAsync(string method, decimal amount, string payer, Window owner, string description = "")
     {
         var localReference = $"BLV-{DateTime.Now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..32].ToUpperInvariant();
         var isPix = method == "PIX";
@@ -1236,7 +1265,7 @@ public partial class MainWindow : Window
             amount,
             method,
             localReference,
-            BuildMercadoPagoWebChargeDescription(method, amount),
+            string.IsNullOrWhiteSpace(description) ? BuildMercadoPagoWebChargeDescription(method, amount) : ClipMercadoPagoDescription(description),
             payer);
 
         if (!charge.Ok)
@@ -1461,6 +1490,12 @@ public partial class MainWindow : Window
     {
         var merchantName = FirstNonEmpty(_profile.BusinessName, _profile.LegalName, AppDisplayName);
         return ClipMercadoPagoDescription($"{merchantName} - {method} {Money(amount)}");
+    }
+
+    private string BuildLoosePaymentDescription(string method, decimal amount)
+    {
+        var merchantName = FirstNonEmpty(_profile.BusinessName, _profile.LegalName, AppDisplayName);
+        return ClipMercadoPagoDescription($"{merchantName} - Cobranca avulsa - {method} {Money(amount)}");
     }
 
     private List<AdminMercadoPagoItemPayload> BuildMercadoPagoChargeItems()
@@ -1696,7 +1731,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<PaymentLine?> ProcessIntegratedPaymentAsync(string method, decimal amount, string payer, Window owner)
+    private async Task<PaymentLine?> ProcessIntegratedPaymentAsync(string method, decimal amount, string payer, Window owner, string description = "")
     {
         var mercadoPagoEnabled = _appSettings.MercadoPago?.Enabled == true;
         var pagBankEnabled = PagBankIntegrationAvailable && _appSettings.PagBank?.Enabled == true;
@@ -1708,8 +1743,8 @@ public partial class MainWindow : Window
         var provider = ChoosePaymentProvider(method, mercadoPagoEnabled, pagBankEnabled, owner);
         return provider switch
         {
-            "PAGBANK" => await ProcessPagBankPaymentAsync(method, amount, payer, owner),
-            "MERCADOPAGO" => await ProcessMercadoPagoPaymentAsync(method, amount, payer, owner),
+            "PAGBANK" => await ProcessPagBankPaymentAsync(method, amount, payer, owner, description),
+            "MERCADOPAGO" => await ProcessMercadoPagoPaymentAsync(method, amount, payer, owner, description),
             _ => null
         };
     }
@@ -1769,7 +1804,7 @@ public partial class MainWindow : Window
         return result;
     }
 
-    private async Task<PaymentLine?> ProcessPagBankPaymentAsync(string method, decimal amount, string payer, Window owner)
+    private async Task<PaymentLine?> ProcessPagBankPaymentAsync(string method, decimal amount, string payer, Window owner, string description = "")
     {
         if (!PagBankIntegrationAvailable)
         {
@@ -1796,7 +1831,7 @@ public partial class MainWindow : Window
 
         return mode == "PLUGPAG"
             ? await ProcessPagBankPlugPagPaymentAsync(method, amount, payer, owner)
-            : await ProcessPagBankWebPaymentAsync(method, amount, payer, owner);
+            : await ProcessPagBankWebPaymentAsync(method, amount, payer, owner, description);
     }
 
     private string ChoosePagBankCollectionMode(string method, Window owner)
@@ -1975,7 +2010,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<PaymentLine?> ProcessPagBankWebPaymentAsync(string method, decimal amount, string payer, Window owner)
+    private async Task<PaymentLine?> ProcessPagBankWebPaymentAsync(string method, decimal amount, string payer, Window owner, string description = "")
     {
         var localReference = $"BLV-{DateTime.Now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..32].ToUpperInvariant();
         var isPix = method == "PIX";
@@ -1983,7 +2018,7 @@ public partial class MainWindow : Window
             amount,
             method,
             localReference,
-            BuildMercadoPagoChargeDescription(method, amount),
+            string.IsNullOrWhiteSpace(description) ? BuildMercadoPagoChargeDescription(method, amount) : ClipMercadoPagoDescription(description),
             payer);
 
         if (!charge.Ok)
@@ -4449,6 +4484,7 @@ public partial class MainWindow : Window
         var mpConnect = DialogButton("Conectar Mercado Pago", "#0B3A52");
         var mpRefresh = DialogButton("Atualizar Point", "#0B3A52");
         var mpSaveTerminal = DialogButton("Salvar Point", "#0B3A52");
+        var mpReleaseTerminal = DialogButton("Liberar Point", "#A11D1D");
         var mpToggle = DialogButton("Ativar no F9", "#0B3A52");
         var mpConnectionPillText = new TextBlock
         {
@@ -4555,8 +4591,8 @@ public partial class MainWindow : Window
                 : mp.DefaultTerminalLabel;
             mpStatusText.Text = mp.Connected
                 ? string.IsNullOrWhiteSpace(terminal)
-                    ? "Conta conectada. Escolha a Point para debito/credito; Pix ja usa QR/link."
-                    : $"Point selecionada: {terminal}. Pix continua por QR/link."
+                    ? "Conta conectada. Escolha a Point para debito/credito; Pix usa QR/link."
+                    : $"Point selecionada: {terminal}. Cartao no F9 vai direto para a maquininha; Pix usa QR/link."
                 : "Conecte a conta da loja para liberar Pix, link e Point no F9.";
             if (!string.IsNullOrWhiteSpace(mp.LastError))
             {
@@ -4586,6 +4622,10 @@ public partial class MainWindow : Window
             mpTerminalBox.IsEnabled = mp.Connected;
             mpTerminalField.Visibility = mp.Connected ? Visibility.Visible : Visibility.Collapsed;
             mpSaveTerminal.IsEnabled = mp.Connected;
+            mpReleaseTerminal.IsEnabled = mp.Connected && !string.IsNullOrWhiteSpace(terminal);
+            mpReleaseTerminal.Visibility = mp.Connected && !string.IsNullOrWhiteSpace(terminal)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
             mpRefresh.IsEnabled = true;
         }
 
@@ -4640,7 +4680,7 @@ public partial class MainWindow : Window
                     {
                         mp.LastError = "";
                         status.Foreground = GreenText;
-                        status.Text = "Maquininhas Mercado Pago atualizadas. O F9 tambem pode usar Point, Pix QR e link.";
+                        status.Text = "Maquininhas Mercado Pago atualizadas. No F9, cartao vai direto para a Point; Pix usa QR/link.";
                     }
                 }
                 else
@@ -4782,7 +4822,7 @@ public partial class MainWindow : Window
                     mp.LastError = "";
                     SaveAppSettings();
                     status.Foreground = GreenText;
-                    status.Text = "Maquininha salva. No F9 voce pode escolher Point, QR Pix ou link.";
+                    status.Text = "Maquininha salva. No F9, cartao vai direto para esta Point; Pix usa QR/link.";
                     RefreshMercadoPagoCard();
                     return;
                 }
@@ -4797,23 +4837,65 @@ public partial class MainWindow : Window
             }
         };
 
+        mpReleaseTerminal.Click += async (_, _) =>
+        {
+            var mp = _appSettings.MercadoPago ??= new MercadoPagoPaymentSettings();
+            var previousTerminal = string.IsNullOrWhiteSpace(mp.DefaultTerminalLabel)
+                ? mp.DefaultTerminalId
+                : mp.DefaultTerminalLabel;
+            if (string.IsNullOrWhiteSpace(previousTerminal))
+            {
+                status.Foreground = Solid("#5B6B7A");
+                status.Text = "Nenhuma Point esta selecionada no PDV.";
+                RefreshMercadoPagoCard();
+                return;
+            }
+
+            status.Foreground = Solid("#5B6B7A");
+            status.Text = "Liberando a Point do modo PDV...";
+            mpReleaseTerminal.IsEnabled = false;
+            try
+            {
+                var result = await SelectMercadoPagoTerminalAsync("", "");
+                mp.DefaultTerminalId = "";
+                mp.DefaultTerminalLabel = "";
+                mp.LastSyncAt = DateTime.Now;
+                mp.LastError = result.Ok ? "" : TextOrDefault(result.Message, "Nao consegui avisar o Mercado Pago agora.");
+                SaveAppSettings();
+                mpTerminalBox.SelectedItem = null;
+                status.Foreground = result.Ok ? GreenText : Solid("#99620D");
+                status.Text = result.Ok
+                    ? $"Point liberada: {previousTerminal}. Agora ela pode ser usada no modo normal da maquininha."
+                    : $"Point removida do PDV localmente: {previousTerminal}. {mp.LastError}";
+            }
+            finally
+            {
+                mpReleaseTerminal.IsEnabled = true;
+                RefreshMercadoPagoCard();
+            }
+        };
+
         var mpActionGrid = new UniformGrid { Columns = 2, Rows = 1, Margin = new Thickness(0, 0, 0, 10) };
-        var mpTerminalActionGrid = new UniformGrid { Columns = 2, Rows = 1, Margin = new Thickness(0, 0, 0, 0) };
+        var mpTerminalActionGrid = new UniformGrid { Columns = 3, Rows = 1, Margin = new Thickness(0, 0, 0, 0) };
         mpConnect.HorizontalAlignment = HorizontalAlignment.Stretch;
         mpRefresh.HorizontalAlignment = HorizontalAlignment.Stretch;
         mpSaveTerminal.HorizontalAlignment = HorizontalAlignment.Stretch;
+        mpReleaseTerminal.HorizontalAlignment = HorizontalAlignment.Stretch;
         mpToggle.HorizontalAlignment = HorizontalAlignment.Stretch;
         mpConnect.Width = double.NaN;
         mpRefresh.Width = double.NaN;
         mpSaveTerminal.Width = double.NaN;
+        mpReleaseTerminal.Width = double.NaN;
         mpToggle.Width = double.NaN;
         mpConnect.Margin = new Thickness(0, 0, 6, 0);
         mpRefresh.Margin = new Thickness(6, 0, 0, 0);
         mpSaveTerminal.Margin = new Thickness(0, 0, 6, 0);
+        mpReleaseTerminal.Margin = new Thickness(6, 0, 6, 0);
         mpToggle.Margin = new Thickness(6, 0, 0, 0);
         mpActionGrid.Children.Add(mpConnect);
         mpActionGrid.Children.Add(mpRefresh);
         mpTerminalActionGrid.Children.Add(mpSaveTerminal);
+        mpTerminalActionGrid.Children.Add(mpReleaseTerminal);
         mpTerminalActionGrid.Children.Add(mpToggle);
         var mpCard = new Border
         {
@@ -7655,14 +7737,25 @@ public partial class MainWindow : Window
         }
 
         var chargesWereActive = HasAppliedTableCharges();
-        TicketLines.Remove(line);
+        var removedQuantity = Math.Min(1, Math.Max(0, line.Quantity));
+        var removedWholeLine = line.Quantity <= 1;
+        if (line.Quantity > 1)
+        {
+            line.Quantity -= 1;
+            TicketList.Items.Refresh();
+        }
+        else
+        {
+            TicketLines.Remove(line);
+            _selectedTicketIndex = Math.Min(_selectedTicketIndex, TicketLines.Count - 1);
+        }
+
         var restoredProduct = Products.FirstOrDefault(product => string.Equals(product.Code, line.Code, StringComparison.OrdinalIgnoreCase));
         if (restoredProduct is not null)
         {
-            restoredProduct.StockQuantity += Math.Max(0, line.Quantity);
+            restoredProduct.StockQuantity += removedQuantity;
         }
 
-        _selectedTicketIndex = Math.Min(_selectedTicketIndex, TicketLines.Count - 1);
         if (chargesWereActive)
         {
             ApplyTableCharges(showStatus: false);
@@ -7674,7 +7767,7 @@ public partial class MainWindow : Window
             SaveStore();
         }
 
-        SetStatus($"Removido: {line.Name}");
+        SetStatus(removedWholeLine ? $"Removido: {line.Name}" : $"Removida 1 unidade: {line.Name}");
         if (restoredProduct is not null)
         {
             QueueIFoodStockSync(restoredProduct, "Item removido da venda");
@@ -7937,9 +8030,50 @@ public partial class MainWindow : Window
             BorderThickness = new Thickness(0),
             Background = Brushes.Transparent
         };
+        ScrollViewer.SetHorizontalScrollBarVisibility(productsList, ScrollBarVisibility.Disabled);
+        productsList.ItemContainerStyle = (Style)System.Windows.Markup.XamlReader.Parse("""
+<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+       TargetType="ListBoxItem">
+  <Setter Property="Padding" Value="0"/>
+  <Setter Property="Margin" Value="0"/>
+  <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+  <Setter Property="Background" Value="Transparent"/>
+  <Setter Property="BorderBrush" Value="Transparent"/>
+  <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+  <Setter Property="Template">
+    <Setter.Value>
+      <ControlTemplate TargetType="ListBoxItem">
+        <Border x:Name="Frame"
+                Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="2"
+                CornerRadius="10"
+                Padding="2"
+                Margin="0,0,0,8">
+          <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                            VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True">
+            <Setter TargetName="Frame" Property="Background" Value="#F1F7FA"/>
+          </Trigger>
+          <Trigger Property="IsSelected" Value="True">
+            <Setter TargetName="Frame" Property="Background" Value="#E6FBF8"/>
+            <Setter TargetName="Frame" Property="BorderBrush" Value="#08A99B"/>
+          </Trigger>
+          <Trigger Property="IsEnabled" Value="False">
+            <Setter Property="Opacity" Value="0.55"/>
+          </Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate>
+    </Setter.Value>
+  </Setter>
+</Style>
+""");
         productsList.ItemTemplate = (DataTemplate)System.Windows.Markup.XamlReader.Parse("""
 <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
-  <Border Background="#F8FBFD" BorderBrush="#CAD6E2" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,7">
+  <Border Background="#F8FBFD" BorderBrush="#CAD6E2" BorderThickness="1" CornerRadius="8" Padding="11">
     <Grid>
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
@@ -8085,6 +8219,10 @@ public partial class MainWindow : Window
         };
         var chooseImageButton = DialogButton("Escolher foto", "#0B3A52");
         var clearImageButton = DialogButton("Remover foto", "#5B6B7A");
+        var deleteProductButton = DialogButton("Apagar produto", "#A11D1D");
+        deleteProductButton.HorizontalAlignment = HorizontalAlignment.Stretch;
+        deleteProductButton.Width = double.NaN;
+        deleteProductButton.Margin = new Thickness(0, 8, 0, 0);
 
         void FocusAndSelect(Control control)
         {
@@ -8285,6 +8423,7 @@ public partial class MainWindow : Window
             RefreshMarginPreview();
             RefreshProductImagePreview();
             RefreshIFoodCompositionState();
+            RefreshDeleteProductButtonState();
             FocusAndSelect(nameBox);
             SetStatus("Novo produto.");
         }
@@ -8312,6 +8451,7 @@ public partial class MainWindow : Window
             RefreshMarginPreview();
             RefreshProductImagePreview();
             RefreshIFoodCompositionState();
+            RefreshDeleteProductButtonState();
         }
 
         productsList.SelectionChanged += (_, _) =>
@@ -8321,6 +8461,22 @@ public partial class MainWindow : Window
         queryBox.TextChanged += (_, _) => RefreshProductList();
 
         bool SaveProduct()
+        {
+            try
+            {
+                return SaveProductCore();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Product save failed: {ex}");
+                statusText.Foreground = RedText;
+                statusText.Text = $"Nao foi possivel salvar o produto: {ex.Message}";
+                SetStatus($"Falha ao salvar produto: {ex.Message}");
+                return false;
+            }
+        }
+
+        bool SaveProductCore()
         {
             var code = string.IsNullOrWhiteSpace(codeBox.Text) ? NextProductCode() : codeBox.Text.Trim().PadLeft(6, '0');
             var name = nameBox.Text.Trim().ToUpperInvariant();
@@ -8422,6 +8578,81 @@ public partial class MainWindow : Window
         saveButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         saveButton.Width = double.NaN;
         saveButton.Click += (_, _) => SaveProduct();
+        int CountOpenProductUsage(ProductTile product)
+        {
+            var code = product.Code;
+            var count = TicketLines.Count(line => string.Equals(line.Code, code, StringComparison.OrdinalIgnoreCase));
+            count += Tables
+                .Concat(DeliveryTiles)
+                .Concat(KitchenTiles)
+                .Sum(board => board.Lines.Count(line => string.Equals(line.Code, code, StringComparison.OrdinalIgnoreCase)));
+            return count;
+        }
+
+        void RefreshDeleteProductButtonState()
+        {
+            deleteProductButton.IsEnabled = productsList.SelectedItem is ProductTile;
+        }
+
+        deleteProductButton.Click += (_, _) =>
+        {
+            var selectedProduct = productsList.SelectedItem as ProductTile;
+            var product = selectedProduct ?? Products.FirstOrDefault(item =>
+                string.Equals(item.Code, NormalizeProductCode(codeBox.Text), StringComparison.OrdinalIgnoreCase));
+            if (product is null)
+            {
+                statusText.Foreground = RedText;
+                statusText.Text = "Selecione um produto cadastrado para apagar.";
+                return;
+            }
+
+            var openUsage = CountOpenProductUsage(product);
+            var message = $"Apagar definitivamente este produto?\n\n{product.Code} - {product.Name}\n\nEle sai do cadastro, estoque, cardapio digital, WhatsApp e busca do PDV.";
+            if (openUsage > 0)
+            {
+                message += $"\n\nExistem {openUsage:N0} item(ns) ja lancados em comanda/pedido aberto. Essas linhas continuam na conta para nao quebrar o recebimento.";
+            }
+
+            message += "\n\nEsta acao nao tem desfazer.";
+            var confirmDelete = System.Windows.MessageBox.Show(
+                dialog,
+                message,
+                "Apagar produto",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No);
+            if (confirmDelete != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            var removedCode = product.Code;
+            var removedName = product.Name;
+            Products.Remove(product);
+            foreach (var item in Products)
+            {
+                item.RecipeItems.RemoveAll(recipe =>
+                    string.Equals(recipe.ProductCode, removedCode, StringComparison.OrdinalIgnoreCase));
+            }
+
+            ProductsList.Items.Refresh();
+            FilterProducts();
+            SaveStore();
+            RefreshProductList();
+            if (productsList.Items.Count > 0)
+            {
+                productsList.SelectedIndex = 0;
+            }
+            else
+            {
+                StartNewProduct();
+            }
+
+            statusText.Foreground = RedText;
+            statusText.Text = $"Produto apagado: {removedCode} - {removedName}";
+            SetStatus($"Produto apagado: {removedCode} - {removedName}");
+            RefreshDeleteProductButtonState();
+        };
         ifoodApplyButton.Click += (_, _) =>
         {
             var product = productsList.SelectedItem as ProductTile;
@@ -8607,6 +8838,7 @@ public partial class MainWindow : Window
         form.Children.Add(stockSection);
         form.Children.Add(ifoodSection);
         form.Children.Add(saveButton);
+        form.Children.Add(deleteProductButton);
         form.Children.Add(statusText);
 
         var scroll = new ScrollViewer
@@ -8628,6 +8860,7 @@ public partial class MainWindow : Window
         {
             productsList.SelectedIndex = 0;
         }
+        RefreshDeleteProductButtonState();
 
         nameBox.Focus();
         nameBox.SelectAll();
@@ -9108,7 +9341,8 @@ public partial class MainWindow : Window
                 request => RunOnUiAsync(() => AddWaiterProduct(request)),
                 request => RunOnUiAsync(() => SaveWaiterBoardNote(request)),
                 request => RunOnUiAsync(() => RemoveWaiterLine(request)),
-                request => RunOnUiAsync(() => RequestWaiterBill(request)));
+                request => RunOnUiAsync(() => RequestWaiterBill(request)),
+                request => RunOnUiAsync(() => PrintMobileBridge(request)));
 
             try
             {
@@ -9125,6 +9359,28 @@ public partial class MainWindow : Window
         }
 
         SetStatus("Nao foi possivel iniciar o Garcom Web. Portas 5050-5055 ocupadas.");
+    }
+
+    private WaiterActionResult PrintMobileBridge(MobilePrintRequest request)
+    {
+        var content = (request.Content ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return WaiterActionResult.Fail("Conteudo de impressao vazio.", BuildWaiterState());
+        }
+
+        var jobName = string.IsNullOrWhiteSpace(request.JobName)
+            ? $"Balcao Livre Mobile {request.Kind}"
+            : request.JobName.Trim();
+        var printed = TryPrintTextToDefaultPrinter(
+            content,
+            jobName,
+            request.Compact,
+            printerName: request.PrinterName);
+
+        return printed
+            ? WaiterActionResult.Success("Impresso pelo Windows bridge.", BuildWaiterState())
+            : WaiterActionResult.Fail("Windows bridge nao encontrou impressora disponivel.", BuildWaiterState());
     }
 
     private Task<T> RunOnUiAsync<T>(Func<T> action)
@@ -10421,7 +10677,7 @@ public partial class MainWindow : Window
     private void ShowIFoodHomologationDialog()
     {
         var dialog = CreateDialog("Homologacao Order iFood", 980, 720);
-        var orderIdBoxes = Enumerable.Range(1, 5)
+        var orderIdBoxes = Enumerable.Range(1, 6)
             .Select(_ => new TextBox { MinHeight = 34, FontSize = 14, Padding = new Thickness(8, 5, 8, 5) })
             .ToArray();
         var selectedSummary = new TextBlock
@@ -10526,11 +10782,12 @@ public partial class MainWindow : Window
         {
             var lines = new[]
             {
-                $"Cenario 1 - Pedido agendado com voucher: {orderIdBoxes[0].Text.Trim()}",
-                $"Cenario 2 - Pedido manual com cancelamento: {orderIdBoxes[1].Text.Trim()}",
-                $"Cenario 3 - Pedido para retirada: {orderIdBoxes[2].Text.Trim()}",
-                $"Cenario 4 - Cancelamento pela plataforma de negociacao: {orderIdBoxes[3].Text.Trim()}",
-                $"Cenario 5 - Dinheiro com troco/observacao/CPF-CNPJ: {orderIdBoxes[4].Text.Trim()}"
+                $"Cenario 1 - Cartao de credito com bandeira: {orderIdBoxes[0].Text.Trim()}",
+                $"Cenario 2 - Cupom/desconto com valor e subsidio: {orderIdBoxes[1].Text.Trim()}",
+                $"Cenario 3 - Dinheiro com troco: {orderIdBoxes[2].Text.Trim()}",
+                $"Cenario 4 - Pedido agendado com data e hora: {orderIdBoxes[3].Text.Trim()}",
+                $"Cenario 5 - Cancelamento com busca previa dos motivos: {orderIdBoxes[4].Text.Trim()}",
+                $"Cenario 6 - Catalogo iFood separado: {orderIdBoxes[5].Text.Trim()}"
             };
             System.Windows.Clipboard.SetText(string.Join(Environment.NewLine, lines));
             SetStatus("Texto do chamado de homologacao copiado.");
@@ -10538,11 +10795,12 @@ public partial class MainWindow : Window
         left.Children.Add(copy);
 
         var scenarios = new UniformGrid { Columns = 1 };
-        scenarios.Children.Add(ScenarioCard(1, "Pedido agendado com voucher", "Criar pedido para o dia seguinte, usar VOUCHER_ENTGRATIS e gravar no PDV a data/hora do agendamento, voucher, itens, cliente e orderId."));
-        scenarios.Children.Add(ScenarioCard(2, "Pedido manual com cancelamento", "Criar pedido manual com cartao na entrega, abrir no PDV, cancelar por F9/Acoes iFood e gravar status cancelamento/cancelado com orderId."));
-        scenarios.Children.Add(ScenarioCard(3, "Pedido para retirada", "Criar pedido TAKEOUT/retirada no local, confirmar, preparar e marcar pronto mostrando retirada/codigo, cliente, itens, total e orderId."));
-        scenarios.Children.Add(ScenarioCard(4, "Cancelamento pela plataforma", "Iniciar cancelamento pela plataforma de negociacao e gravar no PDV a notificacao, motivo, status bloqueado/cancelado e orderId."));
-        scenarios.Children.Add(ScenarioCard(5, "Dinheiro com troco", "Criar pedido em dinheiro com valor de troco, observacao e CPF/CNPJ; gravar todos esses dados no detalhe do pedido e o orderId."));
+        scenarios.Children.Add(ScenarioCard(1, "Cartao de credito com bandeira", "Criar pedido pago em cartao de credito e gravar no detalhe do PDV o metodo, valor e bandeira retornada pelo iFood."));
+        scenarios.Children.Add(ScenarioCard(2, "Cupom/desconto com subsidio", "Criar pedido com cupom de desconto e gravar valor do desconto e responsavel pelo subsidio quando o iFood retornar essa informacao."));
+        scenarios.Children.Add(ScenarioCard(3, "Dinheiro com troco", "Criar pedido em dinheiro com valor de troco; gravar pagamento, total e troco no detalhe do pedido."));
+        scenarios.Children.Add(ScenarioCard(4, "Pedido agendado", "Criar pedido agendado e gravar data/hora de preparo e entrega/retirada retornadas pelo iFood."));
+        scenarios.Children.Add(ScenarioCard(5, "Cancelamento com motivos", "Abrir pedido, buscar motivos de cancelamento antes de cancelar e depois solicitar cancelamento pelo fluxo do iFood."));
+        scenarios.Children.Add(ScenarioCard(6, "Catalogo iFood separado", "Gravar video separado do modulo de catalogo: puxar produtos do iFood, vinculos, disponibilidade/estoque e sincronizacao."));
 
         var layout = new Grid();
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(360) });
@@ -10744,6 +11002,7 @@ public partial class MainWindow : Window
             ExternalCode = product.ExternalCode,
             ProductCode = product.Code,
             ProductName = product.Name,
+            Price = product.Price,
             Amount = product.Amount,
             Reason = product.Reason,
             ImageDataUrl = product.ImageDataUrl,
@@ -10756,6 +11015,7 @@ public partial class MainWindow : Window
         string Name,
         string ProductId,
         string ExternalCode,
+        decimal Price,
         int Amount,
         string Reason,
         string ImageDataUrl,
@@ -10859,18 +11119,57 @@ public partial class MainWindow : Window
             return;
         }
 
-        var amount = Math.Max(0, (int)Math.Floor(product.StockQuantity));
+        var amount = GetIFoodStockSyncAmount(product);
+        var syncReason = BuildIFoodStockSyncReason(product, reason);
         var imagePayload = BuildIFoodProductImagePayload(product);
         var snapshot = new IFoodStockSyncSnapshot(
             product.Code,
             product.Name,
             productId,
             externalCode,
+            product.Price,
             amount,
-            reason,
+            syncReason,
             imagePayload.DataUrl,
             imagePayload.Url);
         _ = SyncIFoodStockSnapshotAsync(settings.BackendUrl, settings.ConnectionId, snapshot);
+    }
+
+    private static int GetIFoodStockSyncAmount(ProductTile product)
+    {
+        if (!product.Active || product.Price <= 0m)
+        {
+            return 0;
+        }
+
+        return Math.Max(0, (int)Math.Floor(product.StockQuantity));
+    }
+
+    private static string BuildIFoodStockSyncReason(ProductTile product, string reason)
+    {
+        var issues = new List<string>();
+        if (!product.Active)
+        {
+            issues.Add("produto inativo");
+        }
+
+        if (product.Price <= 0m)
+        {
+            issues.Add("produto sem preco");
+        }
+
+        if (product.StockQuantity < 0m)
+        {
+            issues.Add("estoque negativo");
+        }
+
+        if (issues.Count == 0)
+        {
+            return reason;
+        }
+
+        var note = $"iFood indisponivel: {string.Join(", ", issues)}";
+        return string.IsNullOrWhiteSpace(reason) ? note : $"{reason} ({note})";
     }
 
     private static IFoodProductImageSyncPayload BuildIFoodProductImagePayload(ProductTile product)
@@ -11221,10 +11520,12 @@ public partial class MainWindow : Window
                 Category = category,
                 Price = item.Price,
                 Sector = "COZINHA",
-                Active = item.IsAvailable != false,
+                Active = IsIFoodCatalogItemAvailableForSale(item),
                 IFoodProductId = ifoodProductId,
                 IFoodExternalCode = externalCode,
-                StockQuantity = item.StockQuantity ?? DefaultIFoodImportedStockQuantity(item),
+                StockQuantity = item.StockQuantity.HasValue
+                    ? Math.Max(0m, item.StockQuantity.Value)
+                    : DefaultIFoodImportedStockQuantity(item),
                 MinimumStock = 0
             };
 
@@ -11270,7 +11571,7 @@ public partial class MainWindow : Window
             changed = true;
         }
 
-        var active = item.IsAvailable != false;
+        var active = IsIFoodCatalogItemAvailableForSale(item, product.Price);
         if (product.Active != active)
         {
             product.Active = active;
@@ -11297,7 +11598,7 @@ public partial class MainWindow : Window
                  && HasIFoodCatalogLink(product)
                  && item.IsAvailable != false)
         {
-            var defaultQuantity = DefaultIFoodImportedStockQuantity(item);
+            var defaultQuantity = DefaultIFoodImportedStockQuantity(item, product.Price);
             product.StockQuantity = defaultQuantity;
             product.StockHistory.Add(new StockMovement
             {
@@ -11333,9 +11634,14 @@ public partial class MainWindow : Window
         return string.IsNullOrWhiteSpace(category) ? "IFOOD" : category.ToUpperInvariant();
     }
 
-    private static decimal DefaultIFoodImportedStockQuantity(IFoodCatalogProduct item)
+    private static bool IsIFoodCatalogItemAvailableForSale(IFoodCatalogProduct item, decimal fallbackPrice = 0m)
     {
-        return item.IsAvailable == false ? 0m : 10m;
+        return item.IsAvailable != false && (item.Price > 0m || fallbackPrice > 0m);
+    }
+
+    private static decimal DefaultIFoodImportedStockQuantity(IFoodCatalogProduct item, decimal fallbackPrice = 0m)
+    {
+        return IsIFoodCatalogItemAvailableForSale(item, fallbackPrice) ? 10m : 0m;
     }
 
     private void EnsureProductCategory(string category)
@@ -11471,7 +11777,7 @@ public partial class MainWindow : Window
             "READY_TO_PICKUP" or "READY" or "PRONTO" => "PRONTO",
             "DISPATCHED" or "IN_DELIVERY" or "ON_THE_WAY" or "ROUTE" or "ROTA" or "DESPACHADO" => "DESPACHADO",
             "CANCELLATION_REQUESTED" or "CANCEL_REQUESTED" or "CANCELAMENTO" => "CANCELAMENTO",
-            "CANCELLED" or "CANCELED" or "CANCELADO" => "CANCELADO",
+            "CANCELLED" or "CANCELED" or "CANCELADO" or "EXPIRED" or "EXPIRADO" => "CANCELADO",
             "CONCLUDED" or "DELIVERED" or "ENTREGUE" or "FINALIZADO" => "ENTREGUE",
             "PLACED" or "CREATED" or "NOVO" or "" => "NOVO",
             _ => normalized
@@ -12128,17 +12434,31 @@ public partial class MainWindow : Window
             return "";
         }
 
-        var start = order.ExternalPreparationStartAt ?? order.ExternalDeliveryExpectedAt;
-        return start.HasValue
-            ? $"Agendado: {start.Value:dd/MM/yyyy HH:mm}"
-            : "Agendado: horario nao informado";
+        var parts = new List<string>();
+        if (order.ExternalPreparationStartAt is { } start)
+        {
+            parts.Add($"preparo {start:dd/MM/yyyy HH:mm}");
+        }
+
+        if (order.ExternalDeliveryExpectedAt is { } expected)
+        {
+            parts.Add($"entrega/retirada {expected:dd/MM/yyyy HH:mm}");
+        }
+
+        return parts.Count > 0
+            ? $"Agendado: {string.Join(" | ", parts)}"
+            : "Agendado: data/hora nao informada pelo iFood";
     }
 
     private static string BuildIFoodPaymentText(TableTile order)
     {
         var summary = (order.ExternalPaymentSummary ?? "").Trim();
         var method = (order.ExternalPaymentMethod ?? "").Trim();
-        var change = order.ExternalChangeFor > 0m ? $" | Troco para {Money(order.ExternalChangeFor)}" : "";
+        var change = order.ExternalChangeFor > 0m
+            && !summary.Contains("Troco", StringComparison.OrdinalIgnoreCase)
+            && !method.Contains("Troco", StringComparison.OrdinalIgnoreCase)
+                ? $" | Troco para {Money(order.ExternalChangeFor)}"
+                : "";
         if (!string.IsNullOrWhiteSpace(summary))
         {
             return $"Pagamento: {summary}{change}";
@@ -12963,6 +13283,75 @@ public partial class MainWindow : Window
             table.Items.Refresh();
         }
 
+        int CountOpenProductUsage(ProductTile product)
+        {
+            var code = product.Code;
+            var count = TicketLines.Count(line => string.Equals(line.Code, code, StringComparison.OrdinalIgnoreCase));
+            count += Tables
+                .Concat(DeliveryTiles)
+                .Concat(KitchenTiles)
+                .Sum(board => board.Lines.Count(line => string.Equals(line.Code, code, StringComparison.OrdinalIgnoreCase)));
+            return count;
+        }
+
+        void DeleteSelectedProduct()
+        {
+            if (table.SelectedItem is not ProductTile product)
+            {
+                SetStatus("Selecione um produto para apagar.");
+                return;
+            }
+
+            var openUsage = CountOpenProductUsage(product);
+            var message = $"Apagar definitivamente o produto abaixo?\n\n{product.Code} - {product.Name}\n\nEle sai do estoque, cadastro, cardapio digital, WhatsApp e busca do PDV.";
+            if (openUsage > 0)
+            {
+                message += $"\n\nAtencao: existem {openUsage:N0} item(ns) ja lancados em comanda/pedido aberto. Essas linhas continuam na conta para nao quebrar o recebimento.";
+            }
+
+            message += "\n\nEsta acao nao tem desfazer.";
+            var confirmDelete = System.Windows.MessageBox.Show(
+                dialog,
+                message,
+                "Apagar produto",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No);
+            if (confirmDelete != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            var code = product.Code;
+            var selectedIndex = Math.Max(0, sortedProducts.IndexOf(product));
+            Products.Remove(product);
+            sortedProducts.Remove(product);
+            foreach (var item in Products)
+            {
+                item.RecipeItems.RemoveAll(recipe =>
+                    string.Equals(recipe.ProductCode, code, StringComparison.OrdinalIgnoreCase));
+            }
+
+            FilterProducts();
+            UpdateMetrics();
+            SaveStore();
+            var nextProduct = sortedProducts.Count == 0
+                ? null
+                : sortedProducts[Math.Clamp(selectedIndex, 0, sortedProducts.Count - 1)];
+            ApplySearch(nextProduct);
+            table.Items.Refresh();
+            if (table.SelectedItem is ProductTile selectedAfterDelete)
+            {
+                LoadStock(selectedAfterDelete);
+            }
+            else if (nextProduct is null)
+            {
+                ClearStockSelection("Nenhum produto cadastrado");
+            }
+
+            SetStatus($"Produto apagado: {code} - {product.Name}");
+        }
+
         void ChangeStock(decimal multiplier, string type)
         {
             if (table.SelectedItem is not ProductTile product)
@@ -13045,6 +13434,8 @@ public partial class MainWindow : Window
 
             ChangeStock(-1, "SAIDA");
         };
+        var deleteProductButton = DialogButton("Apagar produto definitivamente", "#A11D1D");
+        deleteProductButton.Click += (_, _) => DeleteSelectedProduct();
 
         movementBox.KeyDown += (_, e) =>
         {
@@ -13064,13 +13455,14 @@ public partial class MainWindow : Window
             }
         };
 
-        foreach (var button in new[] { setButton, inButton, outButton })
+        foreach (var button in new[] { setButton, inButton, outButton, deleteProductButton })
         {
             button.HorizontalAlignment = HorizontalAlignment.Stretch;
             button.Width = double.NaN;
         }
         inButton.Margin = new Thickness(0, 8, 0, 0);
         outButton.Margin = new Thickness(0, 8, 0, 0);
+        deleteProductButton.Margin = new Thickness(0, 8, 0, 0);
 
         var movementButtons = new StackPanel
         {
@@ -13147,6 +13539,10 @@ public partial class MainWindow : Window
             DialogLabel("Motivo"),
             reasonBox,
             movementButtons));
+        panel.Children.Add(SideSection(
+            "Excluir produto",
+            "Remove o produto por completo do cadastro e do estoque. Use somente quando ele nao deve mais aparecer no PDV.",
+            deleteProductButton));
         panel.Children.Add(movementSummary);
         sideCard.Child = new ScrollViewer
         {
@@ -13468,6 +13864,11 @@ public partial class MainWindow : Window
 
     private static bool IsCashPendingBoard(TableTile board)
     {
+        if (IsIgnoredIFoodOperationalPending(board))
+        {
+            return false;
+        }
+
         var total = board.Lines.Sum(line => line.Total);
         if (total <= 0 && board.Total > 0)
         {
@@ -13483,6 +13884,18 @@ public partial class MainWindow : Window
 
         return board.Kind == "MESA"
                && board.Status is not ("LIVRE" or "FINALIZADO" or "ENTREGUE" or "CANCELADO");
+    }
+
+    private static bool IsIgnoredIFoodOperationalPending(TableTile board)
+    {
+        if (!IsIFoodOrder(board))
+        {
+            return false;
+        }
+
+        var status = NormalizeIFoodBoardStatus(board.Status);
+        return status is "CANCELAMENTO" or "CANCELADO"
+               || IsIFoodConfirmationExpired(board);
     }
 
     private void ShowPendingCashCloseDialog(IReadOnlyList<TableTile> pending)
@@ -16031,18 +16444,25 @@ public partial class MainWindow : Window
             Background = Solid("#EEF4F7"),
             Padding = new Thickness(22)
         };
-        var root = new Grid();
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(76) });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(206) });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(76) });
+        var root = new StackPanel();
 
         var periodBox = new ComboBox
         {
-            ItemsSource = new[] { "Hoje", "Total" },
+            ItemsSource = new[]
+            {
+                "Hoje",
+                "Ontem",
+                "Esta semana",
+                "Semana passada",
+                "Ultimos 7 dias",
+                "Ultimos 30 dias",
+                "Este mes",
+                "Mes passado",
+                "Total"
+            },
             SelectedIndex = 0,
             MinHeight = 40,
-            Width = 190,
+            Width = 230,
             Padding = new Thickness(12, 0, 12, 0),
             Background = Brushes.White,
             BorderBrush = Solid("#C9D8E7"),
@@ -16100,11 +16520,9 @@ public partial class MainWindow : Window
         root.Children.Add(toolbar);
 
         var metricsHost = new ContentControl();
-        Grid.SetRow(metricsHost, 1);
         root.Children.Add(metricsHost);
 
         var bodyHost = new ContentControl();
-        Grid.SetRow(bodyHost, 2);
         root.Children.Add(bodyHost);
 
         string SelectedPeriod() => periodBox.SelectedItem?.ToString() ?? "Hoje";
@@ -16130,12 +16548,11 @@ public partial class MainWindow : Window
             var showIFoodReport = IsIFoodReportEnabled();
             var ifoodSummary = showIFoodReport ? GetIFoodReportSummary(period) : default;
 
-            root.RowDefinitions[1].Height = showIFoodReport ? new GridLength(206) : new GridLength(104);
             var metrics = new UniformGrid
             {
                 Columns = showIFoodReport ? 3 : 5,
                 Rows = showIFoodReport ? 2 : 1,
-                Margin = new Thickness(0, 0, 0, 10)
+                Margin = new Thickness(0, 0, 0, 14)
             };
             metrics.Children.Add(CreateMetricCard("Em aberto", Money(openTotal), $"{openOrders.Count} comandas/pedidos", "#0B3A52"));
             metrics.Children.Add(CreateMetricCard("Caixa atual", Money(_cashTotal), IsCashOpen() ? "caixa aberto" : "caixa fechado", IsCashOpen() ? "#08A99B" : "#A11D1D"));
@@ -16152,42 +16569,30 @@ public partial class MainWindow : Window
             var body = new Grid { Margin = new Thickness(0, 0, 0, 0) };
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(showIFoodReport ? 1.08 : 1.15, GridUnitType.Star) });
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(showIFoodReport ? 0.92 : 0.85, GridUnitType.Star) });
-            body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-            var left = new Grid { Margin = new Thickness(0, 0, 10, 0) };
-            left.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1.08, GridUnitType.Star) });
-            left.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0.92, GridUnitType.Star) });
+            var left = new StackPanel { Margin = new Thickness(0, 0, 10, 0) };
             left.Children.Add(CreateReportSection("Comandas abertas", "Mesas, balcao e delivery com movimento", CreateOrderReportList(openOrders)));
 
             var topProductsSection = CreateReportSection("Produtos mais vendidos", $"Ranking por quantidade vendida - {period}", CreateProductRanking(topProducts));
-            Grid.SetRow(topProductsSection, 1);
             left.Children.Add(topProductsSection);
             body.Children.Add(left);
 
-            var right = new Grid { Margin = new Thickness(10, 0, 0, 0) };
+            var right = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
             if (showIFoodReport)
             {
-                right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1.12, GridUnitType.Star) });
-                right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0.88, GridUnitType.Star) });
-                right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0.88, GridUnitType.Star) });
                 right.Children.Add(CreateReportSection("iFood", "Taxas estimadas: loja 12%, entrega iFood 23%", CreateIFoodReportList(ifoodSummary)));
 
                 var stockSection = CreateReportSection("Estoque critico", "Produtos no minimo ou abaixo", CreateLowStockList(lowStock));
-                Grid.SetRow(stockSection, 1);
                 right.Children.Add(stockSection);
 
                 var cashSection = CreateReportSection("Caixa", $"Total atual {Money(_cashTotal)} - {period}", CreateCashMovementList(cashMovements));
-                Grid.SetRow(cashSection, 2);
                 right.Children.Add(cashSection);
             }
             else
             {
-                right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-                right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
                 right.Children.Add(CreateReportSection("Estoque critico", "Produtos no minimo ou abaixo", CreateLowStockList(lowStock)));
 
                 var cashSection = CreateReportSection("Caixa", $"Total atual {Money(_cashTotal)} - {period}", CreateCashMovementList(cashMovements));
-                Grid.SetRow(cashSection, 1);
                 right.Children.Add(cashSection);
             }
             Grid.SetColumn(right, 1);
@@ -16257,12 +16662,16 @@ public partial class MainWindow : Window
         Grid.SetColumn(footerActions, 1);
         footerGrid.Children.Add(footerActions);
         footer.Child = footerGrid;
-        Grid.SetRow(footer, 3);
         root.Children.Add(footer);
 
         periodBox.SelectionChanged += (_, _) => RenderReport();
         RenderReport();
-        shell.Child = root;
+        shell.Child = new ScrollViewer
+        {
+            Content = root,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
         dialog.Content = shell;
         dialog.ShowDialog();
     }
@@ -16271,6 +16680,7 @@ public partial class MainWindow : Window
     {
         return Tables
             .Concat(DeliveryTiles)
+            .Where(tile => !IsIgnoredIFoodOperationalPending(tile))
             .Where(tile => tile.Total > 0 || tile.Status is not ("LIVRE" or "FINALIZADO" or "ENTREGUE"))
             .OrderByDescending(tile => tile.Total)
             .ThenBy(tile => tile.Kind)
@@ -16280,7 +16690,7 @@ public partial class MainWindow : Window
 
     private List<ProductTile> GetTopReportProducts(string period, int take)
     {
-        if (IsTodayReportPeriod(period))
+        if (HasReportDateRange(period))
         {
             var lines = GetClosedReportLines(period);
             return lines
@@ -16316,7 +16726,7 @@ public partial class MainWindow : Window
 
     private decimal GetSoldItemsForReportPeriod(string period)
     {
-        return IsTodayReportPeriod(period)
+        return HasReportDateRange(period)
             ? GetClosedReportLines(period).Sum(line => line.Quantity)
             : Products.Sum(product => product.SoldQuantity);
     }
@@ -16335,7 +16745,7 @@ public partial class MainWindow : Window
 
     private ProfitSummary GetProfitSummaryForReportPeriod(string period)
     {
-        if (IsTodayReportPeriod(period))
+        if (HasReportDateRange(period))
         {
             return GetProfitSummaryForLines(GetClosedReportLines(period));
         }
@@ -16389,9 +16799,13 @@ public partial class MainWindow : Window
     private List<TableTile> GetIFoodReportOrders(string period)
     {
         var orders = DeliveryTiles.Where(IsIFoodDeliveryBoard);
-        if (IsTodayReportPeriod(period))
+        if (TryGetReportDateRange(period, out var start, out var end))
         {
-            orders = orders.Where(order => IFoodReportOrderDate(order).Date == DateTime.Today);
+            orders = orders.Where(order =>
+            {
+                var date = IFoodReportOrderDate(order);
+                return date >= start && date < end;
+            });
         }
 
         return orders
@@ -16435,25 +16849,81 @@ public partial class MainWindow : Window
 
     private IEnumerable<CashMovement> GetReportCashMovements(string period)
     {
-        return IsTodayReportPeriod(period)
-            ? CashMovements.Where(item => item.When.Date == DateTime.Today)
+        return TryGetReportDateRange(period, out var start, out var end)
+            ? CashMovements.Where(item => item.When >= start && item.When < end)
             : CashMovements;
     }
 
     private List<TicketLine> GetClosedReportLines(string period)
     {
         var boards = Tables.Concat(DeliveryTiles);
-        if (IsTodayReportPeriod(period))
+        if (TryGetReportDateRange(period, out var start, out var end))
         {
-            boards = boards.Where(board => board.LastClosedAt.HasValue && board.LastClosedAt.Value.Date == DateTime.Today);
+            boards = boards.Where(board => board.LastClosedAt.HasValue
+                                           && board.LastClosedAt.Value >= start
+                                           && board.LastClosedAt.Value < end);
         }
 
         return boards.SelectMany(board => board.ClosedLines).ToList();
     }
 
-    private static bool IsTodayReportPeriod(string period)
+    private static bool HasReportDateRange(string period)
     {
-        return string.Equals(period, "Hoje", StringComparison.OrdinalIgnoreCase);
+        return TryGetReportDateRange(period, out _, out _);
+    }
+
+    private static bool TryGetReportDateRange(string period, out DateTime start, out DateTime end)
+    {
+        var today = DateTime.Today;
+        var normalized = (period ?? "").Trim().ToUpperInvariant();
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        var weekStart = StartOfBusinessWeek(today);
+
+        switch (normalized)
+        {
+            case "HOJE":
+                start = today;
+                end = today.AddDays(1);
+                return true;
+            case "ONTEM":
+                start = today.AddDays(-1);
+                end = today;
+                return true;
+            case "ESTA SEMANA":
+                start = weekStart;
+                end = weekStart.AddDays(7);
+                return true;
+            case "SEMANA PASSADA":
+                start = weekStart.AddDays(-7);
+                end = weekStart;
+                return true;
+            case "ULTIMOS 7 DIAS":
+                start = today.AddDays(-6);
+                end = today.AddDays(1);
+                return true;
+            case "ULTIMOS 30 DIAS":
+                start = today.AddDays(-29);
+                end = today.AddDays(1);
+                return true;
+            case "ESTE MES":
+                start = monthStart;
+                end = monthStart.AddMonths(1);
+                return true;
+            case "MES PASSADO":
+                start = monthStart.AddMonths(-1);
+                end = monthStart;
+                return true;
+            default:
+                start = DateTime.MinValue;
+                end = DateTime.MaxValue;
+                return false;
+        }
+    }
+
+    private static DateTime StartOfBusinessWeek(DateTime date)
+    {
+        var diff = ((int)date.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
+        return date.Date.AddDays(-diff);
     }
 
     private static Border CreateMetricCard(string title, string value, string detail, string accentColor)
@@ -16545,8 +17015,8 @@ public partial class MainWindow : Window
         };
 
         var grid = new Grid { Margin = new Thickness(18, 14, 18, 14) };
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(50) });
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var header = new Grid();
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
@@ -16590,16 +17060,13 @@ public partial class MainWindow : Window
         header.Children.Add(headerText);
         grid.Children.Add(header);
 
-        var scroll = new ScrollViewer
+        if (content is FrameworkElement contentElement)
         {
-            Content = content,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Margin = new Thickness(0, 4, 0, 0),
-            Padding = new Thickness(0, 0, 4, 0)
-        };
-        Grid.SetRow(scroll, 1);
-        grid.Children.Add(scroll);
+            contentElement.Margin = new Thickness(0, 10, 0, 0);
+        }
+
+        Grid.SetRow(content, 1);
+        grid.Children.Add(content);
         section.Child = grid;
         return section;
     }
@@ -18543,7 +19010,7 @@ public partial class MainWindow : Window
             shouldSaveSettings = true;
         }
 
-        if (NormalizeWhatsAppSendPulseOnlySettings())
+        if (NormalizeWhatsAppBaseSettings())
         {
             shouldSaveSettings = true;
         }
@@ -19053,7 +19520,7 @@ public partial class MainWindow : Window
         return Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
             .InformationalVersion
-            ?? "1.8.2026";
+            ?? "1.8.2026.5";
     }
 
     private async Task<bool> CheckForUpdatesAsync(bool showIfCurrent, bool autoInstall = false, bool startupCheck = false)
@@ -19487,7 +19954,7 @@ public partial class MainWindow : Window
             builder.Append(invalid.Contains(ch) ? '-' : ch);
         }
 
-        return builder.Length == 0 ? "1.8.2026" : builder.ToString();
+        return builder.Length == 0 ? "arquivo" : builder.ToString();
     }
 
     private static string CopyLogoToAppIdentityFolder(string sourcePath)
@@ -21470,7 +21937,7 @@ public partial class MainWindow : Window
         var balance = Math.Max(0, total - paidTotal);
         if (total <= 0)
         {
-            SetStatus("Nada para receber.");
+            ShowLoosePaymentDialog();
             return;
         }
 
@@ -21584,6 +22051,279 @@ public partial class MainWindow : Window
         board.ServicePercent = 10m;
     }
 
+    private string GetDefaultReceivePaymentMethod()
+    {
+        return _appSettings.MercadoPago?.Enabled == true
+            || (PagBankIntegrationAvailable && _appSettings.PagBank?.Enabled == true)
+            ? "CREDITO"
+            : "DINHEIRO";
+    }
+
+    private bool HasEnabledPaymentIntegration()
+    {
+        return _appSettings.MercadoPago?.Enabled == true
+               || (PagBankIntegrationAvailable && _appSettings.PagBank?.Enabled == true);
+    }
+
+    private static bool IsIntegratedPaymentMethod(string method)
+    {
+        return method is "CREDITO" or "DEBITO" or "PIX";
+    }
+
+    private void RegisterLoosePayment(PaymentLine payment)
+    {
+        var amount = Math.Round(Math.Max(0, payment.Amount), 2, MidpointRounding.AwayFromZero);
+        if (amount <= 0)
+        {
+            return;
+        }
+
+        var method = CompactSingleLine(payment.Method);
+        var payer = CompactSingleLine(payment.Payer);
+        _cashTotal += amount;
+        CashMovements.Add(new CashMovement
+        {
+            Type = "ENTRADA",
+            Amount = amount,
+            Reason = CompactSingleLine(string.IsNullOrWhiteSpace(payer)
+                ? $"Cobranca avulsa - {method}"
+                : $"Cobranca avulsa - {method} - {payer}"),
+            User = _currentUser,
+            When = payment.When == default ? DateTime.Now : payment.When
+        });
+        RefreshTotals();
+        SaveStore();
+    }
+
+    private void ShowLoosePaymentDialog()
+    {
+        if (!IsCashOpen())
+        {
+            SetStatus("Caixa fechado. Pressione F10 para abrir antes de cobrar avulso.");
+            return;
+        }
+
+        var dialog = CreateDialog("Cobranca avulsa", 520, 560);
+        dialog.ResizeMode = ResizeMode.NoResize;
+
+        var selectedMethod = GetDefaultReceivePaymentMethod();
+        var payerBox = new TextBox
+        {
+            Text = "Cliente",
+            Margin = new Thickness(0, 4, 0, 10)
+        };
+        var amountBox = new TextBox
+        {
+            Text = "0,00",
+            FontSize = 22,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 4, 0, 10)
+        };
+        AttachMoneyMask(amountBox);
+
+        var message = new TextBlock
+        {
+            Text = HasEnabledPaymentIntegration()
+                ? "Credito, debito e Pix podem sair pela integracao ativa. Dinheiro e vale entram manualmente no caixa."
+                : "Sem integracao ativa. O valor sera registrado manualmente no caixa.",
+            Foreground = Solid("#0B3A52"),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        var confirm = DialogButton("Cobrar avulso", "#0B3A52");
+        var cancel = DialogButton("Cancelar", "#5B6B7A");
+        foreach (var button in new[] { confirm, cancel })
+        {
+            button.HorizontalAlignment = HorizontalAlignment.Stretch;
+            button.Width = double.NaN;
+        }
+
+        var methodButtons = new List<Button>();
+        var methodGrid = new UniformGrid { Columns = 3, Rows = 2, Margin = new Thickness(0, 6, 0, 10) };
+
+        void RefreshMethodButtons()
+        {
+            foreach (var button in methodButtons)
+            {
+                var isSelected = string.Equals(button.Tag?.ToString(), selectedMethod, StringComparison.Ordinal);
+                button.Background = isSelected ? Solid("#F3F7FA") : Brushes.White;
+                button.BorderBrush = isSelected ? Solid("#0B3A52") : Solid("#CAD6E2");
+                button.Foreground = isSelected ? Solid("#0B3A52") : Solid("#071A2C");
+                button.FontWeight = isSelected ? FontWeights.Bold : FontWeights.SemiBold;
+            }
+        }
+
+        foreach (var method in new[] { "DINHEIRO", "PIX", "CREDITO", "DEBITO", "VALE" })
+        {
+            var shortcut = method switch
+            {
+                "DINHEIRO" => "D",
+                "PIX" => "P",
+                "CREDITO" => "C",
+                "DEBITO" => "B",
+                "VALE" => "V",
+                _ => ""
+            };
+            var button = new Button
+            {
+                Content = $"{shortcut}  {method}",
+                Tag = method,
+                Height = 42,
+                Margin = new Thickness(0, 0, 8, 8),
+                Background = Brushes.White,
+                BorderBrush = Solid("#CAD6E2"),
+                BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand,
+                FocusVisualStyle = null,
+                Template = RoundedButtonTemplate()
+            };
+            button.Click += (_, _) =>
+            {
+                selectedMethod = method;
+                RefreshMethodButtons();
+                amountBox.Focus();
+                amountBox.CaretIndex = amountBox.Text.Length;
+            };
+            methodButtons.Add(button);
+            methodGrid.Children.Add(button);
+        }
+
+        async void ConfirmLoosePayment()
+        {
+            var amount = ParseMoney(amountBox.Text, 0);
+            if (amount <= 0)
+            {
+                message.Text = "Informe um valor para cobrar.";
+                message.Foreground = RedText;
+                amountBox.Focus();
+                amountBox.SelectAll();
+                return;
+            }
+
+            var payer = string.IsNullOrWhiteSpace(payerBox.Text) ? "Cliente" : payerBox.Text.Trim();
+            if (IsIntegratedPaymentMethod(selectedMethod) && HasEnabledPaymentIntegration())
+            {
+                confirm.IsEnabled = false;
+                cancel.IsEnabled = false;
+                message.Foreground = Solid("#5B6B7A");
+                message.Text = "Preparando cobranca avulsa integrada...";
+                var payment = await ProcessIntegratedPaymentAsync(
+                    selectedMethod,
+                    amount,
+                    payer,
+                    dialog,
+                    BuildLoosePaymentDescription(selectedMethod, amount));
+                confirm.IsEnabled = true;
+                cancel.IsEnabled = true;
+                if (payment is null)
+                {
+                    message.Foreground = RedText;
+                    message.Text = "Cobranca integrada nao confirmada. Nada foi registrado no caixa.";
+                    return;
+                }
+
+                RegisterLoosePayment(payment);
+                SetStatus($"Cobranca avulsa aprovada: {payment.Method} {Money(payment.Amount)}");
+                dialog.Close();
+                return;
+            }
+
+            var manualPayment = new PaymentLine
+            {
+                Payer = payer,
+                Method = selectedMethod,
+                Amount = amount,
+                TenderedAmount = amount,
+                ChangeAmount = 0,
+                When = DateTime.Now
+            };
+            RegisterLoosePayment(manualPayment);
+            SetStatus($"Cobranca avulsa registrada: {manualPayment.Method} {Money(manualPayment.Amount)}");
+            dialog.Close();
+        }
+
+        confirm.Click += (_, _) => ConfirmLoosePayment();
+        cancel.Click += (_, _) => dialog.Close();
+        dialog.PreviewKeyDown += (_, e) =>
+        {
+            var key = e.Key == Key.System ? e.SystemKey : e.Key;
+            if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt)) == ModifierKeys.None)
+            {
+                var method = key switch
+                {
+                    Key.D => "DINHEIRO",
+                    Key.P => "PIX",
+                    Key.C => "CREDITO",
+                    Key.B => "DEBITO",
+                    Key.V => "VALE",
+                    _ => ""
+                };
+                if (!string.IsNullOrWhiteSpace(method) && Keyboard.FocusedElement != payerBox)
+                {
+                    selectedMethod = method;
+                    RefreshMethodButtons();
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            if (e.Key == Key.Enter)
+            {
+                ConfirmLoosePayment();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                dialog.Close();
+                e.Handled = true;
+            }
+        };
+
+        var buttons = new UniformGrid { Columns = 2, Margin = new Thickness(0, 14, 0, 0) };
+        buttons.Children.Add(confirm);
+        buttons.Children.Add(cancel);
+
+        var panel = DialogPanel();
+        panel.Children.Add(new Border
+        {
+            Background = Solid("#F8FBFD"),
+            BorderBrush = Solid("#CAD6E2"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(9),
+            Padding = new Thickness(14, 11, 14, 11),
+            Margin = new Thickness(0, 0, 0, 14),
+            Child = new TextBlock
+            {
+                Text = "Use para passar um valor livre na maquininha ou registrar um recebimento que nao pertence a uma comanda.",
+                Foreground = Solid("#0B3A52"),
+                FontWeight = FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap
+            }
+        });
+        panel.Children.Add(DialogLabel("Pagante"));
+        panel.Children.Add(payerBox);
+        panel.Children.Add(DialogLabel("Valor avulso"));
+        panel.Children.Add(amountBox);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Digite no teclado numerico: 20000 vira R$ 200,00.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, -4, 0, 8)
+        });
+        panel.Children.Add(DialogLabel("Forma"));
+        panel.Children.Add(methodGrid);
+        panel.Children.Add(message);
+        panel.Children.Add(buttons);
+        dialog.Content = panel;
+        RefreshMethodButtons();
+        amountBox.Focus();
+        amountBox.SelectAll();
+        dialog.ShowDialog();
+    }
+
     private (PaymentLine? Payment, bool Finalize)? ShowReceiveDialog(decimal balance, decimal total, decimal paidTotal)
     {
         (PaymentLine? Payment, bool Finalize)? result = null;
@@ -21592,7 +22332,7 @@ public partial class MainWindow : Window
 
         var hasOpenBalance = balance > 0;
         var board = CurrentBoard;
-        var selectedMethod = "DINHEIRO";
+        var selectedMethod = GetDefaultReceivePaymentMethod();
         var finalizePayment = true;
         var payerBox = new TextBox
         {
@@ -21634,7 +22374,9 @@ public partial class MainWindow : Window
         var message = new TextBlock
         {
             Text = hasOpenBalance
-                ? "Escolha a forma e confirme o recebimento."
+                ? selectedMethod == "CREDITO" && (_appSettings.MercadoPago.Enabled || _appSettings.PagBank.Enabled)
+                    ? "Pagamento integrado ativo: Enter cobra no cartao e a venda so fecha depois da aprovacao. Para dinheiro, pressione D."
+                    : "Escolha a forma e confirme o recebimento."
                 : "Saldo ja pago. Confirme para finalizar e imprimir.",
             Foreground = Solid("#0B3A52"),
             FontWeight = FontWeights.SemiBold,
@@ -23111,9 +23853,32 @@ public partial class MainWindow : Window
         SaveActiveTicketToCurrentBoard();
         var store = CreateStoreSnapshot();
         WriteStoreFile(store);
-        QueueCentralSync("store.saved", store);
-        QueueCloudBackup(store);
-        QueuePublicMenuPublish();
+        try
+        {
+            QueueCentralSync("store.saved", store);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Central sync queue failed: {ex}");
+        }
+
+        try
+        {
+            QueueCloudBackup(store);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Cloud backup queue failed: {ex}");
+        }
+
+        try
+        {
+            QueuePublicMenuPublish();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Public menu publish queue failed: {ex}");
+        }
     }
 
     private AppStore CreateStoreSnapshot()
@@ -23176,7 +23941,7 @@ public partial class MainWindow : Window
             var loadedAppSettings = _appSettings;
             _appSettings = store.AppSettings;
             MergeWhatsAppSendPulseSettings(loadedAppSettings.WhatsApp, _appSettings.WhatsApp ??= new WhatsAppSettings());
-            NormalizeWhatsAppSendPulseOnlySettings();
+            RestoreWhatsAppRuntimeStateOnStartup();
             NormalizeProductionDestinations();
             SaveAppSettings();
         }

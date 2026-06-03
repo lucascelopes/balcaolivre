@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace BalcaoLivre.Online.Windows;
 
 public sealed class WaiterStateDto
@@ -116,4 +118,36 @@ public sealed class WaiterActionResult
         Message = message,
         State = state
     };
+}
+
+public sealed class MobileBridgeStatus
+{
+    public bool Ok { get; set; }
+    public string Message { get; set; } = "";
+    public string LocalUrl { get; set; } = "";
+    public string NetworkUrl { get; set; } = "";
+    public DateTime ServerTime { get; set; } = DateTime.Now;
+    public WaiterStateDto? State { get; set; }
+}
+
+public sealed class MobilePrintRequest
+{
+    public string Kind { get; set; } = "receipt";
+    public string Content { get; set; } = "";
+    public string JobName { get; set; } = "Balcao Livre Mobile";
+    public bool Compact { get; set; } = true;
+    public string PrinterName { get; set; } = "";
+}
+
+public sealed class MobileImportRequest
+{
+    public List<MobileImportEvent> Events { get; set; } = [];
+}
+
+public sealed class MobileImportEvent
+{
+    public string Id { get; set; } = "";
+    public string Type { get; set; } = "";
+    public JsonElement Payload { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
 }

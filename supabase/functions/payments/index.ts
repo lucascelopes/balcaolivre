@@ -410,10 +410,45 @@ async function selectMercadoPagoTerminal(req: Request) {
   const validation = await ensureLicense(payload);
   if (!validation.ok) return json(validation, validation.status);
 
+  const licenseKey = normalizeLicense(payload.licenseKey);
   const terminalId = stringValue(payload.terminalId);
-  if (!terminalId) return json({ ok: false, message: "Escolha uma maquininha." }, 400);
+  if (!terminalId) {
+    const connection = await getConnection(licenseKey);
+    let releaseWarning = "";
+    const currentTerminalId = stringValue(connection?.selected_terminal_id);
+    if (currentTerminalId) {
+      const token = await ensureAccessToken(licenseKey);
+      if (token.ok) {
+        const release = await setupMercadoPagoTerminalStandalone(token.accessToken, currentTerminalId);
+        if (!release.ok) releaseWarning = release.message;
+      } else {
+        releaseWarning = token.message;
+      }
+    }
 
-  const token = await ensureAccessToken(normalizeLicense(payload.licenseKey));
+    const saved = await serviceClient()
+      .from("bv_mercadopago_connections")
+      .update({
+        selected_terminal_id: null,
+        selected_terminal_label: null,
+        last_sync_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("license_key", licenseKey)
+      .select("license_key")
+      .maybeSingle();
+    if (saved.error) return json({ ok: false, message: `Supabase recusou liberar maquininha: ${saved.error.message}` }, 500);
+    if (!saved.data) return json({ ok: false, message: "Conecte o Mercado Pago antes de liberar a maquininha." }, 404);
+    return json({
+      ok: true,
+      message: releaseWarning
+        ? `Maquininha liberada no PDV. Aviso Mercado Pago: ${releaseWarning}`
+        : "Maquininha liberada. A Point nao recebera mais cobrancas do PDV.",
+      warning: releaseWarning,
+    });
+  }
+
+  const token = await ensureAccessToken(licenseKey);
   if (!token.ok) return json({ ok: false, message: token.message }, token.status);
 
   const setup = await setupMercadoPagoTerminalForPdv(token.accessToken, terminalId);
@@ -433,7 +468,7 @@ async function selectMercadoPagoTerminal(req: Request) {
       last_sync_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
-    .eq("license_key", normalizeLicense(payload.licenseKey))
+    .eq("license_key", licenseKey)
     .select("license_key")
     .maybeSingle();
   if (saved.error) return json({ ok: false, message: `Supabase recusou maquininha: ${saved.error.message}` }, 500);
@@ -1510,6 +1545,38 @@ async function setupMercadoPagoTerminalForPdv(accessToken: string, terminalId: s
       ok: false,
       status: 400,
       message: `${message}. Confirme se a Point esta associada a uma loja/caixa da conta Mercado Pago e reinicie a maquininha em modo PDV.`,
+    };
+  }
+}
+
+async function setupMercadoPagoTerminalStandalone(accessToken: string, terminalId: string): Promise<
+  | { ok: true; operatingMode: string }
+  | { ok: false; message: string; status?: number; operatingMode?: string }
+> {
+  const id = stringValue(terminalId);
+  if (!id) return { ok: true, operatingMode: "" };
+
+  try {
+    const response = await mpFetch(accessToken, "/terminals/v1/setup", {
+      method: "PATCH",
+      body: JSON.stringify({
+        terminals: [
+          {
+            id,
+            operating_mode: "STANDALONE",
+          },
+        ],
+      }),
+    });
+    const terminals = Array.isArray(response.terminals) ? response.terminals as Record<string, unknown>[] : [];
+    const terminal = terminals.find((item) => stringValue(item.id) === id) ?? terminals[0] ?? {};
+    const operatingMode = stringValue(terminal.operating_mode).toUpperCase() || "STANDALONE";
+    return { ok: true, operatingMode };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 400,
+      message: `${messageFromError(error)}. O terminal foi removido do PDV, mas se ainda aparecer em modo PDV reinicie a Point ou altere o modo na propria maquininha.`,
     };
   }
 }

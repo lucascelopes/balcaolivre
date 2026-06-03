@@ -17,6 +17,11 @@ local.properties
 App_Data/
 reset-backups/
 *.log
+.netlify/
+tmp/
+outputs/
+**/__pycache__/
+BalcaoLivre.Mobile/.expo/
 
 # Local secrets and machine-specific config
 supabase-key.txt

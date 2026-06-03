@@ -2,9 +2,9 @@ import crypto from "crypto";
 
 const LICENSE_SECRET = "BalcaoLivrePDV-local-license-v1";
 const OFFLINE_INSTALLER_URL =
-  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe";
+  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.2.2026.1.exe";
 const ONLINE_INSTALLER_URL =
-  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.exe";
+  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.5.exe";
 
 export const checkoutPlans = {
   "offline-mensal": {
@@ -24,7 +24,7 @@ export const checkoutPlans = {
     clientKind: "windows-offline"
   },
   "online-mensal": {
-    name: "Balcao Livre PDV Restaurante Hibrido Online",
+    name: "Balcao Livre PDV Restaurante Profissional",
     amount: 13900,
     interval: "month",
     periodAmount: 1,
@@ -32,24 +32,8 @@ export const checkoutPlans = {
     clientKind: "windows-online"
   },
   "online-anual": {
-    name: "Balcao Livre PDV Restaurante Hibrido Online",
+    name: "Balcao Livre PDV Restaurante Profissional",
     amount: 139000,
-    interval: "year",
-    periodAmount: 1,
-    periodUnit: "years",
-    clientKind: "windows-online"
-  },
-  "complete-mensal": {
-    name: "Balcao Livre PDV Restaurantes Completo com Integracoes",
-    amount: 17900,
-    interval: "month",
-    periodAmount: 1,
-    periodUnit: "months",
-    clientKind: "windows-online"
-  },
-  "complete-anual": {
-    name: "Balcao Livre PDV Restaurantes Completo com Integracoes",
-    amount: 179000,
     interval: "year",
     periodAmount: 1,
     periodUnit: "years",
@@ -107,7 +91,6 @@ export async function fetchStripeSession(sessionId) {
 
   return data;
 }
-
 export async function ensurePaidLicenseFromSession(session) {
   const sessionId = String(session?.id || "");
   const planId = String(session?.metadata?.plan || "");

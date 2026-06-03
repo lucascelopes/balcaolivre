@@ -30,6 +30,13 @@ public static class IFoodOrderMapper
                 GetDateTime(scheduled, "deliveryDateTimeStart"),
                 GetDateTime(scheduled, "startDateTime"),
                 GetDateTime(scheduled, "scheduledDateTime"));
+            imported.DeliveryExpectedAt = FirstDateTime(
+                GetDateTime(scheduled, "deliveryDateTimeStart"),
+                GetDateTime(scheduled, "scheduledDateTime"),
+                GetDateTime(scheduled, "deliveryDateTime"),
+                GetDateTime(scheduled, "startDateTime"),
+                GetDateTime(scheduled, "deliveryDateTimeEnd"),
+                GetDateTime(scheduled, "endDateTime"));
         }
 
         if (order.TryGetProperty("preparation", out var preparation))
@@ -51,6 +58,7 @@ public static class IFoodOrderMapper
         if (order.TryGetProperty("delivery", out var delivery))
         {
             imported.DeliveryExpectedAt = FirstDateTime(
+                imported.DeliveryExpectedAt,
                 GetDateTime(delivery, "estimatedDeliveryDateTime"),
                 GetDateTime(delivery, "estimatedDeliveryTime"),
                 GetDateTime(delivery, "deliveryEstimateDateTime"),
@@ -185,12 +193,7 @@ public static class IFoodOrderMapper
     private static string BuildPaymentMethod(JsonElement order)
     {
         return PaymentElements(order)
-            .Select(element => NormalizePaymentLabel(FirstNotEmpty(
-                GetString(element, "method"),
-                GetString(element, "name"),
-                GetString(element, "type"),
-                GetString(element, "brand"),
-                GetString(element, "cardBrand"))))
+            .Select(BuildPaymentLabel)
             .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
     }
 
@@ -199,12 +202,7 @@ public static class IFoodOrderMapper
         var parts = new List<string>();
         foreach (var payment in PaymentElements(order))
         {
-            var method = NormalizePaymentLabel(FirstNotEmpty(
-                GetString(payment, "method"),
-                GetString(payment, "name"),
-                GetString(payment, "type"),
-                GetString(payment, "brand"),
-                GetString(payment, "cardBrand")));
+            var method = BuildPaymentLabel(payment);
             if (string.IsNullOrWhiteSpace(method))
             {
                 continue;
@@ -234,6 +232,44 @@ public static class IFoodOrderMapper
         }
 
         return summary;
+    }
+
+    private static string BuildPaymentLabel(JsonElement payment)
+    {
+        var method = NormalizePaymentLabel(FirstNotEmpty(
+            GetNestedString(payment, "method", "name"),
+            GetNestedString(payment, "paymentMethod", "method"),
+            GetNestedString(payment, "paymentMethod", "name"),
+            GetString(payment, "method"),
+            GetString(payment, "name"),
+            GetString(payment, "type")));
+        var brand = NormalizeCardBrand(FirstNotEmpty(
+            GetString(payment, "brand"),
+            GetString(payment, "cardBrand"),
+            GetString(payment, "card_brand"),
+            GetString(payment, "issuer"),
+            GetNestedString(payment, "card", "brand"),
+            GetNestedString(payment, "card", "cardBrand"),
+            GetNestedString(payment, "credit", "brand"),
+            GetNestedString(payment, "debit", "brand"),
+            GetNestedString(payment, "paymentMethod", "brand"),
+            GetNestedString(payment, "paymentMethod", "cardBrand")));
+
+        if (string.IsNullOrWhiteSpace(method) && !string.IsNullOrWhiteSpace(brand))
+        {
+            return $"CARTAO - Bandeira {brand}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(brand)
+            && (method.Contains("CREDITO", StringComparison.OrdinalIgnoreCase)
+                || method.Contains("DEBITO", StringComparison.OrdinalIgnoreCase)
+                || method.Contains("CARTAO", StringComparison.OrdinalIgnoreCase))
+            && !method.Contains(brand, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{method} - Bandeira {brand}";
+        }
+
+        return method;
     }
 
     private static IEnumerable<JsonElement> PaymentElements(JsonElement order)
@@ -302,6 +338,21 @@ public static class IFoodOrderMapper
         };
     }
 
+    private static string NormalizeCardBrand(string value)
+    {
+        var normalized = (value ?? "").Trim().ToUpperInvariant().Replace('_', ' ');
+        return normalized switch
+        {
+            "VISA" => "Visa",
+            "MASTERCARD" or "MASTER CARD" => "Mastercard",
+            "ELO" => "Elo",
+            "AMEX" or "AMERICAN EXPRESS" => "American Express",
+            "HIPERCARD" => "Hipercard",
+            "" => "",
+            _ => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(normalized.ToLowerInvariant())
+        };
+    }
+
     private static bool IsPaymentOnDelivery(JsonElement payment, string type)
     {
         var joined = $"{type} {GetString(payment, "liability")} {GetString(payment, "paymentType")}".ToUpperInvariant();
@@ -324,10 +375,16 @@ public static class IFoodOrderMapper
         {
             GetNestedDecimal(order, "cash", "changeFor", "value"),
             GetNestedDecimal(order, "cash", "changeFor"),
+            GetNestedDecimal(order, "cash", "change", "value"),
+            GetNestedDecimal(order, "cash", "change"),
             GetNestedDecimal(order, "payment", "cash", "changeFor", "value"),
             GetNestedDecimal(order, "payment", "changeFor", "value"),
+            GetNestedDecimal(order, "payment", "cash", "change", "value"),
+            GetNestedDecimal(order, "payment", "change", "value"),
             GetNestedDecimal(order, "payments", "cash", "changeFor", "value"),
-            GetNestedDecimal(order, "payments", "changeFor", "value")
+            GetNestedDecimal(order, "payments", "changeFor", "value"),
+            GetNestedDecimal(order, "payments", "cash", "change", "value"),
+            GetNestedDecimal(order, "payments", "change", "value")
         };
 
         foreach (var payment in PaymentElements(order))
@@ -335,6 +392,9 @@ public static class IFoodOrderMapper
             candidates.Add(GetNestedDecimal(payment, "cash", "changeFor", "value"));
             candidates.Add(GetNestedDecimal(payment, "changeFor", "value"));
             candidates.Add(GetNestedDecimal(payment, "changeFor"));
+            candidates.Add(GetNestedDecimal(payment, "cash", "change", "value"));
+            candidates.Add(GetNestedDecimal(payment, "change", "value"));
+            candidates.Add(GetNestedDecimal(payment, "change"));
         }
 
         return FirstPositive(candidates.ToArray());
@@ -367,12 +427,18 @@ public static class IFoodOrderMapper
                 GetNestedDecimal(element, "value"),
                 GetNestedDecimal(element, "amount"),
                 GetNestedDecimal(element, "amount", "value"));
+            var subsidy = BuildSubsidySummary(element);
             var joined = $"{code} {name}".Trim();
             if (joined.Contains("VOUCHER", StringComparison.OrdinalIgnoreCase) ||
                 joined.Contains("ENTGRATIS", StringComparison.OrdinalIgnoreCase) ||
                 amount > 0m && ElementNameSuggestsDiscount(element))
             {
-                values.Add(string.Join(" ", new[] { code, name, amount > 0m ? Money(amount) : "" }.Where(value => !string.IsNullOrWhiteSpace(value))));
+                values.Add(string.Join(" | ", new[]
+                {
+                    string.Join(" ", new[] { code, name }.Where(value => !string.IsNullOrWhiteSpace(value))),
+                    amount > 0m ? $"Desconto {Money(amount)}" : "",
+                    subsidy
+                }.Where(value => !string.IsNullOrWhiteSpace(value))));
             }
 
             foreach (var property in element.EnumerateObject())
@@ -414,6 +480,79 @@ public static class IFoodOrderMapper
                raw.Contains("coupon", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static string BuildSubsidySummary(JsonElement element)
+    {
+        var parts = new List<string>();
+        CollectSubsidyValues(element, parts);
+        return parts.Count == 0
+            ? ""
+            : $"Subsidio: {string.Join(", ", parts.Distinct(StringComparer.OrdinalIgnoreCase).Take(4))}";
+    }
+
+    private static void CollectSubsidyValues(JsonElement element, ICollection<string> parts)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            var sponsor = FirstNotEmpty(
+                GetString(element, "sponsor"),
+                GetString(element, "sponsoredBy"),
+                GetString(element, "provider"),
+                GetString(element, "owner"),
+                GetString(element, "name"),
+                GetString(element, "description"));
+            var amount = FirstPositive(
+                GetNestedDecimal(element, "sponsorshipValue"),
+                GetNestedDecimal(element, "sponsorshipValue", "value"),
+                GetNestedDecimal(element, "subsidy"),
+                GetNestedDecimal(element, "subsidy", "value"),
+                GetNestedDecimal(element, "value"),
+                GetNestedDecimal(element, "amount"),
+                GetNestedDecimal(element, "amount", "value"));
+            if (!string.IsNullOrWhiteSpace(sponsor)
+                && amount > 0m
+                && ElementNameSuggestsSubsidy(element))
+            {
+                parts.Add($"{NormalizeSponsor(sponsor)} {Money(amount)}");
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.Name.Contains("sponsor", StringComparison.OrdinalIgnoreCase) ||
+                    property.Name.Contains("subsid", StringComparison.OrdinalIgnoreCase) ||
+                    property.Name.Contains("liability", StringComparison.OrdinalIgnoreCase))
+                {
+                    CollectSubsidyValues(property.Value, parts);
+                }
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                CollectSubsidyValues(item, parts);
+            }
+        }
+    }
+
+    private static bool ElementNameSuggestsSubsidy(JsonElement element)
+    {
+        var raw = element.GetRawText();
+        return raw.Contains("sponsor", StringComparison.OrdinalIgnoreCase) ||
+               raw.Contains("subsid", StringComparison.OrdinalIgnoreCase) ||
+               raw.Contains("liability", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeSponsor(string value)
+    {
+        var sponsor = (value ?? "").Trim();
+        return sponsor.ToUpperInvariant() switch
+        {
+            "IFOOD" => "iFood",
+            "MERCHANT" or "RESTAURANT" => "Loja",
+            _ => sponsor
+        };
+    }
+
     private static string BuildCancellationInfo(JsonElement order)
     {
         if (order.TryGetProperty("cancellation", out var cancellation))
@@ -438,6 +577,20 @@ public static class IFoodOrderMapper
         return element.TryGetProperty(propertyName, out var property) && property.ValueKind != JsonValueKind.Null
             ? property.ToString().Trim()
             : fallback;
+    }
+
+    private static string GetNestedString(JsonElement element, params string[] path)
+    {
+        var current = element;
+        foreach (var item in path)
+        {
+            if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(item, out current))
+            {
+                return "";
+            }
+        }
+
+        return current.ValueKind == JsonValueKind.Null ? "" : current.ToString().Trim();
     }
 
     private static decimal GetDecimal(JsonElement element, string propertyName, decimal fallback = 0m)
@@ -479,7 +632,7 @@ public static class IFoodOrderMapper
         var current = element;
         foreach (var item in path)
         {
-            if (!current.TryGetProperty(item, out current))
+            if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(item, out current))
             {
                 return 0m;
             }

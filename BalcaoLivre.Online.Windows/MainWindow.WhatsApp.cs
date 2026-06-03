@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.WebSockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -29,6 +30,7 @@ namespace BalcaoLivre.Online.Windows;
 public partial class MainWindow
 {
     private const int WhatsAppConnectorPort = 8787;
+    private const int WhatsAppChromeDebugPort = 9223;
     private static readonly HttpClient SendPulseWhatsAppHttp = new()
     {
         BaseAddress = new Uri("https://api.sendpulse.com/whatsapp/")
@@ -656,9 +658,27 @@ public partial class MainWindow
             return;
         }
 
-        var message = BuildSendPulseSaleMessage(context);
+        var useLocalDom = IsLocalDomWhatsApp(settings);
+        var message = useLocalDom ? BuildWhatsAppSaleMessage(context) : BuildSendPulseSaleMessage(context);
         var log = AddWhatsAppLog(context, phone, message, "ENVIANDO_WHATSAPP", "");
         SaveStore();
+        if (useLocalDom)
+        {
+            if (_whatsAppAutomationView?.CoreWebView2 is not null)
+            {
+                OpenWhatsAppConversation(log, autoPressEnter: false);
+            }
+            else
+            {
+                log.Status = "AGUARDANDO_ATENDIMENTO";
+                log.Error = "Abra Atendimento WhatsApp para o envio automatico local.";
+                SaveStore();
+                SetStatus("WhatsApp local aguardando: abra Atendimento WhatsApp para enviar recibos automaticamente.");
+            }
+
+            return;
+        }
+
         _ = SendWhatsAppLogViaSendPulseAsync(log);
     }
 
@@ -1512,7 +1532,7 @@ public partial class MainWindow
         NormalizeWhatsAppSendPulseOnlySettings();
         SaveAppSettings();
 
-        var dialog = CreateDialog("WhatsApp automatico", 760, 560);
+        var dialog = CreateDialog("WhatsApp da loja", 760, 560);
         var phoneBox = new TextBox
         {
             Text = string.IsNullOrWhiteSpace(settings.SendPulseStorePhone)
@@ -1584,7 +1604,7 @@ public partial class MainWindow
                 && !string.IsNullOrWhiteSpace(settings.SendPulseBotId)
                 && !settings.SendPulseActivationPending
                 && !string.IsNullOrWhiteSpace(phone);
-            title.Text = active ? "WhatsApp conectado" : "WhatsApp precisa conectar";
+            title.Text = active ? "WhatsApp da loja conectado" : "Conectar WhatsApp da loja";
             badge.Background = Solid(active ? "#E6FBF8" : "#FFF2CB");
             badge.BorderBrush = Solid(active ? "#BDE5DD" : "#F7D87A");
             badge.BorderThickness = new Thickness(1);
@@ -1594,14 +1614,14 @@ public partial class MainWindow
                 ? ok.Value ? GreenText : AmberText
                 : active ? GreenText : Solid("#5B6B7A");
             status.Text = message ?? (active
-                ? "Numero conectado na Meta. O PDV envia mensagens automaticas por esse WhatsApp."
-                : "Informe o numero da loja e conecte pela Meta. Depois disso os scripts saem pelo WhatsApp desse restaurante.");
+                ? "Numero da loja conectado na Meta. O PDV envia mensagens automaticas por esse WhatsApp."
+                : "Informe o numero WhatsApp Business do restaurante e conecte pela Meta. Cada cliente vincula o proprio numero da loja.");
             hint.Text = active
                 ? $"Numero da loja: {phone}. O operador nao precisa abrir WhatsApp Web."
-                : "O navegador vai abrir a tela segura da Meta Business. O PDV nao mostra chave, token ou mensagens scriptadas para o usuario.";
+                : "O navegador abre o Cadastro Incorporado da Meta. O cliente entra com a propria conta Meta Business e escolhe o WhatsApp da loja.";
         }
 
-        var activate = DialogButton("Conectar numero", "#08A99B");
+        var activate = DialogButton("Conectar WhatsApp da loja", "#08A99B");
         activate.Click += async (_, _) =>
         {
             SavePhone();
@@ -1613,7 +1633,7 @@ public partial class MainWindow
             }
 
             activate.IsEnabled = false;
-            RenderState("Conectando WhatsApp na Meta...", null);
+            RenderState("Abrindo Cadastro Incorporado da Meta...", null);
             var result = await ActivateSendPulseStorePhoneAsync(settings, settings.SendPulseStorePhone, openOnboardingUrl: true);
             activate.IsEnabled = true;
             historyList.Items.Refresh();
@@ -1649,7 +1669,7 @@ public partial class MainWindow
                     FontSize = 18,
                     FontWeight = FontWeights.Bold
                 },
-                DialogHint("Use o numero do WhatsApp Business que atende os clientes. Se ainda nao estiver conectado, o PDV abre a Meta para vincular esse numero."),
+                DialogHint("Use o numero do WhatsApp Business que atende os clientes. O PDV abre o link oficial da Meta para o cliente vincular a conta dele."),
                 DialogField("WhatsApp", phoneBox),
                 actions,
                 status
@@ -2005,9 +2025,12 @@ public partial class MainWindow
         }
 
         var settings = GetWhatsAppSettings();
+        settings.Enabled = true;
+        settings.Provider = "LOCAL_DOM";
         settings.DefaultCountryCode = "55";
         settings.LocalConnectorPort = WhatsAppConnectorPort;
-        if (_whatsAppAutomationWindow is null)
+        var managedBrowserAlive = IsManagedWhatsAppBrowserAlive(settings);
+        if (_whatsAppAutomationWindow is null && !managedBrowserAlive)
         {
             settings.ExtensionInstalledConfirmed = false;
             settings.LocalConnectorEnabled = false;
@@ -2015,6 +2038,10 @@ public partial class MainWindow
             _ = _whatsAppConnectorServer?.StopAsync();
             _whatsAppConnectorServer = null;
             SaveAppSettings();
+        }
+        else if (settings.ExtensionInstalledConfirmed && settings.LocalConnectorEnabled)
+        {
+            EnsureWhatsAppConnectorServer();
         }
 
         var dialog = CreateDialog("Atendimento WhatsApp", 860, 700);
@@ -2038,10 +2065,10 @@ public partial class MainWindow
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
             Text = _whatsAppAutomationWindow is null
-                ? "Atendimento desligado. Clique em Ativar atendimento e abrir WhatsApp."
+                ? "Leitura desligada. Clique em Ativar leitura; se o WhatsApp ja estiver preparado pelo PDV, ele so reconecta."
                 : string.IsNullOrWhiteSpace(_lastWhatsAppAutomationStatus)
-                    ? "Atendimento aberto. Deixe a janela do WhatsApp aberta."
-                    : _lastWhatsAppAutomationStatus.Split(':', 2).LastOrDefault() ?? "Atendimento aberto."
+                    ? "Leitura ligada. Deixe o WhatsApp aberto."
+                    : _lastWhatsAppAutomationStatus.Split(':', 2).LastOrDefault() ?? "Leitura ligada."
         };
         var pendingList = new ListBox
         {
@@ -2052,13 +2079,17 @@ public partial class MainWindow
 
         void RefreshExtensionState()
         {
-            var active = _whatsAppAutomationWindow is not null
+            var active = (_whatsAppAutomationWindow is not null || IsManagedWhatsAppBrowserAlive(settings))
                 && settings.ExtensionInstalledConfirmed
                 && settings.LocalConnectorEnabled;
+            if (active)
+            {
+                EnsureWhatsAppConnectorServer();
+            }
             extensionHint.Foreground = active ? GreenText : AmberText;
             extensionHint.Text = active
                 ? "Atendimento ligado. O PDV responde mensagens novas com o cardapio do estoque e cria o pedido quando o cliente confirmar."
-                : "Atendimento desligado. Clique no botao abaixo; o PDV abre o WhatsApp e prepara tudo sozinho.";
+                : "Atendimento desligado. O PDV tenta primeiro usar uma sessao ja preparada; se nao tiver, abre o WhatsApp uma vez.";
         }
         var historyList = new ListBox
         {
@@ -2067,7 +2098,7 @@ public partial class MainWindow
             MinHeight = 150
         };
 
-        var installConnector = DialogButton("Ativar atendimento e abrir WhatsApp", "#99620D");
+        var installConnector = DialogButton("Ativar leitura do WhatsApp", "#99620D");
         installConnector.HorizontalAlignment = HorizontalAlignment.Stretch;
         installConnector.Width = double.NaN;
         installConnector.Click += async (_, _) =>
@@ -2077,7 +2108,7 @@ public partial class MainWindow
             settings.AutoReplyConnector = true;
             settings.AutoCreateConfirmedOrders = true;
             statusText.Foreground = AmberText;
-            statusText.Text = "Abrindo atendimento WhatsApp...";
+            statusText.Text = "Procurando sessao do WhatsApp...";
             installConnector.IsEnabled = false;
             await OpenWhatsAppAutomationWindowAsync(statusText, RefreshExtensionState);
             installConnector.IsEnabled = true;
@@ -2099,7 +2130,7 @@ public partial class MainWindow
             SaveStore();
             RefreshExtensionState();
             statusText.Foreground = AmberText;
-            statusText.Text = "Atendimento pausado. Para voltar, clique em Ativar atendimento e abrir WhatsApp.";
+            statusText.Text = "Atendimento pausado. Para voltar, clique em Ativar leitura do WhatsApp.";
         };
 
         var resetLogin = DialogButton("Resetar login WhatsApp", "#A11D1D");
@@ -2116,12 +2147,12 @@ public partial class MainWindow
             SaveStore();
             RefreshExtensionState();
             statusText.Foreground = AmberText;
-            statusText.Text = "Sessao do WhatsApp resetada. Clique em Ativar atendimento e escaneie o QR Code novamente.";
+            statusText.Text = "Sessao do WhatsApp resetada. Clique em Ativar leitura e escaneie o QR Code novamente.";
             SetStatus("Sessao do WhatsApp resetada.");
         };
 
         var panel = DialogPanel();
-        panel.Children.Add(DialogHint("Clique em Ativar atendimento. O PDV abre o WhatsApp, responde clientes novos com o cardapio do estoque e cria o pedido quando receber SIM."));
+        panel.Children.Add(DialogHint("Clique em Ativar leitura. Se o WhatsApp ja estiver aberto pelo PDV, ele so reconecta o leitor; se nao estiver, abre uma vez para preparar a sessao."));
         panel.Children.Add(installConnector);
         panel.Children.Add(extensionHint);
         panel.Children.Add(resetConnector);
@@ -2142,6 +2173,8 @@ public partial class MainWindow
     private async Task<bool> OpenWhatsAppAutomationWindowAsync(TextBlock statusText, Action refreshState)
     {
         var settings = GetWhatsAppSettings();
+        settings.Enabled = true;
+        settings.Provider = "LOCAL_DOM";
         settings.ExtensionInstalledConfirmed = true;
         settings.LocalConnectorEnabled = true;
         settings.AutoReplyConnector = true;
@@ -2155,93 +2188,55 @@ public partial class MainWindow
         if (_whatsAppAutomationWindow is not null)
         {
             _whatsAppAutomationWindow.Activate();
-            statusText.Foreground = GreenText;
-            statusText.Text = "Atendimento WhatsApp ja esta aberto.";
-            refreshState();
-            return true;
-        }
-
-        var webView = new WebView2();
-        var window = new Window
-        {
-            Title = "Atendimento WhatsApp - Balcao Livre PDV",
-            Owner = this,
-            Width = 1180,
-            Height = 760,
-            MinWidth = 920,
-            MinHeight = 620,
-            Content = webView
-        };
-
-        _whatsAppAutomationWindow = window;
-        _whatsAppAutomationView = webView;
-        _whatsAppAutomationStatusText = statusText;
-        window.Closed += (_, _) =>
-        {
-            _whatsAppAutomationWindow = null;
-            _whatsAppAutomationView = null;
-            _whatsAppAutomationStatusText = null;
-            settings.LocalConnectorEnabled = false;
-            SaveAppSettings();
-            SaveStore();
-            Dispatcher.BeginInvoke(() =>
-            {
-                statusText.Foreground = AmberText;
-                statusText.Text = "Atendimento fechado. Clique em Ativar atendimento para abrir de novo.";
-                refreshState();
-            }, DispatcherPriority.Background);
-        };
-
-        try
-        {
-            window.Show();
-            var profileDir = Path.Combine(_dataRoot, "whatsapp-webview-profile");
-            Directory.CreateDirectory(profileDir);
-            var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: profileDir);
-            await webView.EnsureCoreWebView2Async(environment);
-            webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
-            webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-            webView.CoreWebView2.Settings.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0";
-            webView.CoreWebView2.WebMessageReceived += WhatsAppAutomationMessageReceived;
-            await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(WhatsAppWebViewAutomationScript);
-            webView.CoreWebView2.NavigationCompleted += async (_, _) =>
+            if (_whatsAppAutomationView?.CoreWebView2 is not null)
             {
                 try
                 {
-                    await webView.CoreWebView2.ExecuteScriptAsync(WhatsAppWebViewAutomationScript);
+                    await _whatsAppAutomationView.CoreWebView2.ExecuteScriptAsync(WhatsAppWebViewAutomationScript);
                 }
                 catch (InvalidOperationException ex)
                 {
-                    Debug.WriteLine($"WhatsApp automation reinject failed: {ex.Message}");
+                    Debug.WriteLine($"WhatsApp automation reconnect failed: {ex.Message}");
                 }
-            };
-            webView.CoreWebView2.Navigate("https://web.whatsapp.com");
+            }
+
             statusText.Foreground = GreenText;
-            statusText.Text = "Atendimento aberto. Escaneie o QR Code se aparecer; depois deixe essa janela aberta.";
+            statusText.Text = "WhatsApp ja estava aberto pelo PDV. Leitura reconectada.";
             refreshState();
             return true;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or COMException)
-        {
-            _whatsAppAutomationWindow = null;
-            _whatsAppAutomationView = null;
-            settings.ExtensionInstalledConfirmed = false;
-            settings.LocalConnectorEnabled = false;
-            SaveAppSettings();
-            SaveStore();
-            try
-            {
-                window.Close();
-            }
-            catch (InvalidOperationException)
-            {
-            }
 
-            statusText.Foreground = RedText;
-            statusText.Text = $"Nao consegui abrir o atendimento WhatsApp: {ex.Message}";
+        if (IsManagedWhatsAppBrowserAlive(settings))
+        {
+            settings.ExtensionInstalledConfirmed = true;
+            settings.LocalConnectorEnabled = true;
+            settings.LocalConnectorPort = WhatsAppConnectorPort;
+            SaveAppSettings();
+            EnsureWhatsAppConnectorServer();
+            StartWhatsAppConnectorDebugInjection(FindWhatsAppExtensionDirectory(), settings.ManagedBrowserProcessId);
+            statusText.Foreground = GreenText;
+            statusText.Text = "WhatsApp ja estava aberto pelo PDV. Leitura local reconectada.";
+            SetStatus("Atendimento WhatsApp reconectado na sessao aberta.");
             refreshState();
-            return false;
+            return true;
         }
+
+        if (TryInstallWhatsAppConnectorBrowser(settings, out var connectorMessage))
+        {
+            statusText.Foreground = GreenText;
+            statusText.Text = connectorMessage;
+            refreshState();
+            return true;
+        }
+
+        settings.ExtensionInstalledConfirmed = false;
+        settings.LocalConnectorEnabled = false;
+        SaveAppSettings();
+        SaveStore();
+        statusText.Foreground = RedText;
+        statusText.Text = connectorMessage;
+        refreshState();
+        return false;
     }
 
     private async void WhatsAppAutomationMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -2387,24 +2382,38 @@ public partial class MainWindow
 
     private void DeleteWhatsAppAutomationProfile()
     {
-        var profileDir = Path.Combine(_dataRoot, "whatsapp-webview-profile");
-        try
+        var profileDirs = new[]
         {
-            if (Directory.Exists(profileDir))
+            Path.Combine(_dataRoot, "whatsapp-webview-profile"),
+            Path.Combine(_dataRoot, "whatsapp-browser-profile")
+        };
+
+        foreach (var profileDir in profileDirs)
+        {
+            try
             {
-                Directory.Delete(profileDir, recursive: true);
+                if (Directory.Exists(profileDir))
+                {
+                    Directory.Delete(profileDir, recursive: true);
+                }
             }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Debug.WriteLine($"WhatsApp profile reset skipped: {ex.Message}");
-            SetStatus($"Nao consegui apagar sessao antiga do WhatsApp: {ex.Message}");
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Debug.WriteLine($"WhatsApp profile reset skipped: {ex.Message}");
+                SetStatus($"Nao consegui apagar sessao antiga do WhatsApp: {ex.Message}");
+            }
         }
     }
 
     private WhatsAppSettings GetWhatsAppSettings()
     {
         return _appSettings.WhatsApp ??= new WhatsAppSettings();
+    }
+
+    private static bool IsLocalDomWhatsApp(WhatsAppSettings settings)
+    {
+        return string.Equals(settings.Provider, "LOCAL_DOM", StringComparison.OrdinalIgnoreCase)
+               || (settings.ExtensionInstalledConfirmed && settings.LocalConnectorEnabled);
     }
 
     private sealed class SendPulseBotOption
@@ -2444,6 +2453,57 @@ public partial class MainWindow
             Message = message,
             OnboardingUrl = onboardingUrl
         };
+    }
+
+    private bool NormalizeWhatsAppBaseSettings()
+    {
+        var settings = GetWhatsAppSettings();
+        var changed = false;
+
+        if (string.IsNullOrWhiteSpace(settings.Provider))
+        {
+            settings.Provider = "META";
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.DefaultCountryCode)
+            || !string.Equals(settings.DefaultCountryCode, "55", StringComparison.Ordinal))
+        {
+            settings.DefaultCountryCode = "55";
+            changed = true;
+        }
+
+        if (settings.LocalConnectorPort != WhatsAppConnectorPort)
+        {
+            settings.LocalConnectorPort = WhatsAppConnectorPort;
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.SendPulseSaleClosedScript))
+        {
+            settings.SendPulseSaleClosedScript = DefaultSendPulseScript("SALE_CLOSED");
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.SendPulseOrderConfirmedScript))
+        {
+            settings.SendPulseOrderConfirmedScript = DefaultSendPulseScript("ORDER_CONFIRMED");
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.SendPulseOrderReadyScript))
+        {
+            settings.SendPulseOrderReadyScript = DefaultSendPulseScript("ORDER_READY");
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.SendPulseOrderDispatchedScript))
+        {
+            settings.SendPulseOrderDispatchedScript = DefaultSendPulseScript("ORDER_DISPATCHED");
+            changed = true;
+        }
+
+        return changed;
     }
 
     private bool NormalizeWhatsAppSendPulseOnlySettings()
@@ -3171,14 +3231,46 @@ public partial class MainWindow
         settings.LocalConnectorPort = WhatsAppConnectorPort;
     }
 
+    private void RestoreWhatsAppRuntimeStateOnStartup()
+    {
+        var settings = GetWhatsAppSettings();
+        settings.LocalConnectorPort = WhatsAppConnectorPort;
+
+        if (!string.Equals(settings.Provider, "LOCAL_DOM", StringComparison.OrdinalIgnoreCase)
+            && !(settings.ExtensionInstalledConfirmed && settings.LocalConnectorEnabled))
+        {
+            if (string.IsNullOrWhiteSpace(settings.Provider))
+            {
+                settings.Provider = "META";
+            }
+
+            return;
+        }
+
+        settings.Enabled = true;
+        settings.Provider = "LOCAL_DOM";
+        settings.AutoReplyConnector = true;
+        settings.AutoCreateConfirmedOrders = true;
+
+        if (IsManagedWhatsAppBrowserAlive(settings))
+        {
+            settings.ExtensionInstalledConfirmed = true;
+            settings.LocalConnectorEnabled = true;
+            EnsureWhatsAppConnectorServer();
+            StartWhatsAppConnectorDebugInjection(FindWhatsAppExtensionDirectory(), settings.ManagedBrowserProcessId);
+            return;
+        }
+
+        settings.ExtensionInstalledConfirmed = true;
+        settings.LocalConnectorEnabled = true;
+        settings.ManagedBrowserProcessId = 0;
+        EnsureWhatsAppConnectorServer();
+        StartWhatsAppConnectorDebugInjection(FindWhatsAppExtensionDirectory(), 0);
+    }
+
     private void EnsureWhatsAppConnectorServer()
     {
         var settings = GetWhatsAppSettings();
-        if (NormalizeWhatsAppSendPulseOnlySettings())
-        {
-            SaveAppSettings();
-        }
-
         if (string.Equals(settings.Provider, "META", StringComparison.OrdinalIgnoreCase))
         {
             _ = _whatsAppConnectorServer?.StopAsync();
@@ -3266,6 +3358,29 @@ public partial class MainWindow
         }
     }
 
+    private static bool IsManagedWhatsAppBrowserAlive(WhatsAppSettings settings)
+    {
+        if (settings.ManagedBrowserProcessId <= 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var process = Process.GetProcessById(settings.ManagedBrowserProcessId);
+            var processName = process.ProcessName ?? "";
+            return !process.HasExited
+                   && (processName.Contains("chrome", StringComparison.OrdinalIgnoreCase)
+                       || processName.Contains("msedge", StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception)
+        {
+            Debug.WriteLine($"Managed WhatsApp browser reuse skipped: {ex.Message}");
+            settings.ManagedBrowserProcessId = 0;
+            return false;
+        }
+    }
+
     private bool TryInstallWhatsAppConnectorBrowser(WhatsAppSettings settings, out string message)
     {
         var extensionDir = FindWhatsAppExtensionDirectory();
@@ -3282,6 +3397,8 @@ public partial class MainWindow
             return false;
         }
 
+        settings.Enabled = true;
+        settings.Provider = "LOCAL_DOM";
         settings.ExtensionInstalledConfirmed = true;
         settings.LocalConnectorEnabled = true;
         settings.LocalConnectorPort = WhatsAppConnectorPort;
@@ -3298,6 +3415,7 @@ public partial class MainWindow
             QuoteArg($"--user-data-dir={profileDir}"),
             QuoteArg($"--disable-extensions-except={extensionDir}"),
             QuoteArg($"--load-extension={extensionDir}"),
+            $"--remote-debugging-port={WhatsAppChromeDebugPort}",
             "--no-first-run",
             "--new-window",
             QuoteArg("https://web.whatsapp.com"));
@@ -3312,10 +3430,201 @@ public partial class MainWindow
         settings.ManagedBrowserProcessId = browserProcess?.Id ?? 0;
         SaveAppSettings();
         SaveStore();
+        StartWhatsAppConnectorDebugInjection(extensionDir, settings.ManagedBrowserProcessId);
 
         SetStatus("Atendimento WhatsApp aberto pelo PDV.");
         message = "Atendimento ativado e WhatsApp aberto. No primeiro uso, escaneie o QR Code uma vez; depois essa sessao fica salva.";
         return true;
+    }
+
+    private void StartWhatsAppConnectorDebugInjection(string extensionDir, int processId)
+    {
+        if (!Directory.Exists(extensionDir))
+        {
+            return;
+        }
+
+        if (_whatsAppInjectionRunning && _whatsAppLastInjectionProcessId == processId)
+        {
+            return;
+        }
+
+        _whatsAppLastInjectionProcessId = processId;
+        _whatsAppInjectionRunning = true;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                for (var attempt = 0; attempt < 90; attempt++)
+                {
+                    if (await TryInjectWhatsAppConnectorScriptAsync(extensionDir).ConfigureAwait(false))
+                    {
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            SetStatus("Leitor WhatsApp ativo na aba aberta.");
+                        }, DispatcherPriority.Background);
+                        return;
+                    }
+
+                    await Task.Delay(1000).ConfigureAwait(false);
+                }
+
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    SetStatus("WhatsApp aberto, mas nao consegui ativar o leitor automatico na aba.");
+                }, DispatcherPriority.Background);
+            }
+            finally
+            {
+                _whatsAppInjectionRunning = false;
+            }
+        });
+    }
+
+    private static bool IsChromeProcessAlive(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            return !process.HasExited;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception)
+        {
+            return false;
+        }
+    }
+
+    private async Task<bool> TryInjectWhatsAppConnectorScriptAsync(string extensionDir)
+    {
+        var scriptPath = Path.Combine(extensionDir, "content.js");
+        if (!File.Exists(scriptPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            var targetsJson = await http.GetStringAsync($"http://127.0.0.1:{WhatsAppChromeDebugPort}/json/list").ConfigureAwait(false);
+            using var targets = JsonDocument.Parse(targetsJson);
+            var webSocketUrl = "";
+            foreach (var target in targets.RootElement.EnumerateArray())
+            {
+                var url = ReadJsonString(target, "url");
+                var type = ReadJsonString(target, "type");
+                if (!string.Equals(type, "page", StringComparison.OrdinalIgnoreCase)
+                    || !url.Contains("web.whatsapp.com", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                webSocketUrl = ReadJsonString(target, "webSocketDebuggerUrl");
+                break;
+            }
+
+            if (string.IsNullOrWhiteSpace(webSocketUrl))
+            {
+                return false;
+            }
+
+            using var socket = new ClientWebSocket();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await socket.ConnectAsync(new Uri(webSocketUrl), timeout.Token).ConfigureAwait(false);
+            using var _ = await SendChromeDebugCommandAsync(socket, 1, "Runtime.enable", new { }, timeout.Token).ConfigureAwait(false);
+            var script = await File.ReadAllTextAsync(scriptPath, Encoding.UTF8, timeout.Token).ConfigureAwait(false);
+            var scriptBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(script));
+            var expression = string.Concat(
+                "(()=>eval(new TextDecoder().decode(Uint8Array.from(atob('",
+                scriptBase64,
+                "'), c => c.charCodeAt(0)))))()");
+            using var result = await SendChromeDebugCommandAsync(socket, 2, "Runtime.evaluate", new
+            {
+                expression,
+                awaitPromise = false,
+                returnByValue = true
+            }, timeout.Token).ConfigureAwait(false);
+
+            if (result is null)
+            {
+                return false;
+            }
+
+            if (result.RootElement.TryGetProperty("error", out var errorElement))
+            {
+                Debug.WriteLine($"WhatsApp debug injection returned error: {errorElement}");
+                return false;
+            }
+
+            using var marker = await SendChromeDebugCommandAsync(socket, 3, "Runtime.evaluate", new
+            {
+                expression = "document.documentElement.getAttribute('data-balcao-livre-whatsapp')",
+                awaitPromise = false,
+                returnByValue = true
+            }, timeout.Token).ConfigureAwait(false);
+
+            var markerValue = marker?.RootElement
+                .GetProperty("result")
+                .GetProperty("result")
+                .TryGetProperty("value", out var value) == true
+                    ? value.GetString()
+                    : "";
+
+            return !string.IsNullOrWhiteSpace(markerValue)
+                && markerValue.StartsWith("0.2.", StringComparison.Ordinal);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException or WebSocketException or OperationCanceledException or InvalidOperationException)
+        {
+            Debug.WriteLine($"WhatsApp debug injection failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static async Task<JsonDocument?> SendChromeDebugCommandAsync(ClientWebSocket socket, int id, string method, object parameters, CancellationToken token)
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            id,
+            method,
+            @params = parameters
+        }, MainWindowJson.Options);
+        var bytes = Encoding.UTF8.GetBytes(payload);
+        await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token).ConfigureAwait(false);
+
+        while (socket.State == WebSocketState.Open)
+        {
+            using var stream = new MemoryStream();
+            WebSocketReceiveResult result;
+            do
+            {
+                var buffer = new byte[64 * 1024];
+                result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), token).ConfigureAwait(false);
+                if (result.MessageType == WebSocketMessageType.Close)
+                {
+                    return null;
+                }
+
+                stream.Write(buffer, 0, result.Count);
+            } while (!result.EndOfMessage);
+
+            var json = Encoding.UTF8.GetString(stream.ToArray());
+            var document = JsonDocument.Parse(json);
+            if (document.RootElement.TryGetProperty("id", out var responseId)
+                && responseId.GetInt32() == id)
+            {
+                return document;
+            }
+
+            document.Dispose();
+        }
+
+        return null;
+    }
+
+    private static string ReadJsonString(JsonElement element, string propertyName)
+    {
+        return element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? ""
+            : "";
     }
 
     private static string? FindChromiumBrowserExecutable()
