@@ -49,13 +49,13 @@ const screens = [
     id: "delivery",
     title: "Delivery, retirada e pedidos online",
     image: "/guide/windows-pdv/03-delivery-pedidos.png",
-    caption: "Fila operacional para pedidos manuais, retirada, delivery, cardapio digital, iFood e WhatsApp em plano pago.",
+    caption: "Fila operacional para pedidos manuais, retirada, delivery, cardapio digital, iFood e WhatsApp no plano profissional.",
     points: [
       "Crie pedidos manuais com cliente, telefone, endereco, bairro, taxa, observacao e itens.",
       "Pedidos online entram na mesma rotina quando o plano e integracao estiverem liberados.",
       "Use status de pedido para separar novo, confirmado, preparo, saiu para entrega e finalizado.",
       "A cozinha pode receber impressao por setor quando os setores e impressoras estiverem cadastrados.",
-      "iFood, WhatsApp e automacoes conectadas dependem de plano pago, credenciais e aprovacao dos terceiros."
+      "iFood, WhatsApp e automacoes conectadas dependem do plano profissional, credenciais e aprovacao dos terceiros."
     ]
   }
 ];
@@ -159,12 +159,12 @@ const chapters = [
   },
   {
     id: "online",
-    title: "9. Cardapio digital, garcom web, iFood e WhatsApp",
+    title: "9. Cardapio digital, garcom no celular, iFood e WhatsApp",
     items: [
       "Cardapio digital publica produtos ativos com preco, foto, categoria, disponibilidade e dados da loja.",
       "Descontos e fidelidade so devem aparecer quando forem criados no sistema.",
-      "Garcom web permite lancar itens pelo celular dentro da rede/local ou no modo online, conforme plano.",
-      "iFood e WhatsApp sao recursos conectados de plano pago, com configuracao, homologacao e regras de terceiros.",
+      "Garcom no celular permite lancar itens pelo aparelho dentro da rede/local ou no modo online, conforme plano.",
+      "WhatsApp com IA basica entra no plano profissional; iFood, WhatsApp e automacoes avancadas dependem de configuracao, homologacao e regras de terceiros.",
       "Pedidos online devem cair no PDV sem o caixa precisar buscar manualmente."
     ],
     tip: "Nao mostre recurso online falso para cliente final. Se a loja nao configurou, a pagina deve ficar limpa."

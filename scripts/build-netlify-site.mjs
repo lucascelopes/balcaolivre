@@ -42,7 +42,7 @@ async function copyLanding() {
     {
       canonicalPath: "/",
       title: "Balcao Livre PDV | Sistema Windows para restaurantes",
-      description: "PDV Windows online e offline para restaurantes, bares, lanchonetes e delivery. Caixa, mesas, estoque, comandas, cardapio digital, garcom web, iFood, WhatsApp e Mercado Pago.",
+      description: "PDV para restaurante com caixa offline, cardapio online, garcom no celular, iFood, Mercado Pago e WhatsApp com IA basica por R$139/mes.",
       mainPage: true
     }
   );
@@ -172,7 +172,7 @@ function enhanceLandingHtml(html, options = {}) {
   const canonicalUrl = `${publicSiteUrl}${canonicalPath}`;
   const description =
     options.description ||
-    "PDV Windows online e offline para restaurantes, bares, lanchonetes e delivery. Caixa, mesas, estoque, comandas, cardapio digital, garcom web, iFood, WhatsApp e Mercado Pago.";
+    "PDV para restaurante com caixa offline, cardapio online, garcom no celular, iFood, Mercado Pago e WhatsApp com IA basica por R$139/mes.";
   let nextHtml = html;
 
   if (options.title) {
@@ -191,7 +191,7 @@ function enhanceLandingHtml(html, options = {}) {
 
   const headTags = [
     `<meta name="description" content="${escapeHtml(description)}" />`,
-    `<meta name="keywords" content="PDV para restaurante, sistema para restaurante, PDV Windows, sistema de caixa, comandas, cardapio digital, garcom web, delivery, Balcao Livre PDV" />`,
+    `<meta name="keywords" content="PDV para restaurante, sistema para restaurante, PDV Windows, sistema de caixa, comandas, cardapio digital, garcom no celular, PDV com WhatsApp, PDV com Mercado Pago, PDV com iFood, Balcao Livre PDV" />`,
     `<link rel="canonical" href="${escapeHtml(canonicalUrl)}" />`,
     `<meta name="robots" content="index, follow, max-image-preview:large" />`,
     googleSiteVerification
@@ -260,10 +260,8 @@ function structuredData(canonicalUrl, description, mainPage) {
       offers: [
         offer("Balcao Livre PDV Offline mensal", 17),
         offer("Balcao Livre PDV Offline anual", 200),
-        offer("Balcao Livre PDV Hibrido Online mensal", 139),
-        offer("Balcao Livre PDV Hibrido Online anual", 1390),
-        offer("Balcao Livre PDV Completo mensal", 179),
-        offer("Balcao Livre PDV Completo anual", 1790)
+        offer("Balcao Livre PDV Restaurante Profissional mensal", 139),
+        offer("Balcao Livre PDV Restaurante Profissional anual", 1390)
       ]
     });
   }
@@ -285,7 +283,7 @@ function offer(name, price) {
 function staticConversionScript() {
   return `<script>
       (function(){
-        var planPrices={"offline-mensal":17,"offline-anual":200,"online-mensal":139,"online-anual":1390,"complete-mensal":179,"complete-anual":1790};
+        var planPrices={"offline-mensal":17,"offline-anual":200,"online-mensal":139,"online-anual":1390};
         function safeUrl(href){try{return new URL(href,window.location.href)}catch{return null}}
         function splitPlan(plan){var parts=String(plan||"").split("-");return{plan:parts[0]||"unknown",billing:parts[1]||"unknown"}}
         function publish(eventName,params,metaEvent){var payload=Object.assign({event_category:"landing",page_location:window.location.href},params||{});window.dataLayer=window.dataLayer||[];window.dataLayer.push(Object.assign({event:eventName},payload));if(window.gtag)window.gtag("event",eventName,payload);if(window.fbq){if(metaEvent)window.fbq("track",metaEvent,payload);window.fbq("trackCustom",eventName,payload)}}

@@ -5,12 +5,12 @@ import { checkoutFunctionUrl, downloadUrl, onlineDownloadUrl, sellers } from "./
 import { absoluteUrl, defaultDescription, defaultTitle, siteName, siteUrl } from "./seo";
 
 const modules = [
-  ["01", "Caixa e pagamentos", "Venda por codigo, quantidade, desconto, Pix, dinheiro, credito, debito e troco calculado."],
-  ["02", "Mesas e comandas", "Controle de mesa, garcom, ficha de balcao, delivery, observacoes e impressao do pedido."],
-  ["03", "Delivery e retirada", "Cliente, telefone, endereco, taxa por zona, status do pedido e comprovante organizado."],
-  ["04", "Estoque e margem", "Preco de compra, preco de venda, lucro previsto, entrada, saida e alerta de produto baixo."],
-  ["05", "Relatorios", "Resumo do dia, vendas por forma de pagamento, produtos vendidos, caixa e estoque critico."],
-  ["06", "Impressao", "Comprovante simples, pedido para cozinha, fechamento e impressora padrao do Windows."]
+  ["01", "Caixa e Mercado Pago", "Venda no Windows com dinheiro, Pix, credito, debito, troco, comprovante e Point/Mercado Pago quando configurado."],
+  ["02", "Mesas, comandas e garcom", "Mesa, comanda, balcao e garcom no celular lancando pedido em tempo real na conta certa."],
+  ["03", "Delivery, retirada e iFood", "Fila de pedidos com cliente, telefone, endereco, taxa, status e entrada por iFood conforme credenciais."],
+  ["04", "Cardapio online e WhatsApp", "Produtos publicados no cardapio digital e atendimento por WhatsApp com IA basica no plano profissional."],
+  ["05", "Estoque e margem", "Preco de compra, preco de venda, lucro previsto, entrada, saida e alerta de produto baixo."],
+  ["06", "Fechamento e relatorios", "Resumo do dia, vendas por forma de pagamento, produtos vendidos, caixa, retiradas e estoque critico."]
 ];
 
 const flow = [
@@ -24,65 +24,50 @@ const plans = [
   {
     id: "offline",
     order: "Plano 1",
-    label: "Offline",
-    title: "Balcao Livre PDV Offline",
-    description: "Para loja que quer o caixa Windows vendendo sem depender de internet.",
+    label: "Entrada",
+    title: "Caixa Offline",
+    description: "Para quem precisa apenas vender no computador Windows, imprimir e fechar o caixa local.",
     monthly: "R$ 17,00",
     annual: "R$ 200,00",
     features: [
-      "Venda local no Windows sem depender da internet",
-      "Mesas, balcao, delivery e comandas",
-      "Pix, dinheiro, credito, debito e comprovante",
-      "Estoque, margem, fechamento e relatorios",
-      "Licenca por computador com instalador Windows"
+      "Caixa local no Windows sem depender da internet",
+      "Venda rapida, mesas, comandas e balcao",
+      "Dinheiro, Pix manual, credito, debito e troco",
+      "Comprovante, impressao e fechamento do caixa",
+      "Estoque, margem, entradas, saidas e relatorios",
+      "Licenca por computador com instalador Windows",
+      "Nao inclui cardapio online, garcom no celular, iFood ou WhatsApp"
     ]
   },
   {
     id: "online",
     order: "Plano 2",
-    label: "Hibrido Online",
-    title: "Balcao Livre PDV Hibrido Online",
-    description: "Para restaurante que quer caixa local, PDV web, cardapio, garcom e integracoes sem WhatsApp.",
+    label: "Recomendado",
+    title: "Restaurante Profissional",
+    description: "PDV para restaurante com caixa offline, cardapio online, garcom no celular e WhatsApp com IA por R$139/mes.",
     monthly: "R$ 139,00",
     annual: "R$ 1.390,00",
+    note: "WhatsApp com IA basica incluso para atendimento e pedidos. Limites de uso conforme politica do plano; campanhas e alto volume entram no adicional.",
     features: [
       "PDV Windows local com sincronizacao em nuvem",
       "PDV web e acesso por dispositivos moveis",
       "Cardapio digital e pedidos online",
-      "Garcom no celular em tempo real",
+      "Garcom no celular lancando direto na mesa/comanda",
       "Entrega por zona com taxa configuravel",
-      "iFood e Mercado Pago conforme escopo",
+      "Mercado Pago/Point para Pix e cartao conforme credenciais",
+      "iFood no fluxo do PDV conforme homologacao e credenciais",
+      "WhatsApp com IA basica para atendimento e pedidos",
       "Sincronizacao entre caixa, web, atendimento e cozinha",
-      "Nao inclui atendimento/pedidos por WhatsApp"
-    ],
-    featured: true
-  },
-  {
-    id: "complete",
-    order: "Plano 3",
-    label: "Completo",
-    title: "Completo com Integracoes",
-    description: "Mesmo pacote do Hibrido Online, adicionando atendimento e pedidos pelo WhatsApp.",
-    monthly: "R$ 179,00",
-    annual: "R$ 1.790,00",
-    features: [
-      "PDV Windows local com sincronizacao em nuvem",
-      "PDV web e acesso por dispositivos moveis",
-      "Cardapio digital e pedidos online",
-      "Garcom no celular em tempo real",
-      "Entrega por zona com taxa configuravel",
-      "iFood e Mercado Pago conforme escopo",
-      "Sincronizacao entre caixa, web, atendimento e cozinha",
-      "Inclui atendimento e pedidos pelo WhatsApp"
+      "Implantacao assistida para iniciar a operacao conectada"
     ],
     featured: true
   },
   {
     id: "custom",
-    order: "Plano 4",
-    label: "Consultar",
-    title: "Personalizado",
-    description: "Para loja que precisa de fluxo especial, multiplas unidades, migracao, relatorios ou integracoes sob medida.",
+    order: "Plano 3",
+    label: "Sob medida",
+    title: "Projeto Personalizado",
+    description: "Para operacao com varias lojas, fiscal, migracao maior, regras especiais ou automacoes fora do padrao.",
     monthly: "Consultar",
     annual: "Consultar",
     custom: {
@@ -103,15 +88,31 @@ const plans = [
   }
 ];
 
+const whatsappAiAddOn = {
+  label: "Adicional",
+  title: "WhatsApp IA Pro",
+  price: "+R$ 49 a +R$ 89/mes",
+  description: "Para restaurante que quer volume maior no WhatsApp, campanhas, automacoes e IA mais personalizada sem trocar o plano principal.",
+  features: [
+    "Maior volume de atendimentos e conversas",
+    "Campanhas e automacoes para clientes",
+    "Recuperacao de pedido, carrinho ou cliente parado",
+    "IA com respostas mais personalizadas para a loja",
+    "Ajustes de fluxo conforme cardapio e rotina",
+    "Limites e custos de mensagens seguem politica do plano e regras da Meta"
+  ]
+};
+
 const faqs = [
-  ["Qual plano eu escolho?", "Offline e para caixa local no Windows. Hibrido Online inclui web, cardapio, garcom, iFood e Mercado Pago sem WhatsApp. Completo adiciona WhatsApp."],
+  ["Qual plano eu escolho?", "Se voce quer so caixa local no Windows, use o Offline de R$17. Se quer restaurante conectado com cardapio online, garcom no celular, Mercado Pago, iFood e WhatsApp com IA basica, use o Restaurante Profissional de R$139."],
   ["Funciona sem internet?", "No Offline, sim: o caixa continua vendendo localmente. Recursos online, nuvem e integracoes precisam de internet."],
   ["O sistema emite nota fiscal?", "O comprovante do PDV e operacional e nao substitui documento fiscal. Emissao fiscal ou integracao fiscal deve ser consultada conforme sua cidade e estado."],
   ["Da para personalizar?", "Sim. Fluxo, cardapio, entregas, impressao, usuarios e relatorios podem ser ajustados. Personalizacoes tem valores sob consulta."],
-  ["Tem WhatsApp, iFood e garcom?", "Garcom, web, iFood e Mercado Pago entram no Hibrido Online conforme escopo. WhatsApp entra no plano Completo."],
+  ["Tem WhatsApp, iFood e garcom?", "Sim. O Restaurante Profissional inclui garcom no celular, cardapio online e WhatsApp com IA basica. iFood e Mercado Pago dependem das credenciais, homologacao e regras dos terceiros."],
+  ["O WhatsApp com IA e ilimitado?", "Nao. O plano R$139 inclui IA basica com limites conforme politica do plano. Para campanhas, alto volume ou automacoes mais avancadas, use o adicional WhatsApp IA Pro."],
   ["Posso usar em mais de um computador?", "Offline e licenca por computador. Online pode conectar equipe, web e dispositivos conforme plano e configuracao combinada."],
   ["Como funciona instalacao e suporte?", "Orientamos instalacao Windows, ativacao, primeiros cadastros, impressora, pagamentos e uso do caixa. Migracoes e integracoes especiais sao combinadas."],
-  ["Posso testar antes de contratar?", "Sim. A pagina tem demo do caixa e o instalador Windows para conhecer o fluxo. Para Online, chame no WhatsApp e alinhamos seu cenario."]
+  ["Posso testar antes de contratar?", "Sim. A pagina tem demo do caixa e instaladores para conhecer o fluxo. Para testar iFood, WhatsApp, cardapio online e garcom, fale no WhatsApp para liberar o cenario correto."]
 ];
 
 const landingJsonLd = [
@@ -204,9 +205,9 @@ export default function Page({ searchParams }) {
       <section className="lpHero lpHeroProduct lpHeroDark">
         <div className="lpHeroCopy">
           <p className="lpKicker">PDV online e offline para restaurante</p>
-          <h1>O PDV que coloca seu restaurante no controle.</h1>
+          <h1>PDV para restaurante com caixa offline e WhatsApp com IA.</h1>
           <p className="lpLead">
-            Caixa, mesas, delivery, estoque, garcom web, iFood, WhatsApp e Mercado Pago em uma rotina so.
+            Por R$139/mes, controle caixa, mesas, comandas, delivery, cardapio online, garcom no celular, iFood, Mercado Pago e atendimento por WhatsApp em uma rotina so.
           </p>
           <div className="lpHeroActions">
             <a
@@ -221,9 +222,9 @@ export default function Page({ searchParams }) {
             <a className="lpGhostButton lpLargeButton" href="#demo-pdv">Testar demo</a>
           </div>
           <dl className="lpHeroStats" aria-label="Resumo do produto">
-            <div><dt>Offline e online</dt><dd>caixa local com operacao conectada quando precisar</dd></div>
-            <div><dt>Restaurantes</dt><dd>feito para bar, lanchonete, pizzaria, acai e delivery</dd></div>
-            <div><dt>Venda clara</dt><dd>pedido, pagamento, estoque e comprovante no mesmo fluxo</dd></div>
+            <div><dt>R$17 local</dt><dd>caixa Windows para vender, imprimir e fechar o dia</dd></div>
+            <div><dt>R$139 profissional</dt><dd>online, cardapio, garcom, iFood, Mercado Pago e WhatsApp IA</dd></div>
+            <div><dt>Teste 7 dias</dt><dd>conheca o fluxo antes de contratar a operacao conectada</dd></div>
           </dl>
         </div>
 
@@ -248,25 +249,25 @@ export default function Page({ searchParams }) {
             <b>Garcom web</b>
           </div>
           <div className="lpHeroTiles" aria-label="Modulos principais">
-            <span><b>iFood</b>pedido no fluxo</span>
-            <span><b>WhatsApp</b>atendimento comercial</span>
-            <span><b>Mercado Pago</b>Pix e cartao</span>
+            <span><b>iFood</b>pedido entra no PDV</span>
+            <span><b>WhatsApp IA</b>atende e recebe pedido</span>
+            <span><b>Mercado Pago</b>Pix, cartao e Point</span>
           </div>
         </div>
       </section>
 
       <section className="lpStrip" id="beneficios" aria-label="Diferenciais principais">
-        <span><b>Venda offline</b>sem travar o caixa quando a internet cai</span>
-        <span><b>Fechamento claro</b>dinheiro, Pix, cartao e retiradas</span>
-        <span><b>Comanda simples</b>mesa, balcao, delivery e fiado</span>
-        <span><b>Estoque controlado</b>baixa automatica e alerta de minimo</span>
+        <span><b>Caixa nao para</b>venda local continua mesmo quando a internet cai</span>
+        <span><b>Pedido conectado</b>mesa, cardapio, garcom, delivery e iFood no mesmo fluxo</span>
+        <span><b>Pagamento organizado</b>dinheiro, Pix, cartao, Mercado Pago, troco e comprovante</span>
+        <span><b>WhatsApp com IA</b>atendimento e pedidos inclusos no plano profissional</span>
       </section>
 
       <section className="lpSection lpInstallerSection" id="instaladores">
         <div className="lpSectionHead">
           <p className="lpKicker">Instaladores e teste</p>
           <h2>Baixe o instalador e teste o PDV por 7 dias.</h2>
-          <p>Teste caixa, mesas, estoque, impressao e Mercado Pago. WhatsApp e iFood entram somente no plano pago.</p>
+          <p>Teste o caixa Windows, mesas, estoque, impressao e pagamento. Para validar WhatsApp, iFood, cardapio online e garcom, fale com a gente e liberamos o cenario correto.</p>
         </div>
         <div className="lpInstallerGrid">
           <article className="lpInstallerCard">
@@ -289,7 +290,7 @@ export default function Page({ searchParams }) {
           <article className="lpInstallerCard lpInstallerCardOnline">
             <div className="lpInstallerTop"><span>Online</span><b>Conectado</b></div>
             <h3>Instalador PDV Online</h3>
-            <p>Para testar PDV conectado, cardapio, web, sincronizacao e equipe. iFood e WhatsApp sao liberados somente em plano pago.</p>
+            <p>Para testar PDV conectado, cardapio online, web, sincronizacao, equipe e Mercado Pago. WhatsApp IA e iFood precisam de liberacao do plano e credenciais.</p>
             <a
               className="lpSolidButton lpLargeButton"
               href={onlineDownloadUrl}
@@ -300,9 +301,9 @@ export default function Page({ searchParams }) {
             </a>
             <div className="lpTrialFlow">
               <span>Teste conectado</span>
-              <p>Use PDV web, cardapio, sincronizacao e Mercado Pago. WhatsApp e iFood ficam para contratacao paga.</p>
+              <p>Use PDV web, cardapio, sincronizacao, garcom e Mercado Pago. WhatsApp IA e iFood entram na implantacao do plano profissional.</p>
             </div>
-            <p className="lpPaidOnlyNote">Mercado Pago disponivel para teste no PDV. WhatsApp, iFood, homologacao e automacoes conectadas entram apenas depois da contratacao paga.</p>
+            <p className="lpPaidOnlyNote">O plano Restaurante Profissional inclui WhatsApp com IA basica. Alto volume, campanhas e automacoes avancadas entram no adicional WhatsApp IA Pro.</p>
           </article>
         </div>
       </section>
@@ -315,7 +316,7 @@ export default function Page({ searchParams }) {
         <div className="lpSectionHead">
           <p className="lpKicker">Produto</p>
           <h2>Um PDV para a rotina inteira da loja.</h2>
-          <p>Interface direta para operador de caixa, gerente, garcom e dono acompanharem o que importa no dia.</p>
+          <p>Interface direta para caixa, gerente, garcom e dono acompanharem pedido, pagamento, estoque, cardapio online, iFood e WhatsApp sem trocar de sistema.</p>
         </div>
         <div className="lpModuleGrid">
           {modules.map(([number, title, text]) => (
@@ -404,8 +405,8 @@ export default function Page({ searchParams }) {
       <section className="lpSection lpPlansSection" id="planos">
         <div className="lpSectionHead">
           <p className="lpKicker">Planos</p>
-          <h2>Escolha offline para caixa local ou online para operacao conectada.</h2>
-          <p>Os dois planos mantem o foco no PDV. A diferenca esta no nivel de integracao e acompanhamento em tempo real.</p>
+          <h2>R$17 para caixa local. R$139 para restaurante conectado.</h2>
+          <p>O R$139 e o plano principal para operar com cardapio online, garcom no celular, Mercado Pago, iFood e WhatsApp com IA basica. Automacoes de alto volume entram no adicional IA Pro.</p>
         </div>
 
         <div className="lpPlanCompare">
@@ -427,8 +428,9 @@ export default function Page({ searchParams }) {
                   <strong>{plan.custom.text}</strong>
                 </div>
               ) : null}
+              {plan.note ? <p className="lpPlanNote">{plan.note}</p> : null}
               <ul>
-                {plan.features.slice(0, 6).map((feature) => <li key={feature}>{feature}</li>)}
+                {plan.features.map((feature) => <li key={feature}>{feature}</li>)}
               </ul>
               {plan.whatsappOnly ? (
                 <a
@@ -468,6 +470,28 @@ export default function Page({ searchParams }) {
             </article>
           ))}
         </div>
+
+        <article className="lpPlanAddOn">
+          <div>
+            <span>{whatsappAiAddOn.label}</span>
+            <h3>{whatsappAiAddOn.title}</h3>
+            <p>{whatsappAiAddOn.description}</p>
+          </div>
+          <strong>{whatsappAiAddOn.price}</strong>
+          <ul>
+            {whatsappAiAddOn.features.map((feature) => <li key={feature}>{feature}</li>)}
+          </ul>
+          <a
+            className="lpPlanButton"
+            href={sellers[1].href}
+            data-analytics-action="whatsapp_click"
+            data-analytics-seller={sellers[1].name}
+            data-analytics-location="addon_whatsapp_ai"
+            data-analytics-plan="whatsapp-ai-pro"
+          >
+            Consultar IA Pro
+          </a>
+        </article>
       </section>
 
       <section className="lpGuideBanner">
@@ -504,7 +528,7 @@ export default function Page({ searchParams }) {
         </div>
         <div className="lpFooterPitch">
           <b>PDV Windows para restaurante vender, imprimir e fechar caixa sem depender de gambiarra.</b>
-          <span>Offline para caixa local. Online para web, zonas e garcom. iFood e WhatsApp somente no plano pago.</span>
+          <span>Offline para caixa local. Restaurante Profissional para web, cardapio, garcom, iFood, Mercado Pago e WhatsApp com IA basica.</span>
         </div>
         <div className="lpFooterColumn">
           <b>Produto</b>

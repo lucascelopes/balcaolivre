@@ -8,7 +8,7 @@ export const defaultTitle =
   "Balcao Livre PDV | Sistema Windows para restaurantes";
 
 export const defaultDescription =
-  "PDV Windows online e offline para restaurantes, bares, lanchonetes e delivery. Caixa, mesas, estoque, comandas, cardapio digital, garcom web, iFood, WhatsApp e Mercado Pago.";
+  "PDV para restaurante com caixa offline, cardapio online, garcom no celular, iFood, Mercado Pago e WhatsApp com IA basica por R$139/mes.";
 
 export const seoKeywords = [
   "PDV para restaurante",
@@ -19,8 +19,12 @@ export const seoKeywords = [
   "PDV para pizzaria",
   "sistema de comandas",
   "cardapio digital",
-  "garcom web",
+  "garcom no celular",
   "PDV delivery",
+  "PDV com WhatsApp",
+  "WhatsApp com IA para restaurante",
+  "PDV com Mercado Pago",
+  "PDV com iFood",
   "Balcao Livre PDV"
 ];
 

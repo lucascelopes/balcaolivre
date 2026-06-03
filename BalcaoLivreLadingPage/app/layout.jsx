@@ -182,9 +182,7 @@ export default function RootLayout({ children }) {
                 "offline-mensal": 17,
                 "offline-anual": 200,
                 "online-mensal": 139,
-                "online-anual": 1390,
-                "complete-mensal": 179,
-                "complete-anual": 1790
+                "online-anual": 1390
               };
 
               function safeUrl(href) {

@@ -8,9 +8,7 @@ const prices = {
   "offline-mensal": process.env.STRIPE_PRICE_OFFLINE_MENSAL || "",
   "offline-anual": process.env.STRIPE_PRICE_OFFLINE_ANUAL || "",
   "online-mensal": process.env.STRIPE_PRICE_ONLINE_MENSAL || "",
-  "online-anual": process.env.STRIPE_PRICE_ONLINE_ANUAL || "",
-  "complete-mensal": process.env.STRIPE_PRICE_COMPLETE_MENSAL || "",
-  "complete-anual": process.env.STRIPE_PRICE_COMPLETE_ANUAL || ""
+  "online-anual": process.env.STRIPE_PRICE_ONLINE_ANUAL || ""
 };
 
 function planFromRequest(request, formData) {
