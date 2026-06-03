@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -12,17 +13,19 @@ namespace AgendaLivre.Windows;
 public partial class MainWindow : Window
 {
     private const string AllSegments = "Todos";
+    private const double ScheduleTimeColumnWidth = 78;
+    private const double ScheduleProfessionalColumnWidth = 240;
     private static readonly CultureInfo Brazil = CultureInfo.GetCultureInfo("pt-BR");
-    private static readonly Brush AccentBrush = Solid("#0E766D");
-    private static readonly Brush AccentSoftBrush = Solid("#E0F4F1");
-    private static readonly Brush WarmSoftBrush = Solid("#FFF0DF");
-    private static readonly Brush RedSoftBrush = Solid("#FFE7E2");
-    private static readonly Brush BlueSoftBrush = Solid("#E8F1FF");
+    private static readonly Brush AccentBrush = Solid("#2563EB");
+    private static readonly Brush AccentSoftBrush = Solid("#EAF1FF");
+    private static readonly Brush WarmSoftBrush = Solid("#DBEAFE");
+    private static readonly Brush RedSoftBrush = Solid("#FEE2E2");
+    private static readonly Brush BlueSoftBrush = Solid("#EAF1FF");
     private static readonly Brush YellowSoftBrush = Solid("#FFF6D8");
     private static readonly Brush GraySoftBrush = Solid("#EEF2F6");
-    private static readonly Brush InkBrush = Solid("#15202B");
-    private static readonly Brush MutedBrush = Solid("#637381");
-    private static readonly Brush LineBrush = Solid("#D7E0EA");
+    private static readonly Brush InkBrush = Solid("#172033");
+    private static readonly Brush MutedBrush = Solid("#68758A");
+    private static readonly Brush LineBrush = Solid("#E2E8F0");
 
     private readonly AgendaDataStore _store = new();
     private readonly ObservableCollection<AppointmentRow> _dayRows = [];
@@ -34,6 +37,24 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<Professional> _filteredProfessionals = [];
     private readonly ObservableCollection<string> _resourceOptions = [];
     private readonly IReadOnlyList<OnboardingTemplate> _onboardingTemplates = OnboardingTemplate.CreateDefaults();
+    private static readonly string[] OnboardingStepTitles =
+    [
+        "Dados iniciais",
+        "Segmento do negócio",
+        "Tamanho da equipe",
+        "Objetivo principal",
+        "Endereço",
+        "Senha de acesso"
+    ];
+    private static readonly string[] OnboardingStepCaptions =
+    [
+        "Identifique o responsável e o nome que aparecerá no sistema.",
+        "Escolha o setor para carregar serviços e recursos mais próximos da sua rotina.",
+        "Informe quantas pessoas atendem para preparar a agenda do tamanho certo.",
+        "Marque a prioridade inicial para a configuração nascer alinhada ao seu uso.",
+        "Cadastre onde o negócio funciona para consultas e relatórios.",
+        "Defina a senha que libera o acesso ao sistema."
+    ];
 
     private readonly string[] _segments =
     [
@@ -49,8 +70,12 @@ public partial class MainWindow : Window
 
     private AgendaData _data = new();
     private Appointment? _selectedAppointment;
+    private OnboardingTemplate? _selectedOnboardingTemplate;
     private DateTime _selectedDate = DateTime.Today;
     private string _selectedSegmentFilter = AllSegments;
+    private string _selectedProfessionalCount = "";
+    private string _selectedObjective = "";
+    private int _onboardingStep;
     private bool _loadingEditor;
     private bool _syncingSelection;
 
@@ -115,148 +140,251 @@ public partial class MainWindow : Window
 
     private void ConfigureOnboardingInputs()
     {
-        OnboardingSectorCombo.ItemsSource = _onboardingTemplates;
-        var isIntegratedBeauty = _data.Settings.BusinessSegment == OnboardingTemplate.IntegratedBeautySegment;
-        OnboardingSectorCombo.SelectedItem = isIntegratedBeauty
-            ? _onboardingTemplates.FirstOrDefault(template => template.Segment == OnboardingTemplate.NailsSegment)
-            : _onboardingTemplates.FirstOrDefault(template => template.Segment == _data.Settings.BusinessSegment)
-              ?? _onboardingTemplates[0];
-        OnboardingIntegratedSalonCheckBox.IsChecked = isIntegratedBeauty;
+        _selectedOnboardingTemplate = ResolveBusinessTemplate(_data.Settings.BusinessSegment);
+        _selectedProfessionalCount = _data.Settings.ProfessionalCountRange;
+        _selectedObjective = _data.Settings.MainObjective;
 
-        var hours = Enumerable.Range(5, 20).Select(hour => $"{hour:00}:00").ToList();
-        OnboardingStartHourCombo.ItemsSource = hours;
-        OnboardingEndHourCombo.ItemsSource = hours;
-        OnboardingStartHourCombo.SelectedItem = $"{Math.Clamp(_data.Settings.WorkdayStartHour, 5, 23):00}:00";
-        OnboardingEndHourCombo.SelectedItem = $"{Math.Clamp(_data.Settings.WorkdayEndHour, 6, 24):00}:00";
+        InitialFullNameTextBox.Text = _data.Settings.AccountFullName;
+        InitialPhoneTextBox.Text = string.IsNullOrWhiteSpace(_data.Settings.AccountPhone)
+            ? _data.Settings.BusinessPhone
+            : _data.Settings.AccountPhone;
+        InitialEmailTextBox.Text = _data.Settings.AccountEmail;
+        InitialBusinessNameTextBox.Text = IsDefaultBusinessName(_data.Settings.BusinessName)
+            ? ""
+            : _data.Settings.BusinessName;
+        OnboardingCepTextBox.Text = _data.Settings.PostalCode;
+        OnboardingNeighborhoodTextBox.Text = _data.Settings.Neighborhood;
+        OnboardingStreetTextBox.Text = _data.Settings.Street;
+        OnboardingAddressNumberTextBox.Text = _data.Settings.AddressNumber;
+        OnboardingAddressComplementTextBox.Text = _data.Settings.AddressComplement;
+        OnboardingPasswordBox.Clear();
 
-        OnboardingBusinessNameTextBox.Text = _data.Settings.BusinessName == "Agenda Livre" ? "" : _data.Settings.BusinessName;
-        OnboardingBusinessDocumentTextBox.Text = _data.Settings.BusinessDocument;
-        OnboardingBusinessPhoneTextBox.Text = _data.Settings.BusinessPhone;
-        OnboardingBusinessAddressTextBox.Text = _data.Settings.BusinessAddress;
-        UpdateOnboardingPreview();
+        ShowOnboardingStep(0);
     }
 
     private bool NeedsOnboarding() =>
         !_data.Settings.OnboardingCompleted ||
         string.IsNullOrWhiteSpace(_data.Settings.BusinessSegment);
 
+    private static bool IsDefaultBusinessName(string? businessName) =>
+        string.IsNullOrWhiteSpace(businessName) ||
+        businessName.Equals("Agenda Livre", StringComparison.OrdinalIgnoreCase) ||
+        businessName.Equals("Balcão Livre", StringComparison.OrdinalIgnoreCase);
+
     private void ShowOnboarding()
     {
         OnboardingOverlay.Visibility = Visibility.Visible;
-        OnboardingBusinessNameTextBox.Focus();
-        ShowStatus("Configure o setor do negócio para montar a agenda correta.");
+        ShowOnboardingStep(0);
+        InitialFullNameTextBox.Focus();
+        ShowStatus("Informe os dados iniciais para criar sua agenda.");
     }
 
-    private void OnboardingSectorCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateOnboardingPreview();
-
-    private void OnboardingIntegratedSalonCheckBox_Changed(object sender, RoutedEventArgs e) => UpdateOnboardingPreview();
-
-    private void OnboardingBusinessDocumentTextBox_LostFocus(object sender, RoutedEventArgs e)
+    private void ContinueInitialDataButton_Click(object sender, RoutedEventArgs e)
     {
-        if (TryFormatBusinessDocument(OnboardingBusinessDocumentTextBox.Text, out var formatted, out _))
-        {
-            OnboardingBusinessDocumentTextBox.Text = formatted;
-        }
-    }
-
-    private void OnboardingBusinessPhoneTextBox_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (TryFormatBusinessPhone(OnboardingBusinessPhoneTextBox.Text, out var formatted, out _))
-        {
-            OnboardingBusinessPhoneTextBox.Text = formatted;
-        }
-    }
-
-    private void UpdateOnboardingPreview()
-    {
-        if (OnboardingSectorCombo.SelectedItem is not OnboardingTemplate selectedTemplate)
+        if (!TryCaptureInitialData())
         {
             return;
         }
 
-        var showIntegratedSalonOption = SupportsIntegratedBeautyOption(selectedTemplate);
-        OnboardingIntegratedSalonPanel.Visibility = showIntegratedSalonOption ? Visibility.Visible : Visibility.Collapsed;
-        if (!showIntegratedSalonOption && OnboardingIntegratedSalonCheckBox.IsChecked == true)
-        {
-            OnboardingIntegratedSalonCheckBox.IsChecked = false;
-        }
-        ApplyIntegratedBeautyQuestionText(selectedTemplate);
-
-        var template = GetEffectiveOnboardingTemplate(selectedTemplate);
-        OnboardingPreviewTitle.Text = $"Como a agenda vai funcionar para {template.Title}";
-        OnboardingPreviewText.Text = template.Description;
-        OnboardingExampleText.Text = template.Example;
-        OnboardingClientLabelText.Text = template.ClientLabel;
-        OnboardingDetailLabelText.Text = template.ClientDetailLabel;
-        OnboardingResourceLabelText.Text = template.ResourceLabel;
-        var visibleServices = template.Services.Take(6).Select(service => service.Name);
-        OnboardingServicesText.Text = template.Services.Count <= 6
-            ? string.Join(", ", visibleServices)
-            : $"{string.Join(", ", visibleServices)} e mais {template.Services.Count - 6}";
-        OnboardingStartHourCombo.SelectedItem ??= $"{template.StartHour:00}:00";
-        OnboardingEndHourCombo.SelectedItem ??= $"{template.EndHour:00}:00";
+        ShowOnboardingStep(1);
+        SegmentSalonButton.Focus();
     }
 
-    private OnboardingTemplate GetEffectiveOnboardingTemplate(OnboardingTemplate selectedTemplate)
+    private void InitialNameTextBox_LostFocus(object sender, RoutedEventArgs e)
     {
-        return SupportsIntegratedBeautyOption(selectedTemplate) && OnboardingIntegratedSalonCheckBox.IsChecked == true
-            ? OnboardingTemplate.CreateIntegratedBeauty()
-            : selectedTemplate;
+        if (sender is TextBox textBox)
+        {
+            textBox.Text = ToNameCase(textBox.Text);
+        }
     }
 
-    private static bool SupportsIntegratedBeautyOption(OnboardingTemplate template) =>
-        template.Segment == OnboardingTemplate.NailsSegment ||
-        template.Title == OnboardingTemplate.SalonTitle;
-
-    private void ApplyIntegratedBeautyQuestionText(OnboardingTemplate selectedTemplate)
+    private void InitialPhoneTextBox_LostFocus(object sender, RoutedEventArgs e)
     {
-        if (selectedTemplate.Title == OnboardingTemplate.SalonTitle)
+        if (sender is TextBox textBox &&
+            TryFormatBusinessPhone(textBox.Text, out var formattedPhone, out _))
         {
-            OnboardingIntegratedQuestionTitle.Text = "Também atende unha e beleza?";
-            OnboardingIntegratedQuestionText.Text = "Marque para criar uma agenda integrada com cabelo, coloração, lavatório, manicure, alongamento, design e mesas de atendimento.";
-            OnboardingIntegratedSalonCheckBox.Content = "Sim, quero salão e unha no mesmo sistema";
-            return;
+            textBox.Text = formattedPhone;
         }
-
-        OnboardingIntegratedQuestionTitle.Text = "Também atende cabelo ou salão?";
-        OnboardingIntegratedQuestionText.Text = "Marque para criar uma agenda integrada com unha, design, cabelo, coloração, lavatório, cadeiras e profissionais do salão.";
-        OnboardingIntegratedSalonCheckBox.Content = "Sim, quero unha e salão no mesmo sistema";
     }
 
-    private void FinishOnboardingButton_Click(object sender, RoutedEventArgs e)
+    private bool TryCaptureInitialData()
     {
-        if (OnboardingSectorCombo.SelectedItem is not OnboardingTemplate selectedTemplate)
+        var fullName = ToNameCase(InitialFullNameTextBox.Text);
+        if (string.IsNullOrWhiteSpace(fullName))
         {
-            ShowStatus("Escolha o setor do negócio.");
-            return;
+            ShowStatus("Informe o nome completo antes de continuar.");
+            InitialFullNameTextBox.Focus();
+            return false;
         }
 
-        var template = GetEffectiveOnboardingTemplate(selectedTemplate);
-        var businessName = OnboardingBusinessNameTextBox.Text.Trim();
-        if (!TryFormatBusinessDocument(OnboardingBusinessDocumentTextBox.Text, out var businessDocument, out var documentError))
+        if (string.IsNullOrWhiteSpace(InitialPhoneTextBox.Text))
         {
-            ShowStatus(documentError);
-            OnboardingBusinessDocumentTextBox.Focus();
-            return;
+            ShowStatus("Informe o celular antes de continuar.");
+            InitialPhoneTextBox.Focus();
+            return false;
         }
-        if (!TryFormatBusinessPhone(OnboardingBusinessPhoneTextBox.Text, out var businessPhone, out var phoneError))
+
+        if (!TryFormatBusinessPhone(InitialPhoneTextBox.Text, out var phone, out var phoneError))
         {
             ShowStatus(phoneError);
-            OnboardingBusinessPhoneTextBox.Focus();
-            return;
+            InitialPhoneTextBox.Focus();
+            return false;
         }
-        var businessAddress = OnboardingBusinessAddressTextBox.Text.Trim();
 
-        var startHour = ParseHour(OnboardingStartHourCombo.SelectedItem?.ToString(), template.StartHour);
-        var endHour = ParseHour(OnboardingEndHourCombo.SelectedItem?.ToString(), template.EndHour);
-
-        if (endHour <= startHour)
+        var email = InitialEmailTextBox.Text.Trim();
+        if (!LooksLikeEmail(email))
         {
-            ShowStatus("O horário de fechamento precisa ser depois da abertura.");
+            ShowStatus("Informe um e-mail válido antes de continuar.");
+            InitialEmailTextBox.Focus();
+            return false;
+        }
+
+        var businessName = ToNameCase(InitialBusinessNameTextBox.Text);
+        if (string.IsNullOrWhiteSpace(businessName))
+        {
+            ShowStatus("Informe o nome do negócio antes de continuar.");
+            InitialBusinessNameTextBox.Focus();
+            return false;
+        }
+
+        InitialFullNameTextBox.Text = fullName;
+        InitialPhoneTextBox.Text = phone;
+        InitialBusinessNameTextBox.Text = businessName;
+        _data.Settings.AccountFullName = fullName;
+        _data.Settings.AccountPhone = phone;
+        _data.Settings.AccountEmail = email;
+        _data.Settings.BusinessName = businessName;
+        _data.Settings.BusinessPhone = phone;
+        return true;
+    }
+
+    private void BusinessTypeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not string businessType)
+        {
             return;
         }
 
-        ApplyOnboardingTemplate(template, businessName, businessDocument, businessPhone, businessAddress, startHour, endHour);
+        _selectedOnboardingTemplate = CreateBusinessTemplate(businessType);
+        UpdateWizardChoiceStates();
+        ShowStatus($"Selecionado: {_selectedOnboardingTemplate.Title}. Clique em Continuar para confirmar.");
+    }
+
+    private void ProfessionalCountButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not string professionalCount)
+        {
+            return;
+        }
+
+        _selectedProfessionalCount = professionalCount;
+        UpdateWizardChoiceStates();
+        ShowStatus($"Selecionado: {professionalCount}. Clique em Continuar para confirmar.");
+    }
+
+    private void ObjectiveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not string objective)
+        {
+            return;
+        }
+
+        _selectedObjective = objective;
+        UpdateWizardChoiceStates();
+        ShowStatus($"Selecionado: {objective}. Clique em Continuar para confirmar.");
+    }
+
+    private void ContinueBusinessTypeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedOnboardingTemplate is null)
+        {
+            ShowStatus("Escolha o segmento do negócio antes de continuar.");
+            return;
+        }
+
+        ShowOnboardingStep(2);
+    }
+
+    private void ContinueProfessionalCountButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_selectedProfessionalCount))
+        {
+            ShowStatus("Escolha a quantidade de profissionais antes de continuar.");
+            return;
+        }
+
+        ShowOnboardingStep(3);
+    }
+
+    private void ContinueObjectiveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_selectedObjective))
+        {
+            ShowStatus("Escolha o objetivo principal antes de continuar.");
+            return;
+        }
+
+        ShowOnboardingStep(4);
+    }
+
+    private void ContinueAddressButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(OnboardingCepTextBox.Text) &&
+            string.IsNullOrWhiteSpace(OnboardingStreetTextBox.Text))
+        {
+            ShowStatus("Informe pelo menos o CEP ou o logradouro do negócio.");
+            OnboardingCepTextBox.Focus();
+            return;
+        }
+
+        ShowOnboardingStep(5);
+        OnboardingPasswordBox.Focus();
+    }
+
+    private void FinishCreateAccountButton_Click(object sender, RoutedEventArgs e)
+    {
+        var password = OnboardingPasswordBox.Password.Trim();
+        if (password.Length < 4)
+        {
+            ShowStatus("Defina uma senha com pelo menos 4 caracteres.");
+            OnboardingPasswordBox.Focus();
+            return;
+        }
+
+        var template = _selectedOnboardingTemplate ?? CreateBusinessTemplate("Salão de Beleza");
+        var professionalCount = string.IsNullOrWhiteSpace(_selectedProfessionalCount)
+            ? "1 profissional"
+            : _selectedProfessionalCount;
+        var objective = string.IsNullOrWhiteSpace(_selectedObjective)
+            ? "Organizar agenda"
+            : _selectedObjective;
+        var businessName = string.IsNullOrWhiteSpace(_data.Settings.BusinessName) ||
+                           IsDefaultBusinessName(_data.Settings.BusinessName)
+            ? template.DefaultBusinessName
+            : _data.Settings.BusinessName.Trim();
+        var businessPhone = _data.Settings.AccountPhone;
+
+        ApplyOnboardingTemplate(
+            template,
+            businessName,
+            "",
+            businessPhone,
+            BuildOnboardingAddress(),
+            template.StartHour,
+            template.EndHour);
+
+        _data.Settings.AccountFullName = InitialFullNameTextBox.Text.Trim();
+        _data.Settings.AccountPhone = businessPhone;
+        _data.Settings.AccountEmail = InitialEmailTextBox.Text.Trim();
+        _data.Settings.ProfessionalCountRange = professionalCount;
+        _data.Settings.MainObjective = objective;
+        _data.Settings.PostalCode = OnboardingCepTextBox.Text.Trim();
+        _data.Settings.Neighborhood = OnboardingNeighborhoodTextBox.Text.Trim();
+        _data.Settings.Street = OnboardingStreetTextBox.Text.Trim();
+        _data.Settings.AddressNumber = OnboardingAddressNumberTextBox.Text.Trim();
+        _data.Settings.AddressComplement = OnboardingAddressComplementTextBox.Text.Trim();
+        _data.Settings.AccountPasswordHash = HashPassword(password);
+        _data.Settings.AccountCreatedAt = DateTime.Now;
         _store.Save(_data);
 
         OnboardingOverlay.Visibility = Visibility.Collapsed;
@@ -264,8 +392,233 @@ public partial class MainWindow : Window
         ClearEditor();
         RefreshAll();
         ApplyBusinessLabels();
-        ShowStatus($"Setor configurado: {template.Title}. A agenda está pronta para uso.");
+        ShowStatus($"Conta criada para {template.Title}. A agenda está pronta para uso.");
     }
+
+    private void OnboardingBackButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowOnboardingStep(Math.Max(0, _onboardingStep - 1));
+    }
+
+    private void ShowOnboardingStep(int step)
+    {
+        _onboardingStep = Math.Clamp(step, 0, 5);
+
+        InitialDataStepPanel.Visibility = _onboardingStep == 0 ? Visibility.Visible : Visibility.Collapsed;
+        BusinessSegmentStepPanel.Visibility = _onboardingStep == 1 ? Visibility.Visible : Visibility.Collapsed;
+        ProfessionalCountStepPanel.Visibility = _onboardingStep == 2 ? Visibility.Visible : Visibility.Collapsed;
+        ObjectiveStepPanel.Visibility = _onboardingStep == 3 ? Visibility.Visible : Visibility.Collapsed;
+        AddressStepPanel.Visibility = _onboardingStep == 4 ? Visibility.Visible : Visibility.Collapsed;
+        PasswordStepPanel.Visibility = _onboardingStep == 5 ? Visibility.Visible : Visibility.Collapsed;
+        OnboardingHeaderRow.Height = _onboardingStep == 0 ? new GridLength(0) : new GridLength(64);
+        OnboardingTopBar.Visibility = _onboardingStep == 0 ? Visibility.Collapsed : Visibility.Visible;
+        OnboardingBackButton.Visibility = _onboardingStep == 0 ? Visibility.Hidden : Visibility.Visible;
+        OnboardingProgressText.Text = $"{_onboardingStep + 1}/6";
+        OnboardingSidebarProgressText.Text = $"Etapa {_onboardingStep + 1} de 6";
+        OnboardingSidebarTitleText.Text = OnboardingStepTitles[_onboardingStep];
+        OnboardingSidebarCaptionText.Text = OnboardingStepCaptions[_onboardingStep];
+
+        UpdateWizardChoiceStates();
+    }
+
+    private void UpdateWizardChoiceStates()
+    {
+        UpdateWizardChoiceState(BusinessSegmentStepPanel, _selectedOnboardingTemplate?.Title);
+        UpdateWizardChoiceState(ProfessionalCountStepPanel, _selectedProfessionalCount);
+        UpdateWizardChoiceState(ObjectiveStepPanel, _selectedObjective);
+
+        SetWizardContinueState(ContinueInitialDataButton, true);
+        SetWizardContinueState(ContinueBusinessTypeButton, _selectedOnboardingTemplate is not null);
+        SetWizardContinueState(ContinueProfessionalCountButton, !string.IsNullOrWhiteSpace(_selectedProfessionalCount));
+        SetWizardContinueState(ContinueObjectiveButton, !string.IsNullOrWhiteSpace(_selectedObjective));
+    }
+
+    private static void SetWizardContinueState(Button button, bool enabled)
+    {
+        button.IsEnabled = enabled;
+        button.Background = Solid(enabled ? "#2563EB" : "#F8FAFC");
+        button.BorderBrush = Solid(enabled ? "#2563EB" : "#DCE4F0");
+        button.Foreground = Solid(enabled ? "#FFFFFF" : "#94A3B8");
+        TextElement.SetForeground(button, Solid(enabled ? "#FFFFFF" : "#94A3B8"));
+        button.Cursor = enabled ? Cursors.Hand : Cursors.Arrow;
+    }
+
+    private static void UpdateWizardChoiceState(DependencyObject root, string? selectedTag)
+    {
+        foreach (var button in FindVisualChildren<Button>(root))
+        {
+            var isSelected = button.Tag is string tag &&
+                             !string.IsNullOrWhiteSpace(selectedTag) &&
+                             tag.Equals(selectedTag, StringComparison.OrdinalIgnoreCase);
+            button.Background = Solid(isSelected ? "#EFF6FF" : "#FFFFFF");
+            button.BorderBrush = Solid(isSelected ? "#2563EB" : "#DCE4F0");
+            button.Foreground = Solid(isSelected ? "#1D4ED8" : "#626A73");
+            button.BorderThickness = new Thickness(isSelected ? 2 : 1);
+        }
+    }
+
+    private static IEnumerable<T> FindVisualChildren<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T typedChild)
+            {
+                yield return typedChild;
+            }
+
+            foreach (var nestedChild in FindVisualChildren<T>(child))
+            {
+                yield return nestedChild;
+            }
+        }
+    }
+
+    private OnboardingTemplate ResolveBusinessTemplate(string? segment)
+    {
+        if (string.IsNullOrWhiteSpace(segment))
+        {
+            return CreateBusinessTemplate("Salão de Beleza");
+        }
+
+        return CreateBusinessTemplate(segment);
+    }
+
+    private OnboardingTemplate CreateBusinessTemplate(string businessType)
+    {
+        var trimmed = businessType.Trim();
+        return trimmed switch
+        {
+            "Salão de Beleza" or "Unha e beleza + salão" => RenameTemplate(
+                OnboardingTemplate.CreateIntegratedBeauty(),
+                "Salão de Beleza",
+                "Meu salão de beleza",
+                "Agenda para salão com cabelo, unha, estética, lavatório, cadeiras e profissionais.",
+                "Cliente: Camila | Escova + manicure | Cadeira 1 / Mesa 1"),
+            "Barbearia" or "Cabelo e barbearia" => RenameTemplate(
+                TemplateByTitle("Barbearia"),
+                "Barbearia",
+                "Minha barbearia",
+                "Agenda para cortes, barba, combos, preferências do cliente e cadeiras de atendimento.",
+                "Cliente: André | Corte + barba | Cadeira 1"),
+            "Esmalteria" => RenameTemplate(
+                TemplateBySegment(OnboardingTemplate.NailsSegment),
+                "Esmalteria",
+                "Minha esmalteria",
+                "Agenda para manicure, pedicure, alongamento, design e mesas de atendimento.",
+                "Cliente: Camila | Alongamento almond | Mesa 2"),
+            "Centro de Estética" => RenameTemplate(
+                TemplateBySegment(OnboardingTemplate.NailsSegment),
+                "Centro de Estética",
+                "Meu centro de estética",
+                "Agenda para procedimentos, avaliação, retorno, preferências e salas de atendimento.",
+                "Cliente: Larissa | Limpeza de pele | Sala estética 1"),
+            "Podologia" => RenameTemplate(
+                TemplateBySegment(OnboardingTemplate.NailsSegment),
+                "Podologia",
+                "Minha clínica de podologia",
+                "Agenda para avaliação, retorno, procedimento, observações e sala de atendimento.",
+                "Cliente: Renata | Avaliação podológica | Sala 1"),
+            "Spa" => RenameTemplate(
+                TemplateBySegment(OnboardingTemplate.NailsSegment),
+                "Spa",
+                "Meu spa",
+                "Agenda para terapias, massagens, salas, pacotes e preferências do cliente.",
+                "Cliente: Marina | Massagem relaxante | Sala 1"),
+            "Clínica médica" => TemplateBySegment("Clínica médica"),
+            "Petshop" => TemplateBySegment("Petshop"),
+            "Mecânica" or "Oficina" => RenameTemplate(
+                TemplateBySegment("Mecânica"),
+                "Oficina",
+                "Minha oficina",
+                "Agenda para diagnósticos, revisões, veículos, box e acompanhamento de entrega.",
+                "Cliente: Lucas | Onix ABC1D23 | Diagnóstico | Box 1"),
+            "Outro segmento" => CreateGenericTemplate(),
+            _ => _onboardingTemplates.FirstOrDefault(template =>
+                     template.Title.Equals(trimmed, StringComparison.OrdinalIgnoreCase) ||
+                     template.Segment.Equals(trimmed, StringComparison.OrdinalIgnoreCase))
+                 ?? CreateGenericTemplate()
+        };
+    }
+
+    private OnboardingTemplate TemplateByTitle(string title) =>
+        _onboardingTemplates.First(template => template.Title.Equals(title, StringComparison.OrdinalIgnoreCase));
+
+    private OnboardingTemplate TemplateBySegment(string segment) =>
+        _onboardingTemplates.First(template => template.Segment.Equals(segment, StringComparison.OrdinalIgnoreCase));
+
+    private static OnboardingTemplate RenameTemplate(
+        OnboardingTemplate template,
+        string title,
+        string defaultBusinessName,
+        string description,
+        string example) =>
+        template with
+        {
+            Title = title,
+            Segment = title,
+            DefaultBusinessName = defaultBusinessName,
+            Description = description,
+            Example = example
+        };
+
+    private static OnboardingTemplate CreateGenericTemplate() =>
+        new(
+            "Outro segmento",
+            "Outro segmento",
+            "Meu negócio",
+            "Agenda simples para organizar clientes, profissionais, serviços e locais de atendimento.",
+            "Cliente: Ana | Atendimento | Profissional 1 | Sala 1",
+            "Cliente",
+            "Observação / preferência / motivo",
+            "Sala ou local",
+            8,
+            18,
+            ["Sala 1", "Sala 2", "Atendimento 1"],
+            [
+                new("Atendimento", 30, 0, "Sala 1"),
+                new("Retorno", 30, 0, "Sala 1"),
+                new("Encaixe", 20, 0, "Atendimento 1")
+            ],
+            [
+                new("Profissional 1", "Atendimento"),
+                new("Profissional 2", "Atendimento")
+            ]);
+
+    private string BuildOnboardingAddress()
+    {
+        var street = OnboardingStreetTextBox.Text.Trim();
+        var number = OnboardingAddressNumberTextBox.Text.Trim();
+        var neighborhood = OnboardingNeighborhoodTextBox.Text.Trim();
+        var complement = OnboardingAddressComplementTextBox.Text.Trim();
+        var postalCode = OnboardingCepTextBox.Text.Trim();
+
+        var addressParts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(street))
+        {
+            addressParts.Add(string.IsNullOrWhiteSpace(number) ? street : $"{street}, {number}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(neighborhood))
+        {
+            addressParts.Add(neighborhood);
+        }
+
+        if (!string.IsNullOrWhiteSpace(complement))
+        {
+            addressParts.Add(complement);
+        }
+
+        if (!string.IsNullOrWhiteSpace(postalCode))
+        {
+            addressParts.Add($"CEP {postalCode}");
+        }
+
+        return string.Join(" | ", addressParts);
+    }
+
+    private static string HashPassword(string password) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(password)));
 
     private static int ParseHour(string? text, int fallback)
     {
@@ -334,6 +687,64 @@ public partial class MainWindow : Window
         return false;
     }
 
+    private static bool LooksLikeEmail(string text)
+    {
+        var email = text.Trim();
+        var atIndex = email.IndexOf('@');
+        var dotIndex = email.LastIndexOf('.');
+        return atIndex > 0 &&
+               dotIndex > atIndex + 1 &&
+               dotIndex < email.Length - 1 &&
+               !email.Contains(' ');
+    }
+
+    private static string ToNameCase(string text)
+    {
+        var normalized = string.Join(' ', text.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return "";
+        }
+
+        var lowerWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "da",
+            "das",
+            "de",
+            "do",
+            "dos",
+            "e"
+        };
+        var words = normalized.Split(' ');
+
+        for (var index = 0; index < words.Length; index++)
+        {
+            var word = words[index].ToLower(Brazil);
+            words[index] = index > 0 && lowerWords.Contains(word)
+                ? word
+                : CapitalizeWord(word);
+        }
+
+        return string.Join(' ', words);
+    }
+
+    private static string CapitalizeWord(string word)
+    {
+        if (string.IsNullOrWhiteSpace(word))
+        {
+            return "";
+        }
+
+        return string.Create(word.Length, word, static (span, source) =>
+        {
+            span[0] = char.ToUpper(source[0], Brazil);
+            for (var index = 1; index < source.Length; index++)
+            {
+                span[index] = source[index];
+            }
+        });
+    }
+
     private void ApplyOnboardingTemplate(OnboardingTemplate template, string businessName, string businessDocument, string businessPhone, string businessAddress, int startHour, int endHour)
     {
         _data.Settings.BusinessName = string.IsNullOrWhiteSpace(businessName) ? template.DefaultBusinessName : businessName;
@@ -381,13 +792,13 @@ public partial class MainWindow : Window
 
     private void ApplyBusinessLabels()
     {
-        AppTitleText.Text = string.IsNullOrWhiteSpace(_data.Settings.BusinessName)
-            ? "Agenda Livre"
+        AppTitleText.Text = IsDefaultBusinessName(_data.Settings.BusinessName)
+            ? "Balcão Livre"
             : _data.Settings.BusinessName;
 
         if (string.IsNullOrWhiteSpace(_data.Settings.BusinessSegment))
         {
-            AppSubtitleText.Text = "Clínicas, petshops, oficinas e beleza";
+            AppSubtitleText.Text = "Atendimento, agenda e gestão em um só lugar";
             AppSubtitleText.ToolTip = null;
         }
         else
@@ -395,7 +806,7 @@ public partial class MainWindow : Window
             var documentPart = string.IsNullOrWhiteSpace(_data.Settings.BusinessDocument)
                 ? ""
                 : $" | {_data.Settings.BusinessDocument}";
-            AppSubtitleText.Text = $"{_data.Settings.BusinessSegment}{documentPart} | Agenda Livre Windows";
+            AppSubtitleText.Text = $"{_data.Settings.BusinessSegment}{documentPart}";
             var businessDetails = new[]
                 {
                     _data.Settings.BusinessPhone,
@@ -631,11 +1042,11 @@ public partial class MainWindow : Window
         var dayEnd = _selectedDate.Date.AddHours(_data.Settings.WorkdayEndHour);
         var slotCount = Math.Max(1, (int)Math.Ceiling((dayEnd - dayStart).TotalMinutes / 30));
 
-        ScheduleBoardGrid.MinWidth = 82 + professionals.Count * 176;
-        ScheduleBoardGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(78) });
+        ScheduleBoardGrid.MinWidth = ScheduleTimeColumnWidth + professionals.Count * ScheduleProfessionalColumnWidth;
+        ScheduleBoardGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ScheduleTimeColumnWidth) });
         foreach (var _ in professionals)
         {
-            ScheduleBoardGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(176) });
+            ScheduleBoardGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ScheduleProfessionalColumnWidth) });
         }
 
         ScheduleBoardGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(58) });
@@ -1107,11 +1518,65 @@ public partial class MainWindow : Window
         ShowOnboarding();
     }
 
+    private void ExitCurrentSystemButton_Click(object sender, RoutedEventArgs e)
+    {
+        var result = MessageBox.Show(
+            this,
+            "Você vai sair da agenda atual e voltar para a configuração inicial.\n\nOs dados atuais continuam salvos neste computador. Eles só serão substituídos se você criar outra agenda.",
+            "Sair do sistema",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        CloseSettingsModal();
+        _selectedAppointment = null;
+        _selectedSegmentFilter = AllSegments;
+
+        _data.Settings.BusinessName = "Balcão Livre";
+        _data.Settings.BusinessDocument = "";
+        _data.Settings.BusinessPhone = "";
+        _data.Settings.BusinessAddress = "";
+        _data.Settings.AccountFullName = "";
+        _data.Settings.AccountPhone = "";
+        _data.Settings.AccountEmail = "";
+        _data.Settings.BusinessSegment = "";
+        _data.Settings.ClientLabel = "Cliente";
+        _data.Settings.ClientDetailLabel = "Paciente / pet / veículo / preferência";
+        _data.Settings.ResourceLabel = "Sala, box ou cadeira";
+        _data.Settings.WorkdayStartHour = 8;
+        _data.Settings.WorkdayEndHour = 20;
+        _data.Settings.Resources = [];
+        _data.Settings.ProfessionalCountRange = "";
+        _data.Settings.MainObjective = "";
+        _data.Settings.PostalCode = "";
+        _data.Settings.Neighborhood = "";
+        _data.Settings.Street = "";
+        _data.Settings.AddressNumber = "";
+        _data.Settings.AddressComplement = "";
+        _data.Settings.AccountPasswordHash = "";
+        _data.Settings.AccountCreatedAt = DateTime.MinValue;
+        _data.Settings.OnboardingCompleted = false;
+
+        _store.Save(_data);
+        ApplyBusinessLabels();
+        ConfigureInputs();
+        ConfigureOnboardingInputs();
+        ClearEditor();
+        RefreshAll();
+        ShowOnboarding();
+        ShowStatus("Você saiu do sistema atual. Escolha um setor para iniciar outra agenda.");
+    }
+
     private void RefreshSettingsSummary()
     {
         var businessParts = new[]
         {
-            string.IsNullOrWhiteSpace(_data.Settings.BusinessName) ? "Agenda Livre" : _data.Settings.BusinessName,
+            IsDefaultBusinessName(_data.Settings.BusinessName) ? "Balcão Livre" : _data.Settings.BusinessName,
             _data.Settings.BusinessSegment,
             _data.Settings.BusinessDocument,
             _data.Settings.BusinessPhone
@@ -1975,7 +2440,7 @@ public partial class MainWindow : Window
             FontSize = 12
         };
 
-        document.Blocks.Add(new Paragraph(new Run($"Agenda Livre - {_selectedDate:dddd, dd/MM/yyyy}"))
+        document.Blocks.Add(new Paragraph(new Run($"Balcão Livre - {_selectedDate:dddd, dd/MM/yyyy}"))
         {
             FontSize = 22,
             FontWeight = FontWeights.Bold,
@@ -2022,7 +2487,7 @@ public partial class MainWindow : Window
         var dialog = new PrintDialog();
         if (dialog.ShowDialog() == true)
         {
-            dialog.PrintDocument(((IDocumentPaginatorSource)document).DocumentPaginator, $"Agenda Livre {_selectedDate:yyyy-MM-dd}");
+            dialog.PrintDocument(((IDocumentPaginatorSource)document).DocumentPaginator, $"Balcão Livre {_selectedDate:yyyy-MM-dd}");
             ShowStatus("Agenda enviada para impressão.");
         }
     }
@@ -2034,7 +2499,7 @@ public partial class MainWindow : Window
             .OrderBy(item => item.Start)
             .ToList();
 
-        builder.AppendLine($"Agenda Livre - {_selectedDate:dddd, dd/MM/yyyy}");
+        builder.AppendLine($"Balcão Livre - {_selectedDate:dddd, dd/MM/yyyy}");
         builder.AppendLine($"Filtro: {CurrentSegmentFilter()}");
         builder.AppendLine();
 
@@ -2199,6 +2664,8 @@ public partial class MainWindow : Window
         IReadOnlyList<ServiceTemplate> Services,
         IReadOnlyList<ProfessionalTemplate> Professionals)
     {
+        public override string ToString() => Title;
+
         public const string NailsSegment = "Unha e beleza";
         public const string IntegratedBeautySegment = "Unha e beleza + salão";
         public const string SalonTitle = "Cabelo / salão";

@@ -8,8 +8,8 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>AgendaLivreWindows</AssemblyName>
     <RootNamespace>AgendaLivre.Windows</RootNamespace>
-    <Product>Agenda Livre Windows</Product>
-    <AssemblyTitle>Agenda Livre Windows</AssemblyTitle>
+    <Product>Balcão Livre Windows</Product>
+    <AssemblyTitle>Balcão Livre Windows</AssemblyTitle>
     <Company>Nagazaki Software</Company>
     <Version>1.0.2026.1</Version>
     <AssemblyVersion>1.0.2026.1</AssemblyVersion>
