@@ -395,19 +395,22 @@ async function handleStockSync(req: Request) {
     externalCode?: string;
     productCode?: string;
     productName?: string;
+    productCategory?: string;
     price?: number;
     amount?: number;
     reason?: string;
     imageDataUrl?: string;
     imageUrl?: string;
   };
-  const productId = text(body.productId);
-  const externalCode = text(body.externalCode || body.productCode);
+  let productId = text(body.productId);
+  let externalCode = text(body.externalCode || body.productCode);
+  const productName = text(body.productName) || externalCode || "Produto";
+  const productCategory = text(body.productCategory) || "Balcao Livre";
   const amount = Math.max(0, Math.floor(Number(body.amount ?? 0)));
   const rawPrice = Number(body.price ?? 0);
   const price = Number.isFinite(rawPrice) ? Math.max(0, rawPrice) : 0;
   if (!productId && !externalCode) {
-    return json({ ok: false, message: "Produto sem vinculo iFood. Informe productId ou codigo externo." }, 400);
+    return json({ ok: false, message: "Produto sem codigo para sincronizar no iFood." }, 400);
   }
 
   let connection = await findConnection(body);
@@ -427,18 +430,54 @@ async function handleStockSync(req: Request) {
   let imageWarning = "";
   let imageUpdated = false;
   let catalogLink: CatalogProduct | null = null;
+  let catalogCreated = false;
   async function resolveCatalogLink() {
-    catalogLink ??= await findIFoodCatalogProductLink(
-      merchantId,
-      connection.access_token ?? "",
-      {
-        productId,
-        externalCode,
-        productName: text(body.productName),
-        imageDataUrl: "",
-      },
-    );
+    if (!catalogLink) {
+      try {
+        catalogLink = await findIFoodCatalogProductLink(
+          merchantId,
+          connection.access_token ?? "",
+          {
+            productId,
+            externalCode,
+            productName,
+            imageDataUrl: "",
+          },
+        );
+      } catch (error) {
+        if (!externalCode) {
+          throw error;
+        }
+
+        catalogLink = await upsertIFoodSimpleCatalogItem(
+          merchantId,
+          connection.access_token ?? "",
+          {
+            externalCode,
+            productName,
+            productCategory,
+            price,
+            amount,
+          },
+        );
+        catalogCreated = true;
+        responseParts.catalogUpsert = catalogLink;
+        modeParts.push("catalog-upsert");
+      }
+
+      if (!catalogLink) {
+        throw new Error("Nao consegui preparar o produto no catalogo iFood.");
+      }
+
+      productId ||= catalogLink.productId;
+      externalCode ||= catalogLink.externalCode;
+    }
+
     return catalogLink;
+  }
+
+  if (!productId && externalCode) {
+    await resolveCatalogLink();
   }
 
   const inventoryProductId = isUuid(productId) ? productId : "";
@@ -510,28 +549,18 @@ async function handleStockSync(req: Request) {
 
   if (productId || externalCode) {
     try {
-      const link = await resolveCatalogLink();
-      const itemId = text(link.itemId);
-      if (itemId) {
-        responseParts.itemStatus = await updateIFoodItemStatus(
-          merchantId,
-          connection.access_token ?? "",
-          itemId,
-          amount > 0,
-        );
-        modeParts.push("item-status");
-
-        if (price > 0) {
-          responseParts.itemPrice = await updateIFoodItemPrice(
-            merchantId,
-            connection.access_token ?? "",
-            itemId,
-            price,
-          );
-          modeParts.push("item-price");
-        }
-
-      }
+      responseParts.itemSale = await updateIFoodItemSaleData(
+        merchantId,
+        connection.access_token ?? "",
+        {
+          productId,
+          externalCode,
+          productName,
+          price,
+          isAvailable: amount > 0,
+        },
+      );
+      modeParts.push("item-sale");
     } catch (error) {
       if (price > 0 && amount > 0) {
         itemPriceWarning = messageFromError(error);
@@ -553,7 +582,7 @@ async function handleStockSync(req: Request) {
         {
           productId,
           externalCode,
-          productName: text(body.productName),
+          productName,
           imageDataUrl,
         },
       );
@@ -572,7 +601,7 @@ async function handleStockSync(req: Request) {
     productId,
     externalCode,
     productCode: text(body.productCode),
-    productName: text(body.productName),
+    productName,
     amount,
     reason: text(body.reason),
     mode,
@@ -583,9 +612,11 @@ async function handleStockSync(req: Request) {
     ? `Estoque iFood atualizado para ${amount}.`
     : `Disponibilidade iFood atualizada: ${amount > 0 ? "disponivel" : "indisponivel"}.`;
   const inventoryMessage = inventoryWarning ? ` ${inventoryWarning}` : "";
-  const itemMessage = itemStatusWarning || itemPriceWarning
+  const catalogApplied = Boolean(responseParts.inventory || responseParts.status || responseParts.productPrice || responseParts.catalogUpsert);
+  const itemMessage = (itemStatusWarning || itemPriceWarning) && !catalogApplied
     ? ` Item pendente: ${itemStatusWarning || itemPriceWarning}`
     : "";
+  const catalogMessage = catalogCreated ? " Produto criado no catalogo iFood." : "";
   const imageMessage = imageUpdated
     ? " Foto enviada."
     : imageWarning
@@ -593,7 +624,7 @@ async function handleStockSync(req: Request) {
       : "";
   return json({
     ok: true,
-    message: statusBaseMessage + inventoryMessage + itemMessage + imageMessage,
+    message: statusBaseMessage + catalogMessage + inventoryMessage + itemMessage + imageMessage,
     productId,
     externalCode,
     amount,
@@ -604,6 +635,7 @@ async function handleStockSync(req: Request) {
     itemPriceWarning,
     imageUpdated,
     imageWarning,
+    catalogCreated,
     itemUpdated: !itemStatusWarning && !itemPriceWarning && modeParts.some((mode) => mode.startsWith("item-")),
   });
 }
@@ -647,22 +679,18 @@ async function updateIFoodProductPrice(
     [{ ...base, price: { value }, priceByCatalog: [{ value, catalogContext }] }],
     [{ ...base, amount: value, priceByCatalog: [{ value, catalogContext }] }],
   ];
-  const responses: unknown[] = [];
   const errors: string[] = [];
-  for (const payload of payloads) {
+  for (const [index, payload] of payloads.entries()) {
     try {
       const response = await ifoodPatch(path, accessToken, payload);
-      responses.push(await waitIFoodCatalogBatch(merchantId, accessToken, response));
+      const batch = await waitIFoodCatalogBatch(merchantId, accessToken, response);
+      return { response: batch, attempts: index + 1, errors: errors.filter(Boolean) };
     } catch (error) {
       errors.push(messageFromError(error));
     }
   }
 
-  if (responses.length === 0) {
-    throw new Error(errors.filter(Boolean).join(" | ") || "iFood nao aceitou atualizar preco do produto.");
-  }
-
-  return { responses, errors: errors.filter(Boolean) };
+  throw new Error(errors.filter(Boolean).join(" | ") || "iFood nao aceitou atualizar preco do produto.");
 }
 
 async function updateIFoodItemPrice(
@@ -704,6 +732,7 @@ type IFoodProductSaleTarget = {
   productName: string;
   price: number;
   isAvailable: boolean;
+  catalogContext?: string;
 };
 
 async function updateIFoodItemSaleData(
@@ -725,13 +754,154 @@ async function updateIFoodItemSaleData(
     `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/items/${encodeURIComponent(link.itemId)}/flat`,
     accessToken,
   );
-  const payload = buildIFoodItemSalePayload(flat, link, target);
+  const payload = buildIFoodItemSalePayload(flat, link, {
+    ...target,
+    catalogContext: link.catalogContext || target.catalogContext || "DEFAULT",
+  });
   const update = await ifoodPut(
     `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/items`,
     accessToken,
     payload,
   );
   return await waitIFoodCatalogBatch(merchantId, accessToken, update);
+}
+
+type IFoodSimpleCatalogItemTarget = {
+  externalCode: string;
+  productName: string;
+  productCategory: string;
+  price: number;
+  amount: number;
+};
+
+async function upsertIFoodSimpleCatalogItem(
+  merchantId: string,
+  accessToken: string,
+  target: IFoodSimpleCatalogItemTarget,
+): Promise<CatalogProduct> {
+  const catalogId = await resolveIFoodDefaultCatalogId(merchantId, accessToken);
+  const categoryName = normalizeIFoodCategoryName(target.productCategory);
+  const categoryId = await ensureIFoodCatalogCategory(merchantId, accessToken, catalogId, categoryName);
+  const price = Math.round(Math.max(0, target.price) * 100) / 100;
+  const status = target.amount > 0 && price > 0 ? "AVAILABLE" : "UNAVAILABLE";
+  const itemId = await stableIFoodResourceUuid("blv-item", target.externalCode || target.productName);
+  const productId = await stableIFoodResourceUuid("blv-prod", target.externalCode || target.productName);
+  const productName = target.productName || target.externalCode || "Produto";
+  const payload = {
+    item: {
+      id: itemId,
+      type: "DEFAULT",
+      categoryId,
+      productId,
+      status,
+      price: { value: price },
+      externalCode: target.externalCode,
+      statusByCatalog: [{ status, catalogContext: "DEFAULT" }],
+      priceByCatalog: [{ value: price, catalogContext: "DEFAULT" }],
+    },
+    products: [
+      {
+        id: productId,
+        externalCode: target.externalCode,
+        name: productName,
+        description: productName,
+      },
+    ],
+    optionGroups: [],
+    options: [],
+  };
+
+  const upsert = await ifoodPut(
+    `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/items`,
+    accessToken,
+    payload,
+  );
+  await waitIFoodCatalogBatch(merchantId, accessToken, upsert);
+
+  return {
+    productId,
+    itemId,
+    externalCode: target.externalCode,
+    name: productName,
+    category: categoryName,
+    catalogContext: "DEFAULT",
+    price,
+    stockQuantity: target.amount,
+    isAvailable: status === "AVAILABLE",
+  };
+}
+
+async function resolveIFoodDefaultCatalogId(merchantId: string, accessToken: string) {
+  const catalogs = await ifoodJson(
+    `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/catalogs`,
+    accessToken,
+  ).then(catalogsFromResponse);
+  const catalog = catalogs.find(hasDefaultCatalogContext) ?? catalogs[0];
+  const catalogId = catalog ? firstText(catalog.catalogId, catalog.id, catalog.groupId) : "";
+  if (!catalogId) {
+    throw new Error("Nao encontrei um catalogo iFood para criar o produto.");
+  }
+
+  return catalogId;
+}
+
+function hasDefaultCatalogContext(catalog: Record<string, unknown>) {
+  const rawContext = catalog.context ?? catalog.catalogContext ?? catalog.type;
+  const contexts = Array.isArray(rawContext)
+    ? rawContext.map((value) => text(value).toUpperCase())
+    : [text(rawContext).toUpperCase()];
+  return contexts.some((context) => context === "DEFAULT" || context.includes("DELIVERY"));
+}
+
+async function ensureIFoodCatalogCategory(
+  merchantId: string,
+  accessToken: string,
+  catalogId: string,
+  categoryName: string,
+) {
+  const categoriesPath = `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/catalogs/${encodeURIComponent(catalogId)}/categories`;
+  const fallbackCategoriesPath = `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/categories`;
+  const categories = await ifoodJsonFirst([categoriesPath, fallbackCategoriesPath], accessToken)
+    .then(recordsFromAny)
+    .catch(() => [] as Record<string, unknown>[]);
+  const existing = categories.find((category) =>
+    normalizeIFoodCategoryName(firstText(category.name, category.title)) === categoryName
+  );
+  const existingId = existing ? firstText(existing.id, existing.categoryId, existing.catalogCategoryId) : "";
+  if (existingId) {
+    return existingId;
+  }
+
+  const created = await ifoodPostFirst([categoriesPath, fallbackCategoriesPath], accessToken, {
+    name: categoryName,
+    status: "AVAILABLE",
+    template: "DEFAULT",
+    sequence: categories.length,
+  });
+  const categoryId = firstText(
+    (created as Record<string, unknown>).id,
+    (created as Record<string, unknown>).categoryId,
+    (created as Record<string, unknown>).catalogCategoryId,
+  );
+  if (!categoryId) {
+    throw new Error("iFood criou a categoria, mas nao retornou o identificador.");
+  }
+
+  return categoryId;
+}
+
+function normalizeIFoodCategoryName(value: string) {
+  const name = text(value).toUpperCase();
+  return name || "BALCAO LIVRE";
+}
+
+async function stableIFoodResourceUuid(prefix: string, value: string) {
+  const seed = `${prefix}:${text(value).toLowerCase()}`;
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(seed)));
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes.slice(0, 16)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
 function buildIFoodItemSalePayload(
@@ -793,37 +963,56 @@ function buildIFoodItemSalePayload(
 
 function applyIFoodSaleFields(target: Record<string, unknown>, sale: IFoodProductSaleTarget) {
   const status = sale.isAvailable ? "AVAILABLE" : "UNAVAILABLE";
+  const catalogContext = sale.catalogContext || "DEFAULT";
   target.status = status;
   target.itemStatus = status;
   target.available = sale.isAvailable;
   target.isAvailable = sale.isAvailable;
-  target.statusByCatalog = updateIFoodCatalogStatusArray(target.statusByCatalog, status);
+  if (sale.externalCode) {
+    target.externalCode = sale.externalCode;
+  }
+
+  target.statusByCatalog = updateIFoodCatalogStatusArray(target.statusByCatalog, status, catalogContext);
 
   if (sale.price > 0) {
     const value = Math.round(sale.price * 100) / 100;
     setIFoodMoneyValue(target, "price", value);
-    setIFoodMoneyValue(target, "itemPrice", value);
-    setIFoodMoneyValue(target, "unitPrice", value);
-    target.priceByCatalog = updateIFoodCatalogPriceArray(target.priceByCatalog, value);
+    if ("itemPrice" in target) {
+      setIFoodMoneyValue(target, "itemPrice", value);
+    }
+
+    if ("unitPrice" in target) {
+      setIFoodMoneyValue(target, "unitPrice", value);
+    }
+
+    target.priceByCatalog = updateIFoodCatalogPriceArray(target.priceByCatalog, value, catalogContext);
   }
 }
 
 function setIFoodMoneyValue(target: Record<string, unknown>, key: string, value: number) {
   const current = target[key];
-  target[key] = isRecord(current) ? { ...current, value } : { value };
+  target[key] = typeof current === "number" ? value : isRecord(current) ? { ...current, value } : { value };
 }
 
-function updateIFoodCatalogStatusArray(value: unknown, status: string) {
+function updateIFoodCatalogStatusArray(value: unknown, status: string, catalogContext: string) {
   const rows = Array.isArray(value) && value.length > 0
-    ? value.filter(isRecord).map((row) => ({ ...row, status }))
-    : [{ catalogContext: "DEFAULT", status }];
+    ? value.filter(isRecord).map((row) => ({
+        ...row,
+        catalogContext: firstText(row.catalogContext, row.context) || catalogContext,
+        status,
+      }))
+    : [{ catalogContext, status }];
   return rows;
 }
 
-function updateIFoodCatalogPriceArray(value: unknown, price: number) {
+function updateIFoodCatalogPriceArray(value: unknown, price: number, catalogContext: string) {
   const rows = Array.isArray(value) && value.length > 0
-    ? value.filter(isRecord).map((row) => ({ ...row, value: price }))
-    : [{ catalogContext: "DEFAULT", value: price }];
+    ? value.filter(isRecord).map((row) => ({
+        ...row,
+        catalogContext: firstText(row.catalogContext, row.context) || catalogContext,
+        value: price,
+      }))
+    : [{ catalogContext, value: price }];
   return rows;
 }
 
@@ -974,7 +1163,7 @@ async function updateIFoodProductImage(
 async function findIFoodCatalogProductLink(
   merchantId: string,
   accessToken: string,
-  target: { productId: string; externalCode: string },
+  target: { productId: string; externalCode: string; productName?: string },
 ) {
   const products = new Map<string, CatalogProduct>();
   const warnings: string[] = [];
@@ -1012,9 +1201,11 @@ async function findIFoodCatalogProductLink(
 
   const productId = target.productId.toLowerCase();
   const externalCode = target.externalCode.toLowerCase();
+  const productName = normalizeIFoodLookupText(target.productName);
   const match = [...products.values()].find((product) =>
     (productId && [product.productId, product.itemId].some((value) => value.toLowerCase() === productId))
     || (externalCode && product.externalCode.toLowerCase() === externalCode)
+    || (productName && normalizeIFoodLookupText(product.name) === productName)
   );
 
   if (!match) {
@@ -1023,6 +1214,15 @@ async function findIFoodCatalogProductLink(
   }
 
   return match;
+}
+
+function normalizeIFoodLookupText(value: unknown) {
+  return text(value)
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildIFoodItemImagePayload(
@@ -1179,14 +1379,99 @@ async function handleMerchantStatus(req: Request) {
     diagnostics.openingHoursWarning = messageFromError(error);
   }
 
+  const message = buildMerchantStatusMessage(status, diagnostics);
   return json({
     ok: true,
+    message,
     merchantId,
     merchantName: connection.merchant_name,
+    merchantStatus: merchantStatusLabel(status),
+    interruptionCount: countIFoodDiagnosticItems(diagnostics.interruptions),
     status,
     ...diagnostics,
     syncedAt: new Date().toISOString(),
   });
+}
+
+function buildMerchantStatusMessage(status: unknown, diagnostics: Record<string, unknown>) {
+  const parts = [`Diagnostico iFood: ${merchantStatusLabel(status)}.`];
+  const interruptionCount = countIFoodDiagnosticItems(diagnostics.interruptions);
+  if (interruptionCount > 0) {
+    parts.push(`${interruptionCount} interrupcao(oes) retornada(s) pelo iFood.`);
+  } else if (diagnostics.interruptionsWarning) {
+    parts.push(`Interrupcoes nao consultadas: ${text(diagnostics.interruptionsWarning)}.`);
+  } else {
+    parts.push("Sem interrupcao ativa retornada pelo iFood.");
+  }
+
+  if (diagnostics.openingHoursWarning) {
+    parts.push(`Horarios nao consultados: ${text(diagnostics.openingHoursWarning)}.`);
+  }
+
+  return parts.join(" ");
+}
+
+function merchantStatusLabel(status: unknown) {
+  const tokens = collectDiagnosticText(status).slice(0, 8);
+  const joined = tokens.join(" ").toUpperCase();
+  if (/BLOCK|BLOQUE|SUSPEND|DISABLED|FORBIDDEN|PERMISSION|INTERRUP|UNAVAILABLE|UNAVAILABLE_FOR_ORDERING/.test(joined)) {
+    return "loja com bloqueio/interrupcao no iFood";
+  }
+
+  if (/CLOSED|CLOSE|FECHAD|OFFLINE|PAUSED|PAUSAD/.test(joined)) {
+    return "loja fechada ou pausada no iFood";
+  }
+
+  if (/OPEN|ABERT|AVAILABLE|ONLINE|OK|NORMAL|OPERATING/.test(joined)) {
+    return "loja aberta no iFood";
+  }
+
+  return tokens.length > 0 ? `status recebido (${tokens.slice(0, 3).join(" / ")})` : "status recebido";
+}
+
+function collectDiagnosticText(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap(collectDiagnosticText);
+  }
+
+  if (!isRecord(value)) {
+    const token = text(value);
+    return token ? [token] : [];
+  }
+
+  const keys = [
+    "status",
+    "state",
+    "code",
+    "message",
+    "reason",
+    "title",
+    "description",
+    "operation",
+    "availability",
+    "available",
+    "isOpen",
+  ];
+  return keys.flatMap((key) => collectDiagnosticText(value[key])).filter(Boolean);
+}
+
+function countIFoodDiagnosticItems(value: unknown): number {
+  if (Array.isArray(value)) {
+    return value.length;
+  }
+
+  if (!isRecord(value)) {
+    return 0;
+  }
+
+  for (const key of ["items", "data", "results", "content", "interruptions"]) {
+    const child = value[key];
+    if (Array.isArray(child)) {
+      return child.length;
+    }
+  }
+
+  return 0;
 }
 
 async function findConnection(body: StoreContext & { connectionId?: string }): Promise<ConnectionRow> {
@@ -1686,6 +1971,19 @@ async function ifoodJson(path: string, accessToken: string) {
   return await parseIfoodResponse(response);
 }
 
+async function ifoodJsonFirst(paths: string[], accessToken: string) {
+  let lastError = "";
+  for (const path of paths) {
+    try {
+      return await ifoodJson(path, accessToken);
+    } catch (error) {
+      lastError = `${path}: ${messageFromError(error)}`;
+    }
+  }
+
+  throw new Error(lastError || "iFood nao retornou dados.");
+}
+
 async function ifoodPost(path: string, accessToken: string, payload?: Record<string, unknown>) {
   const headers: HeadersInit = {
     Authorization: `Bearer ${accessToken}`,
@@ -1703,6 +2001,19 @@ async function ifoodPost(path: string, accessToken: string, payload?: Record<str
 
   const response = await fetch(`${IFOOD_API_BASE}${path}`, init);
   return await parseIfoodResponse(response);
+}
+
+async function ifoodPostFirst(paths: string[], accessToken: string, payload?: Record<string, unknown>) {
+  let lastError = "";
+  for (const path of paths) {
+    try {
+      return await ifoodPost(path, accessToken, payload);
+    } catch (error) {
+      lastError = `${path}: ${messageFromError(error)}`;
+    }
+  }
+
+  throw new Error(lastError || "iFood nao aceitou a criacao.");
 }
 
 async function ifoodPut(path: string, accessToken: string, payload: unknown) {
