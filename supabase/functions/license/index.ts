@@ -1,11 +1,11 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+﻿import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const PUBLIC_MENU_BASE_URL = "https://cardapio.balcaolivrepdv.com.br";
 const LICENSE_SECRET = "BalcaoLivrePDV-local-license-v1";
 const ADMIN_STORE_BUCKET = "balcao-livre-admin";
 const ADMIN_STORE_OBJECT = "admin-store.json";
-const OFFLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.0.2026.exe";
-const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.exe";
+const OFFLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.2.2026.1.exe";
+const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.5.exe";
 const TRIAL_SOURCE = "landing_trial_download";
 const TRIAL_DAYS = 7;
 const TRIAL_WHATSAPP_URL = "https://wa.me/5527981267551?text=Ola%2C%20preciso%20liberar%20outro%20teste%20do%20Balcao%20Livre%20PDV.";
@@ -1075,7 +1075,27 @@ async function selectMercadoPagoTerminal(req: Request) {
 
   const terminalId = stringValue(payload.terminalId);
   if (!terminalId) {
-    return json({ ok: false, message: "Informe a maquininha Mercado Pago." }, 400);
+    const saved = await serviceClient()
+      .from("bv_mercadopago_connections")
+      .update({
+        selected_terminal_id: null,
+        selected_terminal_label: null,
+        last_sync_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("license_key", normalizeLicense(payload.licenseKey))
+      .select("selected_terminal_id, selected_terminal_label")
+      .maybeSingle();
+
+    if (saved.error) {
+      return json({ ok: false, message: `Supabase recusou liberar maquininha: ${saved.error.message}` }, 500);
+    }
+
+    if (!saved.data) {
+      return json({ ok: false, message: "Conecte o Mercado Pago antes de liberar a maquininha." }, 404);
+    }
+
+    return json({ ok: true, message: "Maquininha liberada. A Point nao recebera mais cobrancas do PDV." });
   }
 
   const saved = await serviceClient()

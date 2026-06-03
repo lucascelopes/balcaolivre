@@ -1516,7 +1516,7 @@ public partial class MainWindow
 
     private void ShowWhatsAppDialog()
     {
-        ShowLegacyWhatsAppDialog();
+        ShowSimpleSendPulseWhatsAppDialog();
     }
 
     private void ShowSimpleSendPulseWhatsAppDialog()
@@ -1532,7 +1532,7 @@ public partial class MainWindow
         NormalizeWhatsAppSendPulseOnlySettings();
         SaveAppSettings();
 
-        var dialog = CreateDialog("WhatsApp automatico", 760, 560);
+        var dialog = CreateDialog("WhatsApp da loja", 760, 560);
         var phoneBox = new TextBox
         {
             Text = string.IsNullOrWhiteSpace(settings.SendPulseStorePhone)
@@ -1604,7 +1604,7 @@ public partial class MainWindow
                 && !string.IsNullOrWhiteSpace(settings.SendPulseBotId)
                 && !settings.SendPulseActivationPending
                 && !string.IsNullOrWhiteSpace(phone);
-            title.Text = active ? "WhatsApp conectado" : "WhatsApp precisa conectar";
+            title.Text = active ? "WhatsApp da loja conectado" : "Conectar WhatsApp da loja";
             badge.Background = Solid(active ? "#E6FBF8" : "#FFF2CB");
             badge.BorderBrush = Solid(active ? "#BDE5DD" : "#F7D87A");
             badge.BorderThickness = new Thickness(1);
@@ -1614,14 +1614,14 @@ public partial class MainWindow
                 ? ok.Value ? GreenText : AmberText
                 : active ? GreenText : Solid("#5B6B7A");
             status.Text = message ?? (active
-                ? "Numero conectado na Meta. O PDV envia mensagens automaticas por esse WhatsApp."
-                : "Informe o numero da loja e conecte pela Meta. Depois disso os scripts saem pelo WhatsApp desse restaurante.");
+                ? "Numero da loja conectado na Meta. O PDV envia mensagens automaticas por esse WhatsApp."
+                : "Informe o numero WhatsApp Business do restaurante e conecte pela Meta. Cada cliente vincula o proprio numero da loja.");
             hint.Text = active
                 ? $"Numero da loja: {phone}. O operador nao precisa abrir WhatsApp Web."
-                : "O navegador vai abrir a tela segura da Meta Business. O PDV nao mostra chave, token ou mensagens scriptadas para o usuario.";
+                : "O navegador abre o Cadastro Incorporado da Meta. O cliente entra com a propria conta Meta Business e escolhe o WhatsApp da loja.";
         }
 
-        var activate = DialogButton("Conectar numero", "#08A99B");
+        var activate = DialogButton("Conectar WhatsApp da loja", "#08A99B");
         activate.Click += async (_, _) =>
         {
             SavePhone();
@@ -1633,7 +1633,7 @@ public partial class MainWindow
             }
 
             activate.IsEnabled = false;
-            RenderState("Conectando WhatsApp na Meta...", null);
+            RenderState("Abrindo Cadastro Incorporado da Meta...", null);
             var result = await ActivateSendPulseStorePhoneAsync(settings, settings.SendPulseStorePhone, openOnboardingUrl: true);
             activate.IsEnabled = true;
             historyList.Items.Refresh();
@@ -1669,7 +1669,7 @@ public partial class MainWindow
                     FontSize = 18,
                     FontWeight = FontWeights.Bold
                 },
-                DialogHint("Use o numero do WhatsApp Business que atende os clientes. Se ainda nao estiver conectado, o PDV abre a Meta para vincular esse numero."),
+                DialogHint("Use o numero do WhatsApp Business que atende os clientes. O PDV abre o link oficial da Meta para o cliente vincular a conta dele."),
                 DialogField("WhatsApp", phoneBox),
                 actions,
                 status

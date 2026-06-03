@@ -366,16 +366,25 @@ async function handleOrderAction(req: Request) {
   let connection = await findConnection(body);
   connection = await ensureToken(connection);
 
+  const cancellationReasons = action === "cancel"
+    ? await ifoodJson(`/order/v1.0/orders/${encodeURIComponent(orderId)}/cancellationReasons`, connection.access_token ?? "")
+    : undefined;
   const command = buildOrderActionCommand(orderId, action, body);
   const ifoodResponse = await ifoodPost(command.path, connection.access_token ?? "", command.payload);
-  await saveOrderAction(connection, orderId, action, command.status, ifoodResponse);
+  await saveOrderAction(connection, orderId, action, command.status, {
+    actionResponse: ifoodResponse,
+    cancellationReasons,
+  });
 
   return json({
     ok: true,
-    message: command.message,
+    message: action === "cancel"
+      ? `${command.message} Motivos de cancelamento consultados antes da solicitacao.`
+      : command.message,
     orderId,
     status: command.status,
     deliveredBy: text(body.deliveredBy) || "",
+    cancellationReasonsFetched: action === "cancel",
   });
 }
 
@@ -386,6 +395,7 @@ async function handleStockSync(req: Request) {
     externalCode?: string;
     productCode?: string;
     productName?: string;
+    price?: number;
     amount?: number;
     reason?: string;
     imageDataUrl?: string;
@@ -394,6 +404,8 @@ async function handleStockSync(req: Request) {
   const productId = text(body.productId);
   const externalCode = text(body.externalCode || body.productCode);
   const amount = Math.max(0, Math.floor(Number(body.amount ?? 0)));
+  const rawPrice = Number(body.price ?? 0);
+  const price = Number.isFinite(rawPrice) ? Math.max(0, rawPrice) : 0;
   if (!productId && !externalCode) {
     return json({ ok: false, message: "Produto sem vinculo iFood. Informe productId ou codigo externo." }, 400);
   }
@@ -410,12 +422,38 @@ async function handleStockSync(req: Request) {
   const modeParts: string[] = [];
   let statusWarning = "";
   let inventoryWarning = "";
+  let itemStatusWarning = "";
+  let itemPriceWarning = "";
   let imageWarning = "";
   let imageUpdated = false;
+  let catalogLink: CatalogProduct | null = null;
+  async function resolveCatalogLink() {
+    catalogLink ??= await findIFoodCatalogProductLink(
+      merchantId,
+      connection.access_token ?? "",
+      {
+        productId,
+        externalCode,
+        productName: text(body.productName),
+        imageDataUrl: "",
+      },
+    );
+    return catalogLink;
+  }
+
   const inventoryProductId = isUuid(productId) ? productId : "";
   const statusPayload: { productId?: string; externalCode?: string } = inventoryProductId
     ? { productId: inventoryProductId }
     : { externalCode: externalCode || productId };
+  let catalogContext = "DEFAULT";
+  if (price > 0 || amount === 0) {
+    try {
+      catalogContext = (await resolveCatalogLink()).catalogContext || catalogContext;
+    } catch {
+      catalogContext = "DEFAULT";
+    }
+  }
+
   if (inventoryProductId) {
     const inventoryResponse = await ifoodPost(
       `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/inventory`,
@@ -438,14 +476,71 @@ async function handleStockSync(req: Request) {
         [{
           ...statusPayload,
           status: amount > 0 ? "AVAILABLE" : "UNAVAILABLE",
+          statusByCatalog: [{ status: amount > 0 ? "AVAILABLE" : "UNAVAILABLE", catalogContext }],
           resources: ["ITEM", "OPTION"],
         }],
       );
-      responseParts.status = statusResponse;
+      responseParts.status = await waitIFoodCatalogBatch(
+        merchantId,
+        connection.access_token ?? "",
+        statusResponse,
+      );
       modeParts.push("status");
     } catch (error) {
       statusWarning = messageFromError(error);
       responseParts.statusWarning = statusWarning;
+    }
+
+    if (price > 0) {
+      try {
+        responseParts.productPrice = await updateIFoodProductPrice(
+          merchantId,
+          connection.access_token ?? "",
+          statusPayload,
+          price,
+          catalogContext,
+        );
+        modeParts.push("product-price");
+      } catch (error) {
+        itemPriceWarning = messageFromError(error);
+        responseParts.productPriceWarning = itemPriceWarning;
+      }
+    }
+  }
+
+  if (productId || externalCode) {
+    try {
+      const link = await resolveCatalogLink();
+      const itemId = text(link.itemId);
+      if (itemId) {
+        responseParts.itemStatus = await updateIFoodItemStatus(
+          merchantId,
+          connection.access_token ?? "",
+          itemId,
+          amount > 0,
+        );
+        modeParts.push("item-status");
+
+        if (price > 0) {
+          responseParts.itemPrice = await updateIFoodItemPrice(
+            merchantId,
+            connection.access_token ?? "",
+            itemId,
+            price,
+          );
+          modeParts.push("item-price");
+        }
+
+      }
+    } catch (error) {
+      if (price > 0 && amount > 0) {
+        itemPriceWarning = messageFromError(error);
+        responseParts.itemPriceWarning = itemPriceWarning;
+      } else {
+        itemStatusWarning = messageFromError(error);
+        responseParts.itemStatusWarning = itemStatusWarning;
+      }
+      modeParts.push("item-warning");
     }
   }
 
@@ -488,6 +583,9 @@ async function handleStockSync(req: Request) {
     ? `Estoque iFood atualizado para ${amount}.`
     : `Disponibilidade iFood atualizada: ${amount > 0 ? "disponivel" : "indisponivel"}.`;
   const inventoryMessage = inventoryWarning ? ` ${inventoryWarning}` : "";
+  const itemMessage = itemStatusWarning || itemPriceWarning
+    ? ` Item pendente: ${itemStatusWarning || itemPriceWarning}`
+    : "";
   const imageMessage = imageUpdated
     ? " Foto enviada."
     : imageWarning
@@ -495,16 +593,287 @@ async function handleStockSync(req: Request) {
       : "";
   return json({
     ok: true,
-    message: statusBaseMessage + inventoryMessage + imageMessage,
+    message: statusBaseMessage + inventoryMessage + itemMessage + imageMessage,
     productId,
     externalCode,
     amount,
     mode,
     statusWarning,
     inventoryWarning,
+    itemStatusWarning,
+    itemPriceWarning,
     imageUpdated,
     imageWarning,
+    itemUpdated: !itemStatusWarning && !itemPriceWarning && modeParts.some((mode) => mode.startsWith("item-")),
   });
+}
+
+async function updateIFoodItemStatus(
+  merchantId: string,
+  accessToken: string,
+  itemId: string,
+  isAvailable: boolean,
+) {
+  const status = isAvailable ? "AVAILABLE" : "UNAVAILABLE";
+  const response = await ifoodPatchFirst(
+    `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/items/status`,
+    accessToken,
+    [
+      { itemId, status, statusByCatalog: [{ status, catalogContext: "DEFAULT" }] },
+      { itemId, status },
+      [{ itemId, status }],
+      [{ id: itemId, status }],
+    ],
+  );
+  return await waitIFoodCatalogBatch(merchantId, accessToken, response);
+}
+
+async function updateIFoodProductPrice(
+  merchantId: string,
+  accessToken: string,
+  statusPayload: { productId?: string; externalCode?: string },
+  price: number,
+  catalogContext: string,
+) {
+  const value = Math.round(Math.max(0, price) * 100) / 100;
+  const path = `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/products/price`;
+  const base = {
+    ...statusPayload,
+    resources: ["ITEM", "OPTION"],
+  };
+  const payloads = [
+    [{ ...base, price: value, priceByCatalog: [{ value, catalogContext }] }],
+    [{ ...base, value, priceByCatalog: [{ value, catalogContext }] }],
+    [{ ...base, price: { value }, priceByCatalog: [{ value, catalogContext }] }],
+    [{ ...base, amount: value, priceByCatalog: [{ value, catalogContext }] }],
+  ];
+  const responses: unknown[] = [];
+  const errors: string[] = [];
+  for (const payload of payloads) {
+    try {
+      const response = await ifoodPatch(path, accessToken, payload);
+      responses.push(await waitIFoodCatalogBatch(merchantId, accessToken, response));
+    } catch (error) {
+      errors.push(messageFromError(error));
+    }
+  }
+
+  if (responses.length === 0) {
+    throw new Error(errors.filter(Boolean).join(" | ") || "iFood nao aceitou atualizar preco do produto.");
+  }
+
+  return { responses, errors: errors.filter(Boolean) };
+}
+
+async function updateIFoodItemPrice(
+  merchantId: string,
+  accessToken: string,
+  itemId: string,
+  price: number,
+) {
+  const value = Math.round(Math.max(0, price) * 100) / 100;
+  const response = await ifoodPatchFirst(
+    `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/items/price`,
+    accessToken,
+    [
+      { itemId, price: { value }, priceByCatalog: [{ value, catalogContext: "DEFAULT" }] },
+      { itemId, price: { value } },
+      [{ itemId, price: { value } }],
+      [{ itemId, price: value }],
+    ],
+  );
+  return await waitIFoodCatalogBatch(merchantId, accessToken, response);
+}
+
+async function ifoodPatchFirst(path: string, accessToken: string, payloads: unknown[]) {
+  let lastError = "";
+  for (const payload of payloads) {
+    try {
+      return await ifoodPatch(path, accessToken, payload);
+    } catch (error) {
+      lastError = messageFromError(error);
+    }
+  }
+
+  throw new Error(lastError || "iFood nao aceitou a atualizacao do item.");
+}
+
+type IFoodProductSaleTarget = {
+  productId: string;
+  externalCode: string;
+  productName: string;
+  price: number;
+  isAvailable: boolean;
+};
+
+async function updateIFoodItemSaleData(
+  merchantId: string,
+  accessToken: string,
+  target: IFoodProductSaleTarget,
+) {
+  const link = await findIFoodCatalogProductLink(merchantId, accessToken, {
+    productId: target.productId,
+    externalCode: target.externalCode,
+    productName: target.productName,
+    imageDataUrl: "",
+  });
+  if (!link.itemId) {
+    throw new Error("Nao encontrei o item do catalogo iFood para atualizar preco/status.");
+  }
+
+  const flat = await ifoodJson(
+    `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/items/${encodeURIComponent(link.itemId)}/flat`,
+    accessToken,
+  );
+  const payload = buildIFoodItemSalePayload(flat, link, target);
+  const update = await ifoodPut(
+    `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/items`,
+    accessToken,
+    payload,
+  );
+  return await waitIFoodCatalogBatch(merchantId, accessToken, update);
+}
+
+function buildIFoodItemSalePayload(
+  flat: unknown,
+  link: CatalogProduct,
+  target: IFoodProductSaleTarget,
+) {
+  const source = isRecord(flat) ? flat : {};
+  const payload = isRecord(source.item)
+    ? structuredClone(source) as Record<string, unknown>
+    : {
+        item: Object.fromEntries(
+          Object.entries(source).filter(([key]) => !["product", "products", "optionGroups", "options"].includes(key)),
+        ),
+        products: source.products,
+        optionGroups: source.optionGroups,
+        options: source.options,
+      } as Record<string, unknown>;
+
+  payload.item = isRecord(payload.item) ? { ...(payload.item as Record<string, unknown>) } : {};
+  applyIFoodSaleFields(payload.item as Record<string, unknown>, target);
+
+  let products = Array.isArray(payload.products)
+    ? payload.products.filter(isRecord).map((product) => ({ ...product }))
+    : [];
+  if (products.length === 0) {
+    const product = isRecord(payload.product)
+      ? { ...(payload.product as Record<string, unknown>) }
+      : {};
+    products = [product];
+  }
+
+  let updated = false;
+  for (const product of products) {
+    const id = firstText(product.id, product.productId);
+    const externalCode = firstText(product.externalCode, product.ean);
+    if ((link.productId && id && id === link.productId)
+      || (link.externalCode && externalCode && externalCode === link.externalCode)
+      || products.length === 1) {
+      applyIFoodSaleFields(product, target);
+      if (!firstText(product.name, product.productName)) {
+        product.name = target.productName || link.name || "Produto";
+      }
+      updated = true;
+    }
+  }
+
+  if (!updated && products.length > 0) {
+    applyIFoodSaleFields(products[0], target);
+    if (!firstText(products[0].name, products[0].productName)) {
+      products[0].name = target.productName || link.name || "Produto";
+    }
+  }
+
+  payload.products = products;
+  delete payload.product;
+  return payload;
+}
+
+function applyIFoodSaleFields(target: Record<string, unknown>, sale: IFoodProductSaleTarget) {
+  const status = sale.isAvailable ? "AVAILABLE" : "UNAVAILABLE";
+  target.status = status;
+  target.itemStatus = status;
+  target.available = sale.isAvailable;
+  target.isAvailable = sale.isAvailable;
+  target.statusByCatalog = updateIFoodCatalogStatusArray(target.statusByCatalog, status);
+
+  if (sale.price > 0) {
+    const value = Math.round(sale.price * 100) / 100;
+    setIFoodMoneyValue(target, "price", value);
+    setIFoodMoneyValue(target, "itemPrice", value);
+    setIFoodMoneyValue(target, "unitPrice", value);
+    target.priceByCatalog = updateIFoodCatalogPriceArray(target.priceByCatalog, value);
+  }
+}
+
+function setIFoodMoneyValue(target: Record<string, unknown>, key: string, value: number) {
+  const current = target[key];
+  target[key] = isRecord(current) ? { ...current, value } : { value };
+}
+
+function updateIFoodCatalogStatusArray(value: unknown, status: string) {
+  const rows = Array.isArray(value) && value.length > 0
+    ? value.filter(isRecord).map((row) => ({ ...row, status }))
+    : [{ catalogContext: "DEFAULT", status }];
+  return rows;
+}
+
+function updateIFoodCatalogPriceArray(value: unknown, price: number) {
+  const rows = Array.isArray(value) && value.length > 0
+    ? value.filter(isRecord).map((row) => ({ ...row, value: price }))
+    : [{ catalogContext: "DEFAULT", value: price }];
+  return rows;
+}
+
+async function waitIFoodCatalogBatch(
+  merchantId: string,
+  accessToken: string,
+  response: unknown,
+) {
+  const record = isRecord(response) ? response : {};
+  const batchId = firstText(record.batchId, record.id);
+  if (!batchId) {
+    return response;
+  }
+
+  let lastStatus: unknown = response;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await delay(1000);
+    lastStatus = await ifoodJson(
+      `/catalog/v2.0/merchants/${encodeURIComponent(merchantId)}/batch/${encodeURIComponent(batchId)}`,
+      accessToken,
+    );
+    const status = firstText(
+      (lastStatus as Record<string, unknown>)?.status,
+      (lastStatus as Record<string, unknown>)?.batchStatus,
+      (lastStatus as Record<string, unknown>)?.state,
+    ).toUpperCase();
+    if (["COMPLETED", "SUCCESS", "DONE", "FINISHED", "CONCLUDED"].includes(status)) {
+      const results = isRecord(lastStatus) && Array.isArray(lastStatus.results)
+        ? lastStatus.results.filter(isRecord)
+        : [];
+      const failed = results.find((result) => {
+        const value = firstText(result.result, result.status, result.state).toUpperCase();
+        return value && !["SUCCESS", "COMPLETED", "DONE", "FINISHED", "CONCLUDED"].includes(value);
+      });
+      if (failed) {
+        throw new Error(messageFromError(failed) || JSON.stringify(failed));
+      }
+
+      return { response, batch: lastStatus };
+    }
+    if (["FAILED", "ERROR", "CANCELED", "CANCELLED"].includes(status)) {
+      throw new Error(messageFromError(lastStatus) || `Batch iFood ${batchId} falhou.`);
+    }
+  }
+
+  return { response, batch: lastStatus, pending: true };
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 type IFoodProductImageTarget = {
@@ -717,6 +1086,7 @@ type CatalogProduct = {
   externalCode: string;
   name: string;
   category: string;
+  catalogContext: string;
   price: number;
   stockQuantity: number | null;
   isAvailable: boolean | null;
@@ -977,6 +1347,59 @@ function nestedCatalogItems(category: Record<string, unknown>) {
   return result;
 }
 
+function numberFromCatalogArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return 0;
+  }
+
+  for (const row of value) {
+    if (!isRecord(row)) continue;
+    const amount = firstPositiveNumber(
+      numberAtPath(row, ["price", "value"]),
+      numberAtPath(row, ["itemPrice", "value"]),
+      numberAtPath(row, ["unitPrice", "value"]),
+      numberAt(row, ["value", "price", "amount"], 0),
+    );
+    if (amount > 0) {
+      return amount;
+    }
+  }
+
+  return 0;
+}
+
+function statusFromCatalogArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return "";
+  }
+
+  for (const row of value) {
+    if (!isRecord(row)) continue;
+    const status = firstText(row.status, row.itemStatus, row.value);
+    if (status) {
+      return status;
+    }
+  }
+
+  return "";
+}
+
+function catalogContextFromArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return "";
+  }
+
+  for (const row of value) {
+    if (!isRecord(row)) continue;
+    const context = firstText(row.catalogContext, row.context, row.name);
+    if (context) {
+      return context;
+    }
+  }
+
+  return "";
+}
+
 function normalizeCatalogProduct(item: Record<string, unknown>, categoryName: string): CatalogProduct {
   const itemNode = isRecord(item.item) ? item.item : {};
   const products = Array.isArray(item.products) ? item.products.filter(isRecord) : [];
@@ -1019,6 +1442,16 @@ function normalizeCatalogProduct(item: Record<string, unknown>, categoryName: st
     item.category,
     item.groupName,
   ).toUpperCase();
+  const catalogContext = firstText(
+    item.catalogContext,
+    item.context,
+    catalogContextFromArray(item.priceByCatalog),
+    catalogContextFromArray(item.statusByCatalog),
+    catalogContextFromArray(productNode.priceByCatalog),
+    catalogContextFromArray(productNode.statusByCatalog),
+    catalogContextFromArray(itemNode.priceByCatalog),
+    catalogContextFromArray(itemNode.statusByCatalog),
+  );
 
   return {
     productId,
@@ -1026,7 +1459,11 @@ function normalizeCatalogProduct(item: Record<string, unknown>, categoryName: st
     externalCode,
     name,
     category,
+    catalogContext,
     price: firstPositiveNumber(
+      numberFromCatalogArray(item.priceByCatalog),
+      numberFromCatalogArray(productNode.priceByCatalog),
+      numberFromCatalogArray(itemNode.priceByCatalog),
       numberAtPath(item, ["itemPrice", "value"]),
       numberAtPath(item, ["price", "value"]),
       numberAtPath(item, ["unitPrice", "value"]),
@@ -1038,7 +1475,17 @@ function normalizeCatalogProduct(item: Record<string, unknown>, categoryName: st
       nullableNumberAt(productNode, ["quantity", "stock", "inventory", "amount"]),
       nullableNumberAt(itemNode, ["quantity", "stock", "inventory", "amount"]),
     ),
-    isAvailable: availabilityFromStatus(firstText(item.status, item.itemStatus, itemNode.status, productNode.status, item.available, item.isAvailable)),
+    isAvailable: availabilityFromStatus(firstText(
+      statusFromCatalogArray(item.statusByCatalog),
+      statusFromCatalogArray(productNode.statusByCatalog),
+      statusFromCatalogArray(itemNode.statusByCatalog),
+      item.status,
+      item.itemStatus,
+      itemNode.status,
+      productNode.status,
+      item.available,
+      item.isAvailable,
+    )),
   };
 }
 
@@ -1058,6 +1505,7 @@ function upsertCatalogProduct(products: Map<string, CatalogProduct>, incoming: C
     externalCode: current.externalCode || incoming.externalCode,
     name: current.name || incoming.name,
     category: current.category || incoming.category,
+    catalogContext: current.catalogContext || incoming.catalogContext,
     price: current.price > 0 ? current.price : incoming.price,
     stockQuantity: current.stockQuantity ?? incoming.stockQuantity,
     isAvailable: current.isAvailable ?? incoming.isAvailable,
@@ -1332,6 +1780,12 @@ function mapOrder(order: Record<string, unknown>, fallbackOrderId: string) {
     : createdAt;
   const confirmationDeadlineAt = addMinutesIso(confirmationBase, 8);
   const deliveryExpectedAt = text(
+    scheduled?.deliveryDateTimeStart ??
+    scheduled?.scheduledDateTime ??
+    scheduled?.deliveryDateTime ??
+    scheduled?.startDateTime ??
+    scheduled?.deliveryDateTimeEnd ??
+    scheduled?.endDateTime ??
     delivery?.estimatedDeliveryDateTime ??
     delivery?.estimatedDeliveryTime ??
     delivery?.deliveryEstimateDateTime ??
@@ -1461,16 +1915,25 @@ function paymentDetails(order: Record<string, unknown>) {
     numberAtPath(order, ["payment", "cash", "changeFor", "value"]) ||
     numberAtPath(order, ["payments", "cash", "changeFor", "value"]) ||
     numberAtPath(order, ["payment", "changeFor", "value"]) ||
-    numberAtPath(order, ["payments", "changeFor", "value"]);
+    numberAtPath(order, ["payments", "changeFor", "value"]) ||
+    numberAtPath(order, ["cash", "change", "value"]) ||
+    numberAtPath(order, ["cash", "change"]) ||
+    numberAtPath(order, ["payment", "cash", "change", "value"]) ||
+    numberAtPath(order, ["payments", "cash", "change", "value"]) ||
+    numberAtPath(order, ["payment", "change", "value"]) ||
+    numberAtPath(order, ["payments", "change", "value"]);
 
   for (const item of methods) {
-    const label = normalizePaymentLabel(text(item.method ?? item.name ?? item.type ?? item.brand ?? item.cardBrand));
+    const label = paymentLabel(item);
     if (!label) continue;
     method ||= label;
     const amount = numberAt(item, ["value", "amount"], 0) || numberAtPath(item, ["price", "value"]);
     changeFor ||= numberAtPath(item, ["cash", "changeFor", "value"]) ||
       numberAtPath(item, ["changeFor", "value"]) ||
-      numberAt(item, ["changeFor"], 0);
+      numberAt(item, ["changeFor"], 0) ||
+      numberAtPath(item, ["cash", "change", "value"]) ||
+      numberAtPath(item, ["change", "value"]) ||
+      numberAt(item, ["change"], 0);
     const descriptor = [
       label,
       amount > 0 ? moneyText(amount) : "",
@@ -1485,6 +1948,41 @@ function paymentDetails(order: Record<string, unknown>) {
   }
 
   return { method, summary, changeFor };
+}
+
+function paymentLabel(item: Record<string, unknown>) {
+  const methodObject = isRecord(item.method) ? item.method : {};
+  const paymentMethodObject = isRecord(item.paymentMethod) ? item.paymentMethod : {};
+  const cardObject = isRecord(item.card) ? item.card : {};
+  const creditObject = isRecord(item.credit) ? item.credit : {};
+  const debitObject = isRecord(item.debit) ? item.debit : {};
+  const method = normalizePaymentLabel(text(
+    methodObject.method ??
+    methodObject.name ??
+    paymentMethodObject.method ??
+    paymentMethodObject.name ??
+    (!isRecord(item.method) ? item.method : undefined) ??
+    item.name ??
+    item.type,
+  ));
+  const brand = normalizeCardBrand(text(
+    item.brand ??
+    item.cardBrand ??
+    item.card_brand ??
+    item.issuer ??
+    cardObject.brand ??
+    cardObject.cardBrand ??
+    creditObject.brand ??
+    debitObject.brand ??
+    paymentMethodObject.brand ??
+    paymentMethodObject.cardBrand,
+  ));
+
+  if (!method && brand) return `CARTAO - Bandeira ${brand}`;
+  if (brand && /CREDITO|DEBITO|CARTAO/i.test(method) && !method.toUpperCase().includes(brand.toUpperCase())) {
+    return `${method} - Bandeira ${brand}`;
+  }
+  return method;
 }
 
 function paymentMethodObjects(order: Record<string, unknown>) {
@@ -1517,6 +2015,18 @@ function normalizePaymentLabel(value: string) {
   if (["DEBIT", "DEBIT_CARD", "CARTAO_DEBITO"].includes(normalized)) return "CARTAO DEBITO";
   if (["MEAL_VOUCHER", "VOUCHER"].includes(normalized)) return "VOUCHER";
   return normalized.replaceAll("_", " ");
+}
+
+function normalizeCardBrand(value: string) {
+  const normalized = value.trim().toUpperCase().replaceAll("_", " ");
+  if (normalized === "VISA") return "Visa";
+  if (["MASTERCARD", "MASTER CARD"].includes(normalized)) return "Mastercard";
+  if (normalized === "ELO") return "Elo";
+  if (["AMEX", "AMERICAN EXPRESS"].includes(normalized)) return "American Express";
+  if (normalized === "HIPERCARD") return "Hipercard";
+  return normalized
+    ? normalized.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())
+    : "";
 }
 
 function isPaymentOnDelivery(item: Record<string, unknown>) {
@@ -1552,12 +2062,17 @@ function collectVoucherValues(value: unknown, values: Set<string>) {
   const code = text(value.code ?? value.voucherCode ?? value.couponCode ?? value.promoCode ?? value.campaignCode ?? value.target);
   const name = text(value.name ?? value.description ?? value.title);
   const amount = numberAt(value, ["value", "amount"], 0) || numberAtPath(value, ["amount", "value"]);
+  const subsidy = subsidySummary(value);
   const joined = `${code} ${name}`.trim();
   const raw = JSON.stringify(value);
   if (joined.toUpperCase().includes("VOUCHER") ||
     joined.toUpperCase().includes("ENTGRATIS") ||
     (amount > 0 && /benefit|discount|voucher|coupon|promotion/i.test(raw))) {
-    values.add([code, name, amount > 0 ? moneyText(amount) : ""].filter(Boolean).join(" "));
+    values.add([
+      [code, name].filter(Boolean).join(" "),
+      amount > 0 ? `Desconto ${moneyText(amount)}` : "",
+      subsidy,
+    ].filter(Boolean).join(" | "));
   }
 
   for (const [key, child] of Object.entries(value)) {
@@ -1565,6 +2080,43 @@ function collectVoucherValues(value: unknown, values: Set<string>) {
       collectVoucherValues(child, values);
     }
   }
+}
+
+function subsidySummary(value: Record<string, unknown>) {
+  const parts = new Set<string>();
+  collectSubsidyValues(value, parts);
+  const list = [...parts].filter(Boolean).slice(0, 4);
+  return list.length ? `Subsidio: ${list.join(", ")}` : "";
+}
+
+function collectSubsidyValues(value: unknown, parts: Set<string>) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectSubsidyValues(item, parts);
+    return;
+  }
+
+  if (!isRecord(value)) return;
+  const sponsor = text(value.sponsor ?? value.sponsoredBy ?? value.provider ?? value.owner ?? value.name ?? value.description);
+  const amount = numberAt(value, ["sponsorshipValue", "subsidy", "value", "amount"], 0) ||
+    numberAtPath(value, ["sponsorshipValue", "value"]) ||
+    numberAtPath(value, ["subsidy", "value"]) ||
+    numberAtPath(value, ["amount", "value"]);
+  if (sponsor && amount > 0 && /sponsor|subsid|liability/i.test(JSON.stringify(value))) {
+    parts.add(`${normalizeSponsor(sponsor)} ${moneyText(amount)}`);
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    if (/sponsor|subsid|liability/i.test(key)) {
+      collectSubsidyValues(child, parts);
+    }
+  }
+}
+
+function normalizeSponsor(value: string) {
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "IFOOD") return "iFood";
+  if (["MERCHANT", "RESTAURANT"].includes(normalized)) return "Loja";
+  return value.trim();
 }
 
 function cancellationDetails(order: Record<string, unknown>) {

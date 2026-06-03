@@ -1,8 +1,8 @@
 {
-  "version": "1.8.2026.1",
-  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.1.exe",
-  "minimumVersion": "1.8.2026.1",
-  "notes": "Balcao Livre PDV Online 1.8.2026.1. Correcao obrigatoria no F9 Mercado Pago: cartao vai direto para a Point quando configurada e a venda so fecha/imprime apos aprovacao.",
+  "version": "1.8.2026.5",
+  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.5.exe",
+  "minimumVersion": "1.8.2026.5",
+  "notes": "Balcao Livre PDV Online 1.8.2026.5. Adiciona o botao Liberar Point para desconectar a maquininha do PDV e usar no modo normal, ajusta a configuracao visual do Mercado Pago e mantem atualizacao obrigatoria para testes, pagos e instalacoes existentes.",
   "required": true,
-  "publishedAt": "2026-05-31T00:00:00-03:00"
+  "publishedAt": "2026-06-02T22:09:56-03:00"
 }

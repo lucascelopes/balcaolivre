@@ -5,7 +5,7 @@ const STRIPE_CHECKOUT_URL = "https://api.stripe.com/v1/checkout/sessions";
 const STRIPE_API_URL = "https://api.stripe.com/v1";
 const DEFAULT_SITE_URL = "https://www.balcaolivrepdv.com.br";
 const OFFLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.2.2026.1.exe";
-const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.4.exe";
+const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.5.exe";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
