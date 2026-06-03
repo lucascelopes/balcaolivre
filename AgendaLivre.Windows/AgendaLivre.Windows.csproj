@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>AgendaLivreWindows</AssemblyName>
+    <RootNamespace>AgendaLivre.Windows</RootNamespace>
+    <Product>Agenda Livre Windows</Product>
+    <AssemblyTitle>Agenda Livre Windows</AssemblyTitle>
+    <Company>Nagazaki Software</Company>
+    <Version>1.0.2026.1</Version>
+    <AssemblyVersion>1.0.2026.1</AssemblyVersion>
+    <FileVersion>1.0.2026.1</FileVersion>
+    <InformationalVersion>1.0.2026.1</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MaterialDesignThemes" Version="5.3.2" />
+  </ItemGroup>
+
+</Project>
