@@ -10218,7 +10218,14 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 4, 0, 8)
         };
-        var driverBox = new ComboBox { ItemsSource = Drivers.Select(driver => driver.Name).ToList(), MinHeight = 34 };
+        var driverBox = new ComboBox
+        {
+            ItemsSource = Drivers
+                .Where(driver => driver.Active)
+                .Select(driver => driver.Name)
+                .ToList(),
+            MinHeight = 34
+        };
         var notesBox = new TextBox { Height = 62, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
         var typeButtons = new List<Button>();
         var sizeButtons = new List<Button>();
@@ -16073,16 +16080,33 @@ public partial class MainWindow : Window
             return;
         }
 
-        var dialog = CreateDialog("Garcons e operadores de caixa", 720, 500);
-        var staffList = new ListBox { DisplayMemberPath = nameof(UserAccount.Display), Width = 290 };
+        var dialog = CreateDialog("Equipe e entregadores", 960, 660);
+        var entityList = new ListBox
+        {
+            DisplayMemberPath = nameof(UserAccount.Display),
+            MinHeight = 390,
+            BorderBrush = Solid("#D5E4EF"),
+            BorderThickness = new Thickness(1),
+            Background = Brushes.White,
+            Padding = new Thickness(4)
+        };
         var nameBox = new TextBox();
         var numberBox = new TextBox();
-        var passwordBox = new PasswordBox { Height = 34 };
+        var passwordBox = new PasswordBox();
         var roleBox = new ComboBox
         {
             ItemsSource = new[] { "GARCOM", "CAIXA", "GERENTE" },
-            SelectedIndex = 0,
-            MinHeight = 34
+            SelectedIndex = 0
+        };
+        var driverNameBox = new TextBox();
+        var driverPhoneBox = new TextBox();
+        var driverActiveBox = new CheckBox
+        {
+            Content = "Ativo no delivery",
+            IsChecked = true,
+            Foreground = Solid("#071A2C"),
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 8, 0, 0)
         };
         var status = new TextBlock
         {
@@ -16091,6 +16115,16 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 0)
         };
+        var currentMode = "STAFF";
+        var modeButtons = new List<Button>();
+        var listTitle = new TextBlock { Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold, FontSize = 16 };
+        var listSubtitle = new TextBlock { Foreground = Solid("#5B6B7A"), FontSize = 12, Margin = new Thickness(0, 3, 0, 10) };
+        var formTitle = new TextBlock { Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold, FontSize = 18 };
+        var formSubtitle = new TextBlock { Foreground = Solid("#5B6B7A"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 14) };
+        var staffCountText = new TextBlock { Foreground = Solid("#0B3A52"), FontWeight = FontWeights.Bold, FontSize = 20 };
+        var driverCountText = new TextBlock { Foreground = Solid("#08A99B"), FontWeight = FontWeights.Bold, FontSize = 20 };
+        var staffForm = new StackPanel();
+        var driverForm = new StackPanel();
 
         List<UserAccount> StaffUsers()
         {
@@ -16101,28 +16135,125 @@ public partial class MainWindow : Window
                 .ToList();
         }
 
-        void RefreshStaffList(UserAccount? selected = null)
+        List<DeliveryDriver> DriverUsers()
         {
-            var staff = StaffUsers();
-            staffList.ItemsSource = staff;
-            if (selected is not null && staff.Contains(selected))
+            return Drivers
+                .OrderByDescending(driver => driver.Active)
+                .ThenBy(driver => driver.Name)
+                .ToList();
+        }
+
+        void PrepareInput(Control control)
+        {
+            control.MinHeight = 40;
+            control.FontSize = 14;
+            control.Margin = new Thickness(0, 0, 0, 8);
+        }
+
+        PrepareInput(nameBox);
+        PrepareInput(numberBox);
+        PrepareInput(passwordBox);
+        PrepareInput(roleBox);
+        PrepareInput(driverNameBox);
+        PrepareInput(driverPhoneBox);
+
+        Border SummaryCard(string title, TextBlock value, string detail)
+        {
+            var card = new Border
             {
-                staffList.SelectedItem = selected;
-            }
-            else if (staff.Count > 0 && staffList.SelectedIndex < 0)
+                Background = Brushes.White,
+                BorderBrush = Solid("#D5E4EF"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(14, 10, 14, 10),
+                Margin = new Thickness(0, 0, 12, 0)
+            };
+            card.Child = new StackPanel
             {
-                staffList.SelectedIndex = 0;
+                Children =
+                {
+                    new TextBlock { Text = title, Foreground = Solid("#5B6B7A"), FontSize = 12, FontWeight = FontWeights.Bold },
+                    value,
+                    new TextBlock { Text = detail, Foreground = Solid("#5B6B7A"), FontSize = 11, TextWrapping = TextWrapping.Wrap }
+                }
+            };
+            return card;
+        }
+
+        void SwitchMode(string mode)
+        {
+            currentMode = mode;
+            RefreshModeButtons();
+            RefreshEntityList();
+        }
+
+        Button ModeButton(string mode, string text)
+        {
+            var button = new Button
+            {
+                Content = text,
+                Tag = mode,
+                Height = 40,
+                Margin = new Thickness(0, 0, 8, 0),
+                Padding = new Thickness(12, 0, 12, 0),
+                Background = Brushes.White,
+                BorderBrush = Solid("#CAD6E2"),
+                BorderThickness = new Thickness(1),
+                Foreground = Solid("#071A2C"),
+                FontWeight = FontWeights.SemiBold,
+                Cursor = Cursors.Hand,
+                FocusVisualStyle = null,
+                Template = RoundedButtonTemplate()
+            };
+            button.Click += (_, _) => SwitchMode(mode);
+            modeButtons.Add(button);
+            return button;
+        }
+
+        void RefreshCounters()
+        {
+            var staffCount = StaffUsers().Count;
+            var activeDrivers = Drivers.Count(driver => driver.Active);
+            staffCountText.Text = staffCount.ToString("N0", Brazil);
+            driverCountText.Text = $"{activeDrivers:N0}/{Drivers.Count:N0}";
+        }
+
+        void RefreshModeButtons()
+        {
+            foreach (var button in modeButtons)
+            {
+                var active = string.Equals(button.Tag?.ToString(), currentMode, StringComparison.Ordinal);
+                button.Background = active ? Solid("#0B3A52") : Brushes.White;
+                button.BorderBrush = active ? Solid("#0B3A52") : Solid("#CAD6E2");
+                button.Foreground = active ? Brushes.White : Solid("#071A2C");
             }
         }
 
-        void ClearForm()
+        void ClearStaffForm(bool clearSelection = true)
         {
-            staffList.SelectedIndex = -1;
+            if (clearSelection)
+            {
+                entityList.SelectedIndex = -1;
+            }
+
             nameBox.Text = "";
             numberBox.Text = GetNextStaffNumber().ToString(Brazil);
             passwordBox.Clear();
             roleBox.SelectedIndex = 0;
             nameBox.Focus();
+        }
+
+        void ClearDriverForm(bool clearSelection = true)
+        {
+            if (clearSelection)
+            {
+                entityList.SelectedIndex = -1;
+            }
+
+            driverNameBox.Text = "";
+            driverPhoneBox.Text = "";
+            driverActiveBox.IsChecked = true;
+            driverNameBox.Focus();
         }
 
         void LoadStaff(UserAccount user)
@@ -16136,19 +16267,96 @@ public partial class MainWindow : Window
             roleBox.SelectedItem = user.Role is "CAIXA" or "GERENTE" ? user.Role : "GARCOM";
         }
 
-        staffList.SelectionChanged += (_, _) =>
+        void LoadDriver(DeliveryDriver driver)
         {
-            if (staffList.SelectedItem is UserAccount user)
+            driverNameBox.Text = driver.Name;
+            driverPhoneBox.Text = driver.Phone;
+            driverActiveBox.IsChecked = driver.Active;
+            driverNameBox.Focus();
+        }
+
+        void RefreshEntityList(object? selected = null)
+        {
+            RefreshCounters();
+            status.Text = "";
+            if (currentMode == "STAFF")
+            {
+                var staff = StaffUsers();
+                entityList.DisplayMemberPath = nameof(UserAccount.Display);
+                entityList.ItemsSource = staff;
+                listTitle.Text = "Equipe cadastrada";
+                listSubtitle.Text = $"{staff.Count:N0} garcom(ns), operador(es) e gerente(s)";
+                formTitle.Text = "Cadastro da equipe";
+                formSubtitle.Text = "Garcom atende mesas. Caixa recebe e opera caixa. Gerente libera configuracoes.";
+                staffForm.Visibility = Visibility.Visible;
+                driverForm.Visibility = Visibility.Collapsed;
+                if (selected is UserAccount user && staff.Contains(user))
+                {
+                    entityList.SelectedItem = user;
+                }
+                else if (staff.Count > 0)
+                {
+                    entityList.SelectedIndex = 0;
+                }
+                else
+                {
+                    ClearStaffForm(clearSelection: false);
+                }
+            }
+            else
+            {
+                var drivers = DriverUsers();
+                entityList.DisplayMemberPath = nameof(DeliveryDriver.Display);
+                entityList.ItemsSource = drivers;
+                listTitle.Text = "Entregadores";
+                listSubtitle.Text = $"{drivers.Count(driver => driver.Active):N0} ativo(s) no delivery";
+                formTitle.Text = "Cadastro de entregador";
+                formSubtitle.Text = "O entregador ativo aparece no pedido delivery e no comprovante.";
+                staffForm.Visibility = Visibility.Collapsed;
+                driverForm.Visibility = Visibility.Visible;
+                if (selected is DeliveryDriver driver && drivers.Contains(driver))
+                {
+                    entityList.SelectedItem = driver;
+                }
+                else if (drivers.Count > 0)
+                {
+                    entityList.SelectedIndex = 0;
+                }
+                else
+                {
+                    ClearDriverForm(clearSelection: false);
+                }
+            }
+        }
+
+        entityList.SelectionChanged += (_, _) =>
+        {
+            if (currentMode == "STAFF" && entityList.SelectedItem is UserAccount user)
             {
                 LoadStaff(user);
             }
+            else if (currentMode == "DRIVER" && entityList.SelectedItem is DeliveryDriver driver)
+            {
+                LoadDriver(driver);
+            }
         };
 
-        var newButton = DialogButton("Novo cadastro", "#0B3A52");
-        newButton.Click += (_, _) => ClearForm();
+        var newButton = DialogButton("Novo", "#0B3A52");
+        newButton.Click += (_, _) =>
+        {
+            if (currentMode == "STAFF")
+            {
+                ClearStaffForm();
+            }
+            else
+            {
+                ClearDriverForm();
+            }
+        };
 
-        var saveButton = DialogButton("Salvar equipe", "#08A99B");
-        saveButton.Click += (_, _) =>
+        var saveButton = DialogButton("Salvar", "#08A99B");
+
+        void SaveStaff()
         {
             var name = nameBox.Text.Trim().ToUpperInvariant();
             if (string.IsNullOrWhiteSpace(name))
@@ -16170,7 +16378,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var selectedUser = staffList.SelectedItem as UserAccount;
+            var selectedUser = entityList.SelectedItem as UserAccount;
             if (string.IsNullOrWhiteSpace(password) && selectedUser is null)
             {
                 status.Foreground = RedText;
@@ -16192,7 +16400,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var user = Users.FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
+            var user = selectedUser ?? Users.FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
             if (user is null)
             {
                 user = new UserAccount();
@@ -16214,8 +16422,8 @@ public partial class MainWindow : Window
                 SetUserPassword(user, string.IsNullOrWhiteSpace(password) ? staffNumber : password);
             }
             NormalizeRolePermissions(user);
-            RefreshStaffList(user);
             SaveStore();
+            RefreshEntityList(user);
             status.Foreground = GreenText;
             status.Text = role == "CAIXA"
                 ? $"Operador de caixa salvo: {user.Name}"
@@ -16223,48 +16431,156 @@ public partial class MainWindow : Window
                     ? $"Gerente salvo: {user.Name}"
                     : $"Garcom salvo: {user.Name}";
             SetStatus(status.Text);
+        }
+
+        void SaveDriver()
+        {
+            var name = driverNameBox.Text.Trim().ToUpperInvariant();
+            var phone = driverPhoneBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                status.Foreground = RedText;
+                status.Text = "Informe o nome do entregador.";
+                driverNameBox.Focus();
+                return;
+            }
+
+            var selectedDriver = entityList.SelectedItem as DeliveryDriver;
+            var duplicated = Drivers.FirstOrDefault(driver =>
+                !ReferenceEquals(driver, selectedDriver)
+                && string.Equals(driver.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (duplicated is not null)
+            {
+                status.Foreground = RedText;
+                status.Text = $"Entregador ja cadastrado: {duplicated.Name}.";
+                driverNameBox.Focus();
+                driverNameBox.SelectAll();
+                return;
+            }
+
+            var driver = selectedDriver;
+            if (driver is null)
+            {
+                driver = new DeliveryDriver();
+                Drivers.Add(driver);
+            }
+
+            driver.Name = name;
+            driver.Phone = phone;
+            driver.Active = driverActiveBox.IsChecked == true;
+            SaveStore();
+            RefreshEntityList(driver);
+            status.Foreground = GreenText;
+            status.Text = driver.Active
+                ? $"Entregador salvo: {driver.Name}"
+                : $"Entregador inativo: {driver.Name}";
+            SetStatus(status.Text);
+        }
+
+        saveButton.Click += (_, _) =>
+        {
+            if (currentMode == "STAFF")
+            {
+                SaveStaff();
+            }
+            else
+            {
+                SaveDriver();
+            }
         };
 
-        var grid = new Grid { Margin = new Thickness(18) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var shell = new Grid { Margin = new Thickness(18) };
+        shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        var left = new StackPanel();
-        left.Children.Add(new TextBlock
+        var summary = new Grid { Margin = new Thickness(0, 0, 0, 14) };
+        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
+        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
+        var summaryText = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        summaryText.Children.Add(new TextBlock { Text = "Equipe operacional", Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold, FontSize = 24 });
+        summaryText.Children.Add(new TextBlock { Text = "Atendimento, caixa, gerente e entregadores em uma unica tela.", Foreground = Solid("#5B6B7A"), FontSize = 13, Margin = new Thickness(0, 4, 0, 0) });
+        summary.Children.Add(summaryText);
+        var staffSummary = SummaryCard("Equipe", staffCountText, "pessoas cadastradas");
+        var driverSummary = SummaryCard("Entregadores", driverCountText, "ativos / total");
+        Grid.SetColumn(staffSummary, 1);
+        Grid.SetColumn(driverSummary, 2);
+        summary.Children.Add(staffSummary);
+        summary.Children.Add(driverSummary);
+        shell.Children.Add(summary);
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(330) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetRow(grid, 1);
+        shell.Children.Add(grid);
+
+        var left = new Border
         {
-            Text = "Equipe cadastrada",
-            Foreground = Solid("#071A2C"),
-            FontWeight = FontWeights.Bold,
-            FontSize = 16,
-            Margin = new Thickness(0, 0, 0, 8)
-        });
-        left.Children.Add(staffList);
-        Grid.SetColumn(left, 0);
+            Background = Brushes.White,
+            BorderBrush = Solid("#D5E4EF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(14),
+            Margin = new Thickness(0, 0, 14, 0)
+        };
+        var leftStack = new StackPanel();
+        var modeRow = new UniformGrid { Columns = 2, Margin = new Thickness(0, 0, 0, 14) };
+        modeRow.Children.Add(ModeButton("STAFF", "Equipe"));
+        modeRow.Children.Add(ModeButton("DRIVER", "Entregadores"));
+        leftStack.Children.Add(modeRow);
+        leftStack.Children.Add(listTitle);
+        leftStack.Children.Add(listSubtitle);
+        leftStack.Children.Add(entityList);
+        left.Child = leftStack;
         grid.Children.Add(left);
 
-        var form = DialogPanel();
-        form.Children.Add(DialogLabel("Nome"));
-        form.Children.Add(nameBox);
-        form.Children.Add(DialogLabel("Numero"));
-        form.Children.Add(numberBox);
-        form.Children.Add(DialogLabel("Senha"));
-        form.Children.Add(passwordBox);
-        form.Children.Add(DialogLabel("Funcao"));
-        form.Children.Add(roleBox);
-        form.Children.Add(DialogHint("O numero identifica garcom/operador na comanda e no comprovante. A senha libera login e operacoes do caixa."));
-        var buttons = new UniformGrid { Columns = 2, Margin = new Thickness(0, 8, 0, 0) };
+        var formShell = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#D5E4EF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(18)
+        };
+        var form = new StackPanel();
+        form.Children.Add(formTitle);
+        form.Children.Add(formSubtitle);
+
+        staffForm.Children.Add(DialogLabel("Nome"));
+        staffForm.Children.Add(nameBox);
+        staffForm.Children.Add(DialogLabel("Numero"));
+        staffForm.Children.Add(numberBox);
+        staffForm.Children.Add(DialogLabel("Senha"));
+        staffForm.Children.Add(passwordBox);
+        staffForm.Children.Add(DialogLabel("Funcao"));
+        staffForm.Children.Add(roleBox);
+        staffForm.Children.Add(DialogHint("O numero identifica garcom/operador na comanda e no comprovante. A senha libera login e operacoes do caixa."));
+
+        driverForm.Children.Add(DialogLabel("Nome"));
+        driverForm.Children.Add(driverNameBox);
+        driverForm.Children.Add(DialogLabel("Telefone"));
+        driverForm.Children.Add(driverPhoneBox);
+        driverForm.Children.Add(driverActiveBox);
+        driverForm.Children.Add(DialogHint("Entregador ativo aparece na lista de delivery e sai impresso no pedido."));
+
+        form.Children.Add(staffForm);
+        form.Children.Add(driverForm);
+        var buttons = new UniformGrid { Columns = 2, Margin = new Thickness(0, 12, 0, 0) };
         buttons.Children.Add(newButton);
         buttons.Children.Add(saveButton);
         form.Children.Add(buttons);
         form.Children.Add(status);
-        Grid.SetColumn(form, 1);
-        grid.Children.Add(form);
+        formShell.Child = form;
+        Grid.SetColumn(formShell, 1);
+        grid.Children.Add(formShell);
 
-        dialog.Content = grid;
-        RefreshStaffList();
-        if (staffList.SelectedItem is not UserAccount)
+        dialog.Content = shell;
+        RefreshModeButtons();
+        RefreshEntityList();
+        if (entityList.SelectedItem is not UserAccount)
         {
-            ClearForm();
+            ClearStaffForm();
         }
         dialog.ShowDialog();
     }
@@ -26701,6 +27017,12 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string Name { get; set; } = "";
         public string Phone { get; set; } = "";
         public bool Active { get; set; } = true;
+        [JsonIgnore] public string Display => string.Join("  ", new[]
+        {
+            Name,
+            Phone,
+            Active ? "ATIVO" : "INATIVO"
+        }.Where(value => !string.IsNullOrWhiteSpace(value)));
     }
 
     public sealed class DeliveryZoneFee
