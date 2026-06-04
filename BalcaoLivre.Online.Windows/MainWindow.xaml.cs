@@ -66,6 +66,9 @@ public partial class MainWindow : Window
     private const string PublicMenuApexHost = "balcaolivrepdv.com.br";
     private const string PublicMenuHost = "cardapio.balcaolivrepdv.com.br";
     private const string DefaultPublicMenuBaseUrl = "https://cardapio.balcaolivrepdv.com.br";
+    private const string OnlineStoreModeAuto = "AUTO";
+    private const string OnlineStoreModeOpen = "OPEN";
+    private const string OnlineStoreModeClosed = "CLOSED";
     private const string DefaultIFoodAlertSoundFile = "Assets\\ifood-order-alert.mp3";
     private const string PasswordHashPrefix = "PBKDF2";
     private static readonly CultureInfo Brazil = CultureInfo.GetCultureInfo("pt-BR");
@@ -3952,7 +3955,12 @@ public partial class MainWindow : Window
 
     private bool CanReceiveOnlineOrdersNow()
     {
-        return !_appSettings.OnlineStoreScheduleEnabled || IsOnlineStoreOpenBySchedule(DateTime.Now);
+        return NormalizeOnlineStoreManualMode(_appSettings.OnlineStoreManualMode) switch
+        {
+            OnlineStoreModeOpen => true,
+            OnlineStoreModeClosed => false,
+            _ => !_appSettings.OnlineStoreScheduleEnabled || IsOnlineStoreOpenBySchedule(DateTime.Now)
+        };
     }
 
     private bool ApplyOnlineStoreScheduleState(string reason, bool forcePublish = false, bool persist = true)
@@ -4015,9 +4023,14 @@ public partial class MainWindow : Window
     private string BuildOnlineStoreStatusText()
     {
         var open = _appSettings.PublicMenuStoreOpen;
-        return open
-            ? $"Loja online aberta para iFood e cardapio. {BuildOnlineStoreScheduleText()}"
-            : $"Loja online fechada pelo horario. {BuildOnlineStoreScheduleText()}";
+        return NormalizeOnlineStoreManualMode(_appSettings.OnlineStoreManualMode) switch
+        {
+            OnlineStoreModeOpen => $"Loja online aberta manualmente. {BuildOnlineStoreScheduleText()}",
+            OnlineStoreModeClosed => $"Loja online fechada agora manualmente. {BuildOnlineStoreScheduleText()}",
+            _ => open
+                ? $"Loja online aberta para iFood e cardapio. {BuildOnlineStoreScheduleText()}"
+                : $"Loja online fechada pelo horario. {BuildOnlineStoreScheduleText()}"
+        };
     }
 
     private string BuildOnlineStoreScheduleText()
@@ -4037,8 +4050,20 @@ public partial class MainWindow : Window
 
     private void NormalizeOnlineStoreScheduleSettings()
     {
+        _appSettings.OnlineStoreManualMode = NormalizeOnlineStoreManualMode(_appSettings.OnlineStoreManualMode);
         _appSettings.OnlineStoreOpenTime = NormalizeClockText(_appSettings.OnlineStoreOpenTime, "00:00");
         _appSettings.OnlineStoreCloseTime = NormalizeClockText(_appSettings.OnlineStoreCloseTime, "00:00");
+    }
+
+    private static string NormalizeOnlineStoreManualMode(string? value)
+    {
+        var mode = (value ?? "").Trim().ToUpperInvariant();
+        return mode switch
+        {
+            OnlineStoreModeOpen => OnlineStoreModeOpen,
+            OnlineStoreModeClosed => OnlineStoreModeClosed,
+            _ => OnlineStoreModeAuto
+        };
     }
 
     private static string NormalizeClockText(string? value, string fallback)
@@ -11421,10 +11446,12 @@ public partial class MainWindow : Window
 
         var connect = DialogButton("Conectar iFood", "#08A99B");
         var saveSchedule = DialogButton("Salvar horario", "#08A99B");
+        var toggleNow = DialogButton("Fechar agora", "#A11D1D");
+        var autoSchedule = DialogButton("Usar automatico", "#5B6B7A");
         var openDelivery = DialogButton("Abrir Delivery", "#0B3A52");
         var disconnect = DialogButton("Sair do iFood", "#A11D1D");
 
-        foreach (var button in new[] { connect, saveSchedule, openDelivery, disconnect })
+        foreach (var button in new[] { connect, saveSchedule, toggleNow, autoSchedule, openDelivery, disconnect })
         {
             button.Width = 230;
             button.MinHeight = 48;
@@ -11443,25 +11470,36 @@ public partial class MainWindow : Window
             connectionValue.Text = linked
                 ? string.IsNullOrWhiteSpace(settings.MerchantName) ? "Conta conectada" : settings.MerchantName.Trim()
                 : string.IsNullOrWhiteSpace(settings.ConnectionId) ? "Nao conectado" : "Aguardando autorizacao";
+            var manualMode = NormalizeOnlineStoreManualMode(_appSettings.OnlineStoreManualMode);
             receivingValue.Text = receiving
-                ? "Aberto pelo horario"
-                : linked ? "Fechado pelo horario" : "Conecte para receber pedidos";
+                ? manualMode == OnlineStoreModeOpen ? "Aberto manualmente" : "Aberto pelo horario"
+                : linked
+                    ? manualMode == OnlineStoreModeClosed ? "Fechado manualmente" : "Fechado pelo horario"
+                    : "Conecte para receber pedidos";
             productsValue.Text = linkedProducts == 1
                 ? "1 produto vinculado ao iFood"
                 : $"{linkedProducts} produtos vinculados ao iFood";
             lastSyncValue.Text = LastSyncText();
             scheduleValue.Text = BuildOnlineStoreScheduleText();
             scheduleStatus.Text = BuildOnlineStoreStatusText();
-
             connect.Visibility = linked ? Visibility.Collapsed : Visibility.Visible;
             saveSchedule.Visibility = Visibility.Visible;
+            toggleNow.Visibility = Visibility.Visible;
+            autoSchedule.Visibility = manualMode == OnlineStoreModeAuto ? Visibility.Collapsed : Visibility.Visible;
             openDelivery.Visibility = linked ? Visibility.Visible : Visibility.Collapsed;
             disconnect.Visibility = linked ? Visibility.Visible : Visibility.Collapsed;
+            toggleNow.Content = _appSettings.PublicMenuStoreOpen ? "Fechar agora" : "Abrir agora";
+            toggleNow.Background = Solid(_appSettings.PublicMenuStoreOpen ? "#A11D1D" : "#08A99B");
+            toggleNow.BorderBrush = toggleNow.Background;
 
             operationBox.Text = message ?? (linked
                 ? receiving
-                    ? "iFood e cardapio online estao dentro do horario de atendimento. Produtos, estoque e pedidos sincronizam em segundo plano."
-                    : "Conta iFood vinculada. O PDV reabre sozinho no proximo horario de atendimento."
+                    ? manualMode == OnlineStoreModeOpen
+                        ? "Loja aberta manualmente. Use Fechar agora para interromper por emergencia ou Usar automatico para voltar ao horario."
+                        : "iFood e cardapio online estao dentro do horario de atendimento. Produtos, estoque e pedidos sincronizam em segundo plano."
+                    : manualMode == OnlineStoreModeClosed
+                        ? "Loja fechada manualmente. Ela nao reabre pelo horario ate clicar em Abrir agora ou Usar automatico."
+                        : "Conta iFood vinculada. O PDV reabre sozinho no proximo horario de atendimento."
                 : "Conecte a loja uma vez. Depois disso o PDV usa o horario abaixo para abrir/fechar iFood e cardapio.");
             if (!string.IsNullOrWhiteSpace(message))
             {
@@ -11518,6 +11556,31 @@ public partial class MainWindow : Window
             }
         };
 
+        async Task ApplyStoreModeAsync(string mode, string reason, Button button)
+        {
+            try
+            {
+                button.IsEnabled = false;
+                _appSettings.OnlineStoreManualMode = NormalizeOnlineStoreManualMode(mode);
+                ApplyOnlineStoreScheduleState(reason, forcePublish: true);
+                SaveAppSettings();
+                SaveStore();
+                RefreshOnlineStoreButton();
+                var publish = await PublishGeneratedPublicMenuAsync(silent: true);
+                RefreshIFoodUi(publish.Ok
+                    ? BuildOnlineStoreStatusText()
+                    : $"{BuildOnlineStoreStatusText()} Cardapio pendente: {publish.Message}");
+            }
+            catch (Exception ex)
+            {
+                RefreshIFoodUi($"Falha ao atualizar loja online: {ex.Message}");
+            }
+            finally
+            {
+                button.IsEnabled = true;
+            }
+        }
+
         saveSchedule.Click += async (_, _) =>
         {
             if (!TryParseOnlineStoreClock(openTimeBox.Text, out _) || !TryParseOnlineStoreClock(closeTimeBox.Text, out _))
@@ -11541,6 +11604,17 @@ public partial class MainWindow : Window
             RefreshIFoodUi(publish.Ok
                 ? $"Horario salvo. {BuildOnlineStoreStatusText()}"
                 : $"Horario salvo no PDV. Cardapio pendente: {publish.Message}");
+        };
+
+        toggleNow.Click += async (_, _) =>
+        {
+            var mode = _appSettings.PublicMenuStoreOpen ? OnlineStoreModeClosed : OnlineStoreModeOpen;
+            await ApplyStoreModeAsync(mode, mode == OnlineStoreModeClosed ? "fechamento manual" : "abertura manual", toggleNow);
+        };
+
+        autoSchedule.Click += async (_, _) =>
+        {
+            await ApplyStoreModeAsync(OnlineStoreModeAuto, "voltar horario automatico", autoSchedule);
         };
 
         openDelivery.Click += (_, _) =>
@@ -11575,6 +11649,7 @@ public partial class MainWindow : Window
             settings.LastSyncUtc = null;
             settings.ImportedEventIds.Clear();
             _appSettings.PublicMenuStoreOpen = false;
+            _appSettings.OnlineStoreManualMode = OnlineStoreModeClosed;
             SaveAppSettings();
             SaveStore();
             RefreshOnlineStoreButton();
@@ -11648,6 +11723,8 @@ public partial class MainWindow : Window
         var actions = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
         actions.Children.Add(connect);
         actions.Children.Add(saveSchedule);
+        actions.Children.Add(toggleNow);
+        actions.Children.Add(autoSchedule);
         actions.Children.Add(openDelivery);
         actions.Children.Add(disconnect);
         flow.Child = new StackPanel
@@ -17044,6 +17121,7 @@ public partial class MainWindow : Window
         sb.AppendLine(GetPublicMenuImageStamp(_profile.LocalCoverPath));
         sb.AppendLine(_appSettings.PublicMenuStoreOpen.ToString());
         sb.AppendLine(_appSettings.OnlineStoreScheduleEnabled.ToString());
+        sb.AppendLine(_appSettings.OnlineStoreManualMode);
         sb.AppendLine(_appSettings.OnlineStoreOpenTime);
         sb.AppendLine(_appSettings.OnlineStoreCloseTime);
         sb.AppendLine(_appSettings.PublicMenuWaitMinMinutes.ToString(CultureInfo.InvariantCulture));
@@ -20355,9 +20433,11 @@ public partial class MainWindow : Window
 
         var openTime = _appSettings.OnlineStoreOpenTime;
         var closeTime = _appSettings.OnlineStoreCloseTime;
+        var manualMode = _appSettings.OnlineStoreManualMode;
         NormalizeOnlineStoreScheduleSettings();
         if (!string.Equals(openTime, _appSettings.OnlineStoreOpenTime, StringComparison.Ordinal)
-            || !string.Equals(closeTime, _appSettings.OnlineStoreCloseTime, StringComparison.Ordinal))
+            || !string.Equals(closeTime, _appSettings.OnlineStoreCloseTime, StringComparison.Ordinal)
+            || !string.Equals(manualMode, _appSettings.OnlineStoreManualMode, StringComparison.Ordinal))
         {
             shouldSaveSettings = true;
         }
@@ -26750,6 +26830,7 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public DateTime? LastPublicMenuPublishAt { get; set; }
         public bool PublicMenuStoreOpen { get; set; } = true;
         public bool OnlineStoreScheduleEnabled { get; set; } = true;
+        public string OnlineStoreManualMode { get; set; } = OnlineStoreModeAuto;
         public string OnlineStoreOpenTime { get; set; } = "00:00";
         public string OnlineStoreCloseTime { get; set; } = "00:00";
         public int PublicMenuWaitMinMinutes { get; set; } = 30;
