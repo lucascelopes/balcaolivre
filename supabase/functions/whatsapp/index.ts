@@ -7,6 +7,7 @@ const DEFAULT_VERIFY_TOKEN = "balcao_livre_meta_webhook_2026";
 const PUBLIC_MENU_BASE_URL = "https://cardapio.balcaolivrepdv.com.br";
 const DEFAULT_PHONE_NUMBER_ID = "154114447792775";
 const DEFAULT_META_APP_ID = "355393956897950";
+const DEFAULT_META_EMBEDDED_CONFIG_ID = "1486056615767635";
 const CENTRAL_BOT_ID = "META_CLOUD";
 const ONBOARDING_STATE_MINUTES = 30;
 const BOT_ORDER_LOOKBACK_DAYS = 3;
@@ -160,8 +161,12 @@ type PublicMenuBotSnapshot = {
   city?: string;
   state?: string;
   store_open?: boolean;
+  schedule_enabled?: boolean;
+  open_time?: string;
+  close_time?: string;
   wait_min_minutes?: number;
   wait_max_minutes?: number;
+  whatsapp_message_orders_enabled?: boolean;
   is_published?: boolean;
 };
 
@@ -662,14 +667,25 @@ async function readPublicMenuForBot(licenseKey: string) {
   const supabase = serviceClient();
   if (!supabase || !licenseKey) return null;
 
-  const { data, error } = await supabase
+  const selectWithWhatsAppOptions = "id, store_id, slug, name, description, phone, address, city, state, store_open, schedule_enabled, open_time, close_time, wait_min_minutes, wait_max_minutes, whatsapp_message_orders_enabled, is_published";
+  const legacySelect = "id, store_id, slug, name, description, phone, address, city, state, store_open, wait_min_minutes, wait_max_minutes, is_published";
+  const queryMenu = (select: string) => supabase
     .from("bv_public_menus")
-    .select("id, store_id, slug, name, description, phone, address, city, state, store_open, wait_min_minutes, wait_max_minutes, is_published")
+    .select(select)
     .eq("store_id", licenseKey)
     .eq("is_published", true)
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  let { data, error } = await queryMenu(selectWithWhatsAppOptions);
+  if (error && isMissingWhatsAppOptionsColumn(error.message)) {
+    const legacyResult = await queryMenu(legacySelect);
+    data = legacyResult.data
+      ? { ...legacyResult.data, whatsapp_message_orders_enabled: false, schedule_enabled: false }
+      : legacyResult.data;
+    error = legacyResult.error;
+  }
 
   if (error) {
     console.error("whatsapp.bot.menu_lookup_failed", error.message);
@@ -732,6 +748,7 @@ function buildStoreHoursReply(storeName: string, menu: PublicMenuBotSnapshot | n
   if (menu.store_open === false) {
     return [
       `No momento a ${storeName} esta fechada ou fora do horario de atendimento online.`,
+      scheduleLine(menu),
       "Voce ainda pode consultar o cardapio:",
       publicMenuUrlLine(menu),
       "Quando a loja voltar, os pedidos online ficam disponiveis novamente.",
@@ -740,6 +757,7 @@ function buildStoreHoursReply(storeName: string, menu: PublicMenuBotSnapshot | n
 
   return [
     `${storeName} esta atendendo online agora.`,
+    scheduleLine(menu),
     waitTimeLine(menu),
     "Cardapio:",
     publicMenuUrlLine(menu),
@@ -799,13 +817,30 @@ function publicMenuUrlLine(menu: PublicMenuBotSnapshot | null) {
   return slug ? `${PUBLIC_MENU_BASE_URL}/${slugToPath(slug)}` : "Cardapio online ainda nao publicado.";
 }
 
+function isMissingWhatsAppOptionsColumn(message: unknown) {
+  const clean = String(message ?? "").toLowerCase();
+  return clean.includes("whatsapp_message_orders_enabled")
+    || clean.includes("schedule_enabled")
+    || clean.includes("open_time")
+    || clean.includes("close_time")
+    || clean.includes("could not find")
+    || clean.includes("pgrst204");
+}
+
 function storeOpenLine(menu: PublicMenuBotSnapshot | null) {
   if (!menu) return "";
   if (menu.store_open === false) {
-    return "A loja online esta fechada agora. O cardapio fica disponivel para consulta.";
+    return `A loja online esta fechada agora. ${scheduleLine(menu)} O cardapio fica disponivel para consulta.`.trim();
   }
 
-  return `Loja online aberta. ${waitTimeLine(menu)}`.trim();
+  return `Loja online aberta. ${scheduleLine(menu)} ${waitTimeLine(menu)}`.trim();
+}
+
+function scheduleLine(menu: PublicMenuBotSnapshot | null) {
+  if (!menu || menu.schedule_enabled === false) return "";
+  const open = String(menu.open_time || "00:00").trim() || "00:00";
+  const close = String(menu.close_time || "00:00").trim() || "00:00";
+  return open === close ? "Horario: 24 horas." : `Horario: ${open} as ${close}.`;
 }
 
 function waitTimeLine(menu: PublicMenuBotSnapshot | null) {
@@ -1521,6 +1556,7 @@ function embeddedSignupConfigId() {
   return String(Deno.env.get("META_WHATSAPP_EMBEDDED_CONFIG_ID")
     ?? Deno.env.get("WHATSAPP_META_EMBEDDED_CONFIG_ID")
     ?? Deno.env.get("META_WHATSAPP_CONFIG_ID")
+    ?? DEFAULT_META_EMBEDDED_CONFIG_ID
     ?? "").trim();
 }
 

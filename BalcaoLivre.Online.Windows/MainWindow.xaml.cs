@@ -3,7 +3,9 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -176,8 +178,10 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _ifoodSyncTimer = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly DispatcherTimer _deliveryCountdownTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly DispatcherTimer _supportPollTimer = new() { Interval = TimeSpan.FromSeconds(10) };
-    private readonly DispatcherTimer _publicMenuPublishTimer = new() { Interval = TimeSpan.FromSeconds(7) };
+    private readonly DispatcherTimer _publicMenuPublishTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _publicMenuOrderPollTimer = new() { Interval = TimeSpan.FromSeconds(8) };
+    private readonly DispatcherTimer _onlineStoreScheduleTimer = new() { Interval = TimeSpan.FromSeconds(30) };
+    private readonly DispatcherTimer _whatsAppEvolutionPollTimer = new() { Interval = TimeSpan.FromSeconds(3) };
     private readonly DispatcherTimer _localBackupTimer = new() { Interval = TimeSpan.FromMinutes(30) };
     private readonly Dictionary<TableTile, HashSet<TicketLine>> _pendingKitchenPrintLines = [];
     private readonly IFoodCloudClient _ifoodClient = new();
@@ -212,6 +216,7 @@ public partial class MainWindow : Window
     private bool _ifoodSyncRunning;
     private bool _publicMenuPublishRunning;
     private bool _publicMenuOrderPollRunning;
+    private bool _whatsAppEvolutionPollRunning;
     private bool _suppressPublicMenuQueue;
     private string _pendingPublicMenuSignature = "";
     private string _lastPublishedPublicMenuSignature = "";
@@ -219,7 +224,9 @@ public partial class MainWindow : Window
     private MediaPlayer? _ifoodAlertPlayer;
     private DateTime _lastIFoodSyncErrorAt = DateTime.MinValue;
     private DateTime _lastIFoodCatalogSyncUtc = DateTime.MinValue;
+    private DateTime _lastIFoodLocalCatalogPushUtc = DateTime.MinValue;
     private DateTime _lastPublicMenuOrderSyncErrorAt = DateTime.MinValue;
+    private readonly HashSet<string> _whatsAppEvolutionSeenMessages = [];
 
     public ObservableCollection<RibbonAction> RibbonActions { get; } = [];
     public ObservableCollection<string> Modes { get; } = [];
@@ -272,6 +279,12 @@ public partial class MainWindow : Window
         _deliveryCountdownTimer.Tick += (_, _) => RefreshDeliveryCountdownTiles();
         _supportPollTimer.Tick += async (_, _) => await PollSupportNotificationsAsync();
         _publicMenuOrderPollTimer.Tick += async (_, _) => await PollPublicMenuOrdersAsync();
+        _onlineStoreScheduleTimer.Tick += (_, _) =>
+        {
+            ApplyOnlineStoreScheduleState("horario automatico");
+            RefreshOnlineStoreButton();
+        };
+        _whatsAppEvolutionPollTimer.Tick += async (_, _) => await PollEvolutionLocalMessagesAsync();
         _localBackupTimer.Tick += (_, _) => CreateLocalStoreBackup("auto-30min", force: false);
         _publicMenuPublishTimer.Tick += async (_, _) =>
         {
@@ -285,6 +298,7 @@ public partial class MainWindow : Window
         SeedStaticUi();
         LoadStore();
         CreateLocalStoreBackup("inicializacao", force: false);
+        ApplyOnlineStoreScheduleState("inicializacao", persist: false);
         RefreshOnlineStoreButton();
         _ = SyncIFoodPresenceOnceAsync();
         StartIFoodPresenceLoop();
@@ -304,9 +318,10 @@ public partial class MainWindow : Window
         _ = StartWaiterServerAsync();
         Loaded += (_, _) =>
         {
-            if (_appSettings.IFood?.HasCloudConnection == true)
+            if (CanReceiveOnlineOrdersNow() && _appSettings.IFood?.HasCloudConnection == true)
             {
                 _ifoodSyncTimer.Start();
+                QueueIFoodLocalCatalogSync("Inicializacao iFood", force: true);
                 _ = AutoImportIFoodOrdersAsync(force: true);
                 StartIFoodPresenceLoop();
             }
@@ -322,7 +337,10 @@ public partial class MainWindow : Window
             SelectArea(KeyboardArea.Ticket);
             SetStatus("Digite a mesa e pressione Enter. Modo online pronto; caixa local continua funcionando.");
             _licenseTimer.Start();
-            if (!_ifoodSyncTimer.IsEnabled)
+            _onlineStoreScheduleTimer.Start();
+            ApplyOnlineStoreScheduleState("inicializacao");
+            RefreshOnlineStoreButton();
+            if (CanReceiveOnlineOrdersNow() && !_ifoodSyncTimer.IsEnabled)
             {
                 _ifoodSyncTimer.Start();
             }
@@ -1590,6 +1608,12 @@ public partial class MainWindow : Window
 
     private static string CompactDeliveryTileSubtitle(TableTile tile)
     {
+        var detail = CompactSingleLine(tile.Detail);
+        if (detail.Contains("WHATSAPP_ATIVO", StringComparison.OrdinalIgnoreCase))
+        {
+            return "WhatsApp ativo";
+        }
+
         if (string.Equals(tile.ExternalSource, "IFOOD", StringComparison.OrdinalIgnoreCase))
         {
             if (IsIFoodTakeout(tile))
@@ -1616,7 +1640,6 @@ public partial class MainWindow : Window
             };
         }
 
-        var detail = CompactSingleLine(tile.Detail);
         if (detail.Contains("WHATSAPP", StringComparison.OrdinalIgnoreCase))
         {
             return "WhatsApp";
@@ -2837,6 +2860,7 @@ public partial class MainWindow : Window
                     When = DateTime.Now
                 });
                 QueueIFoodStockSync(product, $"Pedido cardapio {number}");
+                QueuePublicMenuPublish();
             }
         }
 
@@ -3045,9 +3069,11 @@ public partial class MainWindow : Window
             LicenseKey = NormalizeActivationKey(licenseKey),
             MachineHash = GetMachineFingerprint(),
             MachineCode = GetMachineCode(),
+            ClientKind = "windows-online",
             AppVersion = GetAppVersion(),
             LocalExpiresAt = expiresAt,
             LocalPlan = plan,
+            Environment = CreateAdminEnvironmentSnapshot("Balcao Livre PDV Online"),
             Profile = new AdminProfileSnapshot
             {
                 Email = _profile.Email,
@@ -3101,6 +3127,44 @@ public partial class MainWindow : Window
         }
 
         return $"{clean[..3]}***{clean[^3..]}";
+    }
+
+    private static AdminEnvironmentSnapshot CreateAdminEnvironmentSnapshot(string clientProduct)
+    {
+        var localIps = GetLocalIpAddresses();
+        var offset = TimeZoneInfo.Local.GetUtcOffset(DateTimeOffset.Now);
+        return new AdminEnvironmentSnapshot
+        {
+            ClientProduct = clientProduct,
+            MachineName = Environment.MachineName,
+            WindowsUser = Environment.UserName,
+            DomainName = Environment.UserDomainName,
+            OperatingSystem = RuntimeInformation.OSDescription,
+            OSArchitecture = RuntimeInformation.OSArchitecture.ToString(),
+            ProcessArchitecture = RuntimeInformation.ProcessArchitecture.ToString(),
+            PrimaryLocalIp = localIps.FirstOrDefault() ?? "",
+            LocalIpAddresses = localIps,
+            TimeZone = TimeZoneInfo.Local.Id,
+            UtcOffset = offset.ToString()
+        };
+    }
+
+    private static List<string> GetLocalIpAddresses()
+    {
+        try
+        {
+            return Dns.GetHostAddresses(Dns.GetHostName())
+                .Where(address => address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(address))
+                .Select(address => address.ToString())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(8)
+                .ToList();
+        }
+        catch (Exception ex) when (ex is SocketException or ArgumentException)
+        {
+            Debug.WriteLine($"Local IP capture failed: {ex.Message}");
+            return [];
+        }
     }
 
     private static bool IsReasonableEmail(string value)
@@ -3873,35 +3937,174 @@ public partial class MainWindow : Window
             return;
         }
 
-        var open = !_appSettings.PublicMenuStoreOpen;
-        _appSettings.PublicMenuStoreOpen = open;
-        ifood.Enabled = open;
-        SaveAppSettings();
-        SaveStore();
-        RefreshOnlineStoreButton();
-
-        if (open)
-        {
-            _ifoodSyncTimer.Start();
-            _ = AutoImportIFoodOrdersAsync(force: true);
-            _ = SyncIFoodPresenceOnceAsync();
-        }
-        else
-        {
-            _ifoodSyncTimer.Stop();
-        }
-
+        ApplyOnlineStoreScheduleState("abrir painel online");
+        ShowIFoodDialog();
         var result = await PublishGeneratedPublicMenuAsync(silent: true);
         RefreshOnlineStoreButton();
         if (!result.Ok)
         {
-            SetStatus($"Loja online {(open ? "ligada" : "desligada")} no PDV. Cardapio pendente: {result.Message}");
+            SetStatus($"Horario salvo no PDV. Cardapio pendente: {result.Message}");
             return;
         }
 
-        SetStatus(open
-            ? "Loja online ligada para iFood e cardapio."
-            : "Loja online desligada para iFood e cardapio.");
+        SetStatus(BuildOnlineStoreStatusText());
+    }
+
+    private bool CanReceiveOnlineOrdersNow()
+    {
+        return !_appSettings.OnlineStoreScheduleEnabled || IsOnlineStoreOpenBySchedule(DateTime.Now);
+    }
+
+    private bool ApplyOnlineStoreScheduleState(string reason, bool forcePublish = false, bool persist = true)
+    {
+        NormalizeOnlineStoreScheduleSettings();
+        var shouldOpen = CanReceiveOnlineOrdersNow();
+        var changed = _appSettings.PublicMenuStoreOpen != shouldOpen;
+        _appSettings.PublicMenuStoreOpen = shouldOpen;
+
+        var ifood = _appSettings.IFood ??= new IFoodIntegrationSettings();
+        if (HasIFoodConnectionConfigured(ifood))
+        {
+            ifood.Enabled = shouldOpen;
+        }
+
+        if (persist && (changed || forcePublish))
+        {
+            SaveAppSettings();
+            SaveStore();
+        }
+
+        if (shouldOpen && HasIFoodConnectionConfigured(ifood))
+        {
+            _ifoodSyncTimer.Start();
+            if (changed || forcePublish)
+            {
+                QueueIFoodLocalCatalogSync(reason, force: true);
+                _ = AutoImportIFoodOrdersAsync(force: true);
+                _ = SyncIFoodPresenceOnceAsync();
+            }
+        }
+        else if (!shouldOpen)
+        {
+            _ifoodSyncTimer.Stop();
+        }
+
+        if (changed || forcePublish)
+        {
+            QueuePublicMenuPublish();
+        }
+
+        return shouldOpen;
+    }
+
+    private bool IsOnlineStoreOpenBySchedule(DateTime now)
+    {
+        var open = ParseOnlineStoreClock(_appSettings.OnlineStoreOpenTime, "00:00");
+        var close = ParseOnlineStoreClock(_appSettings.OnlineStoreCloseTime, "00:00");
+        if (open == close)
+        {
+            return true;
+        }
+
+        var current = now.TimeOfDay;
+        return open < close
+            ? current >= open && current < close
+            : current >= open || current < close;
+    }
+
+    private string BuildOnlineStoreStatusText()
+    {
+        var open = _appSettings.PublicMenuStoreOpen;
+        return open
+            ? $"Loja online aberta para iFood e cardapio. {BuildOnlineStoreScheduleText()}"
+            : $"Loja online fechada pelo horario. {BuildOnlineStoreScheduleText()}";
+    }
+
+    private string BuildOnlineStoreScheduleText()
+    {
+        NormalizeOnlineStoreScheduleSettings();
+        if (!_appSettings.OnlineStoreScheduleEnabled)
+        {
+            return "Horario automatico desligado.";
+        }
+
+        var open = NormalizeClockText(_appSettings.OnlineStoreOpenTime, "00:00");
+        var close = NormalizeClockText(_appSettings.OnlineStoreCloseTime, "00:00");
+        return open == close
+            ? "Horario: 24 horas."
+            : $"Horario: {open} as {close}.";
+    }
+
+    private void NormalizeOnlineStoreScheduleSettings()
+    {
+        _appSettings.OnlineStoreOpenTime = NormalizeClockText(_appSettings.OnlineStoreOpenTime, "00:00");
+        _appSettings.OnlineStoreCloseTime = NormalizeClockText(_appSettings.OnlineStoreCloseTime, "00:00");
+    }
+
+    private static string NormalizeClockText(string? value, string fallback)
+    {
+        var source = string.IsNullOrWhiteSpace(value) ? fallback : value;
+        var clock = ParseOnlineStoreClock(source, fallback);
+        return $"{(int)clock.TotalHours:00}:{clock.Minutes:00}";
+    }
+
+    private static TimeSpan ParseOnlineStoreClock(string? value, string fallback)
+    {
+        if (TryParseOnlineStoreClock(value, out var clock))
+        {
+            return clock;
+        }
+
+        return TryParseOnlineStoreClock(fallback, out clock) ? clock : TimeSpan.Zero;
+    }
+
+    private static bool TryParseOnlineStoreClock(string? value, out TimeSpan clock)
+    {
+        clock = TimeSpan.Zero;
+        var text = (value ?? "").Trim()
+            .Replace('h', ':')
+            .Replace('H', ':')
+            .Replace('.', ':')
+            .Replace(',', ':');
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        int hour;
+        int minute;
+        if (text.Contains(':', StringComparison.Ordinal))
+        {
+            var parts = text.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length != 2
+                || !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out hour)
+                || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out minute))
+            {
+                return false;
+            }
+        }
+        else if (text.Length is 3 or 4 && text.All(char.IsDigit))
+        {
+            var padded = text.PadLeft(4, '0');
+            hour = int.Parse(padded[..2], CultureInfo.InvariantCulture);
+            minute = int.Parse(padded[2..], CultureInfo.InvariantCulture);
+        }
+        else if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out hour))
+        {
+            return false;
+        }
+        else
+        {
+            minute = 0;
+        }
+
+        if (hour is < 0 or > 23 || minute is < 0 or > 59)
+        {
+            return false;
+        }
+
+        clock = new TimeSpan(hour, minute, 0);
+        return true;
     }
 
     private static bool HasIFoodConnectionConfigured(IFoodIntegrationSettings? settings)
@@ -3936,7 +4139,7 @@ public partial class MainWindow : Window
         }
 
         var open = _appSettings.PublicMenuStoreOpen;
-        OnlineStoreButtonText.Text = open ? "Loja online" : "Loja offline";
+        OnlineStoreButtonText.Text = open ? "Loja aberta" : "Loja fechada";
         OnlineStoreBadgeText.Text = open ? "ON" : "OFF";
         OnlineStoreButton.Background = Solid(open ? "#0B3A52" : "#A11D1D");
         OnlineStoreButton.BorderBrush = Solid(open ? "#0B3A52" : "#A11D1D");
@@ -3944,8 +4147,8 @@ public partial class MainWindow : Window
         OnlineStoreBadge.Background = Solid(open ? "#DFFBF8" : "#FFE2DF");
         OnlineStoreBadgeText.Foreground = Solid(open ? "#0B3A52" : "#A11D1D");
         OnlineStoreButton.ToolTip = open
-            ? "Clique para deixar iFood e cardapio offline"
-            : "Clique para deixar iFood e cardapio online";
+            ? $"Aberta agora. {BuildOnlineStoreScheduleText()} Clique para ajustar."
+            : $"Fechada agora. {BuildOnlineStoreScheduleText()} Clique para ajustar.";
     }
 
     private void SupportButton_Click(object sender, RoutedEventArgs e)
@@ -3953,9 +4156,894 @@ public partial class MainWindow : Window
         ShowSupportDialog();
     }
 
+    private void FloatingServiceButton_Click(object sender, RoutedEventArgs e)
+    {
+        ToggleFloatingServicePanel();
+    }
+
+    private void ToggleFloatingServicePanel()
+    {
+        if (FloatingServicePanel.Visibility == Visibility.Visible)
+        {
+            FloatingServicePanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        RenderFloatingServicePanel();
+        FloatingServicePanel.Visibility = Visibility.Visible;
+    }
+
+    private void HideFloatingServicePanel()
+    {
+        FloatingServicePanel.Visibility = Visibility.Collapsed;
+    }
+
+    private sealed class FloatingServiceActivity
+    {
+        public string Key { get; set; } = "";
+        public string Badge { get; set; } = "";
+        public string Source { get; set; } = "";
+        public string Title { get; set; } = "";
+        public string Subtitle { get; set; } = "";
+        public string Detail { get; set; } = "";
+        public string Accent { get; set; } = "#0B3A52";
+        public DateTime When { get; set; } = DateTime.Now;
+        public Action Open { get; set; } = () => { };
+    }
+
+    private void RenderFloatingServicePanel()
+    {
+        Button IconButton(string text, string tooltip, Action action)
+        {
+            var button = new Button
+            {
+                Content = text,
+                Width = 34,
+                Height = 34,
+                Background = Solid("#0B3A52"),
+                Foreground = Brushes.White,
+                BorderBrush = Solid("#255665"),
+                FontWeight = FontWeights.Bold,
+                Cursor = Cursors.Hand,
+                FocusVisualStyle = null,
+                ToolTip = tooltip,
+                Template = RoundedButtonTemplate()
+            };
+            button.Click += (_, _) => action();
+            return button;
+        }
+
+        Button ActionButton(string title, string detail, string badge, string accent, Action action)
+        {
+            var button = new Button
+            {
+                Background = Solid(accent),
+                BorderBrush = Solid(accent),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(12, 10, 12, 10),
+                Margin = new Thickness(0, 0, 0, 10),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Cursor = Cursors.Hand,
+                FocusVisualStyle = null,
+                Template = RoundedButtonTemplate()
+            };
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.Children.Add(new Border
+            {
+                Width = 34,
+                Height = 34,
+                CornerRadius = new CornerRadius(17),
+                Background = Solid("#FFFFFF"),
+                Opacity = 0.95,
+                Margin = new Thickness(0, 0, 10, 0),
+                Child = new TextBlock
+                {
+                    Text = badge,
+                    Foreground = Solid(accent),
+                    FontWeight = FontWeights.Black,
+                    FontSize = 11,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            });
+            var text = new StackPanel();
+            text.Children.Add(new TextBlock
+            {
+                Text = title,
+                Foreground = Brushes.White,
+                FontSize = 14,
+                FontWeight = FontWeights.Bold
+            });
+            text.Children.Add(new TextBlock
+            {
+                Text = detail,
+                Foreground = Solid("#D9F2F4"),
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 11,
+                Margin = new Thickness(0, 2, 0, 0)
+            });
+            Grid.SetColumn(text, 1);
+            grid.Children.Add(text);
+            button.Content = grid;
+            button.Click += (_, _) =>
+            {
+                HideFloatingServicePanel();
+                Dispatcher.BeginInvoke(action, DispatcherPriority.Background);
+            };
+            return button;
+        }
+
+        Button ActivityRow(FloatingServiceActivity activity)
+        {
+            var button = new Button
+            {
+                Background = Solid("#FFFFFF"),
+                BorderBrush = Solid("#D6E4F1"),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(11),
+                Margin = new Thickness(0, 0, 0, 8),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Cursor = Cursors.Hand,
+                FocusVisualStyle = null,
+                Template = RoundedButtonTemplate()
+            };
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var avatar = new Border
+            {
+                Width = 40,
+                Height = 40,
+                CornerRadius = new CornerRadius(20),
+                Background = Solid(activity.Accent),
+                Margin = new Thickness(0, 0, 10, 0),
+                Child = new TextBlock
+                {
+                    Text = activity.Badge,
+                    Foreground = Brushes.White,
+                    FontWeight = FontWeights.Black,
+                    FontSize = 11,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            };
+            grid.Children.Add(avatar);
+
+            var text = new StackPanel();
+            var titleLine = new Grid();
+            titleLine.ColumnDefinitions.Add(new ColumnDefinition());
+            titleLine.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            titleLine.Children.Add(new TextBlock
+            {
+                Text = activity.Title,
+                Foreground = Solid("#071A2C"),
+                FontSize = 14,
+                FontWeight = FontWeights.Bold,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            var time = new TextBlock
+            {
+                Text = activity.When.ToString("HH:mm", Brazil),
+                Foreground = Solid("#6A7A89"),
+                FontSize = 11,
+                Margin = new Thickness(8, 1, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(time, 1);
+            titleLine.Children.Add(time);
+            text.Children.Add(titleLine);
+            text.Children.Add(new TextBlock
+            {
+                Text = activity.Subtitle,
+                Foreground = Solid("#5B6B7A"),
+                TextWrapping = TextWrapping.Wrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxHeight = 36,
+                FontSize = 12,
+                Margin = new Thickness(0, 3, 0, 0)
+            });
+            text.Children.Add(new TextBlock
+            {
+                Text = activity.Detail,
+                Foreground = Solid(activity.Accent),
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 4, 0, 0)
+            });
+            Grid.SetColumn(text, 1);
+            grid.Children.Add(text);
+
+            var source = new Border
+            {
+                Background = Solid("#F1F7FA"),
+                CornerRadius = new CornerRadius(999),
+                Padding = new Thickness(7, 4, 7, 4),
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(8, 0, 0, 0),
+                Child = new TextBlock
+                {
+                    Text = activity.Source,
+                    Foreground = Solid("#0B3A52"),
+                    FontSize = 10,
+                    FontWeight = FontWeights.Bold
+                }
+            };
+            Grid.SetColumn(source, 2);
+            grid.Children.Add(source);
+
+            button.Content = grid;
+            button.Click += (_, _) => Dispatcher.BeginInvoke(activity.Open, DispatcherPriority.Background);
+            return button;
+        }
+
+        static string ShortText(string value, string fallback = "")
+        {
+            var clean = CompactSingleLine(value);
+            if (string.IsNullOrWhiteSpace(clean))
+            {
+                clean = fallback;
+            }
+
+            return clean.Length > 96 ? $"{clean[..93]}..." : clean;
+        }
+
+        string TimeDetail(DateTime when, string source)
+        {
+            return $"{when:dd/MM HH:mm} - {source}";
+        }
+
+        List<FloatingServiceActivity> BuildActivities(IReadOnlyList<EvolutionChatConversation>? liveChats = null)
+        {
+            var settings = GetWhatsAppSettings();
+            var map = new Dictionary<string, FloatingServiceActivity>(StringComparer.OrdinalIgnoreCase);
+
+            void Add(FloatingServiceActivity activity)
+            {
+                if (string.IsNullOrWhiteSpace(activity.Key))
+                {
+                    activity.Key = $"{activity.Source}:{activity.Title}:{activity.When:O}";
+                }
+
+                if (!map.TryGetValue(activity.Key, out var current) || activity.When >= current.When)
+                {
+                    map[activity.Key] = activity;
+                }
+            }
+
+            if (liveChats is not null)
+            {
+                foreach (var chat in liveChats.OrderByDescending(item => item.UpdatedAt).Take(20))
+                {
+                    var normalizedPhone = NormalizeWhatsAppPhone(chat.Phone, settings.DefaultCountryCode);
+                    if (string.IsNullOrWhiteSpace(normalizedPhone))
+                    {
+                        continue;
+                    }
+
+                    var name = string.IsNullOrWhiteSpace(chat.Name)
+                        ? FormatWhatsAppDisplayPhone(normalizedPhone)
+                        : chat.Name.Trim();
+                    var phone = normalizedPhone;
+                    Add(new FloatingServiceActivity
+                    {
+                        Key = $"WA:{phone}",
+                        Badge = BuildInitials(name),
+                        Source = "WA",
+                        Title = name,
+                        Subtitle = ShortText(chat.LastMessage, FormatWhatsAppDisplayPhone(phone)),
+                        Detail = TimeDetail(chat.UpdatedAt, "WhatsApp"),
+                        Accent = "#08A99B",
+                        When = chat.UpdatedAt,
+                        Open = () => RenderFloatingWhatsAppChatPanel(phone)
+                    });
+                }
+            }
+
+            foreach (var log in WhatsAppHistory
+                .Where(item => !string.IsNullOrWhiteSpace(item.Phone))
+                .GroupBy(item => NormalizeWhatsAppPhone(item.Phone, settings.DefaultCountryCode))
+                .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+                .Select(group => group.OrderByDescending(item => item.SentAt ?? item.OpenedAt ?? item.When).First())
+                .Take(20))
+            {
+                var phone = NormalizeWhatsAppPhone(log.Phone, settings.DefaultCountryCode);
+                var when = log.SentAt ?? log.OpenedAt ?? log.When;
+                var name = string.IsNullOrWhiteSpace(log.CustomerName)
+                    ? FormatWhatsAppDisplayPhone(phone)
+                    : log.CustomerName.Trim();
+                var incoming = string.Equals(log.Status, "RECEBIDA", StringComparison.OrdinalIgnoreCase);
+                Add(new FloatingServiceActivity
+                {
+                    Key = $"WA:{phone}",
+                    Badge = BuildInitials(name),
+                    Source = "WA",
+                    Title = name,
+                    Subtitle = incoming
+                        ? ShortText(log.Message, "Cliente mandou mensagem")
+                        : ShortText(log.Message, "Mensagem enviada pelo PDV"),
+                    Detail = TimeDetail(when, incoming ? "WhatsApp recebido" : "WhatsApp"),
+                    Accent = "#08A99B",
+                    When = when,
+                    Open = () => RenderFloatingWhatsAppChatPanel(phone)
+                });
+            }
+
+            foreach (var order in DeliveryTiles
+                .Where(IsIFoodOrder)
+                .OrderByDescending(DeliveryBoardTimeSort)
+                .Take(12))
+            {
+                var when = DeliveryBoardTimeSort(order);
+                var title = string.IsNullOrWhiteSpace(order.CustomerName)
+                    ? $"Pedido {EmptyDash(order.ExternalDisplayId)}"
+                    : order.CustomerName.Trim();
+                var status = NormalizeIFoodBoardStatus(order.Status);
+                var total = order.Total > 0 ? $" - {Money(order.Total)}" : "";
+                Add(new FloatingServiceActivity
+                {
+                    Key = $"IF:{order.ExternalOrderId}",
+                    Badge = "IF",
+                    Source = "IF",
+                    Title = title,
+                    Subtitle = ShortText($"{EmptyDash(order.ExternalDisplayId)} | {status}{total}"),
+                    Detail = TimeDetail(when, "iFood"),
+                    Accent = "#A86505",
+                    When = when,
+                    Open = () =>
+                    {
+                        HideFloatingServicePanel();
+                        OpenIFoodAttendance(order);
+                    }
+                });
+            }
+
+            return map.Values
+                .OrderByDescending(item => item.When)
+                .ThenBy(item => item.Source)
+                .Take(14)
+                .ToList();
+        }
+
+        var root = new DockPanel { LastChildFill = true };
+        var header = new Border
+        {
+            Background = Solid("#03151F"),
+            CornerRadius = new CornerRadius(18, 18, 0, 0),
+            Padding = new Thickness(16, 14, 12, 12)
+        };
+        var headerGrid = new Grid();
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.Children.Add(new Border
+        {
+            Width = 38,
+            Height = 38,
+            CornerRadius = new CornerRadius(19),
+            Background = Solid("#08A99B"),
+            Margin = new Thickness(0, 0, 10, 0),
+            Child = new TextBlock
+            {
+                Text = "AT",
+                Foreground = Solid("#03151F"),
+                FontWeight = FontWeights.Black,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+        var headerText = new StackPanel();
+        headerText.Children.Add(new TextBlock
+        {
+            Text = "Inbox de atendimento",
+            Foreground = Brushes.White,
+            FontSize = 17,
+            FontWeight = FontWeights.Bold
+        });
+        headerText.Children.Add(new TextBlock
+        {
+            Text = "Mais recentes primeiro",
+            Foreground = Solid("#BFD0DF"),
+            FontSize = 12,
+            Margin = new Thickness(0, 2, 0, 0)
+        });
+        Grid.SetColumn(headerText, 1);
+        headerGrid.Children.Add(headerText);
+        var close = IconButton("X", "Fechar atendimento", HideFloatingServicePanel);
+        Grid.SetColumn(close, 2);
+        headerGrid.Children.Add(close);
+        header.Child = headerGrid;
+        DockPanel.SetDock(header, Dock.Top);
+        root.Children.Add(header);
+
+        var body = new DockPanel { Margin = new Thickness(12, 12, 12, 10), LastChildFill = true };
+        var supportStatus = _lastSupportAdminMessageAt.HasValue
+            ? $"ultima resposta { _lastSupportAdminMessageAt.Value.ToLocalTime():dd/MM HH:mm}"
+            : "abrir chamado ou continuar conversa";
+        var supportButton = ActionButton("Suporte Balcao Livre", supportStatus, "SP", "#0B3A52", ShowSupportDialog);
+        DockPanel.SetDock(supportButton, Dock.Top);
+        body.Children.Add(supportButton);
+
+        var statusText = new TextBlock
+        {
+            Text = "Ordenado pelo horario da ultima mensagem.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 11,
+            Margin = new Thickness(2, 0, 2, 8),
+            TextWrapping = TextWrapping.Wrap
+        };
+        DockPanel.SetDock(statusText, Dock.Top);
+        body.Children.Add(statusText);
+
+        var activityStack = new StackPanel();
+        var scroll = new ScrollViewer
+        {
+            Content = activityStack,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            MaxHeight = 332
+        };
+        body.Children.Add(scroll);
+
+        void RenderActivities(IReadOnlyList<FloatingServiceActivity> activities, string statusMessage)
+        {
+            activityStack.Children.Clear();
+            statusText.Text = statusMessage;
+            if (activities.Count == 0)
+            {
+                activityStack.Children.Add(new Border
+                {
+                    Background = Solid("#F6FAFD"),
+                    BorderBrush = Solid("#D7E3EF"),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(12),
+                    Padding = new Thickness(16),
+                    Child = new TextBlock
+                    {
+                        Text = "Nenhuma mensagem recente. WhatsApp e iFood aparecem aqui assim que chegarem.",
+                        Foreground = Solid("#5B6B7A"),
+                        TextWrapping = TextWrapping.Wrap,
+                        TextAlignment = TextAlignment.Center
+                    }
+                });
+                return;
+            }
+
+            foreach (var activity in activities)
+            {
+                activityStack.Children.Add(ActivityRow(activity));
+            }
+        }
+
+        RenderActivities(BuildActivities(), "Mensagens recentes do PDV.");
+        root.Children.Add(body);
+        FloatingServicePanel.Child = root;
+
+        _ = Dispatcher.BeginInvoke(async () =>
+        {
+            var settings = GetWhatsAppSettings();
+            if (!IsEvolutionLocalWhatsApp(settings) || !TryValidateEvolutionLocalSettings(settings, out _))
+            {
+                return;
+            }
+
+            statusText.Text = "Atualizando conversas do WhatsApp...";
+            var chats = await FetchEvolutionLocalChatsAsync(settings);
+            if (FloatingServicePanel.Visibility == Visibility.Visible)
+            {
+                RenderActivities(BuildActivities(chats), "Atualizado em tempo real. Mais novo primeiro.");
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    private void RenderFloatingWhatsAppChatPanel(string phone)
+    {
+        var settings = GetWhatsAppSettings();
+        var normalizedPhone = NormalizeWhatsAppPhone(phone, settings.DefaultCountryCode);
+        if (string.IsNullOrWhiteSpace(normalizedPhone))
+        {
+            RenderFloatingServicePanel();
+            return;
+        }
+
+        EvolutionChatConversation selectedChat = new()
+        {
+            Phone = normalizedPhone,
+            Name = FormatWhatsAppDisplayPhone(normalizedPhone),
+            UpdatedAt = DateTime.Now
+        };
+        var lines = new List<EvolutionChatLine>();
+        var loadingMessages = false;
+
+        Button HeaderButton(string text, string tooltip, Action action)
+        {
+            var button = new Button
+            {
+                Content = text,
+                Width = 34,
+                Height = 34,
+                Background = Solid("#0B3A52"),
+                Foreground = Brushes.White,
+                BorderBrush = Solid("#255665"),
+                FontWeight = FontWeights.Bold,
+                Cursor = Cursors.Hand,
+                FocusVisualStyle = null,
+                ToolTip = tooltip,
+                Template = RoundedButtonTemplate()
+            };
+            button.Click += (_, _) => action();
+            return button;
+        }
+
+        var root = new DockPanel { LastChildFill = true };
+        var header = new Border
+        {
+            Background = Solid("#03151F"),
+            CornerRadius = new CornerRadius(18, 18, 0, 0),
+            Padding = new Thickness(12, 12, 12, 11)
+        };
+        var headerGrid = new Grid();
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var back = HeaderButton("<", "Voltar para inbox", () =>
+        {
+            SetWhatsAppManualChat(normalizedPhone, false);
+            RenderFloatingServicePanel();
+        });
+        headerGrid.Children.Add(back);
+
+        var titleStack = new StackPanel { Margin = new Thickness(10, 0, 8, 0) };
+        var title = new TextBlock
+        {
+            Text = selectedChat.Name,
+            Foreground = Brushes.White,
+            FontSize = 15,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        var subtitle = new TextBlock
+        {
+            Text = FormatWhatsAppDisplayPhone(normalizedPhone),
+            Foreground = Solid("#BFD0DF"),
+            FontSize = 11,
+            Margin = new Thickness(0, 2, 0, 0)
+        };
+        titleStack.Children.Add(title);
+        titleStack.Children.Add(subtitle);
+        Grid.SetColumn(titleStack, 1);
+        headerGrid.Children.Add(titleStack);
+
+        var close = HeaderButton("X", "Fechar atendimento", () =>
+        {
+            SetWhatsAppManualChat(normalizedPhone, false);
+            HideFloatingServicePanel();
+        });
+        Grid.SetColumn(close, 2);
+        headerGrid.Children.Add(close);
+        header.Child = headerGrid;
+        DockPanel.SetDock(header, Dock.Top);
+        root.Children.Add(header);
+
+        var status = new TextBlock
+        {
+            Text = "Carregando conversa...",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(14, 10, 14, 8)
+        };
+        DockPanel.SetDock(status, Dock.Top);
+        root.Children.Add(status);
+
+        var messageStack = new StackPanel { Margin = new Thickness(12, 8, 12, 8) };
+        var messageScroll = new ScrollViewer
+        {
+            Content = messageStack,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Background = Solid("#F6FAFD"),
+            MaxHeight = 330
+        };
+
+        var input = new TextBox
+        {
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            MinHeight = 42,
+            MaxHeight = 78,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(2),
+            FontSize = 14,
+            Foreground = Solid("#071A2C")
+        };
+        var send = DialogButton("Enviar", "#08A99B");
+        send.MinWidth = 78;
+        send.Height = 50;
+
+        var composer = new Grid { Margin = new Thickness(12, 8, 12, 12) };
+        composer.ColumnDefinitions.Add(new ColumnDefinition());
+        composer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var inputShell = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#BFD0DF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 0, 8, 0),
+            Child = input
+        };
+        composer.Children.Add(inputShell);
+        Grid.SetColumn(send, 1);
+        composer.Children.Add(send);
+        DockPanel.SetDock(composer, Dock.Bottom);
+        root.Children.Add(composer);
+        root.Children.Add(messageScroll);
+
+        void RenderFallbackFromHistory()
+        {
+            lines.Clear();
+            var historyLines = WhatsAppHistory
+                .Where(item => PhoneMatchesBot(NormalizeWhatsAppPhone(item.Phone, settings.DefaultCountryCode), normalizedPhone))
+                .OrderBy(item => item.SentAt ?? item.OpenedAt ?? item.When)
+                .TakeLast(80)
+                .Select(item => new EvolutionChatLine
+                {
+                    Id = $"history:{item.Id}",
+                    Text = item.Message,
+                    When = item.SentAt ?? item.OpenedAt ?? item.When,
+                    FromMe = !string.Equals(item.Status, "RECEBIDA", StringComparison.OrdinalIgnoreCase)
+                })
+                .ToList();
+            lines.AddRange(historyLines);
+        }
+
+        void RenderMessages()
+        {
+            messageStack.Children.Clear();
+            if (lines.Count == 0)
+            {
+                messageStack.Children.Add(new TextBlock
+                {
+                    Text = "Nenhuma mensagem carregada ainda.",
+                    Foreground = Solid("#5B6B7A"),
+                    TextAlignment = TextAlignment.Center,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(20, 110, 20, 0)
+                });
+                return;
+            }
+
+            foreach (var line in lines.OrderBy(item => item.When))
+            {
+                var bubble = new Border
+                {
+                    Background = Solid(line.FromMe ? "#DCFCE7" : "#FFFFFF"),
+                    BorderBrush = Solid(line.FromMe ? "#A7E6BE" : "#D7E3EF"),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(14),
+                    Padding = new Thickness(11, 8, 11, 7),
+                    Margin = new Thickness(line.FromMe ? 42 : 0, 0, line.FromMe ? 0 : 42, 8),
+                    HorizontalAlignment = line.FromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+                    MaxWidth = 330,
+                    Child = new StackPanel
+                    {
+                        Children =
+                        {
+                            new TextBlock
+                            {
+                                Text = line.Text,
+                                Foreground = Solid("#071A2C"),
+                                FontSize = 13,
+                                TextWrapping = TextWrapping.Wrap
+                            },
+                            new TextBlock
+                            {
+                                Text = $"{(line.FromMe ? "Voce" : "Cliente")} {line.When:HH:mm}",
+                                Foreground = Solid("#6A7A89"),
+                                FontSize = 10,
+                                HorizontalAlignment = HorizontalAlignment.Right,
+                                Margin = new Thickness(0, 4, 0, 0)
+                            }
+                        }
+                    }
+                };
+                messageStack.Children.Add(bubble);
+            }
+        }
+
+        async Task LoadChatAsync(bool silent = false)
+        {
+            if (loadingMessages)
+            {
+                return;
+            }
+
+            loadingMessages = true;
+            if (!silent)
+            {
+                status.Text = "Carregando conversa...";
+                status.Foreground = Solid("#5B6B7A");
+            }
+
+            try
+            {
+                SetWhatsAppManualChat(normalizedPhone, true);
+                var chats = await FetchEvolutionLocalChatsAsync(settings);
+                var freshChat = chats.FirstOrDefault(item => PhoneMatchesBot(item.Phone, normalizedPhone));
+                if (freshChat is not null)
+                {
+                    selectedChat = freshChat;
+                    title.Text = string.IsNullOrWhiteSpace(freshChat.Name) ? FormatWhatsAppDisplayPhone(normalizedPhone) : freshChat.Name.Trim();
+                    subtitle.Text = FormatWhatsAppDisplayPhone(freshChat.Phone);
+                }
+
+                var messages = await FetchEvolutionLocalChatMessagesAsync(settings, selectedChat);
+                if (messages.Count > 0)
+                {
+                    var localPending = lines
+                        .Where(item => item.Id.StartsWith("local:", StringComparison.Ordinal))
+                        .ToList();
+                    lines.Clear();
+                    lines.AddRange(messages
+                        .OrderBy(item => item.When)
+                        .TakeLast(100)
+                        .Select(item => new EvolutionChatLine
+                        {
+                            Id = item.Id,
+                            Text = item.Text,
+                            When = item.When,
+                            FromMe = item.FromMe
+                        }));
+                    foreach (var pending in localPending)
+                    {
+                        if (!lines.Any(item => item.FromMe
+                                               && string.Equals(item.Text, pending.Text, StringComparison.Ordinal)
+                                               && Math.Abs((item.When - pending.When).TotalMinutes) <= 3))
+                        {
+                            lines.Add(pending);
+                        }
+                    }
+                }
+                else if (lines.Count == 0)
+                {
+                    RenderFallbackFromHistory();
+                }
+
+                status.Text = "Modo manual ativo nesta conversa. Enter envia.";
+                status.Foreground = GreenText;
+                RenderMessages();
+                await Dispatcher.InvokeAsync(() => messageScroll.ScrollToEnd(), DispatcherPriority.Background);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+            {
+                if (lines.Count == 0)
+                {
+                    RenderFallbackFromHistory();
+                    RenderMessages();
+                }
+
+                status.Text = $"Nao consegui atualizar agora: {ex.Message}";
+                status.Foreground = RedText;
+            }
+            finally
+            {
+                loadingMessages = false;
+            }
+        }
+
+        async Task SendAsync()
+        {
+            var text = input.Text.Trim();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                input.Focus();
+                return;
+            }
+
+            send.IsEnabled = false;
+            status.Text = "Enviando...";
+            status.Foreground = Solid("#5B6B7A");
+            var result = await SendEvolutionLocalTextAsync(settings, normalizedPhone, text);
+            send.IsEnabled = true;
+            if (!result.Ok)
+            {
+                status.Text = result.Message;
+                status.Foreground = RedText;
+                return;
+            }
+
+            input.Clear();
+            lines.Add(new EvolutionChatLine
+            {
+                Id = $"local:{Guid.NewGuid():N}",
+                Text = text,
+                When = DateTime.Now,
+                FromMe = true
+            });
+            RenderMessages();
+            await Dispatcher.InvokeAsync(() => messageScroll.ScrollToEnd(), DispatcherPriority.Background);
+            status.Text = "Mensagem enviada.";
+            status.Foreground = GreenText;
+        }
+
+        input.PreviewKeyDown += async (_, e) =>
+        {
+            if (e.Key != System.Windows.Input.Key.Enter || System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Shift)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            await SendAsync();
+        };
+        send.Click += async (_, _) => await SendAsync();
+
+        RenderFallbackFromHistory();
+        RenderMessages();
+        FloatingServicePanel.Child = root;
+        FloatingServicePanel.Visibility = Visibility.Visible;
+        _ = Dispatcher.BeginInvoke(async () => await LoadChatAsync(), DispatcherPriority.Background);
+
+        var refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        refreshTimer.Tick += async (_, _) =>
+        {
+            if (FloatingServicePanel.Visibility != Visibility.Visible || !ReferenceEquals(FloatingServicePanel.Child, root))
+            {
+                refreshTimer.Stop();
+                SetWhatsAppManualChat(normalizedPhone, false);
+                return;
+            }
+
+            await LoadChatAsync(silent: true);
+        };
+        refreshTimer.Start();
+    }
+
+    private void OpenIFoodAttendance(TableTile? preferredOrder = null)
+    {
+        var order = preferredOrder is not null && IsIFoodOrder(preferredOrder)
+            ? preferredOrder
+            : CurrentBoard is not null && IsIFoodOrder(CurrentBoard)
+            ? CurrentBoard
+            : DeliveryTiles
+                .Where(item => IsIFoodOrder(item) && !IsFinalIFoodStatus(item.Status))
+                .OrderByDescending(item => item.ExternalCreatedAt ?? item.CreatedAt)
+                .FirstOrDefault()
+              ?? DeliveryTiles
+                .Where(IsIFoodOrder)
+                .OrderByDescending(item => item.ExternalCreatedAt ?? item.CreatedAt)
+                .FirstOrDefault();
+
+        if (order is null)
+        {
+            ShowIFoodDialog();
+            return;
+        }
+
+        ModeList.SelectedItem = "Delivery";
+        RefreshBoardForMode();
+        var index = BoardTiles.IndexOf(order);
+        if (index >= 0)
+        {
+            SelectTable(index, saveCurrent: false);
+        }
+
+        ShowIFoodOrderActionDialog(order, isNewOrder: false);
+    }
+
     private void ShowSupportDialog()
     {
-        var dialog = CreateDialog("Suporte online", 680, 600);
+        var dialog = CreateDialog("Suporte online", 900, 680);
         var categoryBox = new ComboBox
         {
             ItemsSource = new[]
@@ -3976,29 +5064,34 @@ public partial class MainWindow : Window
         };
         var messageBox = new TextBox
         {
-            MinHeight = 74,
+            Height = double.NaN,
+            MinHeight = 54,
+            MaxHeight = 112,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(2),
+            FontSize = 15
         };
         var messagesPanel = new StackPanel();
         var messagesScroll = new ScrollViewer
         {
             Content = messagesPanel,
-            Height = 220,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Background = Brushes.Transparent,
-            Padding = new Thickness(0, 0, 4, 0)
+            Background = Solid("#F7FBFD"),
+            Padding = new Thickness(4, 4, 8, 4)
         };
         var chatFrame = new Border
         {
-            Background = Brushes.White,
-            BorderBrush = Solid("#CAD6E2"),
+            Background = Solid("#F7FBFD"),
+            BorderBrush = Solid("#D6E4F1"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(12),
-            Margin = new Thickness(0, 10, 0, 10),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(10),
+            Margin = new Thickness(18, 0, 18, 12),
             Child = messagesScroll
         };
         var status = new TextBlock
@@ -4036,23 +5129,25 @@ public partial class MainWindow : Window
         Border Bubble(string sender, string message, DateTimeOffset when)
         {
             var isAdmin = string.Equals(sender, "admin", StringComparison.OrdinalIgnoreCase);
+            var name = isAdmin ? "Suporte Balcao Livre" : "Voce";
             return new Border
             {
-                Background = Solid(isAdmin ? "#EAF8FA" : "#E6FBF8"),
-                BorderBrush = Solid(isAdmin ? "#C9D8E7" : "#BDE5DD"),
+                Background = Solid(isAdmin ? "#FFFFFF" : "#E6FBF8"),
+                BorderBrush = Solid(isAdmin ? "#D6E4F1" : "#BDE5DD"),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(10),
-                Padding = new Thickness(12, 9, 12, 9),
-                Margin = new Thickness(isAdmin ? 0 : 78, 0, isAdmin ? 78 : 0, 9),
-                HorizontalAlignment = HorizontalAlignment.Stretch,
+                CornerRadius = new CornerRadius(14),
+                Padding = new Thickness(13, 10, 13, 9),
+                Margin = new Thickness(isAdmin ? 0 : 110, 0, isAdmin ? 110 : 0, 10),
+                HorizontalAlignment = isAdmin ? HorizontalAlignment.Left : HorizontalAlignment.Right,
+                MaxWidth = 610,
                 Child = new StackPanel
                 {
                     Children =
                     {
                         new TextBlock
                         {
-                            Text = isAdmin ? "Suporte" : "Voce",
-                            Foreground = Solid(isAdmin ? "#0B3A52" : "#08A99B"),
+                            Text = name,
+                            Foreground = Solid(isAdmin ? "#0B3A52" : "#067E76"),
                             FontWeight = FontWeights.Bold,
                             FontSize = 12
                         },
@@ -4068,7 +5163,8 @@ public partial class MainWindow : Window
                             Text = when.ToLocalTime().ToString("dd/MM HH:mm", Brazil),
                             Foreground = Solid("#5B6B7A"),
                             FontSize = 11,
-                            Margin = new Thickness(0, 5, 0, 0)
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            Margin = new Thickness(0, 6, 0, 0)
                         }
                     }
                 }
@@ -4084,40 +5180,44 @@ public partial class MainWindow : Window
                 newTicketFields.Visibility = Visibility.Visible;
                 messagesPanel.Children.Add(new Border
                 {
-                    Background = Solid("#F8FBFD"),
-                    BorderBrush = Solid("#E3EBF2"),
+                    Background = Brushes.White,
+                    BorderBrush = Solid("#D6E4F1"),
                     BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(10),
-                    Padding = new Thickness(16),
+                    CornerRadius = new CornerRadius(16),
+                    Padding = new Thickness(28),
                     HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(40, 70, 40, 0),
                     Child = new StackPanel
                     {
                         Children =
                         {
                             new TextBlock
                             {
-                                Text = "Nenhuma conversa aberta",
+                                Text = "Abra uma conversa com o suporte",
                                 Foreground = Solid("#071A2C"),
                                 FontWeight = FontWeights.Bold,
-                                FontSize = 14
+                                FontSize = 22,
+                                TextAlignment = TextAlignment.Center
                             },
                             new TextBlock
                             {
-                                Text = "Digite sua mensagem para iniciar o atendimento.",
+                                Text = "Escreva a mensagem abaixo. O admin recebe em tempo real e a resposta aparece aqui automaticamente.",
                                 Foreground = Solid("#5B6B7A"),
                                 TextWrapping = TextWrapping.Wrap,
-                                Margin = new Thickness(0, 4, 0, 0)
+                                TextAlignment = TextAlignment.Center,
+                                Margin = new Thickness(0, 8, 0, 0)
                             }
                         }
                     }
                 });
-                status.Text = "Digite a mensagem. A conversa aparece para o admin responder em tempo real.";
+                status.Text = "Pronto para abrir atendimento.";
                 status.Foreground = Solid("#5B6B7A");
                 return;
             }
 
             activeTicketId = string.IsNullOrWhiteSpace(ticket.ShortId) ? ticket.Id : ticket.ShortId;
-            newTicketFields.Visibility = ticket.Status == "RESOLVIDO" ? Visibility.Visible : Visibility.Collapsed;
+            newTicketFields.Visibility = Visibility.Visible;
             IEnumerable<AdminSupportMessageSnapshot> messages = ticket.Messages.Count > 0
                 ? ticket.Messages
                 : new[] { new AdminSupportMessageSnapshot { Sender = "cliente", Message = ticket.Message, When = ticket.CreatedAt } };
@@ -4217,25 +5317,107 @@ public partial class MainWindow : Window
             SetStatus(status.Text);
         };
 
-        var panel = DialogPanel();
-        panel.Margin = new Thickness(18, 14, 18, 14);
         newTicketFields.Children.Add(SupportTwoColumns(DialogField("Assunto", categoryBox), DialogField("Prioridade", priorityBox)));
-        panel.Children.Add(newTicketFields);
-        panel.Children.Add(chatFrame);
-        panel.Children.Add(DialogField("Mensagem", messageBox));
-        var footer = new Grid { Margin = new Thickness(0, 2, 0, 0) };
+        var root = new Grid { Background = Solid("#EEF6FA") };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var header = new Border
+        {
+            Background = Solid("#03151F"),
+            BorderBrush = Solid("#0B3A52"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(18),
+            Margin = new Thickness(18, 18, 18, 12)
+        };
+        var headerGrid = new Grid();
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(315) });
+        headerGrid.Children.Add(new StackPanel
+        {
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Suporte Balcao Livre",
+                    Foreground = Brushes.White,
+                    FontSize = 24,
+                    FontWeight = FontWeights.Bold
+                },
+                new TextBlock
+                {
+                    Text = "Conversa em tempo real com o admin. Responda por aqui sem sair do PDV.",
+                    Foreground = Solid("#DDEBFA"),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 5, 18, 0)
+                }
+            }
+        });
+        var ticketBox = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#D6E4F1"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12, 8, 12, 0),
+            Child = newTicketFields
+        };
+        Grid.SetColumn(ticketBox, 1);
+        headerGrid.Children.Add(ticketBox);
+        header.Child = headerGrid;
+        root.Children.Add(header);
+
+        Grid.SetRow(chatFrame, 1);
+        root.Children.Add(chatFrame);
+
+        var footer = new Grid { Margin = new Thickness(18, 0, 18, 18) };
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var inputShell = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#BFD1E2"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(12, 10, 12, 10),
+            Margin = new Thickness(0, 0, 12, 0),
+            Child = messageBox
+        };
+        footer.Children.Add(inputShell);
+        send.Content = "Enviar";
+        send.Height = 76;
+        send.MinWidth = 148;
+        send.Margin = new Thickness(0);
         status.VerticalAlignment = VerticalAlignment.Center;
-        status.Margin = new Thickness(0, 12, 12, 0);
-        footer.Children.Add(status);
         Grid.SetColumn(send, 1);
         footer.Children.Add(send);
-        panel.Children.Add(footer);
+
+        var bottom = new DockPanel { LastChildFill = true };
+        status.Margin = new Thickness(18, 0, 18, 10);
+        DockPanel.SetDock(status, Dock.Top);
+        bottom.Children.Add(status);
+        bottom.Children.Add(footer);
+        Grid.SetRow(bottom, 2);
+        root.Children.Add(bottom);
+
+        messageBox.PreviewKeyDown += async (_, e) =>
+        {
+            if (e.Key != System.Windows.Input.Key.Enter || System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Shift)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            send.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Task.CompletedTask;
+        };
+
         var supportDialogTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
         supportDialogTimer.Tick += async (_, _) => await RefreshSupport(true);
         dialog.Closed += (_, _) => supportDialogTimer.Stop();
-        dialog.Content = panel;
+        dialog.Content = root;
         _ = Dispatcher.BeginInvoke(async () =>
         {
             await RefreshSupport(false);
@@ -4300,6 +5482,16 @@ public partial class MainWindow : Window
         var waitMaxBox = new TextBox
         {
             Text = Math.Max(_appSettings.PublicMenuWaitMinMinutes, _appSettings.PublicMenuWaitMaxMinutes).ToString(Brazil),
+            MinHeight = 38
+        };
+        var storeOpenTimeBox = new TextBox
+        {
+            Text = NormalizeClockText(_appSettings.OnlineStoreOpenTime, "00:00"),
+            MinHeight = 38
+        };
+        var storeCloseTimeBox = new TextBox
+        {
+            Text = NormalizeClockText(_appSettings.OnlineStoreCloseTime, "00:00"),
             MinHeight = 38
         };
         var ifoodSoundPath = _appSettings.IFoodAlertSoundPath;
@@ -5858,6 +7050,10 @@ public partial class MainWindow : Window
             var waitMax = Math.Max(waitMin, ParseInt(waitMaxBox.Text, _appSettings.PublicMenuWaitMaxMinutes <= 0 ? 60 : _appSettings.PublicMenuWaitMaxMinutes));
             _appSettings.PublicMenuWaitMinMinutes = waitMin;
             _appSettings.PublicMenuWaitMaxMinutes = waitMax;
+            _appSettings.OnlineStoreScheduleEnabled = true;
+            _appSettings.OnlineStoreOpenTime = NormalizeClockText(storeOpenTimeBox.Text, _appSettings.OnlineStoreOpenTime);
+            _appSettings.OnlineStoreCloseTime = NormalizeClockText(storeCloseTimeBox.Text, _appSettings.OnlineStoreCloseTime);
+            ApplyOnlineStoreScheduleState("horario salvo", forcePublish: true, persist: false);
             _appSettings.NotificationSoundEnabled = false;
             _appSettings.NotificationSound = "NENHUM";
             _appSettings.IFoodAlertSoundPath = ifoodSoundPath;
@@ -6129,7 +7325,8 @@ public partial class MainWindow : Window
             "Visual da loja, tempo exibido no cardapio e alerta sonoro de pedido.",
             ActionRow("Foto/logo", logoText, chooseLogo),
             ActionRow("Imagem de capa do cardapio", coverText, chooseCover),
-            MutedText("O botao Loja online no topo liga/desliga o cardapio e o recebimento iFood. O tempo abaixo aparece no topo do cardapio.", 11),
+            MutedText("O horario abaixo abre/fecha o cardapio online e o recebimento iFood no PDV. Use 00:00 e 00:00 para deixar 24 horas.", 11),
+            TwoColumnFields(("Abre", storeOpenTimeBox), ("Fecha", storeCloseTimeBox)),
             TwoColumnFields(("Tempo minimo (min)", waitMinBox), ("Tempo maximo (min)", waitMaxBox)),
             ActionRow("Toque de pedido iFood", ifoodSoundText, chooseIFoodSound),
             ButtonStrip(clearIFoodSound, testIFoodSound));
@@ -7456,6 +8653,7 @@ public partial class MainWindow : Window
         if (stockChanged)
         {
             QueueIFoodStockSync(product, $"Venda PDV {board.Kind} {board.Number}");
+            QueuePublicMenuPublish();
         }
     }
 
@@ -7771,6 +8969,7 @@ public partial class MainWindow : Window
         if (restoredProduct is not null)
         {
             QueueIFoodStockSync(restoredProduct, "Item removido da venda");
+            QueuePublicMenuPublish();
         }
     }
 
@@ -8197,10 +9396,6 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 10)
         };
-        var ifoodApplyButton = DialogButton("Aplicar no iFood", "#0B3A52");
-        ifoodApplyButton.HorizontalAlignment = HorizontalAlignment.Stretch;
-        ifoodApplyButton.Width = double.NaN;
-        ifoodApplyButton.Margin = new Thickness(0);
         var modifiersBox = new TextBox
         {
             Height = 92,
@@ -8297,7 +9492,7 @@ public partial class MainWindow : Window
             clearImageButton.Width = double.NaN;
             actions.Children.Add(chooseImageButton);
             actions.Children.Add(clearImageButton);
-            actions.Children.Add(DialogHint("A foto aparece no cardapio digital e tambem vai para o iFood ao clicar em Aplicar no iFood."));
+            actions.Children.Add(DialogHint("A foto aparece no cardapio digital e vai para o iFood automaticamente ao salvar."));
             Grid.SetColumn(actions, 1);
             grid.Children.Add(actions);
             return grid;
@@ -8320,14 +9515,13 @@ public partial class MainWindow : Window
             var product = productsList.SelectedItem as ProductTile;
             var hasConnection = HasIFoodConnectionConfigured(_appSettings.IFood);
             var hasLink = product is not null && HasIFoodCatalogLink(product);
-            ifoodApplyButton.IsEnabled = hasConnection && hasLink;
             ifoodInfoText.Text = !hasConnection
-                ? "Conecte o iFood para aplicar estoque, disponibilidade e foto."
+                ? "iFood nao conectado. Quando conectar, os produtos ficam prontos para sincronizar pelo codigo do PDV."
                 : product is null
-                    ? "Selecione um produto para aplicar no iFood."
+                    ? "Ao salvar, o PDV cria ou atualiza o produto no iFood automaticamente."
                     : hasLink
-                        ? "Aplica estoque, disponibilidade e foto deste produto no iFood."
-                        : "Produto sem vinculo de catalogo iFood. Importe/sincronize produtos do iFood primeiro.";
+                        ? "Produto vinculado. Ao salvar, preco, disponibilidade, estoque e foto sincronizam no iFood."
+                        : "Produto novo no iFood. Ao salvar, o PDV cria o item pelo codigo e sincroniza em segundo plano.";
         }
 
         void RefreshProductList(ProductTile? selected = null)
@@ -8560,14 +9754,20 @@ public partial class MainWindow : Window
             FilterProducts();
             SaveStore();
             statusText.Foreground = GreenText;
-            statusText.Text = $"Produto salvo: {product.Name}";
+            var ifoodConnected = HasIFoodConnectionConfigured(_appSettings.IFood);
+            statusText.Text = ifoodConnected
+                ? $"Produto salvo. Sincronizando no iFood em segundo plano: {product.Name}"
+                : $"Produto salvo: {product.Name}";
             formTitle.Text = product.Name;
             var ifoodSummary = ifoodCompositionVisible ? $"  |  {product.IFoodCompositionText}" : "";
             formSubtitle.Text = $"{product.Code}  |  {product.Category}  |  venda {product.PriceText}  |  {product.ProfitMarginText}  |  {product.ImageStatusText}{ifoodSummary}";
             RefreshMarginPreview();
             RefreshIFoodCompositionState();
-            SetStatus($"Produto salvo: {product.Code} {product.Name}");
+            SetStatus(ifoodConnected
+                ? $"Produto salvo e enviado para sincronizacao iFood: {product.Code} {product.Name}"
+                : $"Produto salvo: {product.Code} {product.Name}");
             QueueIFoodStockSync(product, "Cadastro de produto");
+            QueuePublicMenuPublish();
             return true;
         }
 
@@ -8653,41 +9853,6 @@ public partial class MainWindow : Window
             SetStatus($"Produto apagado: {removedCode} - {removedName}");
             RefreshDeleteProductButtonState();
         };
-        ifoodApplyButton.Click += (_, _) =>
-        {
-            var product = productsList.SelectedItem as ProductTile;
-            if (product is null)
-            {
-                statusText.Foreground = RedText;
-                statusText.Text = "Selecione um produto para aplicar no iFood.";
-                return;
-            }
-
-            if (!SaveProduct())
-            {
-                return;
-            }
-
-            product = productsList.SelectedItem as ProductTile ?? Products.FirstOrDefault(item => item.Code == codeBox.Text.Trim().PadLeft(6, '0'));
-            if (product is null)
-            {
-                return;
-            }
-
-            if (!HasIFoodCatalogLink(product))
-            {
-                statusText.Foreground = RedText;
-                statusText.Text = "Produto sem vinculo iFood. Sincronize produtos do iFood antes de aplicar.";
-                RefreshIFoodCompositionState();
-                return;
-            }
-
-            statusText.Foreground = Solid("#0B3A52");
-            statusText.Text = "Aplicando estoque, disponibilidade e foto no iFood...";
-            QueueIFoodStockSync(product, "Aplicado no cadastro de produto");
-            RefreshIFoodCompositionState();
-        };
-
         chooseImageButton.Click += (_, _) =>
         {
             var fileDialog = new OpenFileDialog
@@ -8710,7 +9875,7 @@ public partial class MainWindow : Window
             imagePath = CopyImageToAppIdentityFolder(fileDialog.FileName, $"product-{SafeFileName(codeForFile)}");
             RefreshProductImagePreview();
             statusText.Foreground = GreenText;
-            statusText.Text = "Foto aplicada. Salve o produto e use Aplicar no iFood para enviar.";
+            statusText.Text = "Foto aplicada. Salve o produto para sincronizar automaticamente.";
         };
 
         clearImageButton.Click += (_, _) =>
@@ -8827,8 +9992,7 @@ public partial class MainWindow : Window
         var stockSection = FormSection("Estoque",
             TwoColumns(DialogField("Quantidade atual", stockBox), DialogField("Estoque minimo", minBox)));
         var ifoodSection = FormSection("iFood",
-            ifoodInfoText,
-            ifoodApplyButton);
+            ifoodInfoText);
 
         var form = new StackPanel();
         form.Children.Add(formHeader);
@@ -9748,6 +10912,7 @@ public partial class MainWindow : Window
         if (stockChanged)
         {
             QueueIFoodStockSync(product, $"Venda garcom web {board.Number}");
+            QueuePublicMenuPublish();
         }
         PrintWaiterKitchenLine(board, kitchenLine);
         RefreshAfterWaiterMutation(board);
@@ -9835,6 +11000,7 @@ public partial class MainWindow : Window
         {
             restoredProduct.StockQuantity += Math.Max(0, line.Quantity);
             QueueIFoodStockSync(restoredProduct, $"Item removido garcom web {board.Number}");
+            QueuePublicMenuPublish();
         }
 
         board.Total = board.Lines.Sum(item => item.Total);
@@ -10204,12 +11370,30 @@ public partial class MainWindow : Window
 
         var settings = _appSettings.IFood ??= new IFoodIntegrationSettings();
         EnsureIFoodCloudSettings(settings);
-        var dialog = CreateDialog("iFood Online", 820, 570);
+        var dialog = CreateDialog("iFood Online", 820, 640);
 
         var connectionValue = new TextBlock();
         var receivingValue = new TextBlock();
         var productsValue = new TextBlock();
         var lastSyncValue = new TextBlock();
+        var scheduleValue = new TextBlock();
+        var scheduleStatus = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = Solid("#52687A"),
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        var openTimeBox = new TextBox
+        {
+            Text = NormalizeClockText(_appSettings.OnlineStoreOpenTime, "00:00"),
+            MinHeight = 42
+        };
+        var closeTimeBox = new TextBox
+        {
+            Text = NormalizeClockText(_appSettings.OnlineStoreCloseTime, "00:00"),
+            MinHeight = 42
+        };
         var operationBox = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
@@ -10228,20 +11412,19 @@ public partial class MainWindow : Window
         void SaveFields()
         {
             settings.Enabled = true;
-            _appSettings.PublicMenuStoreOpen = true;
             EnsureIFoodCloudSettings(settings);
+            ApplyOnlineStoreScheduleState("conexao iFood", persist: false);
             SaveAppSettings();
             SaveStore();
             RefreshOnlineStoreButton();
         }
 
         var connect = DialogButton("Conectar iFood", "#08A99B");
-        var toggleReceiving = DialogButton("Pausar recebimento", "#0B3A52");
-        var syncProducts = DialogButton("Puxar produtos do iFood", "#08A99B");
+        var saveSchedule = DialogButton("Salvar horario", "#08A99B");
         var openDelivery = DialogButton("Abrir Delivery", "#0B3A52");
         var disconnect = DialogButton("Sair do iFood", "#A11D1D");
 
-        foreach (var button in new[] { connect, toggleReceiving, syncProducts, openDelivery, disconnect })
+        foreach (var button in new[] { connect, saveSchedule, openDelivery, disconnect })
         {
             button.Width = 230;
             button.MinHeight = 48;
@@ -10251,34 +11434,35 @@ public partial class MainWindow : Window
 
         void RefreshIFoodUi(string? message = null)
         {
+            ApplyOnlineStoreScheduleState("atualizar iFood", persist: false);
             var linked = HasIFoodConnectionConfigured(settings);
-            var receiving = settings.HasCloudConnection;
+            var scheduleOpen = CanReceiveOnlineOrdersNow();
+            var receiving = linked && scheduleOpen;
             var linkedProducts = Products.Count(HasIFoodCatalogLink);
 
             connectionValue.Text = linked
                 ? string.IsNullOrWhiteSpace(settings.MerchantName) ? "Conta conectada" : settings.MerchantName.Trim()
                 : string.IsNullOrWhiteSpace(settings.ConnectionId) ? "Nao conectado" : "Aguardando autorizacao";
-            receivingValue.Text = receiving ? "Recebendo pedidos automaticamente" : linked ? "Recebimento pausado" : "Conecte para receber pedidos";
+            receivingValue.Text = receiving
+                ? "Aberto pelo horario"
+                : linked ? "Fechado pelo horario" : "Conecte para receber pedidos";
             productsValue.Text = linkedProducts == 1
                 ? "1 produto vinculado ao iFood"
                 : $"{linkedProducts} produtos vinculados ao iFood";
             lastSyncValue.Text = LastSyncText();
+            scheduleValue.Text = BuildOnlineStoreScheduleText();
+            scheduleStatus.Text = BuildOnlineStoreStatusText();
 
             connect.Visibility = linked ? Visibility.Collapsed : Visibility.Visible;
-            toggleReceiving.Visibility = linked ? Visibility.Visible : Visibility.Collapsed;
-            syncProducts.Visibility = linked ? Visibility.Visible : Visibility.Collapsed;
+            saveSchedule.Visibility = Visibility.Visible;
             openDelivery.Visibility = linked ? Visibility.Visible : Visibility.Collapsed;
             disconnect.Visibility = linked ? Visibility.Visible : Visibility.Collapsed;
 
-            toggleReceiving.Content = receiving ? "Pausar recebimento" : "Ligar recebimento";
-            toggleReceiving.Background = receiving ? Solid("#5B6B7A") : Solid("#08A99B");
-            toggleReceiving.BorderBrush = receiving ? Solid("#5B6B7A") : Solid("#08A99B");
-
             operationBox.Text = message ?? (linked
                 ? receiving
-                    ? "iFood ligado. Novos pedidos aparecem no Delivery com alerta grande na tela."
-                    : "Conta iFood vinculada. Ligue o recebimento para voltar a entrar pedido no PDV."
-                : "Conecte a loja uma vez. Depois disso o PDV recebe pedidos e atualiza produtos automaticamente.");
+                    ? "iFood e cardapio online estao dentro do horario de atendimento. Produtos, estoque e pedidos sincronizam em segundo plano."
+                    : "Conta iFood vinculada. O PDV reabre sozinho no proximo horario de atendimento."
+                : "Conecte a loja uma vez. Depois disso o PDV usa o horario abaixo para abrir/fechar iFood e cardapio.");
             if (!string.IsNullOrWhiteSpace(message))
             {
                 SetStatus(message);
@@ -10306,10 +11490,11 @@ public partial class MainWindow : Window
                 SaveAppSettings();
                 if (string.Equals(settings.ConnectionStatus, "conectado", StringComparison.OrdinalIgnoreCase))
                 {
-                    _ifoodSyncTimer.Start();
+                    ApplyOnlineStoreScheduleState("iFood conectado", forcePublish: true);
                     RefreshOnlineStoreButton();
+                    QueueIFoodLocalCatalogSync("iFood conectado", force: true);
                     _ = AutoImportIFoodOrdersAsync(force: true);
-                    RefreshIFoodUi("iFood conectado. Pedidos entram no Delivery e produtos do iFood aparecem no estoque.");
+                    RefreshIFoodUi("iFood conectado. Pedidos entram no Delivery e produtos do PDV sincronizam automaticamente.");
                 }
                 else if (!string.IsNullOrWhiteSpace(settings.VerificationUrlComplete))
                 {
@@ -10333,56 +11518,29 @@ public partial class MainWindow : Window
             }
         };
 
-        toggleReceiving.Click += (_, _) =>
+        saveSchedule.Click += async (_, _) =>
         {
-            var enable = !settings.HasCloudConnection;
-            settings.Enabled = enable;
-            _appSettings.PublicMenuStoreOpen = enable;
+            if (!TryParseOnlineStoreClock(openTimeBox.Text, out _) || !TryParseOnlineStoreClock(closeTimeBox.Text, out _))
+            {
+                RefreshIFoodUi("Informe horarios validos, exemplo 10:00 e 23:30.");
+                return;
+            }
+
+            saveSchedule.IsEnabled = false;
+            _appSettings.OnlineStoreScheduleEnabled = true;
+            _appSettings.OnlineStoreOpenTime = NormalizeClockText(openTimeBox.Text, _appSettings.OnlineStoreOpenTime);
+            _appSettings.OnlineStoreCloseTime = NormalizeClockText(closeTimeBox.Text, _appSettings.OnlineStoreCloseTime);
+            openTimeBox.Text = _appSettings.OnlineStoreOpenTime;
+            closeTimeBox.Text = _appSettings.OnlineStoreCloseTime;
+            ApplyOnlineStoreScheduleState("horario iFood/cardapio salvo", forcePublish: true);
             SaveAppSettings();
             SaveStore();
             RefreshOnlineStoreButton();
-            if (enable)
-            {
-                _ifoodSyncTimer.Start();
-                _ = AutoImportIFoodOrdersAsync(force: true);
-                _ = SyncIFoodPresenceOnceAsync();
-                RefreshIFoodUi("Recebimento ligado. O PDV vai abrir alerta quando chegar pedido novo.");
-            }
-            else
-            {
-                _ifoodSyncTimer.Stop();
-                RefreshIFoodUi("Recebimento pausado. A conta continua vinculada e pode ser ligada de novo.");
-            }
-        };
-
-        syncProducts.Click += async (_, _) =>
-        {
-            try
-            {
-                settings.Enabled = true;
-                _appSettings.PublicMenuStoreOpen = true;
-                EnsureIFoodCloudSettings(settings);
-                SaveAppSettings();
-                RefreshOnlineStoreButton();
-                _ifoodSyncTimer.Start();
-
-                syncProducts.IsEnabled = false;
-                RefreshIFoodUi("Puxando produtos do iFood para o estoque...");
-                var changed = await SyncIFoodCatalogProductsAsync(force: true, log: RefreshIFoodUi);
-                RefreshIFoodUi(changed <= 0
-                    ? "Produtos conferidos. Nada novo para atualizar agora."
-                    : changed == 1
-                        ? "1 produto do iFood entrou/atualizou no estoque."
-                        : $"{changed} produtos do iFood entraram/atualizaram no estoque.");
-            }
-            catch (Exception ex)
-            {
-                RefreshIFoodUi($"Falha ao puxar produtos do iFood: {ex.Message}");
-            }
-            finally
-            {
-                syncProducts.IsEnabled = true;
-            }
+            var publish = await PublishGeneratedPublicMenuAsync(silent: true);
+            saveSchedule.IsEnabled = true;
+            RefreshIFoodUi(publish.Ok
+                ? $"Horario salvo. {BuildOnlineStoreStatusText()}"
+                : $"Horario salvo no PDV. Cardapio pendente: {publish.Message}");
         };
 
         openDelivery.Click += (_, _) =>
@@ -10483,26 +11641,28 @@ public partial class MainWindow : Window
         statusGrid.Children.Add(Metric("Recebimento", receivingValue, "#08A99B"));
         statusGrid.Children.Add(Metric("Produtos", productsValue, "#0B3A52"));
         statusGrid.Children.Add(Metric("Ultima atualizacao", lastSyncValue, "#5B6B7A"));
+        statusGrid.Children.Add(Metric("Horario", scheduleValue, "#99620D"));
 
         var flow = BorderCard();
         flow.Margin = new Thickness(0, 14, 0, 0);
         var actions = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
         actions.Children.Add(connect);
-        actions.Children.Add(syncProducts);
-        actions.Children.Add(toggleReceiving);
+        actions.Children.Add(saveSchedule);
         actions.Children.Add(openDelivery);
         actions.Children.Add(disconnect);
         flow.Child = new StackPanel
         {
             Children =
             {
-                SectionTitle("Operacao da loja"),
+                SectionTitle("Horario de atendimento"),
                 new TextBlock
                 {
-                    Text = "Pedido novo abre alerta grande, entra no Delivery e pode ser confirmado/despachado sem editar os itens.",
+                    Text = "Esse horario controla o cardapio online e o recebimento iFood no PDV. Produtos e estoque continuam sincronizando automaticamente.",
                     Foreground = Solid("#5A6B7C"),
                     TextWrapping = TextWrapping.Wrap
                 },
+                TwoColumnFields(("Abre", openTimeBox), ("Fecha", closeTimeBox)),
+                scheduleStatus,
                 actions
             }
         };
@@ -10525,6 +11685,13 @@ public partial class MainWindow : Window
     private async Task<int> ImportIFoodOrdersAsync(Action<string>? log = null)
     {
         var settings = _appSettings.IFood ??= new IFoodIntegrationSettings();
+        ApplyOnlineStoreScheduleState("conferir horario", persist: false);
+        if (!CanReceiveOnlineOrdersNow())
+        {
+            log?.Invoke($"Loja fora do horario automatico. {BuildOnlineStoreScheduleText()}");
+            return 0;
+        }
+
         if (!settings.Enabled)
         {
             log?.Invoke("Conecte o iFood para receber pedidos automaticamente.");
@@ -10839,6 +12006,7 @@ public partial class MainWindow : Window
         try
         {
             var catalogChanged = await SyncIFoodCatalogProductsAsync(force);
+            QueueIFoodLocalCatalogSync(force ? "Sincronizacao inicial iFood" : "Sincronizacao automatica iFood", force);
             var imported = await ImportIFoodOrdersAsync();
             if (imported <= 0 && catalogChanged <= 0)
             {
@@ -11002,6 +12170,7 @@ public partial class MainWindow : Window
             ExternalCode = product.ExternalCode,
             ProductCode = product.Code,
             ProductName = product.Name,
+            ProductCategory = product.Category,
             Price = product.Price,
             Amount = product.Amount,
             Reason = product.Reason,
@@ -11015,6 +12184,7 @@ public partial class MainWindow : Window
         string Name,
         string ProductId,
         string ExternalCode,
+        string Category,
         decimal Price,
         int Amount,
         string Reason,
@@ -11073,7 +12243,7 @@ public partial class MainWindow : Window
     private IFoodPresenceSyncSnapshot? CreateIFoodPresenceSyncSnapshot()
     {
         var settings = _appSettings.IFood;
-        if (settings is null || !settings.HasCloudConnection || _ifoodSyncRunning)
+        if (settings is null || !CanReceiveOnlineOrdersNow() || !settings.HasCloudConnection || _ifoodSyncRunning)
         {
             return null;
         }
@@ -11109,13 +12279,13 @@ public partial class MainWindow : Window
 
         var productId = (product.IFoodProductId ?? "").Trim();
         var externalCode = (product.IFoodExternalCode ?? "").Trim();
-        if (!HasIFoodCatalogLink(product))
+        if (string.IsNullOrWhiteSpace(externalCode))
         {
-            if (string.Equals(product.Category, "IFOOD", StringComparison.OrdinalIgnoreCase))
-            {
-                SetStatus($"Produto iFood sem vinculo no catalogo: {product.Name}. Sincronize/importe o item para atualizar estoque no iFood.");
-            }
+            externalCode = NormalizeProductCode(product.Code);
+        }
 
+        if (string.IsNullOrWhiteSpace(productId) && string.IsNullOrWhiteSpace(externalCode))
+        {
             return;
         }
 
@@ -11127,12 +12297,54 @@ public partial class MainWindow : Window
             product.Name,
             productId,
             externalCode,
+            product.Category,
             product.Price,
             amount,
             syncReason,
             imagePayload.DataUrl,
             imagePayload.Url);
         _ = SyncIFoodStockSnapshotAsync(settings.BackendUrl, settings.ConnectionId, snapshot);
+    }
+
+    private void QueueIFoodLocalCatalogSync(string reason, bool force = false)
+    {
+        var settings = _appSettings.IFood ??= new IFoodIntegrationSettings();
+        if (!HasIFoodConnectionConfigured(settings))
+        {
+            return;
+        }
+
+        if (!force && DateTime.UtcNow - _lastIFoodLocalCatalogPushUtc < TimeSpan.FromMinutes(3))
+        {
+            return;
+        }
+
+        var products = Products
+            .Where(ShouldAutoSyncProductToIFood)
+            .OrderBy(product => product.Category)
+            .ThenBy(product => product.Name)
+            .ToList();
+        if (products.Count == 0)
+        {
+            return;
+        }
+
+        _lastIFoodLocalCatalogPushUtc = DateTime.UtcNow;
+        foreach (var product in products)
+        {
+            QueueIFoodStockSync(product, reason);
+        }
+
+        SetStatus(products.Count == 1
+            ? "1 produto enviado para sincronizacao automatica iFood."
+            : $"{products.Count:N0} produtos enviados para sincronizacao automatica iFood.");
+    }
+
+    private static bool ShouldAutoSyncProductToIFood(ProductTile product)
+    {
+        return !string.IsNullOrWhiteSpace(product.Code)
+               && !string.IsNullOrWhiteSpace(product.Name)
+               && (product.Price > 0m || HasIFoodCatalogLink(product));
     }
 
     private static int GetIFoodStockSyncAmount(ProductTile product)
@@ -11202,9 +12414,15 @@ public partial class MainWindow : Window
                 CreateIFoodStockSyncRequest(connectionId, product));
             RunOnUiThread(() =>
             {
+                ApplyIFoodStockSyncLink(product, response);
                 var message = string.IsNullOrWhiteSpace(response.Message)
                     ? $"Estoque iFood atualizado: {product.Name} = {product.Amount:N0}."
                     : $"{response.Message} {product.Name}.";
+                if (response.CatalogCreated)
+                {
+                    message = $"Produto criado no iFood. {message}";
+                }
+
                 if ((!string.IsNullOrWhiteSpace(product.ImageDataUrl) || !string.IsNullOrWhiteSpace(product.ImageUrl))
                     && response.ImageUpdated
                     && !message.Contains("foto", StringComparison.OrdinalIgnoreCase))
@@ -11431,6 +12649,7 @@ public partial class MainWindow : Window
             {
                 ApplyIFoodStockMovement(product, item.Quantity, display);
                 QueueIFoodStockSync(product, $"Pedido iFood {display}");
+                QueuePublicMenuPublish();
             }
         }
 
@@ -13049,7 +14268,7 @@ public partial class MainWindow : Window
                 ? HasIFoodCatalogLink(product)
                     ? "  |  iFood sync ativo"
                     : string.Equals(product.Category, "IFOOD", StringComparison.OrdinalIgnoreCase)
-                        ? "  |  iFood sem vinculo de catalogo"
+                        ? "  |  iFood sync automatico"
                         : ""
                 : "";
             selectedMeta.Text = $"{product.Code}  |  {product.Category}  |  {product.PriceText}{ifoodMeta}";
@@ -13390,6 +14609,7 @@ public partial class MainWindow : Window
             RefreshInventory(product);
             SetStatus($"{type}: {product.Name} {amount:N0}. Saldo {product.StockQuantity:N0}");
             QueueIFoodStockSync(product, $"Estoque {type}");
+            QueuePublicMenuPublish();
         }
 
         var setButton = DialogButton("Salvar saldo/minimo", "#0B3A52");
@@ -13410,6 +14630,7 @@ public partial class MainWindow : Window
                 RefreshInventory(product);
                 SetStatus($"Estoque atualizado: {product.Name} {product.StockQuantity:N0}");
                 QueueIFoodStockSync(product, "Ajuste manual de estoque");
+                QueuePublicMenuPublish();
             }
         };
         var inButton = DialogButton("Entrada no estoque", "#08A99B");
@@ -15664,7 +16885,7 @@ public partial class MainWindow : Window
     {
         var baseSlug = BuildPublicMenuBaseSlug();
         var slug = NormalizePublicMenuSlug(_profile.MenuSlug);
-        if (IsNumberedPublicMenuSlugForBase(slug, baseSlug))
+        if (!string.IsNullOrWhiteSpace(slug))
         {
             return slug;
         }
@@ -15822,6 +17043,9 @@ public partial class MainWindow : Window
         sb.AppendLine(GetPublicMenuLogoStamp());
         sb.AppendLine(GetPublicMenuImageStamp(_profile.LocalCoverPath));
         sb.AppendLine(_appSettings.PublicMenuStoreOpen.ToString());
+        sb.AppendLine(_appSettings.OnlineStoreScheduleEnabled.ToString());
+        sb.AppendLine(_appSettings.OnlineStoreOpenTime);
+        sb.AppendLine(_appSettings.OnlineStoreCloseTime);
         sb.AppendLine(_appSettings.PublicMenuWaitMinMinutes.ToString(CultureInfo.InvariantCulture));
         sb.AppendLine(_appSettings.PublicMenuWaitMaxMinutes.ToString(CultureInfo.InvariantCulture));
         sb.AppendLine(_appSettings.PublicMenuDiscountConfigured.ToString());
@@ -16012,8 +17236,12 @@ public partial class MainWindow : Window
         payload.ThemeColor = "#0f766e";
         payload.Description = "Cardapio digital atualizado pelo Balcao Livre PDV.";
         payload.StoreOpen = _appSettings.PublicMenuStoreOpen;
+        payload.ScheduleEnabled = _appSettings.OnlineStoreScheduleEnabled;
+        payload.OpenTime = NormalizeClockText(_appSettings.OnlineStoreOpenTime, "00:00");
+        payload.CloseTime = NormalizeClockText(_appSettings.OnlineStoreCloseTime, "00:00");
         payload.WaitMinMinutes = Math.Max(1, _appSettings.PublicMenuWaitMinMinutes);
         payload.WaitMaxMinutes = Math.Max(payload.WaitMinMinutes, _appSettings.PublicMenuWaitMaxMinutes);
+        payload.WhatsAppMessageOrdersEnabled = GetWhatsAppSettings().WhatsAppMessageOrdersEnabled;
         var publishDiscount = _appSettings.PublicMenuDiscountConfigured && _appSettings.PublicMenuDiscountEnabled;
         var publishLoyalty = _appSettings.PublicMenuLoyaltyConfigured && _appSettings.PublicMenuLoyaltyEnabled;
         payload.DiscountEnabled = publishDiscount;
@@ -16041,7 +17269,7 @@ public partial class MainWindow : Window
                 Category = string.IsNullOrWhiteSpace(product.Category) ? "Cardapio" : product.Category,
                 Price = product.Price,
                 StockQuantity = product.StockQuantity,
-                IsInStock = product.StockQuantity >= 0,
+                IsInStock = product.StockQuantity > 0,
                 IsActive = product.Active,
                 ImageUrl = BuildPublicMenuProductImageUrl(product),
                 SortOrder = index++ * 10
@@ -16918,6 +18146,42 @@ public partial class MainWindow : Window
                 end = DateTime.MaxValue;
                 return false;
         }
+    }
+
+    private void ApplyIFoodStockSyncLink(IFoodStockSyncSnapshot snapshot, IFoodCloudStockSyncResponse response)
+    {
+        var product = Products.FirstOrDefault(item =>
+            string.Equals(item.Code, snapshot.Code, StringComparison.OrdinalIgnoreCase));
+        if (product is null)
+        {
+            return;
+        }
+
+        var changed = false;
+        var productId = (response.ProductId ?? "").Trim();
+        var externalCode = (response.ExternalCode ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(productId)
+            && !string.Equals(product.IFoodProductId ?? "", productId, StringComparison.Ordinal))
+        {
+            product.IFoodProductId = productId;
+            changed = true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(externalCode)
+            && !string.Equals(product.IFoodExternalCode ?? "", externalCode, StringComparison.Ordinal))
+        {
+            product.IFoodExternalCode = externalCode;
+            changed = true;
+        }
+
+        if (!changed)
+        {
+            return;
+        }
+
+        SaveStore();
+        ProductsList.Items.Refresh();
+        FilterProducts();
     }
 
     private static DateTime StartOfBusinessWeek(DateTime date)
@@ -19086,6 +20350,15 @@ public partial class MainWindow : Window
         if (_appSettings.PublicMenuWaitMaxMinutes < _appSettings.PublicMenuWaitMinMinutes)
         {
             _appSettings.PublicMenuWaitMaxMinutes = Math.Max(_appSettings.PublicMenuWaitMinMinutes, 60);
+            shouldSaveSettings = true;
+        }
+
+        var openTime = _appSettings.OnlineStoreOpenTime;
+        var closeTime = _appSettings.OnlineStoreCloseTime;
+        NormalizeOnlineStoreScheduleSettings();
+        if (!string.Equals(openTime, _appSettings.OnlineStoreOpenTime, StringComparison.Ordinal)
+            || !string.Equals(closeTime, _appSettings.OnlineStoreCloseTime, StringComparison.Ordinal))
+        {
             shouldSaveSettings = true;
         }
 
@@ -23632,6 +24905,15 @@ public partial class MainWindow : Window
         color = "#08A99B";
         softColor = "#E6FBF8";
 
+        if (lower.Contains("whatsapp ativo") || lower.Contains("whatsapp:"))
+        {
+            title = "Cliente no WhatsApp";
+            code = "WA";
+            color = "#08A99B";
+            softColor = "#E6FBF8";
+            return true;
+        }
+
         if (lower.Contains("bloquead") || lower.Contains("pendente"))
         {
             title = "Bloqueado";
@@ -23713,7 +24995,7 @@ public partial class MainWindow : Window
         RibbonActions.Add(new("DeliveryNew", "DL", "Novo", "Delivery"));
         RibbonActions.Add(new("DeliveryZones", "TZ", "Taxas", "Delivery"));
         RibbonActions.Add(new("IFood", "IF", "iFood", "Pedidos"));
-        RibbonActions.Add(new("WhatsApp", "WA", "Ativar", "WhatsApp"));
+        RibbonActions.Add(BuildWhatsAppRibbonAction());
         RibbonActions.Add(new("WaiterWeb", "GW", "Garcom", "Web"));
         RibbonActions.Add(new("Inventory", "ES", "Estoque", "Receitas"));
         RibbonActions.Add(new("Cardapio", "QR", "Cardapio", "Digital"));
@@ -23749,7 +25031,7 @@ public partial class MainWindow : Window
 
         if (RibbonActions.All(action => action.Id != "WhatsApp"))
         {
-            RibbonActions.Insert(insertAt, new RibbonAction("WhatsApp", "WA", "Ativar", "WhatsApp"));
+            RibbonActions.Insert(insertAt, BuildWhatsAppRibbonAction());
             insertAt++;
         }
         else
@@ -23769,10 +25051,15 @@ public partial class MainWindow : Window
         {
             if (RibbonActions[i].Id == "WhatsApp")
             {
-                RibbonActions[i] = RibbonActions[i] with { KeyText = "WA", Title = "Ativar", Subtitle = "WhatsApp" };
+                RibbonActions[i] = BuildWhatsAppRibbonAction();
                 return;
             }
         }
+    }
+
+    private RibbonAction BuildWhatsAppRibbonAction()
+    {
+        return new RibbonAction("WhatsApp", "WA", "WhatsApp", "Atendimento");
     }
 
     private void SeedStore()
@@ -23917,7 +25204,7 @@ public partial class MainWindow : Window
                     "TransferProducts" => item with { KeyText = "F6", Title = "Transferir", Subtitle = "Comanda" },
                     "ReopenCommand" => item with { KeyText = "RC", Title = "Reabrir", Subtitle = "Gerente" },
                     "PeopleCount" => item with { KeyText = "EQ", Title = "Equipe", Subtitle = "Garcom/Caixa" },
-                    "WhatsApp" => item with { KeyText = "WA", Title = "Ativar", Subtitle = "WhatsApp" },
+                    "WhatsApp" => BuildWhatsAppRibbonAction(),
                     _ => item
                 });
             }
@@ -23941,7 +25228,9 @@ public partial class MainWindow : Window
             var loadedAppSettings = _appSettings;
             _appSettings = store.AppSettings;
             MergeWhatsAppSendPulseSettings(loadedAppSettings.WhatsApp, _appSettings.WhatsApp ??= new WhatsAppSettings());
+            TryApplyEvolutionLocalEnv(_appSettings.WhatsApp);
             RestoreWhatsAppRuntimeStateOnStartup();
+            NormalizeWhatsAppRibbonAction();
             NormalizeProductionDestinations();
             SaveAppSettings();
         }
@@ -25319,6 +26608,16 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string SendPulseOrderConfirmedScript { get; set; } = "";
         public string SendPulseOrderReadyScript { get; set; } = "";
         public string SendPulseOrderDispatchedScript { get; set; } = "";
+        public string EvolutionLocalBaseUrl { get; set; } = "http://localhost:8080";
+        public string EvolutionLocalApiKey { get; set; } = "";
+        public string EvolutionLocalInstanceName { get; set; } = "balcao-livre-online";
+        public string EvolutionLocalLastState { get; set; } = "";
+        public string EvolutionLocalConnectedName { get; set; } = "";
+        public string EvolutionLocalConnectedPhone { get; set; } = "";
+        public DateTime? EvolutionLocalLastConnectedAt { get; set; }
+        public bool EvolutionLocalAutoReceiveEnabled { get; set; }
+        public DateTime? EvolutionLocalLastMessageAt { get; set; }
+        public bool WhatsAppMessageOrdersEnabled { get; set; }
         public bool AutoPressEnter { get; set; } = true;
         public int SendDelaySeconds { get; set; } = 8;
         public string DefaultCountryCode { get; set; } = "55";
@@ -25450,6 +26749,9 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string PublicMenuBaseUrl { get; set; } = DefaultPublicMenuBaseUrl;
         public DateTime? LastPublicMenuPublishAt { get; set; }
         public bool PublicMenuStoreOpen { get; set; } = true;
+        public bool OnlineStoreScheduleEnabled { get; set; } = true;
+        public string OnlineStoreOpenTime { get; set; } = "00:00";
+        public string OnlineStoreCloseTime { get; set; } = "00:00";
         public int PublicMenuWaitMinMinutes { get; set; } = 30;
         public int PublicMenuWaitMaxMinutes { get; set; } = 60;
         public bool PublicMenuDiscountConfigured { get; set; }
@@ -25518,9 +26820,11 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string LicenseKey { get; set; } = "";
         public string MachineHash { get; set; } = "";
         public string MachineCode { get; set; } = "";
+        public string ClientKind { get; set; } = "windows-online";
         public string AppVersion { get; set; } = "";
         public DateTime? LocalExpiresAt { get; set; }
         public string LocalPlan { get; set; } = "";
+        public AdminEnvironmentSnapshot Environment { get; set; } = new();
         public AdminProfileSnapshot Profile { get; set; } = new();
         public AdminSettingsSnapshot Settings { get; set; } = new();
         public AdminMetricsSnapshot Metrics { get; set; } = new();
@@ -25743,8 +27047,12 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string CoverImageContentType { get; set; } = "";
         public string CoverImageBase64 { get; set; } = "";
         public bool StoreOpen { get; set; } = true;
+        public bool ScheduleEnabled { get; set; } = true;
+        public string OpenTime { get; set; } = "00:00";
+        public string CloseTime { get; set; } = "00:00";
         public int WaitMinMinutes { get; set; } = 30;
         public int WaitMaxMinutes { get; set; } = 60;
+        public bool WhatsAppMessageOrdersEnabled { get; set; }
         public bool DiscountEnabled { get; set; }
         public string DiscountCode { get; set; } = "EXCLUSIVO4";
         public decimal DiscountAmount { get; set; } = 4m;
@@ -25937,6 +27245,25 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string Address { get; set; } = "";
         public string City { get; set; } = "";
         public string State { get; set; } = "";
+    }
+
+    public sealed class AdminEnvironmentSnapshot
+    {
+        public string ClientProduct { get; set; } = "";
+        public string MachineName { get; set; } = "";
+        public string WindowsUser { get; set; } = "";
+        public string DomainName { get; set; } = "";
+        public string OperatingSystem { get; set; } = "";
+        public string OSArchitecture { get; set; } = "";
+        public string ProcessArchitecture { get; set; } = "";
+        public string PrimaryLocalIp { get; set; } = "";
+        public List<string> LocalIpAddresses { get; set; } = [];
+        public string PublicIp { get; set; } = "";
+        public string ForwardedFor { get; set; } = "";
+        public string UserAgent { get; set; } = "";
+        public string RequestHost { get; set; } = "";
+        public string TimeZone { get; set; } = "";
+        public string UtcOffset { get; set; } = "";
     }
 
     public sealed class AdminSettingsSnapshot

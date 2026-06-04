@@ -12,10 +12,6 @@ let currentPage = normalizePage(location.hash.replace("#", "")) || readStorage("
 let orderHistory = readStorage("balcao.cardapio.history", []);
 let orderStatusPollTimer = 0;
 let orderStatusPollRunning = false;
-let menuRefreshTimer = 0;
-let menuRefreshRunning = false;
-let menuRefreshVisibilityBound = false;
-const MENU_REFRESH_MS = 8000;
 
 function currentSlug() {
   const url = new URL(window.location.href);
@@ -573,7 +569,7 @@ function renderFeatured(items) {
   const host = qs("#featuredSection");
   if (!host) return;
   const featured = items
-    .filter(itemAvailable)
+    .filter((item) => item.is_in_stock !== false)
     .filter((item) => displayImageUrl(item.image_url))
     .slice(0, 4);
   if (!featured.length) {
@@ -666,12 +662,6 @@ function filterItems(items) {
   });
 }
 
-function itemAvailable(item) {
-  if (!item || item.is_in_stock === false) return false;
-  const stock = Number(item.stock_quantity);
-  return !Number.isFinite(stock) || stock > 0;
-}
-
 function cartQuantity(key) {
   return cart.find((line) => line.key === key)?.quantity || 0;
 }
@@ -690,50 +680,9 @@ function saveCart() {
   writeStorage("balcao.cardapio.notes", orderNotes);
 }
 
-function syncCartWithItems(items) {
-  let changed = false;
-  const byKey = new Map(items.map((item, index) => [itemKey(item, index), item]));
-  const byCode = new Map(items.filter((item) => item.code).map((item) => [String(item.code), item]));
-
-  cart = cart
-    .map((line) => {
-      const item = byKey.get(line.key) || byCode.get(String(line.code || ""));
-      if (!item || !itemAvailable(item)) {
-        changed = true;
-        return null;
-      }
-
-      const stock = Number(item.stock_quantity);
-      const maxQuantity = Number.isFinite(stock) ? Math.max(0, Math.floor(stock)) : line.quantity;
-      const quantity = Math.min(line.quantity, maxQuantity);
-      if (quantity <= 0) {
-        changed = true;
-        return null;
-      }
-
-      const nextLine = {
-        ...line,
-        code: item.code || line.code || "",
-        name: item.name || line.name || "Produto",
-        category: item.category || line.category || "Cardapio",
-        price: Number(item.price || 0),
-        quantity
-      };
-
-      if (JSON.stringify(nextLine) !== JSON.stringify(line)) {
-        changed = true;
-      }
-
-      return nextLine;
-    })
-    .filter(Boolean);
-
-  if (changed) saveCart();
-}
-
 function addItemByKey(key) {
   const item = currentItems.find((entry, index) => itemKey(entry, index) === key);
-  if (!itemAvailable(item)) return;
+  if (!item || item.is_in_stock === false) return;
 
   const existing = cart.find((line) => line.key === key);
   if (existing) {
@@ -843,7 +792,7 @@ function renderMenu(menu, items) {
     for (const item of categoryItems) {
       const index = currentItems.indexOf(item);
       const key = itemKey(item, index);
-      const available = itemAvailable(item);
+      const available = item.is_in_stock !== false;
       const quantity = cartQuantity(key);
       const stockText = Number.isFinite(Number(item.stock_quantity))
         ? `Estoque ${Number(item.stock_quantity).toLocaleString("pt-BR", { maximumFractionDigits: 3 })}`
@@ -1240,62 +1189,21 @@ function renderEverything() {
   setPage(currentPage, false);
 }
 
-async function loadPublicMenuData(slug = currentSlug()) {
-  const menus = await supabaseGet(`/bv_public_menus?slug=eq.${encodeURIComponent(slug)}&is_published=eq.true&select=id,slug,name,description,phone,address,city,state,logo_url,cover_image_url,theme_color,store_open,schedule_enabled,open_time,close_time,wait_min_minutes,wait_max_minutes,discount_enabled,discount_code,discount_amount,discount_description,loyalty_enabled,loyalty_goal,loyalty_minimum_order,updated_at&limit=1`);
-  const menu = menus[0];
-  if (!menu) return null;
-
-  const items = await supabaseGet(`/bv_public_menu_items?menu_id=eq.${encodeURIComponent(menu.id)}&is_active=eq.true&select=code,name,description,category,price,stock_quantity,is_in_stock,image_url,sort_order&order=category.asc,sort_order.asc,name.asc`);
-  return { menu, items };
-}
-
-async function refreshPublicMenuData() {
-  if (menuRefreshRunning || !currentMenu) return;
-  menuRefreshRunning = true;
-  try {
-    const data = await loadPublicMenuData(currentMenu.slug || currentSlug());
-    if (!data) return;
-    currentMenu = data.menu;
-    currentItems = data.items;
-    syncCartWithItems(currentItems);
-    renderEverything();
-  } catch (error) {
-    console.warn("Public menu refresh failed", error);
-  } finally {
-    menuRefreshRunning = false;
-  }
-}
-
-function startMenuRefreshPolling() {
-  if (!menuRefreshTimer) {
-    menuRefreshTimer = window.setInterval(() => {
-      if (!document.hidden) refreshPublicMenuData();
-    }, MENU_REFRESH_MS);
-  }
-
-  if (!menuRefreshVisibilityBound) {
-    menuRefreshVisibilityBound = true;
-    document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) refreshPublicMenuData();
-    });
-  }
-}
-
 async function boot() {
   const slug = currentSlug();
   try {
-    const data = await loadPublicMenuData(slug);
-    if (!data) {
+  const menus = await supabaseGet(`/bv_public_menus?slug=eq.${encodeURIComponent(slug)}&is_published=eq.true&select=id,slug,name,description,phone,address,city,state,logo_url,cover_image_url,theme_color,store_open,schedule_enabled,open_time,close_time,wait_min_minutes,wait_max_minutes,discount_enabled,discount_code,discount_amount,discount_description,loyalty_enabled,loyalty_goal,loyalty_minimum_order,updated_at&limit=1`);
+    const menu = menus[0];
+    if (!menu) {
       setStatus("Cardapio nao encontrado ou ainda nao publicado.", true);
       qs("#restaurantName").textContent = "Cardapio indisponivel";
       return;
     }
 
-    currentMenu = data.menu;
-    currentItems = data.items;
-    syncCartWithItems(currentItems);
+    const items = await supabaseGet(`/bv_public_menu_items?menu_id=eq.${encodeURIComponent(menu.id)}&is_active=eq.true&select=code,name,description,category,price,stock_quantity,is_in_stock,image_url,sort_order&order=category.asc,sort_order.asc,name.asc`);
+    currentMenu = menu;
+    currentItems = items;
     renderEverything();
-    startMenuRefreshPolling();
     startOrderStatusPolling();
   } catch (error) {
     setStatus(error.message || "Nao foi possivel carregar o cardapio.", true);

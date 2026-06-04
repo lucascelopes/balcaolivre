@@ -13,6 +13,7 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
@@ -31,6 +32,12 @@ public partial class MainWindow
 {
     private const int WhatsAppConnectorPort = 8787;
     private const int WhatsAppChromeDebugPort = 9223;
+    private const string WhatsAppProviderMeta = "META";
+    private const string WhatsAppProviderLocalDom = "LOCAL_DOM";
+    private const string WhatsAppProviderEvolutionLocal = "EVOLUTION_LOCAL";
+    private const string DefaultEvolutionLocalBaseUrl = "http://localhost:8080";
+    private const string DefaultEvolutionLocalInstanceName = "balcao-livre-online";
+    private const string LegacyEvolutionLocalInstanceName = "balcao-livre-local";
     private static readonly HttpClient SendPulseWhatsAppHttp = new()
     {
         BaseAddress = new Uri("https://api.sendpulse.com/whatsapp/")
@@ -40,6 +47,8 @@ public partial class MainWindow
     private TextBlock? _whatsAppAutomationStatusText;
     private string _lastWhatsAppAutomationStatus = "";
     private readonly Dictionary<string, DateTime> _whatsAppIncomingDedupe = new();
+    private readonly HashSet<string> _whatsAppManualChatPhones = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DateTime> _whatsAppActiveConversationNotices = new(StringComparer.Ordinal);
     private bool _sendPulseActivationRunning;
 
     private sealed class WhatsAppCatalogEntry
@@ -69,6 +78,50 @@ public partial class MainWindow
         string ReceiptPath,
         List<TicketLine> Lines,
         List<PaymentLine> Payments);
+
+    private sealed class EvolutionLocalResult
+    {
+        public bool Ok { get; set; }
+        public string Message { get; set; } = "";
+        public string State { get; set; } = "";
+        public string Version { get; set; } = "";
+        public string QrBase64 { get; set; } = "";
+        public string ConnectedName { get; set; } = "";
+        public string ConnectedPhone { get; set; } = "";
+
+        public static EvolutionLocalResult Success(string message) => new() { Ok = true, Message = message };
+        public static EvolutionLocalResult Fail(string message) => new() { Ok = false, Message = message };
+    }
+
+    private sealed class EvolutionIncomingMessage
+    {
+        public string Id { get; set; } = "";
+        public string CustomerName { get; set; } = "";
+        public string Phone { get; set; } = "";
+        public string Text { get; set; } = "";
+        public DateTime When { get; set; } = DateTime.Now;
+        public bool FromMe { get; set; }
+    }
+
+    private sealed class EvolutionChatConversation
+    {
+        public string Jid { get; set; } = "";
+        public string Phone { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string LastMessage { get; set; } = "";
+        public DateTime UpdatedAt { get; set; } = DateTime.Now;
+        public int UnreadCount { get; set; }
+        public string Display => $"{(string.IsNullOrWhiteSpace(Name) ? FormatWhatsAppDisplayPhone(Phone) : Name)}\n{FormatWhatsAppDisplayPhone(Phone)}";
+    }
+
+    private sealed class EvolutionChatLine
+    {
+        public string Id { get; set; } = "";
+        public string Text { get; set; } = "";
+        public DateTime When { get; set; } = DateTime.Now;
+        public bool FromMe { get; set; }
+        public string Display => $"{(FromMe ? "Voce" : "Cliente")}  {When:HH:mm}\n{Text}";
+    }
 
     private const string WhatsAppWebViewAutomationScript = """
 (() => {
@@ -659,9 +712,16 @@ public partial class MainWindow
         }
 
         var useLocalDom = IsLocalDomWhatsApp(settings);
-        var message = useLocalDom ? BuildWhatsAppSaleMessage(context) : BuildSendPulseSaleMessage(context);
+        var useEvolutionLocal = IsEvolutionLocalWhatsApp(settings);
+        var message = useLocalDom || useEvolutionLocal ? BuildWhatsAppSaleMessage(context) : BuildSendPulseSaleMessage(context);
         var log = AddWhatsAppLog(context, phone, message, "ENVIANDO_WHATSAPP", "");
         SaveStore();
+        if (useEvolutionLocal)
+        {
+            _ = SendWhatsAppLogViaEvolutionLocalAsync(log);
+            return;
+        }
+
         if (useLocalDom)
         {
             if (_whatsAppAutomationView?.CoreWebView2 is not null)
@@ -673,7 +733,7 @@ public partial class MainWindow
                 log.Status = "AGUARDANDO_ATENDIMENTO";
                 log.Error = "Abra Atendimento WhatsApp para o envio automatico local.";
                 SaveStore();
-                SetStatus("WhatsApp local aguardando: abra Atendimento WhatsApp para enviar recibos automaticamente.");
+                SetStatus("WhatsApp online aguardando: abra Atendimento WhatsApp para enviar recibos automaticamente.");
             }
 
             return;
@@ -718,7 +778,48 @@ public partial class MainWindow
 
         WhatsAppHistory.Insert(0, log);
         TrimWhatsAppHistory();
+        if (string.Equals(status, "RECEBIDA", StringComparison.OrdinalIgnoreCase))
+        {
+            MarkWhatsAppConversationActive(log);
+        }
+
         return log;
+    }
+
+    private void MarkWhatsAppConversationActive(WhatsAppMessageLog log)
+    {
+        var phone = NormalizeWhatsAppPhone(log.Phone, GetWhatsAppSettings().DefaultCountryCode);
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            return;
+        }
+
+        var touchedOrders = DeliveryTiles
+            .Where(tile => PhoneMatchesBot(phone, NormalizeWhatsAppPhone(tile.Phone, GetWhatsAppSettings().DefaultCountryCode)))
+            .ToList();
+        foreach (var order in touchedOrders)
+        {
+            if (!order.Detail.Contains("WHATSAPP_ATIVO", StringComparison.OrdinalIgnoreCase))
+            {
+                order.Detail = string.IsNullOrWhiteSpace(order.Detail)
+                    ? "WHATSAPP_ATIVO"
+                    : $"{order.Detail} WHATSAPP_ATIVO";
+            }
+
+            order.RefreshVisualState();
+        }
+
+        var now = DateTime.Now;
+        if (_whatsAppActiveConversationNotices.TryGetValue(phone, out var lastNotice)
+            && now - lastNotice < TimeSpan.FromSeconds(45))
+        {
+            return;
+        }
+
+        _whatsAppActiveConversationNotices[phone] = now;
+        var name = string.IsNullOrWhiteSpace(log.CustomerName) ? FormatWhatsAppDisplayPhone(phone) : log.CustomerName.Trim();
+        var text = $"WhatsApp ativo: {name} esta conversando com o atendimento.";
+        SetStatus(text);
     }
 
     private WhatsAppMessageLog AddWhatsAppInteractionLog(string customerName, string phone, string message, string status, string error = "", decimal total = 0)
@@ -841,25 +942,25 @@ public partial class MainWindow
         var catalog = BuildWhatsAppCatalog();
         if (catalog.Count == 0)
         {
-            return "Cardapio indisponivel no momento. Nenhum produto ativo com estoque disponivel.";
+            return "No momento nao tenho produto com estoque disponivel no cardapio. Chame um atendente por aqui que a loja te ajuda.";
         }
 
         var sb = new StringBuilder();
-        sb.AppendLine("Cardapio");
+        sb.AppendLine("🍔 Cardapio rapido");
         foreach (var group in catalog.GroupBy(item => item.Product.Category).OrderBy(group => group.Key))
         {
             sb.AppendLine();
-            sb.AppendLine(group.Key);
+                sb.AppendLine($"🛍️ {group.Key}");
             foreach (var item in group.OrderBy(item => item.Code))
             {
-                sb.AppendLine($"{item.Code} ({item.Number}) - {item.Product.Name} - {Money(item.Product.Price)}");
+                sb.AppendLine($"> {item.Code} - {item.Product.Name} - {Money(item.Product.Price)}");
             }
         }
 
         var first = catalog[0];
         var second = catalog.Skip(1).FirstOrDefault() ?? first;
         sb.AppendLine();
-        sb.AppendLine("Para pedir, envie assim:");
+        sb.AppendLine("👇 Para pedir, mande assim:");
         sb.AppendLine($"{first.Code} x2");
         if (!ReferenceEquals(second, first))
         {
@@ -867,20 +968,63 @@ public partial class MainWindow
         }
         sb.AppendLine();
         sb.AppendLine($"Tambem pode usar o numero da lista, exemplo: {first.Number} x2.");
-        sb.AppendLine("Produtos sem estoque nao aparecem aqui.");
         return sb.ToString();
     }
 
     private string BuildWhatsAppGreetingMenuText()
     {
         var menuUrl = BuildWhatsAppPublicMenuUrl();
+        var storeName = WhatsAppStoreName();
+        var messageOrdersEnabled = GetWhatsAppSettings().WhatsAppMessageOrdersEnabled;
         var onlineStatus = _appSettings.PublicMenuStoreOpen
-            ? $"Loja online aberta. Previsao media: {_appSettings.PublicMenuWaitMinMinutes} a {_appSettings.PublicMenuWaitMaxMinutes} min."
-            : "No momento a loja online esta fechada. O cardapio fica disponivel para consulta.";
-        var intro = string.IsNullOrWhiteSpace(menuUrl)
-            ? $"{WhatsAppGreetingFor(DateTime.Now)}! Segue nosso cardapio:"
-            : $"{WhatsAppGreetingFor(DateTime.Now)}! Cardapio online:\n{menuUrl}\n{onlineStatus}\n\nTambem da para pedir por codigo aqui:";
-        return $"{intro}\n\n{BuildWhatsAppMenuText()}";
+            ? $"Nossa loja esta aberta agora. {BuildOnlineStoreScheduleText()} Previsao media: {_appSettings.PublicMenuWaitMinMinutes} a {_appSettings.PublicMenuWaitMaxMinutes} min."
+            : $"Agora a loja online esta fechada. {BuildOnlineStoreScheduleText()} Voce ainda pode consultar o cardapio.";
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"{WhatsAppGreetingFor(DateTime.Now)}! Eu sou o atendimento virtual do {storeName}.");
+        sb.AppendLine();
+        if (!string.IsNullOrWhiteSpace(menuUrl))
+        {
+            sb.AppendLine(onlineStatus);
+            sb.AppendLine("Voce pode conferir o cardapio completo e fazer seu pedido por aqui:");
+            sb.AppendLine(menuUrl);
+            if (messageOrdersEnabled)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Se preferir, mande os codigos dos produtos nesta conversa.");
+            }
+        }
+        else if (messageOrdersEnabled)
+        {
+            sb.AppendLine("Segue o cardapio para pedir por mensagem:");
+        }
+        else
+        {
+            sb.AppendLine("No momento o cardapio online nao esta configurado. Envie ATENDENTE para falar com a loja.");
+        }
+
+        if (messageOrdersEnabled)
+        {
+            sb.AppendLine();
+            sb.Append(BuildWhatsAppMenuText());
+        }
+
+        sb.AppendLine();
+        sb.Append("Se tiver alguma duvida, e so perguntar.");
+        return sb.ToString();
+    }
+
+    private string BuildWhatsAppMessageOrdersDisabledText()
+    {
+        var menuUrl = BuildWhatsAppPublicMenuUrl();
+        if (!string.IsNullOrWhiteSpace(menuUrl))
+        {
+            return "Para fazer seu pedido, use o cardapio online:\n"
+                + menuUrl
+                + "\n\nSe precisar de ajuda, envie ATENDENTE.";
+        }
+
+        return "Envie ATENDENTE para falar com a loja.";
     }
 
     private string BuildWhatsAppPublicMenuUrl()
@@ -906,16 +1050,18 @@ public partial class MainWindow
     private string BuildWhatsAppStoreHoursText()
     {
         var menuUrl = BuildWhatsAppPublicMenuUrl();
-        var storeName = string.IsNullOrWhiteSpace(_profile.BusinessName) ? AppReceiptName : _profile.BusinessName.Trim();
+        var storeName = WhatsAppStoreName();
         var lines = new List<string>();
         if (_appSettings.PublicMenuStoreOpen)
         {
             lines.Add($"{storeName} esta atendendo online agora.");
+            lines.Add(BuildOnlineStoreScheduleText());
             lines.Add($"Previsao media: {_appSettings.PublicMenuWaitMinMinutes} a {_appSettings.PublicMenuWaitMaxMinutes} min.");
         }
         else
         {
             lines.Add($"{storeName} esta fechada ou fora do horario de atendimento online no momento.");
+            lines.Add(BuildOnlineStoreScheduleText());
             lines.Add("Voce pode consultar o cardapio e chamar o atendimento quando a loja voltar.");
         }
 
@@ -938,19 +1084,7 @@ public partial class MainWindow
                 : $"Nao encontrei pedido recente para este WhatsApp.\nPara fazer um novo pedido: {menuUrl}\nPara falar com atendente, envie ATENDENTE.";
         }
 
-        var status = NormalizeIFoodBoardStatus(order.Status);
-        var phrase = status switch
-        {
-            "NOVO" or "RECEBIDO" or "IMPORTADO" or "CONFIRMADO" or "ACEITO" => "recebido pela loja e aguardando preparo.",
-            "PREPARO" or "PREPARANDO" => "em preparo.",
-            "PRONTO" => "pronto.",
-            "ROTA" or "DESPACHADO" => "saiu para entrega e esta a caminho.",
-            "ENTREGUE" or "FINALIZADO" => "entregue/finalizado.",
-            "CANCELAMENTO" or "CANCELADO" => "cancelado.",
-            _ => "em acompanhamento pela loja."
-        };
-
-        return $"Pedido {order.Number} - {phrase}\nTotal: {Money(order.Total)}.";
+        return BuildWhatsAppOrderUpdateText(order, customerName);
     }
 
     private TableTile? FindLatestWhatsAppCustomerOrder(string customerName, string phone)
@@ -975,6 +1109,196 @@ public partial class MainWindow
             < 18 => "Boa tarde",
             _ => "Boa noite"
         };
+    }
+
+    private string WhatsAppStoreName()
+    {
+        return string.IsNullOrWhiteSpace(_profile.BusinessName) ? AppReceiptName : _profile.BusinessName.Trim();
+    }
+
+    private static string WhatsAppFirstName(string value)
+    {
+        var clean = CompactSingleLine(value);
+        if (string.IsNullOrWhiteSpace(clean))
+        {
+            return "";
+        }
+
+        var first = clean.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? clean;
+        return CultureInfo.CurrentCulture.TextInfo.ToTitleCase(first.ToLower(CultureInfo.CurrentCulture));
+    }
+
+    private static string WhatsAppOrderId(TableTile order)
+    {
+        return string.IsNullOrWhiteSpace(order.ExternalDisplayId) ? order.Number : order.ExternalDisplayId;
+    }
+
+    private string BuildWhatsAppOrderDetailsBlock(TableTile order)
+    {
+        var sb = new StringBuilder();
+        var deliveryLabel = PublicMenuOrderTypeLabel(order.ExternalOrderType);
+        if (string.IsNullOrWhiteSpace(deliveryLabel) || deliveryLabel == "CARDAPIO")
+        {
+            deliveryLabel = order.Kind == "DELIVERY" ? "ENTREGA" : order.Kind;
+        }
+
+        sb.AppendLine($"🛵 Entrega: {deliveryLabel}");
+        if (order.ExternalDeliveryExpectedAt.HasValue)
+        {
+            sb.AppendLine($"⏱️ Previsao: {order.ExternalDeliveryExpectedAt.Value:HH:mm}");
+        }
+        else if (_appSettings.PublicMenuWaitMaxMinutes > 0)
+        {
+            var estimate = DateTime.Now.AddMinutes(Math.Max(_appSettings.PublicMenuWaitMinMinutes, _appSettings.PublicMenuWaitMaxMinutes));
+            sb.AppendLine($"⏱️ Previsao: {estimate:HH:mm}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(order.Address))
+        {
+            var address = string.Join(" - ", new[] { order.District, order.Address }
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item.Trim()));
+            sb.AppendLine($"📍 Endereco: {address}");
+        }
+
+        var productLines = order.Lines
+            .Where(line => !IsTableCharge(line))
+            .Take(8)
+            .ToList();
+        if (productLines.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("🛍️ Produtos");
+            foreach (var line in productLines)
+            {
+                sb.AppendLine($"> {line.Quantity:N0}x {line.Name} - {Money(line.Total)}");
+                if (!string.IsNullOrWhiteSpace(line.Note))
+                {
+                    sb.AppendLine($"  Obs: {line.Note.Trim()}");
+                }
+            }
+
+            var hidden = order.Lines.Count(line => !IsTableCharge(line)) - productLines.Count;
+            if (hidden > 0)
+            {
+                sb.AppendLine($"> + {hidden:N0} item(ns)");
+            }
+        }
+
+        var payment = FirstNonEmpty(order.ExternalPaymentSummary, order.ExternalPaymentMethod);
+        if (order.Payments.Count > 0)
+        {
+            payment = string.Join(", ", order.Payments
+                .GroupBy(item => item.Method)
+                .Select(group => $"{group.Key} {Money(group.Sum(item => item.Amount))}"));
+        }
+
+        if (!string.IsNullOrWhiteSpace(payment) && !payment.Equals(AppDisplayName, StringComparison.Ordinal))
+        {
+            sb.AppendLine();
+            sb.AppendLine($"💳 Pagamento: {payment}");
+        }
+
+        sb.AppendLine($"TOTAL: {Money(order.Total)}");
+        return sb.ToString().TrimEnd();
+    }
+
+    private string BuildWhatsAppOrderUpdateText(TableTile order, string customerName)
+    {
+        var status = NormalizeIFoodBoardStatus(order.Status);
+        var firstName = WhatsAppFirstName(string.IsNullOrWhiteSpace(customerName) ? order.CustomerName : customerName);
+        var customerSuffix = string.IsNullOrWhiteSpace(firstName) ? "" : $", {firstName}";
+        var title = status switch
+        {
+            "NOVO" or "RECEBIDO" or "IMPORTADO" or "CONFIRMADO" or "ACEITO" => $"✅ Pedido confirmado{customerSuffix}",
+            "PREPARO" or "PREPARANDO" => $"🔥 Pedido em producao{customerSuffix}",
+            "PRONTO" => $"🍔 Pedido pronto{customerSuffix}",
+            "ROTA" or "DESPACHADO" => $"🛵 Pedido saiu para entrega{customerSuffix}",
+            "ENTREGUE" or "FINALIZADO" => $"✅ Pedido entregue{customerSuffix}",
+            "CANCELAMENTO" or "CANCELADO" => $"⚠️ Pedido cancelado{customerSuffix}",
+            _ => $"📦 Atualizacao do pedido{customerSuffix}"
+        };
+        var phrase = status switch
+        {
+            "NOVO" or "RECEBIDO" or "IMPORTADO" or "CONFIRMADO" or "ACEITO" => "Agora ele entrou na fila de producao.",
+            "PREPARO" or "PREPARANDO" => "A cozinha ja esta preparando tudo.",
+            "PRONTO" => "Ja esta pronto e logo sai para entrega ou retirada.",
+            "ROTA" or "DESPACHADO" => "Agora segura mais um pouco que esta chegando.",
+            "ENTREGUE" or "FINALIZADO" => $"Obrigado por escolher o {WhatsAppStoreName()}.",
+            "CANCELAMENTO" or "CANCELADO" => "Se precisar, chame o atendimento por aqui.",
+            _ => "Vamos te atualizando por aqui."
+        };
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"{title}");
+        sb.AppendLine($"#{WhatsAppOrderId(order)}");
+        sb.AppendLine(phrase);
+        sb.AppendLine();
+        sb.AppendLine(BuildWhatsAppOrderDetailsBlock(order));
+        if (status is not ("ENTREGUE" or "FINALIZADO" or "CANCELAMENTO" or "CANCELADO"))
+        {
+            sb.AppendLine();
+            sb.AppendLine("Fica tranquilo que vamos te atualizando por aqui.");
+        }
+
+        var menuUrl = BuildWhatsAppPublicMenuUrl();
+        if ((status is "ENTREGUE" or "FINALIZADO") && !string.IsNullOrWhiteSpace(menuUrl))
+        {
+            sb.AppendLine();
+            sb.AppendLine("Quando bater aquela vontade, e so pedir de novo:");
+            sb.AppendLine(menuUrl);
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private string BuildWhatsAppConfirmedOrderText(WhatsAppPendingOrder order, TableTile? tile)
+    {
+        if (tile is not null)
+        {
+            return BuildWhatsAppOrderUpdateText(tile, order.CustomerName);
+        }
+
+        var sb = new StringBuilder();
+        var firstName = WhatsAppFirstName(order.CustomerName);
+        sb.AppendLine(string.IsNullOrWhiteSpace(firstName)
+            ? "✅ Pedido confirmado!"
+            : $"✅ Pedido confirmado, {firstName}!");
+        sb.AppendLine("Agora ele entrou na fila de producao.");
+        sb.AppendLine();
+        sb.AppendLine(BuildWhatsAppPendingOrderDetailsBlock(order));
+        sb.AppendLine();
+        sb.AppendLine("Fica tranquilo que vamos te atualizando por aqui.");
+        return sb.ToString();
+    }
+
+    private string BuildWhatsAppPendingOrderDetailsBlock(WhatsAppPendingOrder order)
+    {
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(order.Address))
+        {
+            sb.AppendLine($"📍 Endereco: {order.Address.Trim()}");
+        }
+
+        sb.AppendLine("🛍️ Produtos");
+        foreach (var item in order.Items.Take(8))
+        {
+            sb.AppendLine($"> {item.Quantity:N0}x {item.Name} - {Money(item.Total)}");
+        }
+
+        if (order.Items.Count > 8)
+        {
+            sb.AppendLine($"> + {order.Items.Count - 8:N0} item(ns)");
+        }
+
+        if (!string.IsNullOrWhiteSpace(order.PaymentMethod))
+        {
+            sb.AppendLine();
+            sb.AppendLine($"💳 Pagamento: {order.PaymentMethod}");
+        }
+
+        sb.AppendLine($"TOTAL: {Money(order.Total)}");
+        return sb.ToString().TrimEnd();
     }
 
     private WhatsAppPendingOrder ParseWhatsAppOrderMessage(string message, string customerName, string phone)
@@ -1055,44 +1379,34 @@ public partial class MainWindow
         }
 
         var sb = new StringBuilder();
-        sb.AppendLine("Pedido encontrado");
+        var firstName = WhatsAppFirstName(order.CustomerName);
+        sb.AppendLine(string.IsNullOrWhiteSpace(firstName)
+            ? "✅ Pedido encontrado!"
+            : $"✅ Boa, {firstName}! Encontrei seu pedido.");
         sb.AppendLine();
-        foreach (var item in order.Items)
-        {
-            sb.AppendLine($"{item.Quantity}x {item.Name} - {Money(item.Total)}");
-        }
-
-        sb.AppendLine();
-        sb.AppendLine($"Total: {Money(order.Total)}");
-        if (!string.IsNullOrWhiteSpace(order.PaymentMethod))
-        {
-            sb.AppendLine($"Pagamento: {order.PaymentMethod}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(order.Address))
-        {
-            sb.AppendLine($"Endereco: {order.Address}");
-        }
+        sb.AppendLine(BuildWhatsAppPendingOrderDetailsBlock(order));
 
         if (order.Warnings.Count > 0)
         {
             sb.AppendLine();
-            sb.AppendLine("Observacoes para conferir:");
+            sb.AppendLine("Pontos para conferir:");
             foreach (var warning in order.Warnings.Take(3))
             {
-                sb.AppendLine($"- {warning}");
+                sb.AppendLine($"> {warning}");
             }
         }
 
         sb.AppendLine();
-        sb.AppendLine("Confirma o pedido? Responda SIM para confirmar ou ALTERAR para mudar.");
+        sb.AppendLine("Confirma o pedido?");
+        sb.AppendLine("Responda SIM para confirmar ou ALTERAR para mudar.");
         return sb.ToString();
     }
 
     private string HandleWhatsAppIncomingMessage(string customerName, string phone, string message, bool createOnConfirmation)
     {
-        var normalizedPhone = NormalizeWhatsAppPhone(phone, GetWhatsAppSettings().DefaultCountryCode);
-        var conversationKey = BuildWhatsAppConversationKey(customerName, phone, GetWhatsAppSettings().DefaultCountryCode);
+        var settings = GetWhatsAppSettings();
+        var normalizedPhone = NormalizeWhatsAppPhone(phone, settings.DefaultCountryCode);
+        var conversationKey = BuildWhatsAppConversationKey(customerName, phone, settings.DefaultCountryCode);
         var clean = NormalizeWhatsAppText(message);
 
         AddWhatsAppInteractionLog(customerName, normalizedPhone, message, "RECEBIDA");
@@ -1124,6 +1438,11 @@ public partial class MainWindow
             return Reply(BuildWhatsAppGreetingMenuText(), "CARDAPIO_ENVIADO");
         }
 
+        if (!settings.WhatsAppMessageOrdersEnabled)
+        {
+            return Reply(BuildWhatsAppMessageOrdersDisabledText(), "PEDIDO_WHATSAPP_DESLIGADO");
+        }
+
         var pending = WhatsAppPendingOrders
             .Where(item => string.Equals(item.ConversationKey, conversationKey, StringComparison.Ordinal)
                 && item.Status == "AGUARDANDO_CONFIRMACAO")
@@ -1141,11 +1460,11 @@ public partial class MainWindow
             pending.ConfirmedAt = DateTime.Now;
             if (createOnConfirmation)
             {
-                CreateDeliveryFromWhatsAppOrder(pending, selectOrder: false);
-                return Reply($"Pedido confirmado e enviado para o PDV. Total: {Money(pending.Total)}.", "PEDIDO_CRIADO", pending.Total);
+                var tile = CreateDeliveryFromWhatsAppOrder(pending, selectOrder: false);
+                return Reply(BuildWhatsAppConfirmedOrderText(pending, tile), "PEDIDO_CRIADO", pending.Total);
             }
 
-            return Reply($"Pedido confirmado. Total: {Money(pending.Total)}.", "CONFIRMADO", pending.Total);
+            return Reply(BuildWhatsAppConfirmedOrderText(pending, null), "CONFIRMADO", pending.Total);
         }
 
         if (clean is "ALTERAR" or "MUDAR" or "NAO")
@@ -1516,7 +1835,1255 @@ public partial class MainWindow
 
     private void ShowWhatsAppDialog()
     {
-        ShowSimpleSendPulseWhatsAppDialog();
+        ShowEvolutionLocalWhatsAppDialog();
+    }
+
+    private void ShowEvolutionLocalWhatsAppDialog()
+    {
+        if (!RequirePermission(user => IsCashUser(user) || CanOperateDelivery(user), "WhatsApp do cliente"))
+        {
+            return;
+        }
+
+        SaveActiveTicketToCurrentBoard();
+        var settings = GetWhatsAppSettings();
+        NormalizeWhatsAppEvolutionLocalSettings();
+        TryApplyEvolutionLocalEnv(settings);
+        SaveAppSettings();
+
+        var dialog = CreateDialog("WhatsApp da loja", 700, 540);
+        var serviceBox = new TextBox { Text = settings.EvolutionLocalBaseUrl };
+        var apiKeyBox = new PasswordBox
+        {
+            Password = settings.EvolutionLocalApiKey,
+            Height = 38
+        };
+        var instanceBox = new TextBox { Text = settings.EvolutionLocalInstanceName };
+        var storePhoneBox = new TextBox
+        {
+            Text = string.IsNullOrWhiteSpace(settings.SendPulseStorePhone)
+                ? NormalizeWhatsAppPhone(_profile.Phone, settings.DefaultCountryCode)
+                : settings.SendPulseStorePhone
+        };
+        var statusText = new TextBlock
+        {
+            Foreground = Solid("#5B6B7A"),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        var autoStatusText = new TextBlock
+        {
+            Foreground = Solid("#5B6B7A"),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        var connectedInitialsText = new TextBlock
+        {
+            Text = "WA",
+            Foreground = System.Windows.Media.Brushes.White,
+            FontWeight = FontWeights.Bold,
+            FontSize = 22,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var connectedNameText = new TextBlock
+        {
+            Text = "WhatsApp da loja",
+            Foreground = Solid("#071A2C"),
+            FontWeight = FontWeights.Bold,
+            FontSize = 24,
+            TextWrapping = TextWrapping.Wrap
+        };
+        var connectedPhoneText = new TextBlock
+        {
+            Foreground = Solid("#496071"),
+            FontSize = 15,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        var connectedSinceText = new TextBlock
+        {
+            Foreground = Solid("#496071"),
+            FontSize = 13,
+            Margin = new Thickness(0, 8, 0, 0),
+            TextWrapping = TextWrapping.Wrap
+        };
+        var connectedPillText = new TextBlock
+        {
+            Text = "ONLINE",
+            Foreground = System.Windows.Media.Brushes.White,
+            FontWeight = FontWeights.Bold,
+            FontSize = 12
+        };
+        var titleText = new TextBlock
+        {
+            FontSize = 22,
+            FontWeight = FontWeights.Bold,
+            Foreground = Solid("#071A2C"),
+            Text = "Conectar WhatsApp"
+        };
+        var subtitleText = new TextBlock
+        {
+            Foreground = Solid("#5B6B7A"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 5, 0, 0)
+        };
+        var badgeText = new TextBlock
+        {
+            FontWeight = FontWeights.Bold,
+            FontSize = 12
+        };
+        var badge = new Border
+        {
+            Child = badgeText,
+            CornerRadius = new CornerRadius(999),
+            Padding = new Thickness(10, 4, 10, 4),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 10, 0, 0),
+            BorderThickness = new Thickness(1)
+        };
+        var qrImage = new System.Windows.Controls.Image
+        {
+            Width = 320,
+            Height = 320,
+            Stretch = Stretch.Uniform,
+            Visibility = Visibility.Collapsed
+        };
+        var qrPlaceholder = new TextBlock
+        {
+            Text = "Preparando QR...",
+            Foreground = Solid("#5B6B7A"),
+            FontWeight = FontWeights.SemiBold,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(18)
+        };
+        var qrFrame = new Border
+        {
+            Background = System.Windows.Media.Brushes.White,
+            BorderBrush = Solid("#CAD6E2"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(16),
+            Padding = new Thickness(18),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Child = new Grid
+            {
+                Width = 356,
+                Height = 356,
+                Children = { qrImage, qrPlaceholder }
+            }
+        };
+        var messageOrdersBox = new CheckBox
+        {
+            Content = "Aceitar pedidos digitados no WhatsApp",
+            IsChecked = settings.WhatsAppMessageOrdersEnabled,
+            FontWeight = FontWeights.Bold
+        };
+        var messageOrdersHint = new TextBlock
+        {
+            Foreground = Solid("#5B6B7A"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 6, 0, 0)
+        };
+        Border? qrCard = null;
+        Border? connectedCard = null;
+        Border? headerCard = null;
+        Border? messageOrdersCard = null;
+
+        void SaveInputs()
+        {
+            settings.Enabled = true;
+            settings.Provider = WhatsAppProviderEvolutionLocal;
+            settings.DefaultCountryCode = "55";
+            settings.EvolutionLocalBaseUrl = NormalizeEvolutionLocalBaseUrl(serviceBox.Text);
+            settings.EvolutionLocalApiKey = apiKeyBox.Password.Trim();
+            settings.EvolutionLocalInstanceName = NormalizeEvolutionLocalInstanceName(instanceBox.Text);
+            settings.SendPulseStorePhone = NormalizeWhatsAppPhone(storePhoneBox.Text, settings.DefaultCountryCode);
+            settings.WhatsAppMessageOrdersEnabled = messageOrdersBox.IsChecked == true;
+            settings.SendPulseBotId = WhatsAppProviderEvolutionLocal;
+            settings.SendPulseActivationPending = false;
+            settings.ExtensionInstalledConfirmed = false;
+            settings.LocalConnectorEnabled = false;
+            settings.AutoReplyConnector = true;
+            settings.AutoCreateConfirmedOrders = true;
+            CloseManagedWhatsAppBrowser(settings);
+            _ = _whatsAppConnectorServer?.StopAsync();
+            _whatsAppConnectorServer = null;
+            NormalizeWhatsAppEvolutionLocalSettings();
+            SaveAppSettings();
+            SaveStore();
+        }
+
+        void RefreshInputsFromSettings()
+        {
+            serviceBox.Text = settings.EvolutionLocalBaseUrl;
+            apiKeyBox.Password = settings.EvolutionLocalApiKey;
+            instanceBox.Text = settings.EvolutionLocalInstanceName;
+            storePhoneBox.Text = settings.SendPulseStorePhone;
+        }
+
+        void ApplyConnectionProfile(EvolutionLocalResult state)
+        {
+            if (!string.IsNullOrWhiteSpace(state.ConnectedName))
+            {
+                settings.EvolutionLocalConnectedName = state.ConnectedName.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(state.ConnectedPhone))
+            {
+                settings.EvolutionLocalConnectedPhone = NormalizeWhatsAppPhone(state.ConnectedPhone, settings.DefaultCountryCode);
+            }
+        }
+
+        void RenderState(string? message = null, bool? ok = null)
+        {
+            var connected = IsEvolutionConnectedState(settings.EvolutionLocalLastState);
+            var automatic = connected && settings.EvolutionLocalAutoReceiveEnabled;
+            var connectedName = string.IsNullOrWhiteSpace(settings.EvolutionLocalConnectedName)
+                ? "WhatsApp da loja"
+                : settings.EvolutionLocalConnectedName.Trim();
+            var connectedPhone = FormatWhatsAppDisplayPhone(settings.EvolutionLocalConnectedPhone);
+            badge.Background = Solid(connected ? "#E6FBF8" : "#FFF2CB");
+            badge.BorderBrush = Solid(connected ? "#BDE5DD" : "#F7D87A");
+            badgeText.Foreground = connected ? GreenText : AmberText;
+            badgeText.Text = automatic ? "AUTO LIGADO" : connected ? "CONECTADO" : "AGUARDANDO QR";
+            titleText.Text = connected ? "WhatsApp online" : "Conectar WhatsApp";
+            subtitleText.Text = connected
+                ? "Atendimento automatico ativo via Cloudflare."
+                : "Abra o WhatsApp da loja no celular e escaneie o QR.";
+            connectedInitialsText.Text = BuildInitials(connectedName);
+            connectedNameText.Text = connectedName;
+            connectedPhoneText.Text = string.IsNullOrWhiteSpace(connectedPhone)
+                ? "Numero conectado"
+                : connectedPhone;
+            connectedSinceText.Text = settings.EvolutionLocalLastConnectedAt.HasValue
+                ? $"Conectado em {settings.EvolutionLocalLastConnectedAt.Value:dd/MM/yyyy HH:mm}"
+                : "Conectado agora";
+            connectedPillText.Text = automatic ? "ONLINE" : "CONECTANDO";
+            autoStatusText.Foreground = settings.EvolutionLocalAutoReceiveEnabled ? Solid("#B8FFE8") : Solid("#BFD0DF");
+            autoStatusText.Text = settings.EvolutionLocalAutoReceiveEnabled
+                ? "Respondendo clientes e registrando atendimentos automaticamente."
+                : "Assim que conectar, o atendimento automatico sera ligado.";
+            messageOrdersBox.IsChecked = settings.WhatsAppMessageOrdersEnabled;
+            messageOrdersHint.Text = settings.WhatsAppMessageOrdersEnabled
+                ? "Ligado: o cliente pode pedir pelo cardapio online ou mandar os codigos por mensagem."
+                : "Desligado: o atendimento envia o link do cardapio online e continua a conversa normalmente.";
+            NormalizeWhatsAppRibbonAction();
+            if (headerCard is not null)
+            {
+                headerCard.Visibility = connected ? Visibility.Collapsed : Visibility.Visible;
+            }
+
+            if (qrCard is not null)
+            {
+                qrCard.Visibility = connected ? Visibility.Collapsed : Visibility.Visible;
+            }
+
+            if (connectedCard is not null)
+            {
+                connectedCard.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
+            }
+
+            statusText.Foreground = ok.HasValue
+                ? ok.Value ? GreenText : connected ? AmberText : RedText
+                : connected ? GreenText : Solid("#5B6B7A");
+            statusText.Visibility = connected && ok != false ? Visibility.Collapsed : Visibility.Visible;
+            statusText.Text = connected && ok == false
+                ? "Nao consegui confirmar o canal online agora. Se as respostas pararem, confira Docker e Cloudflare."
+                : message ?? (connected
+                ? "Canal online ativo."
+                : "Gerando QR para vincular o numero da loja.");
+        }
+
+        void ShowQr(string base64)
+        {
+            var image = CreateEvolutionQrImage(base64);
+            if (image is null)
+            {
+                ShowQrMessage("O servico respondeu, mas o QR veio em formato invalido.");
+                return;
+            }
+
+            qrImage.Source = image;
+            qrImage.Visibility = Visibility.Visible;
+            qrPlaceholder.Visibility = Visibility.Collapsed;
+        }
+
+        void ShowQrMessage(string message)
+        {
+            qrImage.Source = null;
+            qrImage.Visibility = Visibility.Collapsed;
+            qrPlaceholder.Visibility = Visibility.Visible;
+            qrPlaceholder.Text = message;
+        }
+
+        async Task RefreshConnectionStateAsync()
+        {
+            SaveInputs();
+            var state = await FetchEvolutionLocalConnectionStateAsync(settings);
+            if (state.Ok)
+            {
+                settings.EvolutionLocalLastState = state.State;
+                ApplyConnectionProfile(state);
+                if (IsEvolutionConnectedState(state.State))
+                {
+                    settings.EvolutionLocalLastConnectedAt = DateTime.Now;
+                    settings.EvolutionLocalAutoReceiveEnabled = true;
+                    StartEvolutionLocalAutomaticReceptionIfNeeded();
+                }
+                else
+                {
+                    StopEvolutionLocalAutomaticReception();
+                }
+
+                SaveAppSettings();
+                RenderState(state.Message, IsEvolutionConnectedState(state.State));
+                SetStatus(state.Message);
+            }
+            else
+            {
+                RefreshInputsFromSettings();
+                RenderState(state.Message, false);
+                SetStatus(state.Message);
+            }
+        }
+
+        async Task GenerateQrAsync()
+        {
+            SaveInputs();
+            if (TryApplyEvolutionLocalEnv(settings))
+            {
+                RefreshInputsFromSettings();
+                SaveInputs();
+            }
+
+            if (!TryValidateEvolutionLocalSettings(settings, out var validationError))
+            {
+                ShowQrMessage(validationError);
+                RenderState(validationError, false);
+                return;
+            }
+
+            RenderState("Preparando QR...", null);
+            ShowQrMessage("Gerando QR...");
+            var currentState = await FetchEvolutionLocalConnectionStateAsync(settings);
+            if (currentState.Ok && IsEvolutionConnectedState(currentState.State))
+            {
+                settings.EvolutionLocalLastState = currentState.State;
+                ApplyConnectionProfile(currentState);
+                settings.EvolutionLocalLastConnectedAt = DateTime.Now;
+                SaveAppSettings();
+                StartEvolutionLocalAutomaticReceptionIfNeeded();
+                RenderState("WhatsApp conectado.", true);
+                return;
+            }
+
+            await ResetEvolutionLocalInstanceAsync(settings);
+            await Task.Delay(1500);
+            var create = await CreateEvolutionLocalInstanceAsync(settings);
+            var connect = await ConnectEvolutionLocalInstanceAsync(settings);
+
+            if (!string.IsNullOrWhiteSpace(connect.QrBase64))
+            {
+                ShowQr(connect.QrBase64);
+                settings.EvolutionLocalLastState = string.IsNullOrWhiteSpace(connect.State) ? "qrcode" : connect.State;
+                settings.EvolutionLocalAutoReceiveEnabled = true;
+                settings.EvolutionLocalLastMessageAt = DateTime.Now;
+                _whatsAppEvolutionSeenMessages.Clear();
+                SaveAppSettings();
+                StartEvolutionLocalAutomaticReceptionIfNeeded();
+                RenderState("Escaneie o QR com o WhatsApp da loja.", true);
+                SetStatus("QR do WhatsApp gerado.");
+                return;
+            }
+
+            var state = await FetchEvolutionLocalConnectionStateAsync(settings);
+            if (state.Ok && IsEvolutionConnectedState(state.State))
+            {
+                settings.EvolutionLocalLastState = state.State;
+                ApplyConnectionProfile(state);
+                settings.EvolutionLocalLastConnectedAt = DateTime.Now;
+                settings.EvolutionLocalAutoReceiveEnabled = true;
+                settings.EvolutionLocalLastMessageAt = DateTime.Now;
+                SaveAppSettings();
+                StartEvolutionLocalAutomaticReceptionIfNeeded();
+                RenderState("WhatsApp conectado.", true);
+                return;
+            }
+
+            var errorMessage = !create.Ok ? create.Message : connect.Message;
+            ShowQrMessage(errorMessage);
+            RenderState(errorMessage, false);
+        }
+
+        async Task SwitchAccountAsync()
+        {
+            var answer = System.Windows.MessageBox.Show(
+                dialog,
+                "Isso vai remover a conta WhatsApp conectada neste servidor e gerar um QR novo para conectar outro numero.",
+                "Trocar WhatsApp",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No);
+            if (answer != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            SaveInputs();
+            RenderState("Removendo conta atual...", null);
+            ShowQrMessage("Removendo conta atual...");
+            await ResetEvolutionLocalInstanceAsync(settings);
+            ClearEvolutionLocalConnectionState(settings, resetLegacyInstance: true);
+            _whatsAppEvolutionSeenMessages.Clear();
+            SaveAppSettings();
+            SaveStore();
+            RefreshInputsFromSettings();
+            SetStatus("WhatsApp removido. Gere um novo QR para conectar outro numero.");
+            await GenerateQrAsync();
+        }
+
+        async Task PrepareWhatsAppForCustomerAsync()
+        {
+            SaveInputs();
+            ShowQrMessage("Preparando QR...");
+            RenderState("Preparando QR...", null);
+            if (TryApplyEvolutionLocalEnv(settings))
+            {
+                RefreshInputsFromSettings();
+                SaveInputs();
+            }
+
+            var service = await CheckEvolutionLocalServiceAsync(settings);
+            if (!service.Ok)
+            {
+                TryStartEvolutionOnlineHost(out _);
+                await Task.Delay(7500);
+                if (TryApplyEvolutionLocalEnv(settings))
+                {
+                    RefreshInputsFromSettings();
+                    SaveInputs();
+                }
+            }
+
+            await RefreshConnectionStateAsync();
+            if (!IsEvolutionConnectedState(settings.EvolutionLocalLastState))
+            {
+                await GenerateQrAsync();
+            }
+        }
+
+        var connectionTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        connectionTimer.Tick += async (_, _) =>
+        {
+            if (!dialog.IsVisible)
+            {
+                connectionTimer.Stop();
+                return;
+            }
+
+            if (IsEvolutionConnectedState(settings.EvolutionLocalLastState))
+            {
+                connectionTimer.Stop();
+                return;
+            }
+
+            await RefreshConnectionStateAsync();
+        };
+
+        var closeConnected = DialogButton("Fechar", "#0B3A52");
+        closeConnected.Click += (_, _) => dialog.Close();
+        var openChats = DialogButton("Conversas", "#08A99B");
+        openChats.Click += (_, _) =>
+        {
+            dialog.Close();
+            RenderFloatingServicePanel();
+            FloatingServicePanel.Visibility = Visibility.Visible;
+        };
+        var switchAccount = DialogButton("Trocar conta", "#8A5A00");
+        switchAccount.Click += async (_, _) => await SwitchAccountAsync();
+        messageOrdersBox.Checked += (_, _) =>
+        {
+            settings.WhatsAppMessageOrdersEnabled = true;
+            SaveAppSettings();
+            SaveStore();
+            NormalizeWhatsAppRibbonAction();
+            RenderState("Pedido digitado no WhatsApp ativado.", true);
+            SetStatus("WhatsApp: pedidos por mensagem ativados.");
+        };
+        messageOrdersBox.Unchecked += (_, _) =>
+        {
+            settings.WhatsAppMessageOrdersEnabled = false;
+            SaveAppSettings();
+            SaveStore();
+            NormalizeWhatsAppRibbonAction();
+            RenderState("Pedido digitado no WhatsApp desativado.", true);
+            SetStatus("WhatsApp: pedidos por mensagem desativados.");
+        };
+
+        headerCard = BorderCard();
+        headerCard.Child = new StackPanel
+        {
+            Children = { titleText, subtitleText, badge }
+        };
+
+        connectedCard = BorderCard();
+        connectedCard.Margin = new Thickness(0, 12, 0, 0);
+        connectedCard.Background = System.Windows.Media.Brushes.White;
+        connectedCard.BorderBrush = Solid("#CAD6E2");
+        connectedCard.Padding = new Thickness(0);
+        var connectedGrid = new Grid();
+        connectedGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        connectedGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        connectedGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        connectedGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        connectedGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        connectedGrid.Margin = new Thickness(22);
+
+        var avatar = new Border
+        {
+            Width = 72,
+            Height = 72,
+            CornerRadius = new CornerRadius(36),
+            Background = Solid("#08A99B"),
+            Child = connectedInitialsText,
+            Margin = new Thickness(0, 0, 18, 0)
+        };
+        Grid.SetRowSpan(avatar, 2);
+        connectedGrid.Children.Add(avatar);
+
+        var connectedInfo = new StackPanel
+        {
+            Children =
+            {
+                connectedNameText,
+                connectedPhoneText,
+                connectedSinceText,
+                autoStatusText
+            }
+        };
+        Grid.SetColumn(connectedInfo, 1);
+        connectedGrid.Children.Add(connectedInfo);
+        connectedNameText.Foreground = System.Windows.Media.Brushes.White;
+        connectedPhoneText.Foreground = Solid("#D6E5F2");
+        connectedSinceText.Foreground = Solid("#BFD0DF");
+
+        var connectedPill = new Border
+        {
+            Background = Solid("#08A99B"),
+            BorderThickness = new Thickness(0),
+            CornerRadius = new CornerRadius(999),
+            Padding = new Thickness(12, 6, 12, 6),
+            Child = connectedPillText,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(16, 2, 0, 0)
+        };
+        Grid.SetColumn(connectedPill, 2);
+        connectedGrid.Children.Add(connectedPill);
+
+        var connectedActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 18, 0, 0),
+            Children =
+            {
+                openChats,
+                switchAccount,
+                closeConnected
+            }
+        };
+        openChats.MinWidth = 120;
+        openChats.Margin = new Thickness(0, 0, 8, 0);
+        switchAccount.MinWidth = 120;
+        switchAccount.Margin = new Thickness(0, 0, 8, 0);
+        closeConnected.MinWidth = 120;
+        Grid.SetRow(connectedActions, 1);
+        Grid.SetColumn(connectedActions, 2);
+        connectedGrid.Children.Add(connectedActions);
+        var connectedShell = new StackPanel();
+        connectedShell.Children.Add(new Border
+        {
+            Background = Solid("#071A2C"),
+            CornerRadius = new CornerRadius(12, 12, 0, 0),
+            Child = connectedGrid
+        });
+        connectedShell.Children.Add(new Border
+        {
+            Background = Solid("#F6FAFD"),
+            BorderBrush = Solid("#D7E3EF"),
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(22, 14, 22, 14),
+            Child = new TextBlock
+            {
+                Text = "O cliente chama no WhatsApp, o PDV responde, registra o histórico e permite continuar a conversa por aqui.",
+                Foreground = Solid("#496071"),
+                FontWeight = FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap
+            }
+        });
+        connectedCard.Child = connectedShell;
+
+        messageOrdersCard = BorderCard();
+        messageOrdersCard.Margin = new Thickness(0, 12, 0, 0);
+        messageOrdersCard.Child = new StackPanel
+        {
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Como o cliente pode comprar",
+                    Foreground = Solid("#071A2C"),
+                    FontSize = 18,
+                    FontWeight = FontWeights.Bold
+                },
+                messageOrdersBox,
+                messageOrdersHint
+            }
+        };
+
+        qrCard = BorderCard();
+        qrCard.Margin = new Thickness(0, 12, 0, 0);
+        qrCard.Child = new StackPanel
+        {
+            Children =
+            {
+                new TextBlock { Text = "Escaneie o QR", Foreground = Solid("#071A2C"), FontSize = 22, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center },
+                DialogHint("No celular da loja, abra WhatsApp > Aparelhos conectados > Conectar aparelho."),
+                qrFrame
+            }
+        };
+
+        var panel = DialogPanel();
+        panel.Children.Add(headerCard);
+        panel.Children.Add(qrCard);
+        panel.Children.Add(connectedCard);
+        panel.Children.Add(messageOrdersCard);
+        panel.Children.Add(statusText);
+        dialog.Content = new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+        dialog.Closed += (_, _) => connectionTimer.Stop();
+        dialog.Loaded += async (_, _) =>
+        {
+            try
+            {
+                await PrepareWhatsAppForCustomerAsync();
+                if (!IsEvolutionConnectedState(settings.EvolutionLocalLastState))
+                {
+                    connectionTimer.Start();
+                }
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException or TaskCanceledException)
+            {
+                ShowQrMessage("Nao foi possivel preparar o QR. Feche e abra novamente.");
+                RenderState(ex.Message, false);
+            }
+        };
+        RenderState();
+        dialog.ShowDialog();
+    }
+
+    private void ShowEvolutionLocalChatsDialog(string preferredPhone = "")
+    {
+        var settings = GetWhatsAppSettings();
+        NormalizeWhatsAppEvolutionLocalSettings();
+        TryApplyEvolutionLocalEnv(settings);
+        SaveAppSettings();
+        var preferredNormalizedPhone = NormalizeWhatsAppPhone(preferredPhone, settings.DefaultCountryCode);
+
+        var dialog = CreateDialog("Conversas do WhatsApp", 1120, 760);
+        var chats = new List<EvolutionChatConversation>();
+        var lines = new List<EvolutionChatLine>();
+        var manualPhones = new HashSet<string>(StringComparer.Ordinal);
+        EvolutionChatConversation? selectedChat = null;
+        var chatStack = new StackPanel();
+        var messageStack = new StackPanel { Margin = new Thickness(18, 14, 18, 14) };
+        var messageScroll = new ScrollViewer
+        {
+            Content = messageStack,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Background = Solid("#F6FAFD")
+        };
+        var title = new TextBlock
+        {
+            Text = "Selecione uma conversa",
+            Foreground = Solid("#071A2C"),
+            FontSize = 24,
+            FontWeight = FontWeights.Bold
+        };
+        var subtitle = new TextBlock
+        {
+            Text = "Atenda clientes direto pelo PDV.",
+            Foreground = Solid("#5B6B7A"),
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        var customerInfoText = new TextBlock
+        {
+            Foreground = Solid("#0B3A52"),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap
+        };
+        var customerInfoCard = new Border
+        {
+            Background = Solid("#F3F8FC"),
+            BorderBrush = Solid("#D7E3EF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12, 9, 12, 9),
+            Margin = new Thickness(0, 10, 0, 0),
+            Visibility = Visibility.Collapsed,
+            Child = customerInfoText
+        };
+        var manualBadge = new Border
+        {
+            Background = Solid("#E6FBF8"),
+            BorderBrush = Solid("#BDE5DD"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(999),
+            Padding = new Thickness(12, 5, 12, 5),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 10, 0, 0),
+            Child = new TextBlock
+            {
+                Text = "Modo manual",
+                Foreground = GreenText,
+                FontWeight = FontWeights.Bold,
+                FontSize = 12
+            }
+        };
+        var status = new TextBlock
+        {
+            Foreground = Solid("#5B6B7A"),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        var input = new TextBox
+        {
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            MinHeight = 48,
+            MaxHeight = 96,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            BorderThickness = new Thickness(0),
+            Background = System.Windows.Media.Brushes.Transparent,
+            Padding = new Thickness(4, 2, 4, 2),
+            FontSize = 15,
+            Foreground = Solid("#071A2C")
+        };
+        var send = DialogButton("Enviar", "#08A99B");
+        var loadingMessages = false;
+        var loadingChats = false;
+
+        void RenderChatList()
+        {
+            chatStack.Children.Clear();
+            if (chats.Count == 0)
+            {
+                chatStack.Children.Add(new TextBlock
+                {
+                    Text = "Nenhuma conversa individual encontrada.",
+                    Foreground = Solid("#5B6B7A"),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(4, 10, 4, 0)
+                });
+                return;
+            }
+
+            foreach (var chat in chats)
+            {
+                var selected = selectedChat is not null && string.Equals(selectedChat.Phone, chat.Phone, StringComparison.Ordinal);
+                var name = string.IsNullOrWhiteSpace(chat.Name) ? FormatWhatsAppDisplayPhone(chat.Phone) : chat.Name;
+                var card = new Button
+                {
+                    Background = Solid(selected ? "#E6FBF8" : "#FFFFFF"),
+                    BorderBrush = Solid(selected ? "#08A99B" : "#D7E3EF"),
+                    BorderThickness = new Thickness(selected ? 2 : 1),
+                    Padding = new Thickness(12),
+                    Margin = new Thickness(0, 0, 0, 10),
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch
+                };
+                var grid = new Grid();
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                grid.ColumnDefinitions.Add(new ColumnDefinition());
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+                var avatar = new Border
+                {
+                    Width = 42,
+                    Height = 42,
+                    CornerRadius = new CornerRadius(21),
+                    Background = Solid(selected ? "#08A99B" : "#0B3A52"),
+                    Margin = new Thickness(0, 0, 10, 0),
+                    Child = new TextBlock
+                    {
+                        Text = BuildInitials(name),
+                        Foreground = System.Windows.Media.Brushes.White,
+                        FontWeight = FontWeights.Bold,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
+                };
+                Grid.SetRowSpan(avatar, 3);
+                grid.Children.Add(avatar);
+
+                var nameText = new TextBlock
+                {
+                    Text = name,
+                    Foreground = Solid("#071A2C"),
+                    FontWeight = FontWeights.Bold,
+                    FontSize = 15,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                Grid.SetColumn(nameText, 1);
+                grid.Children.Add(nameText);
+
+                var phoneText = new TextBlock
+                {
+                    Text = FormatWhatsAppDisplayPhone(chat.Phone),
+                    Foreground = Solid("#5B6B7A"),
+                    FontSize = 12,
+                    Margin = new Thickness(0, 3, 0, 0)
+                };
+                Grid.SetRow(phoneText, 1);
+                Grid.SetColumn(phoneText, 1);
+                grid.Children.Add(phoneText);
+
+                var lastText = new TextBlock
+                {
+                    Text = string.IsNullOrWhiteSpace(chat.LastMessage) ? $"{chat.UpdatedAt:HH:mm}" : chat.LastMessage,
+                    Foreground = Solid("#6A7A89"),
+                    FontSize = 12,
+                    Margin = new Thickness(0, 5, 0, 0),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    MaxHeight = 34,
+                    TextWrapping = TextWrapping.Wrap
+                };
+                Grid.SetRow(lastText, 2);
+                Grid.SetColumn(lastText, 1);
+                grid.Children.Add(lastText);
+
+                card.Content = grid;
+                card.Click += async (_, _) =>
+                {
+                    selectedChat = chat;
+                    RenderChatList();
+                    await LoadMessagesAsync(chat);
+                };
+                chatStack.Children.Add(card);
+            }
+        }
+
+        void RenderMessages()
+        {
+            messageStack.Children.Clear();
+            if (selectedChat is null)
+            {
+                messageStack.Children.Add(new TextBlock
+                {
+                    Text = "Escolha uma conversa para iniciar o atendimento manual.",
+                    Foreground = Solid("#5B6B7A"),
+                    FontWeight = FontWeights.SemiBold,
+                    TextAlignment = TextAlignment.Center,
+                    Margin = new Thickness(0, 180, 0, 0)
+                });
+                return;
+            }
+
+            if (lines.Count == 0)
+            {
+                messageStack.Children.Add(new TextBlock
+                {
+                    Text = "Nenhuma mensagem recente nessa conversa.",
+                    Foreground = Solid("#5B6B7A"),
+                    TextAlignment = TextAlignment.Center,
+                    Margin = new Thickness(0, 180, 0, 0)
+                });
+                return;
+            }
+
+            foreach (var line in lines)
+            {
+                var bubble = new Border
+                {
+                    Background = Solid(line.FromMe ? "#DCFCE7" : "#FFFFFF"),
+                    BorderBrush = Solid(line.FromMe ? "#A7E6BE" : "#D7E3EF"),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(14),
+                    Padding = new Thickness(12, 9, 12, 8),
+                    Margin = new Thickness(line.FromMe ? 90 : 0, 0, line.FromMe ? 0 : 90, 10),
+                    MaxWidth = 620,
+                    HorizontalAlignment = line.FromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left
+                };
+                bubble.Child = new StackPanel
+                {
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = line.Text,
+                            Foreground = Solid("#071A2C"),
+                            FontSize = 14,
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        new TextBlock
+                        {
+                            Text = $"{(line.FromMe ? "Voce" : "Cliente")}  {line.When:HH:mm}",
+                            Foreground = Solid("#6A7A89"),
+                            FontSize = 11,
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            Margin = new Thickness(0, 5, 0, 0)
+                        }
+                    }
+                };
+                messageStack.Children.Add(bubble);
+            }
+        }
+
+        async Task LoadChatsAsync(bool silent = false)
+        {
+            if (loadingChats)
+            {
+                return;
+            }
+
+            loadingChats = true;
+            if (!silent)
+            {
+                status.Foreground = Solid("#5B6B7A");
+                status.Text = "Carregando conversas...";
+            }
+
+            var result = await FetchEvolutionLocalChatsAsync(settings);
+            chats = result.OrderByDescending(item => item.UpdatedAt).ToList();
+            if (selectedChat is not null)
+            {
+                var refreshed = chats.FirstOrDefault(item => string.Equals(item.Phone, selectedChat.Phone, StringComparison.Ordinal));
+                if (refreshed is not null)
+                {
+                    selectedChat = refreshed;
+                }
+            }
+
+            RenderChatList();
+
+            loadingChats = false;
+            if (!silent)
+            {
+                status.Foreground = chats.Count > 0 ? GreenText : Solid("#5B6B7A");
+                status.Text = chats.Count > 0
+                    ? "Conversas em tempo real. Abra um cliente para responder sem WhatsApp Web."
+                    : "Ainda nao ha conversas individuais recentes.";
+            }
+
+            if (selectedChat is null && !string.IsNullOrWhiteSpace(preferredNormalizedPhone))
+            {
+                selectedChat = chats.FirstOrDefault(item => PhoneMatchesBot(item.Phone, preferredNormalizedPhone));
+                if (selectedChat is not null)
+                {
+                    RenderChatList();
+                    await LoadMessagesAsync(selectedChat, silent);
+                    return;
+                }
+            }
+
+            if (selectedChat is null && chats.Count > 0)
+            {
+                selectedChat = chats[0];
+                RenderChatList();
+                await LoadMessagesAsync(selectedChat, silent);
+            }
+        }
+
+        async Task LoadMessagesAsync(EvolutionChatConversation chat, bool silent = false)
+        {
+            if (loadingMessages)
+            {
+                return;
+            }
+
+            loadingMessages = true;
+            selectedChat = chat;
+            var normalized = NormalizeWhatsAppPhone(chat.Phone, settings.DefaultCountryCode);
+            if (!string.IsNullOrWhiteSpace(normalized))
+            {
+                manualPhones.Add(normalized);
+                SetWhatsAppManualChat(normalized, true);
+            }
+
+            title.Text = string.IsNullOrWhiteSpace(chat.Name) ? FormatWhatsAppDisplayPhone(chat.Phone) : chat.Name;
+            subtitle.Text = FormatWhatsAppDisplayPhone(chat.Phone);
+            var customerSummary = BuildWhatsAppChatCustomerSummary(chat.Phone);
+            customerInfoText.Text = customerSummary;
+            customerInfoCard.Visibility = string.IsNullOrWhiteSpace(customerSummary) ? Visibility.Collapsed : Visibility.Visible;
+            if (!silent)
+            {
+                status.Foreground = Solid("#5B6B7A");
+                status.Text = "Carregando mensagens...";
+            }
+
+            var previousLines = lines.ToList();
+            var messages = await FetchEvolutionLocalChatMessagesAsync(settings, chat);
+            var nextLines = new List<EvolutionChatLine>();
+            foreach (var message in messages.OrderBy(item => item.When))
+            {
+                nextLines.Add(new EvolutionChatLine
+                {
+                    Id = message.Id,
+                    Text = message.Text,
+                    When = message.When,
+                    FromMe = message.FromMe
+                });
+            }
+
+            foreach (var localLine in previousLines.Where(line => line.Id.StartsWith("local:", StringComparison.Ordinal)))
+            {
+                var alreadyReturned = nextLines.Any(line =>
+                    line.FromMe
+                    && string.Equals(line.Text, localLine.Text, StringComparison.Ordinal)
+                    && Math.Abs((line.When - localLine.When).TotalMinutes) <= 3);
+                if (!alreadyReturned)
+                {
+                    nextLines.Add(localLine);
+                }
+            }
+
+            lines.Clear();
+            lines.AddRange(nextLines
+                .OrderBy(item => item.When)
+                .TakeLast(120));
+            status.Foreground = GreenText;
+            if (!silent)
+            {
+                status.Text = "Modo manual ativo: este cliente nao recebe resposta automatica enquanto a conversa estiver aberta.";
+            }
+
+            RenderMessages();
+            await Dispatcher.InvokeAsync(() => messageScroll.ScrollToEnd(), DispatcherPriority.Background);
+            loadingMessages = false;
+        }
+
+        async Task SendSelectedMessageAsync()
+        {
+            if (selectedChat is not EvolutionChatConversation chat)
+            {
+                status.Foreground = RedText;
+                status.Text = "Selecione uma conversa para responder.";
+                return;
+            }
+
+            var text = input.Text.Trim();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                input.Focus();
+                return;
+            }
+
+            send.IsEnabled = false;
+            status.Foreground = Solid("#5B6B7A");
+            status.Text = "Enviando mensagem...";
+            var result = await SendEvolutionLocalTextAsync(settings, chat.Phone, text);
+            send.IsEnabled = true;
+            if (result.Ok)
+            {
+                input.Clear();
+                lines.Add(new EvolutionChatLine
+                {
+                    Id = $"local:{Guid.NewGuid():N}",
+                    Text = text,
+                    When = DateTime.Now,
+                    FromMe = true
+                });
+                RenderMessages();
+                await Dispatcher.InvokeAsync(() => messageScroll.ScrollToEnd(), DispatcherPriority.Background);
+                status.Foreground = GreenText;
+                status.Text = "Mensagem enviada.";
+                return;
+            }
+
+            status.Foreground = RedText;
+            status.Text = result.Message;
+        }
+
+        input.PreviewKeyDown += async (_, e) =>
+        {
+            if (e.Key != System.Windows.Input.Key.Enter || System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Shift)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            await SendSelectedMessageAsync();
+        };
+
+        send.Click += async (_, _) => await SendSelectedMessageAsync();
+
+        var refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        refreshTimer.Tick += async (_, _) =>
+        {
+            if (!dialog.IsVisible)
+            {
+                return;
+            }
+
+            await LoadChatsAsync(silent: true);
+            if (selectedChat is not null)
+            {
+                await LoadMessagesAsync(selectedChat, silent: true);
+            }
+        };
+
+        var root = new Grid { Margin = new Thickness(18), Background = Solid("#F6FAFD") };
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(340) });
+        root.ColumnDefinitions.Add(new ColumnDefinition());
+        root.RowDefinitions.Add(new RowDefinition());
+
+        var left = BorderCard();
+        left.Padding = new Thickness(14);
+        left.Margin = new Thickness(0, 0, 12, 0);
+        var leftPanel = new DockPanel { LastChildFill = true };
+        var leftHeader = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        leftHeader.Children.Add(new StackPanel
+        {
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Conversas",
+                    Foreground = Solid("#071A2C"),
+                    FontSize = 22,
+                    FontWeight = FontWeights.Bold
+                },
+                new TextBlock
+                {
+                    Text = "Atualiza em tempo real",
+                    Foreground = Solid("#5B6B7A"),
+                    Margin = new Thickness(0, 3, 0, 0)
+                }
+            }
+        });
+        DockPanel.SetDock(leftHeader, Dock.Top);
+        leftPanel.Children.Add(leftHeader);
+        leftPanel.Children.Add(new ScrollViewer
+        {
+            Content = chatStack,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        });
+        left.Child = leftPanel;
+        root.Children.Add(left);
+
+        var right = BorderCard();
+        right.Padding = new Thickness(0);
+        Grid.SetColumn(right, 1);
+        var rightPanel = new DockPanel { LastChildFill = true };
+        var header = new StackPanel { Margin = new Thickness(18, 16, 18, 12), Children = { title, subtitle, customerInfoCard, manualBadge, status } };
+        DockPanel.SetDock(header, Dock.Top);
+        rightPanel.Children.Add(header);
+
+        var composer = new Grid { Margin = new Thickness(18, 12, 18, 16) };
+        composer.ColumnDefinitions.Add(new ColumnDefinition());
+        composer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var inputShell = new Border
+        {
+            Background = System.Windows.Media.Brushes.White,
+            BorderBrush = Solid("#BFD0DF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(12, 10, 12, 10),
+            Margin = new Thickness(0, 0, 10, 0),
+            Child = input
+        };
+        composer.Children.Add(inputShell);
+        send.MinWidth = 116;
+        send.Height = 58;
+        Grid.SetColumn(send, 1);
+        composer.Children.Add(send);
+        DockPanel.SetDock(composer, Dock.Bottom);
+        rightPanel.Children.Add(composer);
+
+        rightPanel.Children.Add(messageScroll);
+        right.Child = rightPanel;
+        root.Children.Add(right);
+
+        dialog.Content = root;
+        dialog.Closed += (_, _) =>
+        {
+            refreshTimer.Stop();
+            foreach (var phone in manualPhones)
+            {
+                SetWhatsAppManualChat(phone, false);
+            }
+        };
+        dialog.Loaded += async (_, _) =>
+        {
+            RenderMessages();
+            await LoadChatsAsync();
+            refreshTimer.Start();
+        };
+        dialog.ShowDialog();
+    }
+
+    private string BuildWhatsAppChatCustomerSummary(string phone)
+    {
+        var settings = GetWhatsAppSettings();
+        var normalizedPhone = NormalizeWhatsAppPhone(phone, settings.DefaultCountryCode);
+        if (string.IsNullOrWhiteSpace(normalizedPhone))
+        {
+            return "";
+        }
+
+        bool SamePhone(string value)
+        {
+            var normalized = NormalizeWhatsAppPhone(value, settings.DefaultCountryCode);
+            return !string.IsNullOrWhiteSpace(normalized) && PhoneMatchesBot(normalizedPhone, normalized);
+        }
+
+        var customer = Customers.FirstOrDefault(item => SamePhone(item.Phone));
+        var latestOrder = DeliveryTiles
+            .Where(tile => SamePhone(tile.Phone))
+            .OrderByDescending(tile => tile.ExternalCreatedAt ?? tile.CreatedAt)
+            .FirstOrDefault();
+        var latestPublicMenuOrder = DeliveryTiles
+            .Where(tile => SamePhone(tile.Phone)
+                           && string.Equals(tile.ExternalSource, "CARDAPIO_ONLINE", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(tile => tile.ExternalCreatedAt ?? tile.CreatedAt)
+            .FirstOrDefault();
+
+        var lines = new List<string>();
+        if (customer is not null)
+        {
+            var name = string.IsNullOrWhiteSpace(customer.Name) ? "Cliente cadastrado" : customer.Name.Trim();
+            var address = string.Join(" - ", new[] { customer.Address, customer.District }
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item.Trim()));
+            lines.Add(string.IsNullOrWhiteSpace(address)
+                ? $"{name} ja esta no cadastro do PDV."
+                : $"{name} ja esta no cadastro do PDV. Endereco: {address}.");
+        }
+
+        if (latestPublicMenuOrder is not null)
+        {
+            var when = latestPublicMenuOrder.ExternalCreatedAt ?? latestPublicMenuOrder.CreatedAt;
+            lines.Add($"Cardapio digital: ultimo pedido {latestPublicMenuOrder.Number} em {when:dd/MM HH:mm}, {latestPublicMenuOrder.Status}, {Money(latestPublicMenuOrder.Total)}.");
+        }
+        else if (latestOrder is not null)
+        {
+            var when = latestOrder.ExternalCreatedAt ?? latestOrder.CreatedAt;
+            lines.Add($"Ultimo atendimento no PDV: {latestOrder.Number} em {when:dd/MM HH:mm}, {latestOrder.Status}, {Money(latestOrder.Total)}.");
+        }
+
+        return string.Join("\n", lines.Distinct(StringComparer.Ordinal));
     }
 
     private void ShowSimpleSendPulseWhatsAppDialog()
@@ -2412,8 +3979,1902 @@ public partial class MainWindow
 
     private static bool IsLocalDomWhatsApp(WhatsAppSettings settings)
     {
-        return string.Equals(settings.Provider, "LOCAL_DOM", StringComparison.OrdinalIgnoreCase)
+        return string.Equals(settings.Provider, WhatsAppProviderLocalDom, StringComparison.OrdinalIgnoreCase)
                || (settings.ExtensionInstalledConfirmed && settings.LocalConnectorEnabled);
+    }
+
+    private static bool IsEvolutionLocalWhatsApp(WhatsAppSettings settings)
+    {
+        return string.Equals(settings.Provider, WhatsAppProviderEvolutionLocal, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool NormalizeWhatsAppEvolutionLocalSettings()
+    {
+        var settings = GetWhatsAppSettings();
+        var changed = false;
+        if (!settings.Enabled)
+        {
+            settings.Enabled = true;
+            changed = true;
+        }
+
+        if (!string.Equals(settings.Provider, WhatsAppProviderEvolutionLocal, StringComparison.Ordinal))
+        {
+            settings.Provider = WhatsAppProviderEvolutionLocal;
+            changed = true;
+        }
+
+        if (!string.Equals(settings.DefaultCountryCode, "55", StringComparison.Ordinal))
+        {
+            settings.DefaultCountryCode = "55";
+            changed = true;
+        }
+
+        var baseUrl = NormalizeEvolutionLocalBaseUrl(settings.EvolutionLocalBaseUrl);
+        if (!string.Equals(settings.EvolutionLocalBaseUrl, baseUrl, StringComparison.Ordinal))
+        {
+            settings.EvolutionLocalBaseUrl = baseUrl;
+            changed = true;
+        }
+
+        var instanceName = NormalizeEvolutionLocalInstanceName(settings.EvolutionLocalInstanceName);
+        if (!string.Equals(settings.EvolutionLocalInstanceName, instanceName, StringComparison.Ordinal))
+        {
+            settings.EvolutionLocalInstanceName = instanceName;
+            changed = true;
+        }
+
+        if (settings.AutoPressEnter)
+        {
+            settings.AutoPressEnter = false;
+            changed = true;
+        }
+
+        if (settings.ExtensionInstalledConfirmed)
+        {
+            settings.ExtensionInstalledConfirmed = false;
+            changed = true;
+        }
+
+        if (settings.LocalConnectorEnabled)
+        {
+            settings.LocalConnectorEnabled = false;
+            changed = true;
+        }
+
+        if (!settings.AutoReplyConnector)
+        {
+            settings.AutoReplyConnector = true;
+            changed = true;
+        }
+
+        if (!settings.AutoCreateConfirmedOrders)
+        {
+            settings.AutoCreateConfirmedOrders = true;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private bool TryValidateEvolutionLocalSettings(WhatsAppSettings settings, out string error)
+    {
+        settings.EvolutionLocalBaseUrl = NormalizeEvolutionLocalBaseUrl(settings.EvolutionLocalBaseUrl);
+        settings.EvolutionLocalInstanceName = NormalizeEvolutionLocalInstanceName(settings.EvolutionLocalInstanceName);
+        if (!Uri.TryCreate(EnsureTrailingSlash(settings.EvolutionLocalBaseUrl), UriKind.Absolute, out var baseUri)
+            || baseUri.Scheme is not ("http" or "https"))
+        {
+            error = "Endereco do WhatsApp online invalido. Configure a URL HTTPS do Cloudflare.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.EvolutionLocalApiKey)
+            || IsEvolutionLocalPlaceholder(settings.EvolutionLocalApiKey))
+        {
+            error = "Chave do WhatsApp online ausente. Configure AUTHENTICATION_API_KEY no servico.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.EvolutionLocalInstanceName))
+        {
+            error = "Informe o nome da instancia WhatsApp.";
+            return false;
+        }
+
+        error = "";
+        return true;
+    }
+
+    private async Task<EvolutionLocalResult> CheckEvolutionLocalServiceAsync(WhatsAppSettings settings)
+    {
+        if (!TryValidateEvolutionLocalSettings(settings, out var error))
+        {
+            return EvolutionLocalResult.Fail(error);
+        }
+
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(6) };
+            using var request = CreateEvolutionLocalRequest(HttpMethod.Get, settings, "/manager/status");
+            using var response = await client.SendAsync(request).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return EvolutionLocalResult.Fail($"Servico online respondeu HTTP {(int)response.StatusCode}: {ReadEvolutionMessage(body)}");
+            }
+
+            var version = ReadEvolutionString(body, "version");
+            return new EvolutionLocalResult
+            {
+                Ok = true,
+                Version = version,
+                Message = string.IsNullOrWhiteSpace(version)
+                    ? "Servico online encontrado."
+                    : $"Servico online encontrado. Evolution API {version}."
+            };
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            return EvolutionLocalResult.Fail("Nao consegui acessar o servico online do WhatsApp. Confira se Docker e Cloudflare estao ativos.");
+        }
+    }
+
+    private async Task<EvolutionLocalResult> CreateEvolutionLocalInstanceAsync(WhatsAppSettings settings)
+    {
+        if (!TryValidateEvolutionLocalSettings(settings, out var error))
+        {
+            return EvolutionLocalResult.Fail(error);
+        }
+
+        var payload = new
+        {
+            instanceName = settings.EvolutionLocalInstanceName,
+            integration = "WHATSAPP-BAILEYS",
+            qrcode = true,
+            groupsIgnore = true,
+            alwaysOnline = false,
+            readMessages = false,
+            readStatus = false,
+            syncFullHistory = false
+        };
+
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(45) };
+            using var request = CreateEvolutionLocalRequest(HttpMethod.Post, settings, "/instance/create", payload);
+            using var response = await client.SendAsync(request).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (response.IsSuccessStatusCode || LooksLikeEvolutionInstanceAlreadyExists(body))
+            {
+                return EvolutionLocalResult.Success("Instancia WhatsApp preparada.");
+            }
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                if (TryReloadEvolutionLocalEnv(settings))
+                {
+                    using var retryRequest = CreateEvolutionLocalRequest(HttpMethod.Post, settings, "/instance/create", payload);
+                    using var retryResponse = await client.SendAsync(retryRequest).ConfigureAwait(false);
+                    var retryBody = await retryResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (retryResponse.IsSuccessStatusCode || LooksLikeEvolutionInstanceAlreadyExists(retryBody))
+                    {
+                        return EvolutionLocalResult.Success("Instancia WhatsApp preparada.");
+                    }
+
+                    return EvolutionLocalResult.Fail($"Nao consegui criar a instancia: {ReadEvolutionMessage(retryBody)}");
+                }
+
+                return EvolutionLocalResult.Fail("Chave do WhatsApp online invalida. Reinicie o servico local ou confira o AUTHENTICATION_API_KEY.");
+            }
+
+            return EvolutionLocalResult.Fail($"Nao consegui criar a instancia: {ReadEvolutionMessage(body)}");
+        }
+        catch (TaskCanceledException)
+        {
+            return EvolutionLocalResult.Success("Instancia solicitada. Tentando gerar QR.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            return EvolutionLocalResult.Fail($"Falha ao criar instancia WhatsApp: {ex.Message}");
+        }
+    }
+
+    private async Task<EvolutionLocalResult> ConnectEvolutionLocalInstanceAsync(WhatsAppSettings settings)
+    {
+        if (!TryValidateEvolutionLocalSettings(settings, out var error))
+        {
+            return EvolutionLocalResult.Fail(error);
+        }
+
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            var path = $"/instance/connect/{Uri.EscapeDataString(settings.EvolutionLocalInstanceName)}";
+            using var request = CreateEvolutionLocalRequest(HttpMethod.Get, settings, path);
+            using var response = await client.SendAsync(request).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                if (response.StatusCode == HttpStatusCode.Unauthorized && TryReloadEvolutionLocalEnv(settings))
+                {
+                    using var retryRequest = CreateEvolutionLocalRequest(HttpMethod.Get, settings, path);
+                    using var retryResponse = await client.SendAsync(retryRequest).ConfigureAwait(false);
+                    var retryBody = await retryResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (!retryResponse.IsSuccessStatusCode)
+                    {
+                        return EvolutionLocalResult.Fail($"Nao consegui gerar QR: {ReadEvolutionMessage(retryBody)}");
+                    }
+
+                    body = retryBody;
+                }
+                else
+                {
+                    return EvolutionLocalResult.Fail($"Nao consegui gerar QR: {ReadEvolutionMessage(body)}");
+                }
+            }
+
+            var qr = ReadEvolutionString(body, "base64", "qrcode", "code");
+            var state = ReadEvolutionString(body, "state", "connectionStatus", "status");
+            return new EvolutionLocalResult
+            {
+                Ok = true,
+                QrBase64 = qr,
+                State = state,
+                Message = string.IsNullOrWhiteSpace(qr)
+                    ? "Servico online respondeu, mas ainda nao retornou QR. Tente gerar novamente."
+                    : "QR gerado para vincular o WhatsApp da loja."
+            };
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            return EvolutionLocalResult.Fail($"Falha ao gerar QR: {ex.Message}");
+        }
+    }
+
+    private async Task<EvolutionLocalResult> FetchEvolutionLocalConnectionStateAsync(WhatsAppSettings settings)
+    {
+        if (!TryValidateEvolutionLocalSettings(settings, out var error))
+        {
+            return EvolutionLocalResult.Fail(error);
+        }
+
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            var path = $"/instance/connectionState/{Uri.EscapeDataString(settings.EvolutionLocalInstanceName)}";
+            using var request = CreateEvolutionLocalRequest(HttpMethod.Get, settings, path);
+            using var response = await client.SendAsync(request).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                if (response.StatusCode == HttpStatusCode.Unauthorized && TryReloadEvolutionLocalEnv(settings))
+                {
+                    using var retryRequest = CreateEvolutionLocalRequest(HttpMethod.Get, settings, path);
+                    using var retryResponse = await client.SendAsync(retryRequest).ConfigureAwait(false);
+                    body = await retryResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (retryResponse.IsSuccessStatusCode)
+                    {
+                        var retryState = ReadEvolutionString(body, "state", "connectionStatus", "status");
+                        if (string.IsNullOrWhiteSpace(retryState))
+                        {
+                            retryState = "desconhecido";
+                        }
+
+                        var retryResult = new EvolutionLocalResult
+                        {
+                            Ok = true,
+                            State = retryState,
+                            Message = IsEvolutionConnectedState(retryState)
+                                ? "WhatsApp online conectado e pronto para envio."
+                                : $"WhatsApp ainda nao conectado. Estado: {retryState}."
+                        };
+
+                        if (IsEvolutionConnectedState(retryState))
+                        {
+                            await FillEvolutionLocalProfileAsync(client, settings, retryResult).ConfigureAwait(false);
+                        }
+
+                        return retryResult;
+                    }
+                }
+
+                var message = ReadEvolutionMessage(body);
+                if (LooksLikeEvolutionInstanceMissing(body) || LooksLikeEvolutionInstanceMissing(message))
+                {
+                    ClearEvolutionLocalConnectionState(settings, resetLegacyInstance: true);
+                    return new EvolutionLocalResult
+                    {
+                        Ok = false,
+                        State = "missing",
+                        Message = "A conta anterior nao existe mais no servidor online. Gere um novo QR para conectar o WhatsApp da loja."
+                    };
+                }
+
+                return EvolutionLocalResult.Fail($"Nao consegui consultar o WhatsApp online: {message}");
+            }
+
+            var state = ReadEvolutionString(body, "state", "connectionStatus", "status");
+            if (string.IsNullOrWhiteSpace(state))
+            {
+                state = "desconhecido";
+            }
+
+            var result = new EvolutionLocalResult
+            {
+                Ok = true,
+                State = state,
+                Message = IsEvolutionConnectedState(state)
+                    ? "WhatsApp online conectado e pronto para envio."
+                    : $"WhatsApp ainda nao conectado. Estado: {state}."
+            };
+
+            if (IsEvolutionConnectedState(state))
+            {
+                await FillEvolutionLocalProfileAsync(client, settings, result).ConfigureAwait(false);
+            }
+
+            return result;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            return EvolutionLocalResult.Fail("Nao consegui confirmar o canal online do WhatsApp agora.");
+        }
+    }
+
+    private async Task FillEvolutionLocalProfileAsync(System.Net.Http.HttpClient client, WhatsAppSettings settings, EvolutionLocalResult result)
+    {
+        try
+        {
+            using var request = CreateEvolutionLocalRequest(HttpMethod.Get, settings, "/instance/fetchInstances");
+            using var response = await client.SendAsync(request).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(body))
+            {
+                return;
+            }
+
+            using var document = JsonDocument.Parse(body);
+            var instance = FindEvolutionInstance(document.RootElement, settings.EvolutionLocalInstanceName);
+            if (instance.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+            {
+                return;
+            }
+
+            var name = ReadEvolutionString(instance, "profileName", "pushName", "displayName", "name");
+            var ownerJid = ReadEvolutionString(instance, "ownerJid", "jid", "number");
+            var phone = NormalizeEvolutionJidPhone(ownerJid, settings.DefaultCountryCode);
+            if (!string.IsNullOrWhiteSpace(name) && !string.Equals(name, settings.EvolutionLocalInstanceName, StringComparison.OrdinalIgnoreCase))
+            {
+                result.ConnectedName = name;
+            }
+
+            if (!string.IsNullOrWhiteSpace(phone))
+            {
+                result.ConnectedPhone = phone;
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            Debug.WriteLine($"Evolution profile fetch skipped: {ex.Message}");
+        }
+    }
+
+    private static JsonElement FindEvolutionInstance(JsonElement root, string instanceName)
+    {
+        if (root.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in root.EnumerateArray())
+            {
+                if (IsEvolutionInstanceMatch(item, instanceName))
+                {
+                    return item;
+                }
+            }
+
+            return root.GetArrayLength() > 0 ? root[0] : default;
+        }
+
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            if (IsEvolutionInstanceMatch(root, instanceName))
+            {
+                return root;
+            }
+
+            if (TryFindJsonProperty(root, "instances", out var instances))
+            {
+                return FindEvolutionInstance(instances, instanceName);
+            }
+        }
+
+        return default;
+    }
+
+    private static bool IsEvolutionInstanceMatch(JsonElement element, string instanceName)
+    {
+        var name = ReadEvolutionString(element, "name", "instanceName");
+        return string.IsNullOrWhiteSpace(instanceName)
+               || string.Equals(name, instanceName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task SendWhatsAppLogViaEvolutionLocalAsync(WhatsAppMessageLog log)
+    {
+        var settings = GetWhatsAppSettings();
+        if (!TryValidateEvolutionLocalSettings(settings, out var validationError))
+        {
+            await UpdateSendPulseLogAsync(log, false, validationError).ConfigureAwait(false);
+            return;
+        }
+
+        var phone = NormalizeWhatsAppPhone(log.Phone, settings.DefaultCountryCode);
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            await UpdateSendPulseLogAsync(log, false, "Cliente sem telefone valido para WhatsApp.").ConfigureAwait(false);
+            return;
+        }
+
+        var payload = new
+        {
+            number = phone,
+            text = log.Message,
+            delay = 1200,
+            linkPreview = false
+        };
+
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(18) };
+            var path = $"/message/sendText/{Uri.EscapeDataString(settings.EvolutionLocalInstanceName)}";
+            using var request = CreateEvolutionLocalRequest(HttpMethod.Post, settings, path, payload);
+            using var response = await client.SendAsync(request).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var message = ReadEvolutionMessage(body);
+                if (LooksLikeEvolutionInstanceMissing(body) || LooksLikeEvolutionInstanceMissing(message))
+                {
+                    ClearEvolutionLocalConnectionState(settings, resetLegacyInstance: true);
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        SaveAppSettings();
+                        SaveStore();
+                        SetStatus("WhatsApp precisa ser conectado novamente. Abra WhatsApp da loja e gere um QR novo.");
+                    });
+                    await UpdateSendPulseLogAsync(log, false, "Conta WhatsApp nao encontrada no servidor online. Conecte novamente pelo QR.").ConfigureAwait(false);
+                    return;
+                }
+
+                await UpdateSendPulseLogAsync(log, false, $"Servico online recusou o envio: {message}").ConfigureAwait(false);
+                return;
+            }
+
+            await UpdateSendPulseLogAsync(log, true, "").ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            await UpdateSendPulseLogAsync(log, false, $"Falha ao enviar pelo WhatsApp online: {ex.Message}").ConfigureAwait(false);
+        }
+    }
+
+    private async Task<EvolutionLocalResult> ResetEvolutionLocalInstanceAsync(WhatsAppSettings settings)
+    {
+        if (!TryValidateEvolutionLocalSettings(settings, out var error))
+        {
+            return EvolutionLocalResult.Fail(error);
+        }
+
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(12) };
+            var path = $"/instance/delete/{Uri.EscapeDataString(settings.EvolutionLocalInstanceName)}";
+            using var request = CreateEvolutionLocalRequest(HttpMethod.Delete, settings, path);
+            using var response = await client.SendAsync(request).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return EvolutionLocalResult.Success("QR resetado. Gere um novo QR e escaneie novamente.");
+            }
+
+            return EvolutionLocalResult.Fail($"Nao consegui resetar o QR: {ReadEvolutionMessage(body)}");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            return EvolutionLocalResult.Fail($"Falha ao resetar QR: {ex.Message}");
+        }
+    }
+
+    private void StartEvolutionLocalAutomaticReceptionIfNeeded()
+    {
+        var settings = GetWhatsAppSettings();
+        if (!IsEvolutionLocalWhatsApp(settings)
+            || !settings.Enabled
+            || !settings.EvolutionLocalAutoReceiveEnabled
+            || !TryValidateEvolutionLocalSettings(settings, out _))
+        {
+            StopEvolutionLocalAutomaticReception();
+            return;
+        }
+
+        settings.AutoReplyConnector = true;
+        settings.AutoCreateConfirmedOrders = true;
+        settings.EvolutionLocalLastMessageAt ??= DateTime.Now;
+        if (!_whatsAppEvolutionPollTimer.IsEnabled)
+        {
+            _whatsAppEvolutionPollTimer.Start();
+        }
+    }
+
+    private void StopEvolutionLocalAutomaticReception()
+    {
+        if (_whatsAppEvolutionPollTimer.IsEnabled)
+        {
+            _whatsAppEvolutionPollTimer.Stop();
+        }
+    }
+
+    private async Task PollEvolutionLocalMessagesAsync()
+    {
+        if (_whatsAppEvolutionPollRunning)
+        {
+            return;
+        }
+
+        var settings = GetWhatsAppSettings();
+        if (!IsEvolutionLocalWhatsApp(settings)
+            || !settings.Enabled
+            || !settings.EvolutionLocalAutoReceiveEnabled
+            || !TryValidateEvolutionLocalSettings(settings, out _))
+        {
+            StopEvolutionLocalAutomaticReception();
+            return;
+        }
+
+        _whatsAppEvolutionPollRunning = true;
+        try
+        {
+            if (!IsEvolutionConnectedState(settings.EvolutionLocalLastState))
+            {
+                var state = await FetchEvolutionLocalConnectionStateAsync(settings);
+                if (state.Ok)
+                {
+                    settings.EvolutionLocalLastState = state.State;
+                    if (IsEvolutionConnectedState(state.State))
+                    {
+                        settings.EvolutionLocalLastConnectedAt = DateTime.Now;
+                    }
+
+                    SaveAppSettings();
+                }
+
+                if (!state.Ok || !IsEvolutionConnectedState(state.State))
+                {
+                    return;
+                }
+            }
+
+            var messages = await FetchEvolutionLocalMessagesAsync(settings);
+            if (messages.Count == 0)
+            {
+                return;
+            }
+
+            var lastMessageAt = settings.EvolutionLocalLastMessageAt ?? DateTime.MinValue;
+            var newest = lastMessageAt;
+            foreach (var message in messages.OrderBy(item => item.When))
+            {
+                if (message.When > newest)
+                {
+                    newest = message.When;
+                }
+
+                if (message.FromMe
+                    || string.IsNullOrWhiteSpace(message.Text)
+                    || string.IsNullOrWhiteSpace(message.Phone)
+                    || message.When < lastMessageAt.AddSeconds(-1))
+                {
+                    continue;
+                }
+
+                var messageId = string.IsNullOrWhiteSpace(message.Id)
+                    ? $"{message.Phone}:{message.When:O}:{message.Text.GetHashCode(StringComparison.Ordinal)}"
+                    : message.Id;
+                if (!_whatsAppEvolutionSeenMessages.Add(messageId))
+                {
+                    continue;
+                }
+
+                if (IsWhatsAppManualChatOpen(message.Phone))
+                {
+                    continue;
+                }
+
+                await HandleEvolutionIncomingMessageAsync(message);
+            }
+
+            if (newest > lastMessageAt)
+            {
+                settings.EvolutionLocalLastMessageAt = newest;
+                SaveAppSettings();
+            }
+
+            if (_whatsAppEvolutionSeenMessages.Count > 500)
+            {
+                _whatsAppEvolutionSeenMessages.Clear();
+            }
+        }
+        finally
+        {
+            _whatsAppEvolutionPollRunning = false;
+        }
+    }
+
+    private async Task HandleEvolutionIncomingMessageAsync(EvolutionIncomingMessage message)
+    {
+        if (IsWhatsAppManualChatOpen(message.Phone))
+        {
+            return;
+        }
+
+        var settings = GetWhatsAppSettings();
+        var reply = await Dispatcher.InvokeAsync(() =>
+        {
+            return HandleWhatsAppIncomingMessage(
+                string.IsNullOrWhiteSpace(message.CustomerName) ? message.Phone : message.CustomerName,
+                message.Phone,
+                message.Text,
+                settings.AutoCreateConfirmedOrders);
+        }, DispatcherPriority.Background);
+
+        if (string.IsNullOrWhiteSpace(reply) || !settings.AutoReplyConnector)
+        {
+            return;
+        }
+
+        var log = await Dispatcher.InvokeAsync(() =>
+        {
+            return AddWhatsAppInteractionLog(
+                string.IsNullOrWhiteSpace(message.CustomerName) ? message.Phone : message.CustomerName,
+                message.Phone,
+                reply,
+                "ENVIANDO_WHATSAPP");
+        }, DispatcherPriority.Background);
+
+        await SendWhatsAppLogViaEvolutionLocalAsync(log);
+    }
+
+    private void SetWhatsAppManualChat(string phone, bool open)
+    {
+        var normalized = NormalizeWhatsAppPhone(phone, GetWhatsAppSettings().DefaultCountryCode);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return;
+        }
+
+        lock (_whatsAppManualChatPhones)
+        {
+            if (open)
+            {
+                _whatsAppManualChatPhones.Add(normalized);
+            }
+            else
+            {
+                _whatsAppManualChatPhones.Remove(normalized);
+            }
+        }
+    }
+
+    private bool IsWhatsAppManualChatOpen(string phone)
+    {
+        var normalized = NormalizeWhatsAppPhone(phone, GetWhatsAppSettings().DefaultCountryCode);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        lock (_whatsAppManualChatPhones)
+        {
+            return _whatsAppManualChatPhones.Contains(normalized);
+        }
+    }
+
+    private async Task<List<EvolutionIncomingMessage>> FetchEvolutionLocalMessagesAsync(WhatsAppSettings settings)
+    {
+        if (!TryValidateEvolutionLocalSettings(settings, out _))
+        {
+            return [];
+        }
+
+        var payload = new
+        {
+            where = new { },
+            page = 1,
+            limit = 40
+        };
+        return await FetchEvolutionLocalMessagesByPayloadAsync(settings, payload, "Evolution receive").ConfigureAwait(false);
+    }
+
+    private async Task<List<EvolutionIncomingMessage>> FetchEvolutionLocalMessagesByPayloadAsync(WhatsAppSettings settings, object payload, string debugLabel)
+    {
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            var path = $"/chat/findMessages/{Uri.EscapeDataString(settings.EvolutionLocalInstanceName)}";
+            using var request = CreateEvolutionLocalRequest(HttpMethod.Post, settings, path, payload);
+            using var response = await client.SendAsync(request).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(body))
+            {
+                Debug.WriteLine($"{debugLabel} failed: {(int)response.StatusCode} {ReadEvolutionMessage(body)}");
+                return [];
+            }
+
+            return ParseEvolutionIncomingMessages(body, settings);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            Debug.WriteLine($"{debugLabel} failed: {ex.Message}");
+            return [];
+        }
+    }
+
+    private async Task<List<EvolutionChatConversation>> FetchEvolutionLocalChatsAsync(WhatsAppSettings settings)
+    {
+        if (!TryValidateEvolutionLocalSettings(settings, out _))
+        {
+            return [];
+        }
+
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            var path = $"/chat/findChats/{Uri.EscapeDataString(settings.EvolutionLocalInstanceName)}";
+            var payload = new
+            {
+                where = new { },
+                page = 1,
+                limit = 80
+            };
+            using var request = CreateEvolutionLocalRequest(HttpMethod.Post, settings, path, payload);
+            using var response = await client.SendAsync(request).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(body))
+            {
+                Debug.WriteLine($"Evolution chats failed: {(int)response.StatusCode} {ReadEvolutionMessage(body)}");
+                return [];
+            }
+
+            var connectedPhone = NormalizeWhatsAppPhone(settings.EvolutionLocalConnectedPhone, settings.DefaultCountryCode);
+            return ParseEvolutionChats(body, settings)
+                .Where(chat => string.IsNullOrWhiteSpace(connectedPhone) || !PhoneMatchesBot(chat.Phone, connectedPhone))
+                .ToList();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            Debug.WriteLine($"Evolution chats failed: {ex.Message}");
+            return [];
+        }
+    }
+
+    private async Task<List<EvolutionIncomingMessage>> FetchEvolutionLocalChatMessagesAsync(WhatsAppSettings settings, EvolutionChatConversation chat)
+    {
+        if (!TryValidateEvolutionLocalSettings(settings, out _))
+        {
+            return [];
+        }
+
+        var probes = new List<object>();
+        if (!string.IsNullOrWhiteSpace(chat.Jid))
+        {
+            probes.Add(new
+            {
+                where = new { key = new { remoteJid = chat.Jid } },
+                page = 1,
+                limit = 120
+            });
+        }
+
+        var normalizedPhone = NormalizeWhatsAppPhone(chat.Phone, settings.DefaultCountryCode);
+        if (!string.IsNullOrWhiteSpace(normalizedPhone))
+        {
+            probes.Add(new
+            {
+                where = new { key = new { remoteJidAlt = $"{normalizedPhone}@s.whatsapp.net" } },
+                page = 1,
+                limit = 120
+            });
+        }
+
+        foreach (var payload in probes)
+        {
+            var messages = await FetchEvolutionLocalMessagesByPayloadAsync(settings, payload, "Evolution chat messages").ConfigureAwait(false);
+            if (messages.Count > 0)
+            {
+                return messages
+                    .OrderBy(item => item.When)
+                    .TakeLast(120)
+                    .ToList();
+            }
+        }
+
+        var all = await FetchEvolutionLocalMessagesAsync(settings).ConfigureAwait(false);
+        return all
+            .Where(message => PhoneMatchesBot(message.Phone, chat.Phone))
+            .OrderBy(item => item.When)
+            .TakeLast(120)
+            .ToList();
+    }
+
+    private async Task<EvolutionLocalResult> SendEvolutionLocalTextAsync(WhatsAppSettings settings, string phone, string text)
+    {
+        if (!TryValidateEvolutionLocalSettings(settings, out var validationError))
+        {
+            return EvolutionLocalResult.Fail(validationError);
+        }
+
+        var normalizedPhone = NormalizeWhatsAppPhone(phone, settings.DefaultCountryCode);
+        if (string.IsNullOrWhiteSpace(normalizedPhone))
+        {
+            return EvolutionLocalResult.Fail("Conversa sem telefone valido para envio.");
+        }
+
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(18) };
+            var path = $"/message/sendText/{Uri.EscapeDataString(settings.EvolutionLocalInstanceName)}";
+            var payload = new
+            {
+                number = normalizedPhone,
+                text,
+                delay = 800,
+                linkPreview = false
+            };
+            using var request = CreateEvolutionLocalRequest(HttpMethod.Post, settings, path, payload);
+            using var response = await client.SendAsync(request).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (response.IsSuccessStatusCode)
+            {
+                return EvolutionLocalResult.Success("Mensagem enviada.");
+            }
+
+            var message = ReadEvolutionMessage(body);
+            if (LooksLikeEvolutionInstanceMissing(body) || LooksLikeEvolutionInstanceMissing(message))
+            {
+                ClearEvolutionLocalConnectionState(settings, resetLegacyInstance: true);
+                return EvolutionLocalResult.Fail("Conta WhatsApp nao encontrada no servidor online. Abra WhatsApp da loja e conecte novamente pelo QR.");
+            }
+
+            return EvolutionLocalResult.Fail($"Nao consegui enviar: {message}");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            return EvolutionLocalResult.Fail($"Falha ao enviar mensagem: {ex.Message}");
+        }
+    }
+
+    private HttpRequestMessage CreateEvolutionLocalRequest(HttpMethod method, WhatsAppSettings settings, string path, object? payload = null)
+    {
+        var uri = BuildEvolutionLocalUri(settings, path) ?? throw new InvalidOperationException("Endereco do WhatsApp online invalido.");
+        var request = new HttpRequestMessage(method, uri);
+        if (!string.IsNullOrWhiteSpace(settings.EvolutionLocalApiKey))
+        {
+            request.Headers.TryAddWithoutValidation("apikey", settings.EvolutionLocalApiKey.Trim());
+        }
+
+        if (payload is not null)
+        {
+            request.Content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
+        }
+
+        return request;
+    }
+
+    private static Uri? BuildEvolutionLocalUri(WhatsAppSettings settings, string path)
+    {
+        var baseUrl = EnsureTrailingSlash(NormalizeEvolutionLocalBaseUrl(settings.EvolutionLocalBaseUrl));
+        return Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri)
+            ? new Uri(baseUri, path.TrimStart('/'))
+            : null;
+    }
+
+    private static List<EvolutionIncomingMessage> ParseEvolutionIncomingMessages(string body, WhatsAppSettings settings)
+    {
+        var messages = new List<EvolutionIncomingMessage>();
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+
+        if (root.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in root.EnumerateArray())
+            {
+                if (TryParseEvolutionIncomingMessage(item, settings, out var message))
+                {
+                    messages.Add(message);
+                }
+            }
+
+            return messages;
+        }
+
+        if (TryFindJsonProperty(root, "records", out var records) && records.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in records.EnumerateArray())
+            {
+                if (TryParseEvolutionIncomingMessage(item, settings, out var message))
+                {
+                    messages.Add(message);
+                }
+            }
+
+            return messages;
+        }
+
+        if (TryFindJsonProperty(root, "messages", out var nestedMessages) && nestedMessages.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in nestedMessages.EnumerateArray())
+            {
+                if (TryParseEvolutionIncomingMessage(item, settings, out var message))
+                {
+                    messages.Add(message);
+                }
+            }
+        }
+
+        return messages;
+    }
+
+    private static List<EvolutionChatConversation> ParseEvolutionChats(string body, WhatsAppSettings settings)
+    {
+        var chats = new List<EvolutionChatConversation>();
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+        IEnumerable<JsonElement> records = root.ValueKind == JsonValueKind.Array
+            ? root.EnumerateArray()
+            : TryFindJsonProperty(root, "records", out var nestedRecords) && nestedRecords.ValueKind == JsonValueKind.Array
+                ? nestedRecords.EnumerateArray()
+                : [];
+
+        foreach (var record in records)
+        {
+            var remoteJid = ReadEvolutionString(record, "remoteJid", "jid");
+            if (IsEvolutionGroupJid(remoteJid))
+            {
+                continue;
+            }
+
+            TryGetJsonProperty(record, "lastMessage", out var lastMessage);
+            TryGetJsonProperty(lastMessage, "key", out var key);
+            var phoneJid = ReadEvolutionString(key, "remoteJidAlt", "participantAlt");
+            if (string.IsNullOrWhiteSpace(phoneJid) || IsEvolutionLidJid(phoneJid))
+            {
+                phoneJid = IsEvolutionLidJid(remoteJid) ? "" : remoteJid;
+            }
+
+            var phone = NormalizeEvolutionJidPhone(phoneJid, settings.DefaultCountryCode);
+            if (string.IsNullOrWhiteSpace(phone))
+            {
+                continue;
+            }
+
+            var name = ReadEvolutionString(record, "pushName", "name");
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = ReadEvolutionString(lastMessage, "pushName", "senderName", "name");
+            }
+
+            var updatedAt = ReadEvolutionDate(record, "updatedAt", "updated_at", "createdAt", "created_at");
+            var lastText = ReadEvolutionMessageText(lastMessage);
+            var unreadRaw = ReadEvolutionString(record, "unreadCount");
+            _ = int.TryParse(unreadRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var unread);
+            chats.Add(new EvolutionChatConversation
+            {
+                Jid = remoteJid,
+                Phone = phone,
+                Name = string.IsNullOrWhiteSpace(name) || string.Equals(name, "Voce", StringComparison.OrdinalIgnoreCase) ? "" : name,
+                LastMessage = lastText,
+                UpdatedAt = updatedAt,
+                UnreadCount = unread
+            });
+        }
+
+        return chats
+            .GroupBy(chat => chat.Phone, StringComparer.Ordinal)
+            .Select(group => group.OrderByDescending(chat => chat.UpdatedAt).First())
+            .ToList();
+    }
+
+    private static bool TryParseEvolutionIncomingMessage(JsonElement record, WhatsAppSettings settings, out EvolutionIncomingMessage message)
+    {
+        message = new EvolutionIncomingMessage();
+        TryGetJsonProperty(record, "key", out var key);
+
+        var remoteJid = ReadEvolutionString(key, "remoteJid");
+        if (string.IsNullOrWhiteSpace(remoteJid))
+        {
+            remoteJid = ReadEvolutionString(record, "remoteJid", "chatId", "jid", "from");
+        }
+
+        if (IsEvolutionGroupJid(remoteJid))
+        {
+            return false;
+        }
+
+        var participant = ReadEvolutionString(key, "participant");
+        if (string.IsNullOrWhiteSpace(participant))
+        {
+            participant = ReadEvolutionString(record, "participant", "sender");
+        }
+
+        var phoneJid = ReadEvolutionString(key, "remoteJidAlt", "participantAlt");
+        if (string.IsNullOrWhiteSpace(phoneJid))
+        {
+            phoneJid = ReadEvolutionString(record, "remoteJidAlt", "participantAlt", "senderPn", "phone");
+        }
+
+        if (string.IsNullOrWhiteSpace(phoneJid) || IsEvolutionLidJid(phoneJid))
+        {
+            phoneJid = IsEvolutionLidJid(remoteJid) ? "" : remoteJid;
+        }
+
+        if (string.IsNullOrWhiteSpace(phoneJid) || IsEvolutionLidJid(phoneJid))
+        {
+            phoneJid = IsEvolutionLidJid(participant) ? "" : participant;
+        }
+
+        var phone = NormalizeEvolutionJidPhone(phoneJid, settings.DefaultCountryCode);
+
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            return false;
+        }
+
+        var text = ReadEvolutionMessageText(record);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        var id = ReadEvolutionString(key, "id");
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            id = ReadEvolutionString(record, "id", "messageId");
+        }
+
+        var when = ReadEvolutionDate(record, "messageTimestamp", "timestamp", "createdAt", "created_at");
+        var name = ReadEvolutionString(record, "pushName", "senderName", "name", "notifyName");
+
+        message = new EvolutionIncomingMessage
+        {
+            Id = string.IsNullOrWhiteSpace(id) ? $"{phone}:{when:O}:{text}" : id,
+            CustomerName = string.IsNullOrWhiteSpace(name) ? phone : name,
+            Phone = phone,
+            Text = text.Trim(),
+            When = when,
+            FromMe = ReadEvolutionBool(key, "fromMe") || ReadEvolutionBool(record, "fromMe")
+        };
+        return true;
+    }
+
+    private static string ReadEvolutionMessageText(JsonElement record)
+    {
+        if (TryGetJsonProperty(record, "message", out var message))
+        {
+            if (message.ValueKind == JsonValueKind.String)
+            {
+                return message.GetString() ?? "";
+            }
+
+            var text = ReadEvolutionString(
+                message,
+                "conversation",
+                "text",
+                "caption",
+                "selectedDisplayText",
+                "selectedButtonId",
+                "title",
+                "description");
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                return text;
+            }
+
+            if (TryFindJsonProperty(message, "imageMessage", out _))
+            {
+                return "[Imagem]";
+            }
+
+            if (TryFindJsonProperty(message, "audioMessage", out _))
+            {
+                return "[Audio]";
+            }
+
+            if (TryFindJsonProperty(message, "videoMessage", out _))
+            {
+                return "[Video]";
+            }
+
+            if (TryFindJsonProperty(message, "documentMessage", out _))
+            {
+                return "[Documento]";
+            }
+
+            if (TryFindJsonProperty(message, "stickerMessage", out _))
+            {
+                return "[Figurinha]";
+            }
+
+            if (TryFindJsonProperty(message, "locationMessage", out _))
+            {
+                return "[Localizacao]";
+            }
+
+            if (TryFindJsonProperty(message, "contactMessage", out _)
+                || TryFindJsonProperty(message, "contactsArrayMessage", out _))
+            {
+                return "[Contato]";
+            }
+        }
+
+        return ReadEvolutionString(record, "body", "text", "messageText", "caption");
+    }
+
+    private static string NormalizeEvolutionJidPhone(string jid, string defaultCountryCode)
+    {
+        if (string.IsNullOrWhiteSpace(jid) || IsEvolutionGroupJid(jid))
+        {
+            return "";
+        }
+
+        var clean = jid.Trim();
+        var at = clean.IndexOf('@');
+        if (at >= 0)
+        {
+            clean = clean[..at];
+        }
+
+        var colon = clean.IndexOf(':');
+        if (colon >= 0)
+        {
+            clean = clean[..colon];
+        }
+
+        return NormalizeWhatsAppPhone(clean, defaultCountryCode);
+    }
+
+    private static string FormatWhatsAppDisplayPhone(string phone)
+    {
+        var digits = new string((phone ?? "").Where(char.IsDigit).ToArray());
+        if (digits.Length == 13 && digits.StartsWith("55", StringComparison.Ordinal))
+        {
+            return $"+55 ({digits.Substring(2, 2)}) {digits.Substring(4, 5)}-{digits.Substring(9, 4)}";
+        }
+
+        if (digits.Length == 12 && digits.StartsWith("55", StringComparison.Ordinal))
+        {
+            return $"+55 ({digits.Substring(2, 2)}) {digits.Substring(4, 4)}-{digits.Substring(8, 4)}";
+        }
+
+        if (digits.Length == 11)
+        {
+            return $"({digits.Substring(0, 2)}) {digits.Substring(2, 5)}-{digits.Substring(7, 4)}";
+        }
+
+        if (digits.Length == 10)
+        {
+            return $"({digits.Substring(0, 2)}) {digits.Substring(2, 4)}-{digits.Substring(6, 4)}";
+        }
+
+        return string.IsNullOrWhiteSpace(digits) ? "Numero nao informado" : $"+{digits}";
+    }
+
+    private static string BuildInitials(string value)
+    {
+        var parts = Regex.Split((value ?? "").Trim(), @"\s+")
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .Take(2)
+            .Select(part => char.ToUpperInvariant(part[0]).ToString())
+            .ToArray();
+        return parts.Length == 0 ? "WA" : string.Concat(parts);
+    }
+
+    private static bool IsEvolutionGroupJid(string jid)
+    {
+        return !string.IsNullOrWhiteSpace(jid)
+               && jid.Contains("@g.us", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsEvolutionLidJid(string jid)
+    {
+        return !string.IsNullOrWhiteSpace(jid)
+               && jid.Contains("@lid", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static DateTime ReadEvolutionDate(JsonElement element, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!TryFindJsonProperty(element, name, out var value))
+            {
+                continue;
+            }
+
+            if (TryReadEvolutionDateValue(value, out var parsed))
+            {
+                return parsed;
+            }
+        }
+
+        return DateTime.Now;
+    }
+
+    private static bool TryReadEvolutionDateValue(JsonElement value, out DateTime date)
+    {
+        date = DateTime.Now;
+        if (value.ValueKind == JsonValueKind.Number)
+        {
+            if (value.TryGetInt64(out var number))
+            {
+                date = number > 9_999_999_999
+                    ? DateTimeOffset.FromUnixTimeMilliseconds(number).LocalDateTime
+                    : DateTimeOffset.FromUnixTimeSeconds(number).LocalDateTime;
+                return true;
+            }
+
+            if (value.TryGetDouble(out var floating))
+            {
+                var whole = Convert.ToInt64(floating);
+                date = whole > 9_999_999_999
+                    ? DateTimeOffset.FromUnixTimeMilliseconds(whole).LocalDateTime
+                    : DateTimeOffset.FromUnixTimeSeconds(whole).LocalDateTime;
+                return true;
+            }
+        }
+
+        if (value.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        var text = value.GetString();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var unix))
+        {
+            date = unix > 9_999_999_999
+                ? DateTimeOffset.FromUnixTimeMilliseconds(unix).LocalDateTime
+                : DateTimeOffset.FromUnixTimeSeconds(unix).LocalDateTime;
+            return true;
+        }
+
+        if (DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var dto))
+        {
+            date = dto.LocalDateTime;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool ReadEvolutionBool(JsonElement element, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!TryFindJsonProperty(element, name, out var value))
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.True)
+            {
+                return true;
+            }
+
+            if (value.ValueKind == JsonValueKind.False)
+            {
+                return false;
+            }
+
+            if (value.ValueKind == JsonValueKind.String
+                && bool.TryParse(value.GetString(), out var parsed))
+            {
+                return parsed;
+            }
+        }
+
+        return false;
+    }
+
+    private static string ReadEvolutionString(JsonElement element, params string[] names)
+    {
+        if (element.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+        {
+            return "";
+        }
+
+        foreach (var name in names)
+        {
+            if (!TryFindJsonProperty(element, name, out var value))
+            {
+                continue;
+            }
+
+            return value.ValueKind switch
+            {
+                JsonValueKind.String => value.GetString() ?? "",
+                JsonValueKind.Number => value.GetRawText(),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                JsonValueKind.Object or JsonValueKind.Array => value.GetRawText(),
+                _ => ""
+            };
+        }
+
+        return "";
+    }
+
+    private static bool TryGetJsonProperty(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private bool TryStartEvolutionLocalService(out string message)
+    {
+        var directory = FindEvolutionLocalPackageDirectory();
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            message = "Nao encontrei a pasta evolution-local-windows no build do PDV.";
+            return false;
+        }
+
+        var script = Path.Combine(directory, "start-local.ps1");
+        if (!File.Exists(script))
+        {
+            message = "Nao encontrei o pacote do WhatsApp online.";
+            return false;
+        }
+
+        try
+        {
+            SyncEvolutionLocalMenuEnv(directory);
+            StartEvolutionPowerShellScript(script, directory, ProcessWindowStyle.Normal);
+            message = "Host WhatsApp iniciando. Depois clique em Gerar QR ou Verificar conexao.";
+            return true;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            message = $"Nao consegui iniciar o servico do WhatsApp: {ex.Message}";
+            return false;
+        }
+    }
+
+    private bool TryStartEvolutionOnlineHost(out string message)
+    {
+        var directory = FindEvolutionLocalPackageDirectory();
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            message = "Nao encontrei a pasta evolution-local-windows no build do PDV.";
+            return false;
+        }
+
+        var localScript = Path.Combine(directory, "start-local.ps1");
+        var tunnelScript = Path.Combine(directory, "start-quick-tunnel.ps1");
+        if (!File.Exists(localScript))
+        {
+            message = "Nao encontrei o script do host WhatsApp.";
+            return false;
+        }
+
+        if (!File.Exists(tunnelScript))
+        {
+            message = "Nao encontrei o script Cloudflare do host online.";
+            return false;
+        }
+
+        try
+        {
+            SyncEvolutionLocalMenuEnv(directory);
+            StartEvolutionPowerShellScript(localScript, directory, ProcessWindowStyle.Hidden);
+            if (!HasCloudflareTunnelToken(directory))
+            {
+                StartEvolutionPowerShellScript(tunnelScript, directory, ProcessWindowStyle.Hidden);
+            }
+
+            message = "Host online iniciando. Deixe Docker, internet e este PC ligados para o WhatsApp responder automaticamente.";
+            return true;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            message = $"Nao consegui iniciar o host online: {ex.Message}";
+            return false;
+        }
+    }
+
+    private void SyncEvolutionLocalMenuEnv(string directory)
+    {
+        var envFile = Path.Combine(directory, ".env");
+        if (!File.Exists(envFile))
+        {
+            return;
+        }
+
+        try
+        {
+            var settings = GetWhatsAppSettings();
+            var slug = EnsurePublicMenuSlug();
+            var instance = NormalizeEvolutionLocalInstanceName(settings.EvolutionLocalInstanceName);
+            var publicMenuBaseUrl = NormalizePublicMenuBaseUrl(_appSettings.PublicMenuBaseUrl);
+            var content = File.ReadAllText(envFile, Encoding.UTF8);
+            content = UpsertSimpleEnvLine(content, "PUBLIC_MENU_BASE_URL", publicMenuBaseUrl);
+            content = UpsertSimpleEnvLine(content, "BOT_PUBLIC_MENU_SLUG", slug);
+            content = UpsertSimpleEnvLine(content, "BOT_INSTANCE_SLUGS", $"{instance}={slug}");
+            content = UpsertSimpleEnvLine(content, "BOT_SEND_QUICK_MENU", settings.WhatsAppMessageOrdersEnabled ? "always" : "off");
+            File.WriteAllText(envFile, content, new UTF8Encoding(false));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or UriFormatException)
+        {
+            Debug.WriteLine($"Evolution menu env sync skipped: {ex.Message}");
+        }
+    }
+
+    private static string UpsertSimpleEnvLine(string content, string key, string value)
+    {
+        var safeContent = content ?? "";
+        var escapedKey = Regex.Escape(key);
+        var line = $"{key}={value}";
+        if (Regex.IsMatch(safeContent, $"(?m)^{escapedKey}=.*$"))
+        {
+            return Regex.Replace(safeContent, $"(?m)^{escapedKey}=.*$", line);
+        }
+
+        return safeContent.TrimEnd() + Environment.NewLine + line + Environment.NewLine;
+    }
+
+    private static bool HasCloudflareTunnelToken(string directory)
+    {
+        var envFile = Path.Combine(directory, ".env");
+        if (!File.Exists(envFile))
+        {
+            return false;
+        }
+
+        try
+        {
+            var values = ReadSimpleEnvFile(envFile);
+            return values.TryGetValue("CLOUDFLARE_TUNNEL_TOKEN", out var token)
+                   && !string.IsNullOrWhiteSpace(token)
+                   && !token.Contains("cole-o-token", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Debug.WriteLine($"Cloudflare token check skipped: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static void StartEvolutionPowerShellScript(string script, string directory, ProcessWindowStyle windowStyle)
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            Arguments = $"-NoExit -ExecutionPolicy Bypass -File {QuoteArg(script)}",
+            WorkingDirectory = directory,
+            UseShellExecute = true,
+            WindowStyle = windowStyle
+        });
+    }
+
+    private bool TryApplyEvolutionLocalEnv(WhatsAppSettings settings)
+    {
+        foreach (var envFile in FindEvolutionLocalEnvFiles())
+        {
+            if (!File.Exists(envFile))
+            {
+                continue;
+            }
+
+            try
+            {
+                var values = ReadSimpleEnvFile(envFile);
+                if (values.TryGetValue("AUTHENTICATION_API_KEY", out var apiKey)
+                    && !IsEvolutionLocalPlaceholder(apiKey))
+                {
+                    settings.EvolutionLocalApiKey = apiKey;
+                }
+
+                if (TryReadEvolutionPublicUrl(values, Path.GetDirectoryName(envFile) ?? "", out var site))
+                {
+                    settings.EvolutionLocalBaseUrl = NormalizeEvolutionLocalBaseUrl(site);
+                }
+                else if ((values.TryGetValue("EVOLUTION_API_SITE", out site)
+                          || values.TryGetValue("SERVER_URL", out site))
+                         && (!IsPublicEvolutionEndpoint(settings.EvolutionLocalBaseUrl) || !IsLoopbackEvolutionEndpoint(site)))
+                {
+                    settings.EvolutionLocalBaseUrl = NormalizeEvolutionLocalBaseUrl(site);
+                }
+
+                settings.EvolutionLocalInstanceName = NormalizeEvolutionLocalInstanceName(settings.EvolutionLocalInstanceName);
+                return !string.IsNullOrWhiteSpace(settings.EvolutionLocalApiKey);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Debug.WriteLine($"Evolution .env read skipped: {ex.Message}");
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryReadEvolutionPublicUrl(IReadOnlyDictionary<string, string> values, string directory, out string url)
+    {
+        foreach (var key in new[] { "EVOLUTION_PUBLIC_URL", "CLOUDFLARE_PUBLIC_URL", "CLOUDFLARE_TUNNEL_URL" })
+        {
+            if (values.TryGetValue(key, out var value) && IsPublicEvolutionEndpoint(value))
+            {
+                url = value;
+                return true;
+            }
+        }
+
+        var tunnelUrlFile = Path.Combine(directory, "cloudflare-tunnel-url.txt");
+        if (File.Exists(tunnelUrlFile))
+        {
+            try
+            {
+                var value = File.ReadLines(tunnelUrlFile, Encoding.UTF8)
+                    .Select(line => line.Trim())
+                    .FirstOrDefault(IsPublicEvolutionEndpoint);
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    url = value;
+                    return true;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Debug.WriteLine($"Cloudflare URL read skipped: {ex.Message}");
+            }
+        }
+
+        url = "";
+        return false;
+    }
+
+    private IEnumerable<string> FindEvolutionLocalEnvFiles()
+    {
+        foreach (var directory in FindEvolutionLocalPackageDirectories())
+        {
+            yield return Path.Combine(directory, ".env");
+        }
+
+        yield return Path.Combine(_dataRoot, "evolution-local-windows", ".env");
+    }
+
+    private string FindEvolutionLocalPackageDirectory()
+    {
+        return FindEvolutionLocalPackageDirectories().FirstOrDefault() ?? "";
+    }
+
+    private IEnumerable<string> FindEvolutionLocalPackageDirectories()
+    {
+        var candidates = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var root in EvolutionLocalSearchRoots())
+        {
+            foreach (var candidate in EvolutionLocalDirectoryCandidates(root))
+            {
+                if (Directory.Exists(candidate)
+                    && File.Exists(Path.Combine(candidate, "docker-compose.yml"))
+                    && File.Exists(Path.Combine(candidate, "start-local.ps1"))
+                    && seen.Add(candidate))
+                {
+                    candidates.Add(candidate);
+                }
+            }
+        }
+
+        foreach (var candidate in candidates
+                     .OrderByDescending(EvolutionLocalPackagePriority)
+                     .ThenByDescending(candidate =>
+                     {
+                         var env = Path.Combine(candidate, ".env");
+                         return File.Exists(env) ? File.GetLastWriteTimeUtc(env) : DateTime.MinValue;
+                     }))
+        {
+            yield return candidate;
+        }
+    }
+
+    private static int EvolutionLocalPackagePriority(string directory)
+    {
+        var normalized = directory.Replace('/', '\\');
+        if (normalized.Contains("\\deploy\\evolution-local-windows", StringComparison.OrdinalIgnoreCase))
+        {
+            return 30;
+        }
+
+        if (normalized.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase))
+        {
+            return 10;
+        }
+
+        return 20;
+    }
+
+    private static IEnumerable<string> EvolutionLocalSearchRoots()
+    {
+        var roots = new[]
+        {
+            AppContext.BaseDirectory,
+            Environment.CurrentDirectory
+        };
+
+        foreach (var root in roots.Where(item => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var current = new DirectoryInfo(root);
+            for (var i = 0; current is not null && i < 6; i++, current = current.Parent)
+            {
+                yield return current.FullName;
+            }
+        }
+    }
+
+    private static IEnumerable<string> EvolutionLocalDirectoryCandidates(string root)
+    {
+        yield return Path.Combine(root, "evolution-local-windows");
+        yield return Path.Combine(root, "deploy", "evolution-local-windows");
+    }
+
+    private static Dictionary<string, string> ReadSimpleEnvFile(string path)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rawLine in File.ReadLines(path, Encoding.UTF8))
+        {
+            var line = rawLine.Trim();
+            if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var separator = line.IndexOf('=');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var key = line[..separator].Trim();
+            var value = line[(separator + 1)..].Trim().Trim('"');
+            values[key] = value;
+        }
+
+            return values;
+        }
+
+    private bool TryReloadEvolutionLocalEnv(WhatsAppSettings settings)
+    {
+        var previousKey = settings.EvolutionLocalApiKey;
+        var loaded = TryApplyEvolutionLocalEnv(settings);
+        if (loaded && !string.Equals(previousKey, settings.EvolutionLocalApiKey, StringComparison.Ordinal))
+        {
+            SaveAppSettings();
+            SaveStore();
+        }
+
+        return loaded;
+    }
+
+    private static string NormalizeEvolutionLocalBaseUrl(string value)
+    {
+        var clean = string.IsNullOrWhiteSpace(value) || IsEvolutionLocalPlaceholder(value)
+            ? DefaultEvolutionLocalBaseUrl
+            : value.Trim();
+        return clean.TrimEnd('/');
+    }
+
+    private static bool IsLoopbackEvolutionEndpoint(string value)
+    {
+        return Uri.TryCreate(EnsureTrailingSlash(NormalizeEvolutionLocalBaseUrl(value)), UriKind.Absolute, out var uri)
+               && (uri.IsLoopback
+                   || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                   || uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsPublicEvolutionEndpoint(string? value)
+    {
+        return !string.IsNullOrWhiteSpace(value)
+               && !IsEvolutionLocalPlaceholder(value)
+               && Uri.TryCreate(EnsureTrailingSlash(NormalizeEvolutionLocalBaseUrl(value)), UriKind.Absolute, out var uri)
+               && uri.Scheme is "http" or "https"
+               && !uri.IsLoopback
+               && !uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+               && !uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeEvolutionLocalInstanceName(string value)
+    {
+        var clean = string.IsNullOrWhiteSpace(value) ? DefaultEvolutionLocalInstanceName : value.Trim().ToLowerInvariant();
+        clean = Regex.Replace(clean, @"[^a-z0-9_-]+", "-").Trim('-');
+        return string.IsNullOrWhiteSpace(clean) ? DefaultEvolutionLocalInstanceName : clean;
+    }
+
+    private static void ClearEvolutionLocalConnectionState(WhatsAppSettings settings, bool resetLegacyInstance = false)
+    {
+        settings.EvolutionLocalLastState = "";
+        settings.EvolutionLocalConnectedName = "";
+        settings.EvolutionLocalConnectedPhone = "";
+        settings.EvolutionLocalLastConnectedAt = null;
+        settings.EvolutionLocalAutoReceiveEnabled = false;
+        settings.EvolutionLocalLastMessageAt = null;
+        if (resetLegacyInstance
+            && string.Equals(settings.EvolutionLocalInstanceName, LegacyEvolutionLocalInstanceName, StringComparison.OrdinalIgnoreCase))
+        {
+            settings.EvolutionLocalInstanceName = DefaultEvolutionLocalInstanceName;
+        }
+    }
+
+    private static string EnsureTrailingSlash(string value)
+    {
+        return value.EndsWith("/", StringComparison.Ordinal) ? value : value + "/";
+    }
+
+    private static bool IsEvolutionLocalPlaceholder(string value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+               || value.Contains("troque-por", StringComparison.OrdinalIgnoreCase)
+               || value.Contains("sua-chave", StringComparison.OrdinalIgnoreCase)
+               || value.Contains("seu-dominio", StringComparison.OrdinalIgnoreCase)
+               || value.Contains("seudominio", StringComparison.OrdinalIgnoreCase)
+               || value.Contains("cole-o-token", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LooksLikeEvolutionInstanceAlreadyExists(string body)
+    {
+        return body.Contains("already", StringComparison.OrdinalIgnoreCase)
+               || body.Contains("exists", StringComparison.OrdinalIgnoreCase)
+               || body.Contains("existe", StringComparison.OrdinalIgnoreCase)
+               || body.Contains("ja existe", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LooksLikeEvolutionInstanceMissing(string body)
+    {
+        return body.Contains("instance does not exist", StringComparison.OrdinalIgnoreCase)
+               || body.Contains("instance not found", StringComparison.OrdinalIgnoreCase)
+               || body.Contains("does not exist", StringComparison.OrdinalIgnoreCase)
+               || body.Contains("not found", StringComparison.OrdinalIgnoreCase)
+               || body.Contains("nao existe", StringComparison.OrdinalIgnoreCase)
+               || body.Contains("não existe", StringComparison.OrdinalIgnoreCase)
+               || body.Contains("nao encontrada", StringComparison.OrdinalIgnoreCase)
+               || body.Contains("não encontrada", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsEvolutionConnectedState(string state)
+    {
+        var clean = (state ?? "").Trim().ToLowerInvariant();
+        return clean is "open" or "connected" or "conectado";
+    }
+
+    private static BitmapImage? CreateEvolutionQrImage(string base64)
+    {
+        if (string.IsNullOrWhiteSpace(base64))
+        {
+            return null;
+        }
+
+        try
+        {
+            var clean = base64.Trim();
+            var comma = clean.IndexOf(',');
+            if (clean.StartsWith("data:", StringComparison.OrdinalIgnoreCase) && comma >= 0)
+            {
+                clean = clean[(comma + 1)..];
+            }
+
+            var bytes = Convert.FromBase64String(clean);
+            using var stream = new MemoryStream(bytes);
+            var image = new BitmapImage();
+            image.BeginInit();
+            image.CacheOption = BitmapCacheOption.OnLoad;
+            image.StreamSource = stream;
+            image.EndInit();
+            image.Freeze();
+            return image;
+        }
+        catch (Exception ex) when (ex is FormatException or NotSupportedException or IOException)
+        {
+            Debug.WriteLine($"Evolution QR decode failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static string ReadEvolutionMessage(string body)
+    {
+        var message = ReadEvolutionString(body, "message", "error", "response", "status");
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            return message;
+        }
+
+        return string.IsNullOrWhiteSpace(body) ? "resposta vazia" : body.Trim();
+    }
+
+    private static string ReadEvolutionString(string body, params string[] names)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return "";
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            foreach (var name in names)
+            {
+                if (TryFindJsonProperty(document.RootElement, name, out var value))
+                {
+                    return value.ValueKind switch
+                    {
+                        JsonValueKind.String => value.GetString() ?? "",
+                        JsonValueKind.Number => value.GetRawText(),
+                        JsonValueKind.True => "true",
+                        JsonValueKind.False => "false",
+                        JsonValueKind.Object or JsonValueKind.Array => value.GetRawText(),
+                        _ => ""
+                    };
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return "";
+    }
+
+    private static bool TryFindJsonProperty(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+
+                if (TryFindJsonProperty(property.Value, name, out value))
+                {
+                    return true;
+                }
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                if (TryFindJsonProperty(item, name, out value))
+                {
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
     }
 
     private sealed class SendPulseBotOption
@@ -2648,6 +6109,56 @@ public partial class MainWindow
         {
             target.SendPulseOrderDispatchedScript = source.SendPulseOrderDispatchedScript;
         }
+
+        if (!string.IsNullOrWhiteSpace(source.EvolutionLocalBaseUrl))
+        {
+            target.EvolutionLocalBaseUrl = source.EvolutionLocalBaseUrl;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.EvolutionLocalApiKey))
+        {
+            target.EvolutionLocalApiKey = source.EvolutionLocalApiKey;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.EvolutionLocalInstanceName))
+        {
+            target.EvolutionLocalInstanceName = source.EvolutionLocalInstanceName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.EvolutionLocalLastState))
+        {
+            target.EvolutionLocalLastState = source.EvolutionLocalLastState;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.EvolutionLocalConnectedName))
+        {
+            target.EvolutionLocalConnectedName = source.EvolutionLocalConnectedName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.EvolutionLocalConnectedPhone))
+        {
+            target.EvolutionLocalConnectedPhone = source.EvolutionLocalConnectedPhone;
+        }
+
+        if (source.EvolutionLocalLastConnectedAt.HasValue)
+        {
+            target.EvolutionLocalLastConnectedAt = source.EvolutionLocalLastConnectedAt;
+        }
+
+        if (source.EvolutionLocalAutoReceiveEnabled)
+        {
+            target.EvolutionLocalAutoReceiveEnabled = true;
+        }
+
+        if (source.EvolutionLocalLastMessageAt.HasValue)
+        {
+            target.EvolutionLocalLastMessageAt = source.EvolutionLocalLastMessageAt;
+        }
+
+        if (source.WhatsAppMessageOrdersEnabled)
+        {
+            target.WhatsAppMessageOrdersEnabled = true;
+        }
     }
 
     private void StopLegacyWhatsAppRuntime(WhatsAppSettings settings)
@@ -2656,8 +6167,10 @@ public partial class MainWindow
         settings.AutoPressEnter = false;
         settings.ExtensionInstalledConfirmed = false;
         settings.LocalConnectorEnabled = false;
+        settings.EvolutionLocalAutoReceiveEnabled = false;
         settings.AutoReplyConnector = false;
         settings.AutoCreateConfirmedOrders = false;
+        StopEvolutionLocalAutomaticReception();
         CloseManagedWhatsAppBrowser(settings);
         _ = _whatsAppConnectorServer?.StopAsync();
         _whatsAppConnectorServer = null;
@@ -3236,6 +6749,14 @@ public partial class MainWindow
         var settings = GetWhatsAppSettings();
         settings.LocalConnectorPort = WhatsAppConnectorPort;
 
+        if (IsEvolutionLocalWhatsApp(settings))
+        {
+            NormalizeWhatsAppEvolutionLocalSettings();
+            TryApplyEvolutionLocalEnv(settings);
+            StartEvolutionLocalAutomaticReceptionIfNeeded();
+            return;
+        }
+
         if (!string.Equals(settings.Provider, "LOCAL_DOM", StringComparison.OrdinalIgnoreCase)
             && !(settings.ExtensionInstalledConfirmed && settings.LocalConnectorEnabled))
         {
@@ -3669,37 +7190,50 @@ public partial class MainWindow
 
     private string BuildWhatsAppSaleMessage(WhatsAppSaleContext context)
     {
-        var business = string.IsNullOrWhiteSpace(_profile.BusinessName) ? AppReceiptName : _profile.BusinessName.Trim();
-        var customer = string.IsNullOrWhiteSpace(context.CustomerName) ? "cliente" : context.CustomerName.Trim();
+        var business = WhatsAppStoreName();
+        var firstName = WhatsAppFirstName(context.CustomerName);
         var sb = new StringBuilder();
-        sb.AppendLine($"Ola, {customer}.");
-        sb.AppendLine($"Seu pedido {context.BoardKind} {context.BoardNumber} foi finalizado no {business}.");
-        sb.AppendLine($"Total: {Money(context.Total)}");
-
-        if (context.Payments.Count > 0)
-        {
-            sb.AppendLine($"Pagamento: {string.Join(", ", context.Payments.GroupBy(item => item.Method).Select(group => $"{group.Key} {Money(group.Sum(item => item.Amount))}"))}");
-        }
+        sb.AppendLine(string.IsNullOrWhiteSpace(firstName)
+            ? "Pedido finalizado!"
+            : $"Pedido finalizado, {firstName}!");
+        sb.AppendLine($"Obrigado por escolher o {business}.");
 
         var visibleLines = context.Lines.Where(line => !IsTableCharge(line)).Take(12).ToList();
         if (visibleLines.Count > 0)
         {
             sb.AppendLine();
-            sb.AppendLine("Itens:");
+            sb.AppendLine("Produtos");
             foreach (var line in visibleLines)
             {
-                sb.AppendLine($"- {line.Quantity}x {line.Name} - {Money(line.Total)}");
+                sb.AppendLine($"> {line.Quantity:N0}x {line.Name} - {Money(line.Total)}");
             }
 
             var hidden = context.Lines.Count(line => !IsTableCharge(line)) - visibleLines.Count;
             if (hidden > 0)
             {
-                sb.AppendLine($"+ {hidden:N0} item(ns)");
+                sb.AppendLine($"> + {hidden:N0} item(ns)");
             }
         }
 
+        if (context.Payments.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"Pagamento: {string.Join(", ", context.Payments.GroupBy(item => item.Method).Select(group => $"{group.Key} {Money(group.Sum(item => item.Amount))}"))}");
+        }
+
+        sb.AppendLine($"Total: {Money(context.Total)}");
         sb.AppendLine();
-        sb.Append("Obrigado pela preferencia.");
+        var menuUrl = BuildWhatsAppPublicMenuUrl();
+        if (!string.IsNullOrWhiteSpace(menuUrl))
+        {
+            sb.AppendLine("Sempre que bater aquela vontade, e so pedir de novo:");
+            sb.AppendLine(menuUrl);
+        }
+        else
+        {
+            sb.Append("Sempre que bater aquela vontade, e so chamar por aqui.");
+        }
+
         return sb.ToString();
     }
 

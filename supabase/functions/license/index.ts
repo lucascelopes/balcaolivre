@@ -28,6 +28,7 @@ type ClientPayload = {
   profile?: Record<string, unknown>;
   settings?: Record<string, unknown>;
   metrics?: Record<string, unknown>;
+  environment?: Record<string, unknown>;
 };
 
 type SupportPayload = ClientPayload & {
@@ -56,8 +57,12 @@ type PublicMenuPayload = ClientPayload & {
   coverImageContentType?: string;
   coverImageBase64?: string;
   storeOpen?: boolean;
+  scheduleEnabled?: boolean;
+  openTime?: string;
+  closeTime?: string;
   waitMinMinutes?: number;
   waitMaxMinutes?: number;
+  whatsappMessageOrdersEnabled?: boolean;
   discountEnabled?: boolean;
   discountCode?: string;
   discountAmount?: number;
@@ -257,12 +262,13 @@ Deno.serve(async (req) => {
 });
 
 async function activate(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<ClientPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: true, eventType: "activation" });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
   }
 
+  await writeAdminStoreClientSeen(payload, result.license, "activation.ok", `Ativacao: ${businessName(payload.profile) || stringValue(payload.machineCode)}`);
   return json({
     ok: true,
     message: "Chave ativada pelo Supabase.",
@@ -272,17 +278,18 @@ async function activate(req: Request) {
 }
 
 async function checkIn(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<ClientPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: payload.eventName || "checkin" });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
   }
 
+  await writeAdminStoreClientSeen(payload, result.license, stringValue(payload.eventName) || "device.checkin", `Check-in ${businessName(payload.profile) || stringValue(payload.machineCode)}`);
   return json({ ok: true, message: "Licenca sincronizada no Supabase.", mode: "supabase" });
 }
 
 async function mobileBootstrap(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<MobilePayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<MobilePayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mobile.bootstrap", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -303,7 +310,7 @@ async function mobileBootstrap(req: Request) {
 }
 
 async function mobileSync(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<MobilePayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<MobilePayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mobile.sync", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -337,7 +344,7 @@ async function mobileSync(req: Request) {
 }
 
 async function mobileBackup(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<MobilePayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<MobilePayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mobile.backup", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -456,7 +463,7 @@ async function createTrialDownload(req: Request) {
 }
 
 async function listSupportTickets(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<ClientPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "support.list", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message, tickets: [] }, result.status ?? 401);
@@ -481,7 +488,7 @@ async function listSupportTickets(req: Request) {
 }
 
 async function createSupportTicket(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<SupportPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<SupportPayload>(req)), req);
   payload.message = stringValue(payload.message);
   if (!payload.message) {
     return json({ ok: false, message: "Mensagem do suporte obrigatoria." }, 400);
@@ -519,8 +526,10 @@ async function createSupportTicket(req: Request) {
     cnpj: stringValue(payload.profile?.cnpj),
     city: stringValue(payload.profile?.city),
     state: stringValue(payload.profile?.state),
+    address: stringValue(payload.profile?.address),
     profile: payload.profile ?? {},
     metrics: payload.metrics ?? {},
+    environment: payload.environment ?? {},
   };
 
   const store = await readAdminStore();
@@ -536,7 +545,7 @@ async function createSupportTicket(req: Request) {
 }
 
 async function appendSupportMessage(req: Request, id: string) {
-  const payload = normalizePayloadKeys(await readJson<SupportMessagePayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<SupportMessagePayload>(req)), req);
   const message = stringValue(payload.message);
   if (!message) {
     return json({ ok: false, message: "Mensagem obrigatoria." }, 400);
@@ -568,6 +577,7 @@ async function appendSupportMessage(req: Request, id: string) {
   ticket.updatedAt = now;
   ticket.profile = payload.profile ?? ticket.profile ?? {};
   ticket.metrics = payload.metrics ?? ticket.metrics ?? {};
+  ticket.environment = payload.environment ?? ticket.environment ?? {};
   upsertAdminStoreLicense(store, payload, result.license);
   upsertAdminStoreDevice(store, payload);
   appendAdminStoreEvent(store, "support.customer_message", `Nova mensagem no suporte ${shortSupportId(stringValue(ticket.id))}`, payload);
@@ -579,7 +589,7 @@ async function appendSupportMessage(req: Request, id: string) {
 }
 
 async function publishMenu(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<PublicMenuPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<PublicMenuPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "menu.publish" });
   if (!result.ok) {
     return json({ ok: false, message: result.message, slug: "", publicUrl: "", itemsPublished: 0 }, result.status ?? 401);
@@ -599,6 +609,8 @@ async function publishMenu(req: Request) {
   }
 
   const waitMin = Math.max(1, Math.round(numberValue(payload.waitMinMinutes) || 30));
+  const openTime = normalizeClockText(payload.openTime);
+  const closeTime = normalizeClockText(payload.closeTime);
   const menuPayload = {
     store_id: licenseKey,
     name: businessName(payload.profile) || "Balcao Livre",
@@ -611,8 +623,12 @@ async function publishMenu(req: Request) {
     cover_image_url: resolveInlineImageUrl(payload.coverImageUrl, payload.coverImageContentType, payload.coverImageBase64),
     theme_color: stringValue(payload.themeColor) || "#0f766e",
     store_open: payload.storeOpen !== false,
+    schedule_enabled: payload.scheduleEnabled !== false,
+    open_time: openTime,
+    close_time: closeTime,
     wait_min_minutes: waitMin,
     wait_max_minutes: Math.max(waitMin, Math.round(numberValue(payload.waitMaxMinutes) || 60)),
+    whatsapp_message_orders_enabled: payload.whatsappMessageOrdersEnabled === true,
     discount_enabled: payload.discountEnabled === true,
     discount_code: (stringValue(payload.discountCode) || "EXCLUSIVO4").toUpperCase(),
     discount_amount: Math.max(0, numberValue(payload.discountAmount) || 0),
@@ -628,20 +644,34 @@ async function publishMenu(req: Request) {
   let slug = stringValue(existing.data?.slug);
 
   if (menuId) {
-    const { error } = await supabase
+    let { error } = await supabase
       .from("bv_public_menus")
       .update({ ...menuPayload, slug: slug || baseSlug })
       .eq("id", menuId);
+    if (error && isMissingWhatsAppOptionsColumn(error.message)) {
+      const retry = await supabase
+        .from("bv_public_menus")
+        .update({ ...withoutWhatsAppOptionsColumn(menuPayload), slug: slug || baseSlug })
+        .eq("id", menuId);
+      error = retry.error;
+    }
     if (error) {
       return json(failMenu(`Supabase recusou atualizar cardapio: ${error.message}`), 500);
     }
   } else {
     for (const candidate of slugCandidates(baseSlug)) {
-      const inserted = await supabase
+      let inserted = await supabase
         .from("bv_public_menus")
         .insert({ ...menuPayload, slug: candidate })
         .select("id, slug")
         .single();
+      if (inserted.error && isMissingWhatsAppOptionsColumn(inserted.error.message)) {
+        inserted = await supabase
+          .from("bv_public_menus")
+          .insert({ ...withoutWhatsAppOptionsColumn(menuPayload), slug: candidate })
+          .select("id, slug")
+          .single();
+      }
 
       if (!inserted.error && inserted.data) {
         menuId = inserted.data.id;
@@ -848,7 +878,7 @@ async function getPublicMenuOrderStatus(req: Request) {
 }
 
 async function listPublicMenuOrders(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<ClientPayload & { limit?: number }>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<ClientPayload & { limit?: number }>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "menu.orders.poll", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message, orders: [] }, result.status ?? 401);
@@ -888,7 +918,7 @@ async function listPublicMenuOrders(req: Request) {
 }
 
 async function ackPublicMenuOrder(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<PublicMenuOrderAckPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<PublicMenuOrderAckPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "menu.orders.ack", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -931,7 +961,7 @@ async function ackPublicMenuOrder(req: Request) {
 }
 
 async function startMercadoPagoConnect(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<ClientPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.connect.start", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -1022,7 +1052,7 @@ async function handleMercadoPagoOAuthCallback(req: Request) {
 }
 
 async function getMercadoPagoConnectionStatus(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<ClientPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.status", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -1043,7 +1073,7 @@ async function getMercadoPagoConnectionStatus(req: Request) {
 }
 
 async function listMercadoPagoTerminals(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<ClientPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.terminals", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message, terminals: [] }, result.status ?? 401);
@@ -1067,7 +1097,7 @@ async function listMercadoPagoTerminals(req: Request) {
 }
 
 async function selectMercadoPagoTerminal(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<MercadoPagoTerminalPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<MercadoPagoTerminalPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.terminal.select", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -1122,7 +1152,7 @@ async function selectMercadoPagoTerminal(req: Request) {
 }
 
 async function createMercadoPagoPointCharge(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<MercadoPagoChargePayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<MercadoPagoChargePayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.point.charge", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -1208,7 +1238,7 @@ async function createMercadoPagoPointCharge(req: Request) {
 }
 
 async function getMercadoPagoPointStatus(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<MercadoPagoPointStatusPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<MercadoPagoPointStatusPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.point.status", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -1482,10 +1512,13 @@ function upsertAdminStoreLicense(store: Record<string, unknown>, payload: Client
   row.ownerName = stringValue(profile.ownerName);
   row.cnpj = stringValue(profile.cnpj);
   row.phone = stringValue(profile.phone);
+  row.address = stringValue(profile.address);
   row.city = stringValue(profile.city);
   row.state = stringValue(profile.state);
+  row.environmentSnapshot = payload.environment ?? {};
   row.machineHash = stringValue(payload.machineHash) || stringValue(row.machineHash);
   row.machineCode = stringValue(payload.machineCode) || stringValue(row.machineCode);
+  row.clientKind = normalizeClientKind(payload.clientKind);
   row.appVersion = stringValue(payload.appVersion);
   row.expiresAt = stringValue(license.expires_at) || stringValue(payload.localExpiresAt) || row.expiresAt || now;
   row.activatedAt = row.activatedAt || now;
@@ -1518,6 +1551,21 @@ function upsertAdminStoreDevice(store: Record<string, unknown>, payload: ClientP
   row.profile = payload.profile ?? {};
   row.settings = payload.settings ?? {};
   row.metrics = payload.metrics ?? {};
+  row.environment = payload.environment ?? {};
+}
+
+async function writeAdminStoreClientSeen(
+  payload: ClientPayload,
+  license: Record<string, unknown>,
+  eventType: string,
+  eventMessage: string,
+) {
+  const store = await readAdminStore();
+  upsertAdminStoreLicense(store, payload, license);
+  upsertAdminStoreDevice(store, payload);
+  appendAdminStoreEvent(store, eventType, eventMessage, payload);
+  trimAdminStore(store);
+  await writeAdminStore(store);
 }
 
 function appendAdminStoreEvent(store: Record<string, unknown>, type: string, message: string, payload: ClientPayload) {
@@ -1812,6 +1860,20 @@ function normalizePayloadKeys<T>(value: T): T {
   return normalized as T;
 }
 
+function withRequestEnvironment<T extends ClientPayload>(payload: T, req: Request): T {
+  const environment = payload.environment && typeof payload.environment === "object" && !Array.isArray(payload.environment)
+    ? payload.environment
+    : {};
+  const publicIp = requestIp(req);
+  environment.publicIp = stringValue(environment.publicIp) || publicIp;
+  environment.forwardedFor = stringValue(req.headers.get("x-forwarded-for"));
+  environment.userAgent = stringValue(environment.userAgent) || stringValue(req.headers.get("user-agent"));
+  environment.requestHost = new URL(req.url).host;
+  environment.serverSeenAt = new Date().toISOString();
+  payload.environment = environment;
+  return payload;
+}
+
 function normalizeClientKind(value: unknown) {
   const clean = stringValue(value).toLowerCase();
   return clean || "windows";
@@ -1937,6 +1999,34 @@ function normalizeSlug(value: string) {
     .replace(/-+$/g, "");
 }
 
+function normalizeClockText(value: unknown) {
+  const text = stringValue(value)
+    .replace(/[hH.,]/g, ":")
+    .trim();
+  if (!text) return "00:00";
+
+  let hour = Number.NaN;
+  let minute = 0;
+  if (text.includes(":")) {
+    const parts = text.split(":").map((part) => part.trim()).filter(Boolean);
+    if (parts.length !== 2) return "00:00";
+    hour = Number.parseInt(parts[0], 10);
+    minute = Number.parseInt(parts[1], 10);
+  } else if (/^\d{3,4}$/.test(text)) {
+    const padded = text.padStart(4, "0");
+    hour = Number.parseInt(padded.slice(0, 2), 10);
+    minute = Number.parseInt(padded.slice(2), 10);
+  } else if (/^\d{1,2}$/.test(text)) {
+    hour = Number.parseInt(text, 10);
+  }
+
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return "00:00";
+  }
+
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
 function* slugCandidates(baseSlug: string) {
   yield baseSlug;
   for (let i = 1; i <= 999; i += 1) {
@@ -1951,6 +2041,27 @@ function slugToPath(slug: string) {
 
 function isConflict(error: { code?: string; message?: string } | null) {
   return error?.code === "23505" || /duplicate|unique/i.test(error?.message ?? "");
+}
+
+function isMissingWhatsAppOptionsColumn(message: unknown) {
+  const clean = String(message ?? "").toLowerCase();
+  return clean.includes("whatsapp_message_orders_enabled")
+    || clean.includes("schedule_enabled")
+    || clean.includes("open_time")
+    || clean.includes("close_time")
+    || clean.includes("could not find")
+    || clean.includes("pgrst204");
+}
+
+function withoutWhatsAppOptionsColumn<T extends Record<string, unknown>>(payload: T) {
+  const {
+    whatsapp_message_orders_enabled: _ignoredWhatsApp,
+    schedule_enabled: _ignoredSchedule,
+    open_time: _ignoredOpenTime,
+    close_time: _ignoredCloseTime,
+    ...legacyPayload
+  } = payload;
+  return legacyPayload;
 }
 
 function failMenu(message: string) {
