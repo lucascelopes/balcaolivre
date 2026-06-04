@@ -15840,20 +15840,76 @@ public partial class MainWindow : Window
 
     private void ShowClientDialog()
     {
-        var dialog = CreateDialog("Cadastro de clientes", 820, 560);
+        var dialog = CreateDialog("Cadastro de clientes", 980, 650);
         var customersList = new ListBox
         {
             ItemsSource = Customers,
             DisplayMemberPath = nameof(CustomerRecord.Display),
-            Width = 300,
-            Height = 370
+            MinHeight = 410,
+            BorderBrush = Solid("#D5E4EF"),
+            BorderThickness = new Thickness(1),
+            Background = Brushes.White,
+            Padding = new Thickness(4)
         };
         var cpfBox = new TextBox();
         var nameBox = new TextBox();
         var phoneBox = new TextBox();
-        var addressBox = new TextBox { Height = 64, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
+        var addressBox = new TextBox { MinHeight = 72, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
         var districtBox = new TextBox();
-        var notesBox = new TextBox { Height = 60, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
+        var notesBox = new TextBox { MinHeight = 72, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
+        var countText = new TextBlock { Foreground = Solid("#0B3A52"), FontWeight = FontWeights.Bold, FontSize = 22 };
+        var phoneCountText = new TextBlock { Foreground = Solid("#08A99B"), FontWeight = FontWeights.Bold, FontSize = 22 };
+        var statusText = new TextBlock
+        {
+            Foreground = GreenText,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+
+        void PrepareInput(Control control)
+        {
+            control.MinHeight = Math.Max(control.MinHeight, 40);
+            control.FontSize = 14;
+            control.Margin = new Thickness(0, 0, 0, 8);
+        }
+
+        PrepareInput(cpfBox);
+        PrepareInput(nameBox);
+        PrepareInput(phoneBox);
+        PrepareInput(addressBox);
+        PrepareInput(districtBox);
+        PrepareInput(notesBox);
+
+        Border SummaryCard(string title, TextBlock value, string detail, string accent)
+        {
+            var card = new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = Solid("#D5E4EF"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(14, 10, 14, 10),
+                Margin = new Thickness(0, 0, 12, 0)
+            };
+            value.Foreground = Solid(accent);
+            card.Child = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock { Text = title, Foreground = Solid("#5B6B7A"), FontSize = 12, FontWeight = FontWeights.Bold },
+                    value,
+                    new TextBlock { Text = detail, Foreground = Solid("#5B6B7A"), FontSize = 11, TextWrapping = TextWrapping.Wrap }
+                }
+            };
+            return card;
+        }
+
+        void RefreshCustomerStats()
+        {
+            countText.Text = Customers.Count.ToString("N0", Brazil);
+            phoneCountText.Text = Customers.Count(customer => !string.IsNullOrWhiteSpace(customer.Phone)).ToString("N0", Brazil);
+        }
 
         void LoadCustomer(CustomerRecord customer)
         {
@@ -15898,19 +15954,104 @@ public partial class MainWindow : Window
             customersList.Items.Refresh();
             customersList.SelectedItem = customer;
             SaveStore();
-            SetStatus($"Cliente salvo: {customer.Name}");
+            RefreshCustomerStats();
+            statusText.Foreground = GreenText;
+            statusText.Text = $"Cliente salvo: {customer.Name}";
+            SetStatus(statusText.Text);
         };
 
-        var grid = new Grid { Margin = new Thickness(18) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(310) });
+        var shell = new Grid { Margin = new Thickness(18) };
+        shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        var summary = new Grid { Margin = new Thickness(0, 0, 0, 14) };
+        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
+        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
+        var summaryText = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        summaryText.Children.Add(new TextBlock
+        {
+            Text = "Clientes",
+            Foreground = Solid("#071A2C"),
+            FontWeight = FontWeights.Bold,
+            FontSize = 24
+        });
+        summaryText.Children.Add(new TextBlock
+        {
+            Text = "Cadastro para delivery, WhatsApp, cardapio online e historico de atendimento.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 13,
+            Margin = new Thickness(0, 4, 0, 0)
+        });
+        summary.Children.Add(summaryText);
+        var totalCard = SummaryCard("Total", countText, "clientes salvos", "#0B3A52");
+        var phoneCard = SummaryCard("Com telefone", phoneCountText, "prontos para contato", "#08A99B");
+        Grid.SetColumn(totalCard, 1);
+        Grid.SetColumn(phoneCard, 2);
+        summary.Children.Add(totalCard);
+        summary.Children.Add(phoneCard);
+        shell.Children.Add(summary);
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(350) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var left = DialogPanel();
-        left.Children.Add(DialogLabel("Clientes cadastrados"));
-        left.Children.Add(customersList);
-        left.Children.Add(newButton);
+        Grid.SetRow(grid, 1);
+        shell.Children.Add(grid);
+
+        var left = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#D5E4EF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(14),
+            Margin = new Thickness(0, 0, 14, 0)
+        };
+        var leftStack = new StackPanel();
+        leftStack.Children.Add(new TextBlock
+        {
+            Text = "Clientes cadastrados",
+            Foreground = Solid("#071A2C"),
+            FontWeight = FontWeights.Bold,
+            FontSize = 16
+        });
+        leftStack.Children.Add(new TextBlock
+        {
+            Text = "Selecione para editar ou crie um novo cadastro.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 12,
+            Margin = new Thickness(0, 3, 0, 10)
+        });
+        leftStack.Children.Add(customersList);
+        newButton.Margin = new Thickness(0, 12, 0, 0);
+        leftStack.Children.Add(newButton);
+        left.Child = leftStack;
         grid.Children.Add(left);
 
-        var form = DialogPanel();
+        var formShell = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#D5E4EF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(18)
+        };
+        var form = new StackPanel();
+        form.Children.Add(new TextBlock
+        {
+            Text = "Dados do cliente",
+            Foreground = Solid("#071A2C"),
+            FontWeight = FontWeights.Bold,
+            FontSize = 18
+        });
+        form.Children.Add(new TextBlock
+        {
+            Text = "Use telefone e bairro para agilizar delivery e identificar pedidos recorrentes.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 3, 0, 14)
+        });
         form.Children.Add(TwoColumnFields(("CPF/CNPJ", cpfBox), ("Telefone", phoneBox)));
         form.Children.Add(DialogLabel("Nome"));
         form.Children.Add(nameBox);
@@ -15921,9 +16062,12 @@ public partial class MainWindow : Window
         form.Children.Add(DialogLabel("Observacao"));
         form.Children.Add(notesBox);
         form.Children.Add(save);
-        Grid.SetColumn(form, 1);
-        grid.Children.Add(form);
-        dialog.Content = grid;
+        form.Children.Add(statusText);
+        formShell.Child = form;
+        Grid.SetColumn(formShell, 1);
+        grid.Children.Add(formShell);
+        dialog.Content = shell;
+        RefreshCustomerStats();
         if (Customers.Count > 0)
         {
             customersList.SelectedIndex = 0;
@@ -18182,7 +18326,7 @@ public partial class MainWindow : Window
             metrics.Children.Add(CreateMetricCard("Lucro bruto", Money(profitSummary.Profit), $"Margem {profitSummary.Margin:N2}% - {period}", profitSummary.Profit >= 0 ? "#08A99B" : "#A11D1D"));
             if (showIFoodReport)
             {
-                metrics.Children.Add(CreateMetricCard("Repasse iFood", Money(ifoodSummary.EstimatedPayout), $"Liquido previsto - taxa {Money(ifoodSummary.EstimatedFee)}", ifoodSummary.EstimatedPayout >= 0 ? "#08A99B" : "#A11D1D"));
+                metrics.Children.Add(CreateMetricCard("Repasse iFood", Money(ifoodSummary.EstimatedPayout), $"Liquido previsto - taxa {Money(ifoodSummary.EstimatedFee)}", "#EA1D2C", "iFood"));
             }
 
             metrics.Children.Add(CreateMetricCard("Estoque baixo", lowStock.Count.ToString("N0", Brazil), "itens abaixo do minimo", lowStock.Count == 0 ? "#08A99B" : "#A11D1D"));
@@ -18644,7 +18788,7 @@ public partial class MainWindow : Window
         return date.Date.AddDays(-diff);
     }
 
-    private static Border CreateMetricCard(string title, string value, string detail, string accentColor)
+    private static Border CreateMetricCard(string title, string value, string detail, string accentColor, string badgeText = "")
     {
         var root = new Border
         {
@@ -18694,15 +18838,17 @@ public partial class MainWindow : Window
         content.Children.Add(text);
         var chip = new Border
         {
-            Width = 30,
+            Width = string.IsNullOrWhiteSpace(badgeText) ? 30 : 48,
             Height = 30,
-            Background = Solid("#F2F8FA"),
-            BorderBrush = Solid("#DCE7F1"),
+            Background = string.IsNullOrWhiteSpace(badgeText) ? Solid("#F2F8FA") : Solid("#EA1D2C"),
+            BorderBrush = string.IsNullOrWhiteSpace(badgeText) ? Solid("#DCE7F1") : Solid("#EA1D2C"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Top,
-            Child = new Border
+            VerticalAlignment = VerticalAlignment.Top
+        };
+        chip.Child = string.IsNullOrWhiteSpace(badgeText)
+            ? new Border
             {
                 Width = 12,
                 Height = 12,
@@ -18711,7 +18857,15 @@ public partial class MainWindow : Window
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
-        };
+            : new TextBlock
+            {
+                Text = badgeText,
+                Foreground = Brushes.White,
+                FontSize = 10,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
         Grid.SetColumn(chip, 1);
         content.Children.Add(chip);
         Grid.SetRow(content, 1);
@@ -26891,6 +27045,12 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string IFoodProductId { get; set; } = "";
         public string IFoodExternalCode { get; set; } = "";
         public bool IFoodCompositionEnabled { get; set; }
+        public string FiscalNcm { get; set; } = "";
+        public string FiscalCest { get; set; } = "";
+        public string FiscalCfop { get; set; } = "";
+        public string FiscalCsosn { get; set; } = "";
+        public string FiscalOrigin { get; set; } = "";
+        public string FiscalUnit { get; set; } = "";
         public List<ProductModifier> Modifiers { get; set; } = [];
         public List<ProductRecipeItem> RecipeItems { get; set; } = [];
         public decimal StockQuantity { get; set; }
@@ -27064,6 +27224,30 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string CscId { get; set; } = "";
         public string Environment { get; set; } = "HOMOLOGACAO";
         public bool RequireFiscalBeforeReceipt { get; set; }
+        public bool RestaurantNfEnabled { get; set; }
+        public string RestaurantNfModel { get; set; } = "NFC-E";
+        public string RestaurantNfIntegrationProvider { get; set; } = "UNIMAKE.DFE";
+        public string RestaurantNfState { get; set; } = "";
+        public string RestaurantNfRegime { get; set; } = "SIMPLES NACIONAL";
+        public string RestaurantNfStateRegistration { get; set; } = "";
+        public int RestaurantNfSeries { get; set; } = 1;
+        public int RestaurantNfNextNumber { get; set; } = 1;
+        public string RestaurantNfCscId { get; set; } = "";
+        public string RestaurantNfCscToken { get; set; } = "";
+        public string RestaurantNfCertificatePath { get; set; } = "";
+        public string RestaurantNfCertificatePassword { get; set; } = "";
+        public string RestaurantDefaultNcm { get; set; } = "";
+        public string RestaurantDefaultCfop { get; set; } = "5102";
+        public string RestaurantDefaultCsosn { get; set; } = "102";
+        public string RestaurantDefaultOrigin { get; set; } = "0";
+        public string RestaurantDefaultUnit { get; set; } = "UN";
+        public bool RestaurantIncludeDeliveryFee { get; set; } = true;
+        public bool RestaurantIncludeServiceFee { get; set; } = true;
+        public bool RestaurantIncludeCouvert { get; set; } = true;
+        public bool RestaurantAutoIssueAfterPayment { get; set; }
+        public bool RestaurantPrintDanfeAfterAuthorization { get; set; } = true;
+        public DateTime? RestaurantNfLastReadyCheckAt { get; set; }
+        public string RestaurantNfLastReadyMessage { get; set; } = "";
     }
 
     public sealed class CashClosingSnapshot
