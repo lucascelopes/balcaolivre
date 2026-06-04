@@ -17866,7 +17866,7 @@ public partial class MainWindow : Window
             metrics.Children.Add(CreateMetricCard("Lucro bruto", Money(profitSummary.Profit), $"Margem {profitSummary.Margin:N2}% - {period}", profitSummary.Profit >= 0 ? "#08A99B" : "#A11D1D"));
             if (showIFoodReport)
             {
-                metrics.Children.Add(CreateMetricCard("Lucro iFood", Money(ifoodSummary.EstimatedNetProfit), $"Taxa est. {Money(ifoodSummary.EstimatedFee)} - {period}", ifoodSummary.EstimatedNetProfit >= 0 ? "#08A99B" : "#A11D1D"));
+                metrics.Children.Add(CreateMetricCard("Repasse iFood", Money(ifoodSummary.EstimatedPayout), $"Liquido previsto - taxa {Money(ifoodSummary.EstimatedFee)}", ifoodSummary.EstimatedPayout >= 0 ? "#08A99B" : "#A11D1D"));
             }
 
             metrics.Children.Add(CreateMetricCard("Estoque baixo", lowStock.Count.ToString("N0", Brazil), "itens abaixo do minimo", lowStock.Count == 0 ? "#08A99B" : "#A11D1D"));
@@ -17886,7 +17886,7 @@ public partial class MainWindow : Window
             var right = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
             if (showIFoodReport)
             {
-                right.Children.Add(CreateReportSection("iFood", "Taxas estimadas: loja 12%, entrega iFood 23%", CreateIFoodReportList(ifoodSummary)));
+                right.Children.Add(CreateReportSection("iFood", "Repasses previstos, pagamentos diretos e taxas estimadas", CreateIFoodReportList(ifoodSummary)));
 
                 var stockSection = CreateReportSection("Estoque critico", "Produtos no minimo ou abaixo", CreateLowStockList(lowStock));
                 right.Children.Add(stockSection);
@@ -18078,10 +18078,19 @@ public partial class MainWindow : Window
         var merchantRevenue = merchantOrders.Sum(IFoodReportOrderRevenue);
         var shipmentRevenue = shipmentOrders.Sum(IFoodReportOrderRevenue);
         var revenue = merchantRevenue + shipmentRevenue;
+        var directPaymentOrders = validOrders.Where(IsIFoodPaidOnDelivery).ToList();
+        var directPaymentRevenue = directPaymentOrders.Sum(IFoodReportOrderRevenue);
+        var onlinePaymentOrders = validOrders.Except(directPaymentOrders).ToList();
+        var onlinePaymentRevenue = onlinePaymentOrders.Sum(IFoodReportOrderRevenue);
+        var unspecifiedPaymentOrders = onlinePaymentOrders.Count(order => !HasIFoodPaymentKind(order));
+        var unspecifiedPaymentRevenue = onlinePaymentOrders
+            .Where(order => !HasIFoodPaymentKind(order))
+            .Sum(IFoodReportOrderRevenue);
         var cost = validOrders.Sum(GetBoardProductCost);
         var merchantFee = merchantRevenue * 0.12m;
         var shipmentFee = shipmentRevenue * 0.23m;
         var estimatedFee = merchantFee + shipmentFee;
+        var estimatedPayout = onlinePaymentRevenue - estimatedFee;
         var estimatedNetProfit = revenue - cost - estimatedFee;
         var margin = revenue > 0 ? estimatedNetProfit / revenue * 100m : 0m;
         return new IFoodReportSummary(
@@ -18094,12 +18103,63 @@ public partial class MainWindow : Window
             merchantRevenue,
             shipmentRevenue,
             revenue,
+            onlinePaymentOrders.Count,
+            directPaymentOrders.Count,
+            onlinePaymentRevenue,
+            directPaymentRevenue,
+            unspecifiedPaymentOrders,
+            unspecifiedPaymentRevenue,
             cost,
             merchantFee,
             shipmentFee,
             estimatedFee,
+            estimatedPayout,
             estimatedNetProfit,
             margin);
+    }
+
+    private static bool HasIFoodPaymentKind(TableTile order)
+    {
+        var payment = NormalizeIFoodPaymentText(order);
+        return payment.Contains("ONLINE", StringComparison.Ordinal)
+               || payment.Contains("PREPAGO", StringComparison.Ordinal)
+               || payment.Contains("PREPAID", StringComparison.Ordinal)
+               || payment.Contains("PAGO PELO IFOOD", StringComparison.Ordinal)
+               || IsIFoodPaidOnDelivery(order);
+    }
+
+    private static bool IsIFoodPaidOnDelivery(TableTile order)
+    {
+        var payment = NormalizeIFoodPaymentText(order);
+        return payment.Contains("NA ENTREGA", StringComparison.Ordinal)
+               || payment.Contains("ON DELIVERY", StringComparison.Ordinal)
+               || payment.Contains("ON_DELIVERY", StringComparison.Ordinal)
+               || payment.Contains("OFFLINE", StringComparison.Ordinal)
+               || payment.Contains("PAGO NA LOJA", StringComparison.Ordinal)
+               || payment.Contains("PAGAMENTO NA LOJA", StringComparison.Ordinal);
+    }
+
+    private static string NormalizeIFoodPaymentText(TableTile order)
+    {
+        var source = $"{order.ExternalPaymentMethod} {order.ExternalPaymentSummary}";
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            return "";
+        }
+
+        var normalized = source.Normalize(NormalizationForm.FormD);
+        var sb = new StringBuilder(normalized.Length);
+        foreach (var c in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            sb.Append(char.IsWhiteSpace(c) ? ' ' : char.ToUpperInvariant(c));
+        }
+
+        return string.Join(' ', sb.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
     }
 
     private List<TableTile> GetIFoodReportOrders(string period)
@@ -18514,6 +18574,25 @@ public partial class MainWindow : Window
             $"{summary.ValidOrders:N0} pedido(s), {summary.DeliveredOrders:N0} entregue(s), {summary.CancelledOrders:N0} cancelado(s)",
             Money(summary.Revenue),
             "#0B3A52"));
+        panel.Children.Add(CreateReportRow(
+            summary.EstimatedPayout >= 0 ? "Repasse iFood previsto" : "Repasse iFood negativo",
+            $"{summary.OnlinePaymentOrders:N0} pedido(s) pago(s) pelo iFood - liquido apos taxa estimada",
+            Money(summary.EstimatedPayout),
+            summary.EstimatedPayout >= 0 ? "#08A99B" : "#A11D1D"));
+        panel.Children.Add(CreateReportRow(
+            "Pago direto na loja",
+            $"{summary.DirectPaymentOrders:N0} pedido(s) na entrega/offline - nao entra como repasse",
+            Money(summary.DirectPaymentRevenue),
+            "#5B6B7A"));
+        if (summary.UnspecifiedPaymentOrders > 0)
+        {
+            panel.Children.Add(CreateReportRow(
+                "Pagamento a conferir",
+                $"{summary.UnspecifiedPaymentOrders:N0} pedido(s) sem tipo claro; tratado como repasse previsto",
+                Money(summary.UnspecifiedPaymentRevenue),
+                "#99620D"));
+        }
+
         panel.Children.Add(CreateReportRow(
             "Entrega propria / merchant",
             $"{summary.MerchantOrders:N0} pedido(s) x 12%",
@@ -22115,10 +22194,18 @@ public partial class MainWindow : Window
         {
             var ifoodSummary = GetIFoodReportSummary(period);
             sb.AppendLine();
-            sb.AppendLine("IFOOD - TAXAS E LUCRO ESTIMADOS");
+            sb.AppendLine("IFOOD - REPASSES, TAXAS E LUCRO ESTIMADOS");
             sb.AppendLine("Taxas padrao estimadas: entrega propria/merchant 12%; entrega iFood 23%.");
+            sb.AppendLine("Repasse previsto considera pedidos pagos pelo iFood menos taxa estimada. Pedidos na entrega ficam como valor recebido direto pela loja.");
             sb.AppendLine($"Pedidos iFood: {ifoodSummary.TotalOrders:N0}  validos {ifoodSummary.ValidOrders:N0}  entregues {ifoodSummary.DeliveredOrders:N0}  cancelados {ifoodSummary.CancelledOrders:N0}");
             sb.AppendLine($"Venda bruta iFood: {Money(ifoodSummary.Revenue)}");
+            sb.AppendLine($"Repasse iFood previsto: {Money(ifoodSummary.EstimatedPayout)}  pedidos pagos pelo iFood {ifoodSummary.OnlinePaymentOrders:N0}  bruto {Money(ifoodSummary.OnlinePaymentRevenue)}");
+            sb.AppendLine($"Pago direto na loja/entrega: {Money(ifoodSummary.DirectPaymentRevenue)}  pedidos {ifoodSummary.DirectPaymentOrders:N0}");
+            if (ifoodSummary.UnspecifiedPaymentOrders > 0)
+            {
+                sb.AppendLine($"Pagamento a conferir: {Money(ifoodSummary.UnspecifiedPaymentRevenue)}  pedidos {ifoodSummary.UnspecifiedPaymentOrders:N0} sem tipo claro tratados como repasse previsto");
+            }
+
             sb.AppendLine($"Entrega propria/merchant ({ifoodSummary.MerchantOrders:N0}): venda {Money(ifoodSummary.MerchantRevenue)}  taxa -{Money(ifoodSummary.EstimatedMerchantFee)}");
             sb.AppendLine($"Entrega iFood ({ifoodSummary.IFoodShipmentOrders:N0}): venda {Money(ifoodSummary.IFoodShipmentRevenue)}  taxa -{Money(ifoodSummary.EstimatedIFoodShipmentFee)}");
             sb.AppendLine($"Custo produto estimado: {Money(ifoodSummary.ProductCost)}");
@@ -26444,10 +26531,17 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         decimal MerchantRevenue,
         decimal IFoodShipmentRevenue,
         decimal Revenue,
+        int OnlinePaymentOrders,
+        int DirectPaymentOrders,
+        decimal OnlinePaymentRevenue,
+        decimal DirectPaymentRevenue,
+        int UnspecifiedPaymentOrders,
+        decimal UnspecifiedPaymentRevenue,
         decimal ProductCost,
         decimal EstimatedMerchantFee,
         decimal EstimatedIFoodShipmentFee,
         decimal EstimatedFee,
+        decimal EstimatedPayout,
         decimal EstimatedNetProfit,
         decimal EstimatedMargin);
 
