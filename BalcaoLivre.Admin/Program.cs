@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 
@@ -27,7 +28,15 @@ builder.Services.AddSingleton<AdminStoreService>();
 builder.Services.AddSingleton<AdminSessionService>();
 
 var app = builder.Build();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = context =>
+    {
+        context.Context.Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+        context.Context.Response.Headers["Pragma"] = "no-cache";
+        context.Context.Response.Headers["Expires"] = "0";
+    }
+});
 
 app.MapGet("/", (HttpContext context) =>
 {
@@ -41,23 +50,75 @@ app.MapGet("/", (HttpContext context) =>
 
 app.MapGet("/api/health", (AdminStoreService store) => Results.Ok(new { ok = true, app = "Balcao Livre PDV Admin", version = "1.2.2026", storage = store.StorageMode }));
 
-app.MapPost("/api/login", async (HttpContext context, AdminSessionService sessions) =>
+app.MapMethods("/api/public/analytics", ["OPTIONS"], (HttpContext context) =>
+{
+    ApplyPublicAnalyticsCors(context);
+    return Results.Ok(new { ok = true });
+});
+
+app.MapPost("/api/public/analytics", async (HttpContext context, AdminStoreService store) =>
+{
+    ApplyPublicAnalyticsCors(context);
+    var request = await context.Request.ReadFromJsonAsync<PublicAnalyticsEventRequest>(AdminJson.Options) ?? new PublicAnalyticsEventRequest();
+    var analyticsEvent = BuildPublicAnalyticsEvent(context, request);
+    store.Update(data =>
+    {
+        UpsertSiteAnalytics(data, analyticsEvent);
+        if (analyticsEvent.Type is AnalyticsEventType.CheckoutStarted or AnalyticsEventType.CheckoutCompleted)
+        {
+            data.Events.Add(AdminEvent.Analytics(
+                analyticsEvent.Type,
+                AnalyticsEventMessage(analyticsEvent),
+                analyticsEvent.Plan));
+        }
+        return true;
+    });
+
+    return Results.Ok(new { ok = true });
+});
+
+app.MapPost("/api/login", async (HttpContext context, AdminSessionService sessions, AdminStoreService store) =>
 {
     var request = await context.Request.ReadFromJsonAsync<LoginRequest>(AdminJson.Options) ?? new LoginRequest();
-    var user = (Environment.GetEnvironmentVariable("BVPDV_ADMIN_USER") ?? "").Trim();
+    var requestedUser = NormalizeAdminLogin(request.User);
+    var requestedPassword = request.Password ?? "";
+    var user = NormalizeAdminLogin(Environment.GetEnvironmentVariable("BVPDV_ADMIN_USER") ?? "");
     var password = Environment.GetEnvironmentVariable("BVPDV_ADMIN_PASSWORD") ?? "";
+    var hasConfiguredLogin = !string.IsNullOrWhiteSpace(user) && !string.IsNullOrWhiteSpace(password);
+    var authenticatedUser = "";
 
-    if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(password))
+    if (hasConfiguredLogin &&
+        string.Equals(requestedUser, user, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(requestedPassword, password, StringComparison.Ordinal))
+    {
+        authenticatedUser = user;
+    }
+
+    if (string.IsNullOrWhiteSpace(authenticatedUser))
+    {
+        var adminUsers = store.Read().AdminUsers
+            .Where(item => !string.IsNullOrWhiteSpace(item.User))
+            .ToList();
+        hasConfiguredLogin = hasConfiguredLogin || adminUsers.Count > 0;
+
+        var adminUser = adminUsers.FirstOrDefault(item =>
+            string.Equals(NormalizeAdminLogin(item.User), requestedUser, StringComparison.OrdinalIgnoreCase));
+        if (adminUser is not null && VerifyAdminPassword(adminUser, requestedPassword))
+        {
+            authenticatedUser = NormalizeAdminLogin(adminUser.User);
+        }
+    }
+
+    if (!hasConfiguredLogin)
     {
         return Results.Json(new
         {
             ok = false,
-            message = "Login admin nao configurado no servidor. Configure BVPDV_ADMIN_USER e BVPDV_ADMIN_PASSWORD."
+            message = "Login admin nao configurado no Supabase. Crie um usuario admin ou configure BVPDV_ADMIN_USER e BVPDV_ADMIN_PASSWORD."
         }, statusCode: StatusCodes.Status503ServiceUnavailable);
     }
 
-    if (!string.Equals(request.User, user, StringComparison.Ordinal) ||
-        !string.Equals(request.Password, password, StringComparison.Ordinal))
+    if (string.IsNullOrWhiteSpace(authenticatedUser))
     {
         return Results.Json(new { ok = false, message = "Login ou senha invalidos." }, statusCode: StatusCodes.Status401Unauthorized);
     }
@@ -71,7 +132,7 @@ app.MapPost("/api/login", async (HttpContext context, AdminSessionService sessio
         Expires = DateTimeOffset.UtcNow.AddHours(12)
     });
 
-    return Results.Ok(new { ok = true, user });
+    return Results.Ok(new { ok = true, user = authenticatedUser });
 });
 
 app.MapPost("/api/logout", (HttpContext context, AdminSessionService sessions) =>
@@ -139,7 +200,8 @@ app.MapGet("/api/dashboard", (HttpContext context, AdminSessionService sessions,
 {
     if (!sessions.IsValid(context)) return Results.Unauthorized();
     var snapshot = store.Read();
-    return Results.Ok(AdminDashboard.From(snapshot));
+    var stripe = store.ReadStripeCheckoutSummary();
+    return Results.Ok(AdminDashboard.From(snapshot, stripe));
 });
 
 app.MapGet("/api/licenses", (HttpContext context, AdminSessionService sessions, AdminStoreService store) =>
@@ -210,6 +272,76 @@ app.MapPost("/api/licenses/{id}/unblock", (string id, HttpContext context, Admin
     return result is null ? Results.NotFound() : Results.Ok(result);
 });
 
+app.MapGet("/api/blocked-ips", (HttpContext context, AdminSessionService sessions, AdminStoreService store) =>
+{
+    if (!sessions.IsValid(context)) return Results.Unauthorized();
+    return Results.Ok(store.Read().BlockedIps
+        .OrderByDescending(item => item.UpdatedAt)
+        .ThenByDescending(item => item.CreatedAt));
+});
+
+app.MapPost("/api/blocked-ips", async (HttpContext context, AdminSessionService sessions, AdminStoreService store) =>
+{
+    if (!sessions.IsValid(context)) return Results.Unauthorized();
+    var request = await context.Request.ReadFromJsonAsync<BlockIpRequest>(AdminJson.Options) ?? new BlockIpRequest();
+    var ip = NormalizeIpAddress(request.Ip);
+    if (string.IsNullOrWhiteSpace(ip) || ip == "-")
+    {
+        return Results.Json(new { ok = false, message = "IP obrigatorio para bloquear." }, statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var result = store.Update(data =>
+    {
+        data.BlockedIps ??= [];
+        var now = DateTimeOffset.UtcNow;
+        var existing = data.BlockedIps.FirstOrDefault(item => string.Equals(NormalizeIpAddress(item.Ip), ip, StringComparison.OrdinalIgnoreCase));
+        if (existing is null)
+        {
+            existing = new BlockedIpRecord
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Ip = ip,
+                CreatedAt = now
+            };
+            data.BlockedIps.Add(existing);
+        }
+
+        existing.Ip = ip;
+        existing.Reason = request.Reason.TrimOrDefault("Bloqueado pelo admin");
+        existing.Source = request.Source.TrimOrDefault("admin");
+        existing.UpdatedAt = now;
+        data.Events.Add(AdminEvent.Analytics("ip.blocked", $"IP bloqueado: {ip}", existing.Reason));
+        return existing;
+    });
+
+    return Results.Ok(result);
+});
+
+app.MapPost("/api/blocked-ips/delete", async (HttpContext context, AdminSessionService sessions, AdminStoreService store) =>
+{
+    if (!sessions.IsValid(context)) return Results.Unauthorized();
+    var request = await context.Request.ReadFromJsonAsync<BlockIpRequest>(AdminJson.Options) ?? new BlockIpRequest();
+    var ip = NormalizeIpAddress(request.Ip);
+    if (string.IsNullOrWhiteSpace(ip))
+    {
+        return Results.Json(new { ok = false, message = "IP obrigatorio para liberar." }, statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var removed = store.Update(data =>
+    {
+        data.BlockedIps ??= [];
+        var count = data.BlockedIps.RemoveAll(item => string.Equals(NormalizeIpAddress(item.Ip), ip, StringComparison.OrdinalIgnoreCase));
+        if (count > 0)
+        {
+            data.Events.Add(AdminEvent.Analytics("ip.unblocked", $"IP liberado: {ip}", ""));
+        }
+
+        return count;
+    });
+
+    return removed <= 0 ? Results.NotFound() : Results.Ok(new { ok = true, ip });
+});
+
 app.MapGet("/api/support", (HttpContext context, AdminSessionService sessions, AdminStoreService store) =>
 {
     if (!sessions.IsValid(context)) return Results.Unauthorized();
@@ -268,8 +400,10 @@ app.MapPost("/api/support/{id}/reply", async (string id, HttpContext context, Ad
 
 app.MapPost("/api/app/activate", async (HttpContext context, AdminStoreService store) =>
 {
+    if (DenyBlockedClientIp(context, store, "ativacao") is { } blockedIpResult) return blockedIpResult;
     var request = await context.Request.ReadFromJsonAsync<AppClientPayload>(AdminJson.Options) ?? new AppClientPayload();
     request.LicenseKey = LicenseKeyFactory.Normalize(request.LicenseKey);
+    AttachRequestEnvironment(context, request);
     if (string.IsNullOrWhiteSpace(request.LicenseKey) || string.IsNullOrWhiteSpace(request.MachineHash))
     {
         return Results.Json(AdminActivationResponse.Deny("Chave e computador sao obrigatorios."), statusCode: StatusCodes.Status400BadRequest);
@@ -320,6 +454,7 @@ app.MapPost("/api/app/activate", async (HttpContext context, AdminStoreService s
         }
         license.ActivatedAt ??= now;
         license.LastSeenAt = now;
+        license.ClientKind = NormalizeClientKind(request.ClientKind);
         license.AppVersion = request.AppVersion;
         license.CustomerName = request.Profile.BusinessName.TrimOrDefault(license.CustomerName);
         license.Email = request.Profile.Email;
@@ -327,10 +462,12 @@ app.MapPost("/api/app/activate", async (HttpContext context, AdminStoreService s
         license.Cnpj = request.Profile.Cnpj;
         license.OwnerName = request.Profile.OwnerName;
         license.Phone = request.Profile.Phone;
+        license.Address = request.Profile.Address;
         license.City = request.Profile.City;
         license.State = request.Profile.State;
         license.ConfigSnapshot = request.Settings;
         license.MetricsSnapshot = request.Metrics;
+        license.EnvironmentSnapshot = request.Environment;
 
         UpsertDevice(data, request, now);
         data.Events.Add(AdminEvent.License("activation.ok", $"Ativacao: {license.CustomerName}", license.Key));
@@ -347,8 +484,10 @@ app.MapPost("/api/app/activate", async (HttpContext context, AdminStoreService s
 
 app.MapPost("/api/app/checkin", async (HttpContext context, AdminStoreService store) =>
 {
+    if (DenyBlockedClientIp(context, store, "check-in") is { } blockedIpResult) return blockedIpResult;
     var request = await context.Request.ReadFromJsonAsync<AppClientPayload>(AdminJson.Options) ?? new AppClientPayload();
     request.LicenseKey = LicenseKeyFactory.Normalize(request.LicenseKey);
+    AttachRequestEnvironment(context, request);
     if (!HasValidAccountEmail(request, out var emailError))
     {
         return Results.Json(new { ok = false, message = emailError }, statusCode: StatusCodes.Status400BadRequest);
@@ -367,16 +506,19 @@ app.MapPost("/api/app/checkin", async (HttpContext context, AdminStoreService st
         {
             LicenseTools.RefreshLicenseStatus(license, now);
             license.LastSeenAt = now;
+            license.ClientKind = NormalizeClientKind(request.ClientKind);
             license.AppVersion = request.AppVersion;
             license.Email = request.Profile.Email;
             license.BusinessName = request.Profile.BusinessName;
             license.Cnpj = request.Profile.Cnpj;
             license.OwnerName = request.Profile.OwnerName;
             license.Phone = request.Profile.Phone;
+            license.Address = request.Profile.Address;
             license.City = request.Profile.City;
             license.State = request.Profile.State;
             license.ConfigSnapshot = request.Settings;
             license.MetricsSnapshot = request.Metrics;
+            license.EnvironmentSnapshot = request.Environment;
         }
 
         UpsertDevice(data, request, now);
@@ -390,8 +532,10 @@ app.MapPost("/api/app/checkin", async (HttpContext context, AdminStoreService st
 
 app.MapPost("/api/app/menu/publish", async (HttpContext context, AdminStoreService store) =>
 {
+    if (DenyBlockedClientIp(context, store, "cardapio") is { } blockedIpResult) return blockedIpResult;
     var request = await context.Request.ReadFromJsonAsync<AppPublicMenuPublishPayload>(AdminJson.Options) ?? new AppPublicMenuPublishPayload();
     request.LicenseKey = LicenseKeyFactory.Normalize(request.LicenseKey);
+    AttachRequestEnvironment(context, request);
     request.Slug = NormalizePublicMenuSlug(request.Slug);
     if (string.IsNullOrWhiteSpace(request.LicenseKey) || string.IsNullOrWhiteSpace(request.MachineHash))
     {
@@ -414,8 +558,10 @@ app.MapPost("/api/app/menu/publish", async (HttpContext context, AdminStoreServi
 
 app.MapPost("/api/app/support/list", async (HttpContext context, AdminStoreService store) =>
 {
+    if (DenyBlockedClientIp(context, store, "suporte") is { } blockedIpResult) return blockedIpResult;
     var request = await context.Request.ReadFromJsonAsync<AppClientPayload>(AdminJson.Options) ?? new AppClientPayload();
     request.LicenseKey = LicenseKeyFactory.Normalize(request.LicenseKey);
+    AttachRequestEnvironment(context, request);
     var snapshot = store.Read();
     if (!CanReadSupportTickets(snapshot, request, out var error))
     {
@@ -433,8 +579,10 @@ app.MapPost("/api/app/support/list", async (HttpContext context, AdminStoreServi
 
 app.MapPost("/api/app/support", async (HttpContext context, AdminStoreService store) =>
 {
+    if (DenyBlockedClientIp(context, store, "suporte") is { } blockedIpResult) return blockedIpResult;
     var request = await context.Request.ReadFromJsonAsync<AppSupportPayload>(AdminJson.Options) ?? new AppSupportPayload();
     request.LicenseKey = LicenseKeyFactory.Normalize(request.LicenseKey);
+    AttachRequestEnvironment(context, request);
     request.Message = (request.Message ?? "").Trim();
     if (string.IsNullOrWhiteSpace(request.LicenseKey) || string.IsNullOrWhiteSpace(request.MachineHash))
     {
@@ -480,16 +628,19 @@ app.MapPost("/api/app/support", async (HttpContext context, AdminStoreService st
 
         license.Status = LicenseStatus.Active;
         license.LastSeenAt = now;
+        license.ClientKind = NormalizeClientKind(request.ClientKind);
         license.AppVersion = request.AppVersion;
         license.Email = request.Profile.Email;
         license.BusinessName = request.Profile.BusinessName;
         license.Cnpj = request.Profile.Cnpj;
         license.OwnerName = request.Profile.OwnerName;
         license.Phone = request.Profile.Phone;
+        license.Address = request.Profile.Address;
         license.City = request.Profile.City;
         license.State = request.Profile.State;
         license.ConfigSnapshot = request.Settings;
         license.MetricsSnapshot = request.Metrics;
+        license.EnvironmentSnapshot = request.Environment;
         UpsertDevice(data, request, now);
 
         var ticket = new SupportTicketRecord
@@ -511,10 +662,12 @@ app.MapPost("/api/app/support", async (HttpContext context, AdminStoreService st
             OwnerName = request.Profile.OwnerName,
             Phone = request.Profile.Phone,
             Cnpj = request.Profile.Cnpj,
+            Address = request.Profile.Address,
             City = request.Profile.City,
             State = request.Profile.State,
             Profile = request.Profile,
-            Metrics = request.Metrics
+            Metrics = request.Metrics,
+            Environment = request.Environment
         };
         ticket.Messages.Add(SupportMessageRecord.Customer(request.Message));
         data.SupportTickets.Add(ticket);
@@ -528,8 +681,10 @@ app.MapPost("/api/app/support", async (HttpContext context, AdminStoreService st
 
 app.MapPost("/api/app/support/{id}/message", async (string id, HttpContext context, AdminStoreService store) =>
 {
+    if (DenyBlockedClientIp(context, store, "suporte") is { } blockedIpResult) return blockedIpResult;
     var request = await context.Request.ReadFromJsonAsync<AppSupportMessagePayload>(AdminJson.Options) ?? new AppSupportMessagePayload();
     request.LicenseKey = LicenseKeyFactory.Normalize(request.LicenseKey);
+    AttachRequestEnvironment(context, request);
     request.Message = (request.Message ?? "").Trim();
     if (string.IsNullOrWhiteSpace(request.Message))
     {
@@ -576,8 +731,10 @@ app.MapPost("/api/app/support/{id}/message", async (string id, HttpContext conte
 
 app.MapPost("/api/app/sync", async (HttpContext context, AdminStoreService store) =>
 {
+    if (DenyBlockedClientIp(context, store, "sync") is { } blockedIpResult) return blockedIpResult;
     var request = await context.Request.ReadFromJsonAsync<AppSyncPayload>(AdminJson.Options) ?? new AppSyncPayload();
     request.LicenseKey = LicenseKeyFactory.Normalize(request.LicenseKey);
+    AttachRequestEnvironment(context, request);
     if (string.IsNullOrWhiteSpace(request.LicenseKey) || string.IsNullOrWhiteSpace(request.MachineHash))
     {
         return Results.Json(new { ok = false, message = "Chave e computador sao obrigatorios." }, statusCode: StatusCodes.Status400BadRequest);
@@ -602,8 +759,10 @@ app.MapPost("/api/app/sync", async (HttpContext context, AdminStoreService store
 
 app.MapPost("/api/app/backup", async (HttpContext context, AdminStoreService store) =>
 {
+    if (DenyBlockedClientIp(context, store, "backup") is { } blockedIpResult) return blockedIpResult;
     var request = await context.Request.ReadFromJsonAsync<AppBackupPayload>(AdminJson.Options) ?? new AppBackupPayload();
     request.LicenseKey = LicenseKeyFactory.Normalize(request.LicenseKey);
+    AttachRequestEnvironment(context, request);
     if (string.IsNullOrWhiteSpace(request.LicenseKey) || string.IsNullOrWhiteSpace(request.MachineHash))
     {
         return Results.Json(new { ok = false, message = "Chave e computador sao obrigatorios." }, statusCode: StatusCodes.Status400BadRequest);
@@ -680,6 +839,241 @@ static string NormalizePublicMenuSlug(string? value)
     return slug.Length <= 72 ? slug : slug[..72].Trim('-');
 }
 
+static void ApplyPublicAnalyticsCors(HttpContext context)
+{
+    context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+    context.Response.Headers["Access-Control-Allow-Headers"] = "content-type";
+    context.Response.Headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
+}
+
+static SiteAnalyticsEvent BuildPublicAnalyticsEvent(HttpContext context, PublicAnalyticsEventRequest request)
+{
+    var type = NormalizeAnalyticsEventType(request.Type);
+    var plan = SafeAnalyticsText(request.Plan, 80);
+    var billing = SafeAnalyticsText(request.Billing, 40);
+    var visitorSeed = SafeAnalyticsText(request.VisitorId, 160).TrimOrDefault(ClientIpHash(context));
+    var sessionSeed = SafeAnalyticsText(request.SessionId, 160).TrimOrDefault(visitorSeed);
+    var url = SafeAnalyticsText(request.Url, 500);
+    var path = SafeAnalyticsText(request.Path, 180);
+    if (string.IsNullOrWhiteSpace(path) && Uri.TryCreate(url, UriKind.Absolute, out var parsedUrl))
+    {
+        path = parsedUrl.PathAndQuery;
+    }
+
+    return new SiteAnalyticsEvent
+    {
+        Id = Guid.NewGuid().ToString("N"),
+        Type = type,
+        VisitorHash = HashAnalyticsIdentifier(visitorSeed),
+        SessionHash = HashAnalyticsIdentifier(sessionSeed),
+        Path = path.TrimOrDefault("/"),
+        Url = url,
+        Referrer = SafeAnalyticsText(request.Referrer, 300),
+        Source = SafeAnalyticsText(request.Source, 80).TrimOrDefault("site"),
+        Campaign = SafeAnalyticsText(request.Campaign, 120),
+        Plan = plan,
+        Billing = billing,
+        CheckoutSessionId = SafeAnalyticsText(request.CheckoutSessionId, 120),
+        StripeCustomerId = SafeAnalyticsText(request.StripeCustomerId, 120),
+        SubscriptionId = SafeAnalyticsText(request.SubscriptionId, 120),
+        Currency = SafeAnalyticsText(request.Currency, 12).TrimOrDefault("BRL").ToUpperInvariant(),
+        AmountCents = Math.Max(0, request.AmountCents),
+        UserAgentHash = HashAnalyticsIdentifier(context.Request.Headers.UserAgent.ToString()),
+        When = DateTimeOffset.UtcNow
+    };
+}
+
+static string NormalizeAnalyticsEventType(string? value)
+{
+    var clean = (value ?? "").Trim().ToLowerInvariant().Replace("_", ".");
+    return clean switch
+    {
+        AnalyticsEventType.CheckoutStarted => AnalyticsEventType.CheckoutStarted,
+        AnalyticsEventType.CheckoutCompleted => AnalyticsEventType.CheckoutCompleted,
+        AnalyticsEventType.TrialDownload => AnalyticsEventType.TrialDownload,
+        AnalyticsEventType.WhatsappClick => AnalyticsEventType.WhatsappClick,
+        AnalyticsEventType.PlanView => AnalyticsEventType.PlanView,
+        _ => AnalyticsEventType.SiteVisit
+    };
+}
+
+static string SafeAnalyticsText(string? value, int maxLength)
+{
+    var clean = (value ?? "").Trim().Replace("\r", " ").Replace("\n", " ");
+    return clean.Length <= maxLength ? clean : clean[..maxLength];
+}
+
+static string ClientIpHash(HttpContext context)
+{
+    var ip = ClientIpAddress(context);
+    return string.IsNullOrWhiteSpace(ip) ? "" : $"ip:{ip}";
+}
+
+static void AttachRequestEnvironment(HttpContext context, AppClientPayload request)
+{
+    request.Environment ??= new ClientEnvironmentSnapshot();
+    var environment = request.Environment;
+    var publicIp = ClientIpAddress(context);
+    if (string.IsNullOrWhiteSpace(environment.PublicIp))
+    {
+        environment.PublicIp = publicIp;
+    }
+
+    environment.ForwardedFor = SafeAnalyticsText(context.Request.Headers["X-Forwarded-For"].ToString(), 240);
+    environment.UserAgent = SafeAnalyticsText(context.Request.Headers.UserAgent.ToString(), 300).TrimOrDefault(environment.UserAgent);
+    environment.RequestHost = SafeAnalyticsText(context.Request.Host.ToString(), 120);
+    environment.ServerSeenAt = DateTimeOffset.UtcNow;
+}
+
+static string ClientIpAddress(HttpContext context)
+{
+    var forwarded = context.Request.Headers["X-Forwarded-For"].ToString()
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .FirstOrDefault();
+
+    var candidates = new[]
+    {
+        context.Request.Headers["CF-Connecting-IP"].ToString(),
+        context.Request.Headers["X-Real-IP"].ToString(),
+        context.Request.Headers["X-NF-Client-Connection-IP"].ToString(),
+        forwarded,
+        context.Connection.RemoteIpAddress?.ToString() ?? ""
+    };
+
+    foreach (var candidate in candidates)
+    {
+        var clean = SafeAnalyticsText(candidate, 80);
+        if (!string.IsNullOrWhiteSpace(clean))
+        {
+            return clean;
+        }
+    }
+
+    return "";
+}
+
+static string NormalizeIpAddress(string? value)
+{
+    var clean = SafeAnalyticsText(value, 80).Trim();
+    if (string.IsNullOrWhiteSpace(clean))
+    {
+        return "";
+    }
+
+    if (clean.StartsWith("[", StringComparison.Ordinal) && clean.EndsWith("]", StringComparison.Ordinal))
+    {
+        clean = clean[1..^1];
+    }
+
+    if (clean.StartsWith("::ffff:", StringComparison.OrdinalIgnoreCase))
+    {
+        clean = clean["::ffff:".Length..];
+    }
+
+    return IPAddress.TryParse(clean, out var parsed) ? parsed.ToString() : clean;
+}
+
+static IResult? DenyBlockedClientIp(HttpContext context, AdminStoreService store, string area)
+{
+    var ip = NormalizeIpAddress(ClientIpAddress(context));
+    if (string.IsNullOrWhiteSpace(ip))
+    {
+        return null;
+    }
+
+    var blocked = store.Read().BlockedIps?
+        .FirstOrDefault(item => string.Equals(NormalizeIpAddress(item.Ip), ip, StringComparison.OrdinalIgnoreCase));
+    if (blocked is null)
+    {
+        return null;
+    }
+
+    store.Update(data =>
+    {
+        data.BlockedIps ??= [];
+        var now = DateTimeOffset.UtcNow;
+        var existing = data.BlockedIps.FirstOrDefault(item => string.Equals(NormalizeIpAddress(item.Ip), ip, StringComparison.OrdinalIgnoreCase));
+        if (existing is null)
+        {
+            return false;
+        }
+
+        var shouldLog = existing.LastBlockedAt is null || existing.LastBlockedAt.Value.AddMinutes(10) <= now;
+        existing.Hits++;
+        existing.LastBlockedAt = now;
+        existing.LastBlockedArea = area;
+        existing.UpdatedAt = now;
+        if (shouldLog)
+        {
+            data.Events.Add(AdminEvent.Analytics("ip.denied", $"IP bloqueado tentou acessar: {ip}", area));
+        }
+
+        return true;
+    });
+
+    return Results.Json(new { ok = false, message = "IP bloqueado pelo admin.", ip }, statusCode: StatusCodes.Status403Forbidden);
+}
+
+static string HashAnalyticsIdentifier(string value)
+{
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        return "";
+    }
+
+    var bytes = SHA256.HashData(Encoding.UTF8.GetBytes($"BalcaoLivreAnalytics|{value.Trim()}"));
+    return Convert.ToHexString(bytes).ToLowerInvariant()[..24];
+}
+
+static void UpsertSiteAnalytics(AdminStore data, SiteAnalyticsEvent analyticsEvent)
+{
+    data.SiteAnalytics ??= [];
+    if (!string.IsNullOrWhiteSpace(analyticsEvent.CheckoutSessionId) &&
+        analyticsEvent.Type is AnalyticsEventType.CheckoutCompleted)
+    {
+        var existing = data.SiteAnalytics.FirstOrDefault(item =>
+            item.Type == analyticsEvent.Type &&
+            string.Equals(item.CheckoutSessionId, analyticsEvent.CheckoutSessionId, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            existing.When = analyticsEvent.When;
+            existing.AmountCents = Math.Max(existing.AmountCents, analyticsEvent.AmountCents);
+            existing.Currency = analyticsEvent.Currency.TrimOrDefault(existing.Currency.TrimOrDefault("BRL"));
+            existing.Plan = analyticsEvent.Plan.TrimOrDefault(existing.Plan);
+            existing.Billing = analyticsEvent.Billing.TrimOrDefault(existing.Billing);
+            existing.StripeCustomerId = analyticsEvent.StripeCustomerId.TrimOrDefault(existing.StripeCustomerId);
+            existing.SubscriptionId = analyticsEvent.SubscriptionId.TrimOrDefault(existing.SubscriptionId);
+            TrimSiteAnalytics(data);
+            return;
+        }
+    }
+
+    data.SiteAnalytics.Add(analyticsEvent);
+    TrimSiteAnalytics(data);
+}
+
+static void TrimSiteAnalytics(AdminStore data)
+{
+    var cutoff = DateTimeOffset.UtcNow.AddDays(-120);
+    data.SiteAnalytics = data.SiteAnalytics
+        .Where(item => item.When >= cutoff)
+        .OrderByDescending(item => item.When)
+        .Take(8000)
+        .OrderBy(item => item.When)
+        .ToList();
+}
+
+static string AnalyticsEventMessage(SiteAnalyticsEvent analyticsEvent)
+{
+    var plan = analyticsEvent.Plan.TrimOrDefault("plano");
+    return analyticsEvent.Type switch
+    {
+        AnalyticsEventType.CheckoutCompleted => $"Compra Stripe confirmada: {plan}",
+        AnalyticsEventType.CheckoutStarted => $"Checkout Stripe iniciado: {plan}",
+        _ => $"Evento do site: {analyticsEvent.Type}"
+    };
+}
+
 static bool MarkAppPayloadSeen(AdminStoreService store, AppClientPayload request, string eventType, string eventMessage)
 {
     return MarkAppPayloadSeenWithReason(store, request, eventType, eventMessage, out _);
@@ -733,16 +1127,19 @@ static bool MarkAppPayloadSeenWithReason(AdminStoreService store, AppClientPaylo
 
         license.Status = LicenseStatus.Active;
         license.LastSeenAt = now;
+        license.ClientKind = NormalizeClientKind(request.ClientKind);
         license.AppVersion = request.AppVersion;
         license.Email = request.Profile.Email;
         license.BusinessName = request.Profile.BusinessName;
         license.Cnpj = request.Profile.Cnpj;
         license.OwnerName = request.Profile.OwnerName;
         license.Phone = request.Profile.Phone;
+        license.Address = request.Profile.Address;
         license.City = request.Profile.City;
         license.State = request.Profile.State;
         license.ConfigSnapshot = request.Settings;
         license.MetricsSnapshot = request.Metrics;
+        license.EnvironmentSnapshot = request.Environment;
 
         UpsertDevice(data, request, now);
         data.Events.Add(AdminEvent.Device(eventType, $"{eventMessage}: {request.Profile.BusinessName.TrimOrDefault(request.MachineCode)}", request));
@@ -782,6 +1179,7 @@ static void UpsertDevice(AdminStore data, AppClientPayload request, DateTimeOffs
     device.Profile = request.Profile;
     device.Settings = request.Settings;
     device.Metrics = request.Metrics;
+    device.Environment = request.Environment;
 }
 
 static bool IsMobileClient(AppClientPayload request)
@@ -929,6 +1327,43 @@ static DateTimeOffset AddDuration(DateTimeOffset start, int amount, string unit)
     };
 }
 
+static string NormalizeAdminLogin(string value)
+{
+    return (value ?? "").Trim();
+}
+
+static bool VerifyAdminPassword(AdminUserRecord user, string password)
+{
+    if (string.IsNullOrWhiteSpace(user.PasswordHash) ||
+        string.IsNullOrWhiteSpace(user.PasswordSalt) ||
+        user.PasswordIterations <= 0)
+    {
+        return false;
+    }
+
+    try
+    {
+        var salt = Convert.FromBase64String(user.PasswordSalt);
+        var expected = Convert.FromBase64String(user.PasswordHash);
+        if (salt.Length <= 0 || expected.Length <= 0)
+        {
+            return false;
+        }
+
+        var actual = Rfc2898DeriveBytes.Pbkdf2(
+            Encoding.UTF8.GetBytes(password ?? ""),
+            salt,
+            user.PasswordIterations,
+            HashAlgorithmName.SHA256,
+            expected.Length);
+        return CryptographicOperations.FixedTimeEquals(actual, expected);
+    }
+    catch (FormatException)
+    {
+        return false;
+    }
+}
+
 static class AdminJson
 {
     public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
@@ -1066,9 +1501,11 @@ sealed class AdminStoreService
     private readonly bool _supabaseRequired;
     private readonly HttpClient _httpClient = new();
     private readonly object _gate = new();
+    private readonly HashSet<string> _ensuredSupabaseBuckets = new(StringComparer.OrdinalIgnoreCase);
     private bool _lastSupabaseOk;
     private long _revision;
     private string _lastFingerprint = "";
+    private AdminStore? _cachedStore;
     private DateTimeOffset _lastChangedAt = DateTimeOffset.UtcNow;
     private DateTimeOffset _lastRemoteRefreshAt = DateTimeOffset.MinValue;
 
@@ -1150,6 +1587,34 @@ sealed class AdminStoreService
             TrimEvents(store);
             SaveUnsafe(store);
             return result;
+        }
+    }
+
+    public StripeCheckoutSummary ReadStripeCheckoutSummary()
+    {
+        if (!UsesSupabase)
+        {
+            return StripeCheckoutSummary.Empty("Supabase nao configurado.");
+        }
+
+        try
+        {
+            using var request = CreateSupabaseAuthRequest(
+                HttpMethod.Get,
+                "/rest/v1/bv_license_events?select=license_key,event_type,message,payload,created_at&event_type=in.(checkout.paid,checkout.renewed)&order=created_at.desc&limit=1000");
+            using var response = _httpClient.Send(request);
+            var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            if (!response.IsSuccessStatusCode)
+            {
+                return StripeCheckoutSummary.Empty(body.TrimOrDefault(response.StatusCode.ToString()));
+            }
+
+            var records = JsonSerializer.Deserialize<List<SupabaseCheckoutEventRecord>>(body, AdminJson.Options) ?? [];
+            return StripeCheckoutSummary.From(records);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException or TaskCanceledException or InvalidOperationException)
+        {
+            return StripeCheckoutSummary.Empty(ex.Message);
         }
     }
 
@@ -1248,6 +1713,50 @@ sealed class AdminStoreService
         }
     }
 
+    private static string NormalizeClockText(string? value)
+    {
+        var text = (value ?? "").Trim()
+            .Replace('h', ':')
+            .Replace('H', ':')
+            .Replace('.', ':')
+            .Replace(',', ':');
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "00:00";
+        }
+
+        int hour;
+        int minute;
+        if (text.Contains(':', StringComparison.Ordinal))
+        {
+            var parts = text.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length != 2
+                || !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out hour)
+                || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out minute))
+            {
+                return "00:00";
+            }
+        }
+        else if (text.Length is 3 or 4 && text.All(char.IsDigit))
+        {
+            var padded = text.PadLeft(4, '0');
+            hour = int.Parse(padded[..2], CultureInfo.InvariantCulture);
+            minute = int.Parse(padded[2..], CultureInfo.InvariantCulture);
+        }
+        else if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out hour))
+        {
+            return "00:00";
+        }
+        else
+        {
+            minute = 0;
+        }
+
+        return hour is < 0 or > 23 || minute is < 0 or > 59
+            ? "00:00"
+            : $"{hour:00}:{minute:00}";
+    }
+
     public AppPublicMenuPublishResponse PublishPublicMenu(AppPublicMenuPublishPayload request)
     {
         if (!UsesSupabase)
@@ -1276,6 +1785,12 @@ sealed class AdminStoreService
                     ["state"] = request.Profile.State,
                     ["logo_url"] = logoUrl,
                     ["theme_color"] = request.ThemeColor.TrimOrDefault("#0f766e"),
+                    ["store_open"] = request.StoreOpen,
+                    ["schedule_enabled"] = request.ScheduleEnabled,
+                    ["open_time"] = NormalizeClockText(request.OpenTime),
+                    ["close_time"] = NormalizeClockText(request.CloseTime),
+                    ["wait_min_minutes"] = Math.Max(1, request.WaitMinMinutes),
+                    ["wait_max_minutes"] = Math.Max(Math.Max(1, request.WaitMinMinutes), request.WaitMaxMinutes),
                     ["is_published"] = true,
                     ["updated_at"] = now
                 };
@@ -1373,10 +1888,19 @@ sealed class AdminStoreService
     {
         if (UsesSupabase)
         {
+            var now = DateTimeOffset.UtcNow;
+            if (_cachedStore is not null && now - _lastRemoteRefreshAt < RemoteRefreshInterval)
+            {
+                _lastSupabaseOk = true;
+                return TrackStoreUnsafe(CloneStore(_cachedStore));
+            }
+
             var remote = LoadFromSupabaseUnsafe();
             if (remote is not null)
             {
                 _lastSupabaseOk = true;
+                _lastRemoteRefreshAt = now;
+                _cachedStore = CloneStore(remote);
                 if (!_supabaseRequired)
                 {
                     SaveLocalUnsafe(remote);
@@ -1385,6 +1909,10 @@ sealed class AdminStoreService
             }
 
             _lastSupabaseOk = false;
+            if (_cachedStore is not null)
+            {
+                return TrackStoreUnsafe(CloneStore(_cachedStore));
+            }
         }
 
         if (_supabaseRequired)
@@ -1424,6 +1952,8 @@ sealed class AdminStoreService
             }
         }
 
+        _cachedStore = CloneStore(store);
+        _lastRemoteRefreshAt = DateTimeOffset.UtcNow;
         MarkRevisionUnsafe(store);
     }
 
@@ -1444,6 +1974,7 @@ sealed class AdminStoreService
         }
 
         _lastSupabaseOk = true;
+        _cachedStore = CloneStore(remote);
         if (!_supabaseRequired)
         {
             SaveLocalUnsafe(remote);
@@ -1456,6 +1987,13 @@ sealed class AdminStoreService
     {
         MarkRevisionUnsafe(store);
         return store;
+    }
+
+    private static AdminStore CloneStore(AdminStore store)
+    {
+        return JsonSerializer.Deserialize<AdminStore>(
+            JsonSerializer.Serialize(store, AdminJson.Options),
+            AdminJson.Options) ?? new AdminStore();
     }
 
     private void MarkRevisionUnsafe(AdminStore store)
@@ -1691,6 +2229,11 @@ sealed class AdminStoreService
 
     private void EnsureSupabaseBucketUnsafe(string bucket, bool isPublic)
     {
+        if (_ensuredSupabaseBuckets.Contains(bucket))
+        {
+            return;
+        }
+
         var payload = JsonSerializer.Serialize(new
         {
             id = bucket,
@@ -1702,6 +2245,7 @@ sealed class AdminStoreService
         using var response = _httpClient.Send(request);
         if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.Conflict)
         {
+            _ensuredSupabaseBuckets.Add(bucket);
             return;
         }
 
@@ -1711,6 +2255,7 @@ sealed class AdminStoreService
             if (body.Contains("already", StringComparison.OrdinalIgnoreCase) ||
                 body.Contains("exists", StringComparison.OrdinalIgnoreCase))
             {
+                _ensuredSupabaseBuckets.Add(bucket);
                 return;
             }
         }
@@ -1822,10 +2367,87 @@ sealed class AdminStoreService
 
 sealed class AdminStore
 {
+    public List<AdminUserRecord> AdminUsers { get; set; } = [];
+    public List<BlockedIpRecord> BlockedIps { get; set; } = [];
+    public List<SiteAnalyticsEvent> SiteAnalytics { get; set; } = [];
     public List<LicenseRecord> Licenses { get; set; } = [];
     public List<DeviceRecord> Devices { get; set; } = [];
     public List<SupportTicketRecord> SupportTickets { get; set; } = [];
     public List<AdminEvent> Events { get; set; } = [];
+}
+
+sealed class AdminUserRecord
+{
+    public string User { get; set; } = "";
+    public string PasswordHash { get; set; } = "";
+    public string PasswordSalt { get; set; } = "";
+    public int PasswordIterations { get; set; } = 120000;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+sealed class BlockedIpRecord
+{
+    public string Id { get; set; } = "";
+    public string Ip { get; set; } = "";
+    public string Reason { get; set; } = "";
+    public string Source { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? LastBlockedAt { get; set; }
+    public string LastBlockedArea { get; set; } = "";
+    public int Hits { get; set; }
+}
+
+static class AnalyticsEventType
+{
+    public const string SiteVisit = "site.visit";
+    public const string PlanView = "plan.view";
+    public const string TrialDownload = "trial.download";
+    public const string WhatsappClick = "whatsapp.click";
+    public const string CheckoutStarted = "checkout.started";
+    public const string CheckoutCompleted = "checkout.completed";
+}
+
+sealed class SiteAnalyticsEvent
+{
+    public string Id { get; set; } = "";
+    public string Type { get; set; } = AnalyticsEventType.SiteVisit;
+    public string VisitorHash { get; set; } = "";
+    public string SessionHash { get; set; } = "";
+    public string Path { get; set; } = "";
+    public string Url { get; set; } = "";
+    public string Referrer { get; set; } = "";
+    public string Source { get; set; } = "";
+    public string Campaign { get; set; } = "";
+    public string Plan { get; set; } = "";
+    public string Billing { get; set; } = "";
+    public string CheckoutSessionId { get; set; } = "";
+    public string StripeCustomerId { get; set; } = "";
+    public string SubscriptionId { get; set; } = "";
+    public string Currency { get; set; } = "BRL";
+    public int AmountCents { get; set; }
+    public string UserAgentHash { get; set; } = "";
+    public DateTimeOffset When { get; set; } = DateTimeOffset.UtcNow;
+}
+
+sealed class PublicAnalyticsEventRequest
+{
+    public string Type { get; set; } = "";
+    public string VisitorId { get; set; } = "";
+    public string SessionId { get; set; } = "";
+    public string Path { get; set; } = "";
+    public string Url { get; set; } = "";
+    public string Referrer { get; set; } = "";
+    public string Source { get; set; } = "";
+    public string Campaign { get; set; } = "";
+    public string Plan { get; set; } = "";
+    public string Billing { get; set; } = "";
+    public string CheckoutSessionId { get; set; } = "";
+    public string StripeCustomerId { get; set; } = "";
+    public string SubscriptionId { get; set; } = "";
+    public string Currency { get; set; } = "BRL";
+    public int AmountCents { get; set; }
 }
 
 sealed record AdminRealtimeSnapshot(
@@ -1849,11 +2471,13 @@ sealed class LicenseRecord
     public string OwnerName { get; set; } = "";
     public string Cnpj { get; set; } = "";
     public string Phone { get; set; } = "";
+    public string Address { get; set; } = "";
     public string City { get; set; } = "";
     public string State { get; set; } = "";
     public string Notes { get; set; } = "";
     public string MachineHash { get; set; } = "";
     public string MachineCode { get; set; } = "";
+    public string ClientKind { get; set; } = "";
     public string AppVersion { get; set; } = "";
     public string WhatsAppPhone { get; set; } = "";
     public string WhatsAppBotId { get; set; } = "";
@@ -1867,6 +2491,7 @@ sealed class LicenseRecord
     public DateTimeOffset? WhatsAppActivatedAt { get; set; }
     public AppSettingsSnapshot ConfigSnapshot { get; set; } = new();
     public AppMetricsSnapshot MetricsSnapshot { get; set; } = new();
+    public ClientEnvironmentSnapshot EnvironmentSnapshot { get; set; } = new();
 }
 
 sealed class DeviceRecord
@@ -1882,6 +2507,7 @@ sealed class DeviceRecord
     public RestaurantProfileSnapshot Profile { get; set; } = new();
     public AppSettingsSnapshot Settings { get; set; } = new();
     public AppMetricsSnapshot Metrics { get; set; } = new();
+    public ClientEnvironmentSnapshot Environment { get; set; } = new();
 }
 
 static class SupportStatus
@@ -1914,10 +2540,12 @@ sealed class SupportTicketRecord
     public string OwnerName { get; set; } = "";
     public string Phone { get; set; } = "";
     public string Cnpj { get; set; } = "";
+    public string Address { get; set; } = "";
     public string City { get; set; } = "";
     public string State { get; set; } = "";
     public RestaurantProfileSnapshot Profile { get; set; } = new();
     public AppMetricsSnapshot Metrics { get; set; } = new();
+    public ClientEnvironmentSnapshot Environment { get; set; } = new();
 }
 
 sealed class SupportMessageRecord
@@ -1968,6 +2596,13 @@ sealed class AdminEvent
         MachineCode = payload.MachineCode,
         When = DateTimeOffset.UtcNow
     };
+
+    public static AdminEvent Analytics(string type, string message, string plan) => new()
+    {
+        Type = type,
+        Message = string.IsNullOrWhiteSpace(plan) ? message : $"{message} ({plan})",
+        When = DateTimeOffset.UtcNow
+    };
 }
 
 sealed class LoginRequest
@@ -1991,6 +2626,13 @@ sealed class UpdateSupportStatusRequest
     public string Note { get; set; } = "";
 }
 
+sealed class BlockIpRequest
+{
+    public string Ip { get; set; } = "";
+    public string Reason { get; set; } = "";
+    public string Source { get; set; } = "";
+}
+
 sealed class SupportReplyRequest
 {
     public string Message { get; set; } = "";
@@ -2009,6 +2651,7 @@ class AppClientPayload
     public RestaurantProfileSnapshot Profile { get; set; } = new();
     public AppSettingsSnapshot Settings { get; set; } = new();
     public AppMetricsSnapshot Metrics { get; set; } = new();
+    public ClientEnvironmentSnapshot Environment { get; set; } = new();
 }
 
 sealed class AppSyncPayload : AppClientPayload
@@ -2036,6 +2679,12 @@ sealed class AppPublicMenuPublishPayload : AppClientPayload
     public string LogoFileName { get; set; } = "";
     public string LogoContentType { get; set; } = "";
     public string LogoBase64 { get; set; } = "";
+    public bool StoreOpen { get; set; } = true;
+    public bool ScheduleEnabled { get; set; } = true;
+    public string OpenTime { get; set; } = "00:00";
+    public string CloseTime { get; set; } = "00:00";
+    public int WaitMinMinutes { get; set; } = 30;
+    public int WaitMaxMinutes { get; set; } = 60;
     public DateTimeOffset LocalWhen { get; set; } = DateTimeOffset.UtcNow;
     public List<AppPublicMenuItemPayload> Items { get; set; } = [];
 }
@@ -2147,6 +2796,26 @@ sealed class RestaurantProfileSnapshot
     public string State { get; set; } = "";
 }
 
+sealed class ClientEnvironmentSnapshot
+{
+    public string ClientProduct { get; set; } = "";
+    public string MachineName { get; set; } = "";
+    public string WindowsUser { get; set; } = "";
+    public string DomainName { get; set; } = "";
+    public string OperatingSystem { get; set; } = "";
+    public string OSArchitecture { get; set; } = "";
+    public string ProcessArchitecture { get; set; } = "";
+    public string PrimaryLocalIp { get; set; } = "";
+    public List<string> LocalIpAddresses { get; set; } = [];
+    public string PublicIp { get; set; } = "";
+    public string ForwardedFor { get; set; } = "";
+    public string UserAgent { get; set; } = "";
+    public string RequestHost { get; set; } = "";
+    public string TimeZone { get; set; } = "";
+    public string UtcOffset { get; set; } = "";
+    public DateTimeOffset? ServerSeenAt { get; set; }
+}
+
 sealed class AppSettingsSnapshot
 {
     public bool WindowsNotificationsEnabled { get; set; }
@@ -2177,15 +2846,198 @@ sealed class AppMetricsSnapshot
     public int LowStockCount { get; set; }
 }
 
+sealed class SupabaseCheckoutEventRecord
+{
+    [JsonPropertyName("license_key")]
+    public string LicenseKey { get; set; } = "";
+    [JsonPropertyName("event_type")]
+    public string EventType { get; set; } = "";
+    public string Message { get; set; } = "";
+    public JsonElement Payload { get; set; }
+    [JsonPropertyName("created_at")]
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
+sealed class StripePurchaseSummary
+{
+    public string LicenseKey { get; set; } = "";
+    public string Type { get; set; } = "";
+    public string Plan { get; set; } = "";
+    public string CheckoutSessionId { get; set; } = "";
+    public string Currency { get; set; } = "BRL";
+    public int AmountCents { get; set; }
+    public DateTimeOffset When { get; set; }
+}
+
+sealed class StripeCheckoutSummary
+{
+    public bool Ok { get; set; } = true;
+    public string Error { get; set; } = "";
+    public int TotalPurchases { get; set; }
+    public int Purchases24h { get; set; }
+    public long TotalRevenueCents { get; set; }
+    public string Currency { get; set; } = "BRL";
+    public List<StripePurchaseSummary> RecentPurchases { get; set; } = [];
+
+    public static StripeCheckoutSummary Empty(string error = "") => new()
+    {
+        Ok = string.IsNullOrWhiteSpace(error),
+        Error = error
+    };
+
+    public static StripeCheckoutSummary From(IEnumerable<SupabaseCheckoutEventRecord> records)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var purchases = records
+            .Select(ToPurchase)
+            .Where(item => !string.IsNullOrWhiteSpace(item.LicenseKey) || !string.IsNullOrWhiteSpace(item.CheckoutSessionId))
+            .GroupBy(item => item.CheckoutSessionId.TrimOrDefault($"{item.LicenseKey}:{item.When:o}"), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderByDescending(item => item.When).First())
+            .OrderByDescending(item => item.When)
+            .ToList();
+        var currency = purchases.Select(item => item.Currency).FirstOrDefault(item => !string.IsNullOrWhiteSpace(item)) ?? "BRL";
+
+        return new StripeCheckoutSummary
+        {
+            TotalPurchases = purchases.Count,
+            Purchases24h = purchases.Count(item => item.When >= now.AddHours(-24)),
+            TotalRevenueCents = purchases.Sum(item => (long)Math.Max(0, item.AmountCents)),
+            Currency = currency,
+            RecentPurchases = purchases.Take(8).ToList()
+        };
+    }
+
+    private static StripePurchaseSummary ToPurchase(SupabaseCheckoutEventRecord record)
+    {
+        var payload = record.Payload;
+        return new StripePurchaseSummary
+        {
+            LicenseKey = record.LicenseKey,
+            Type = record.EventType,
+            Plan = PayloadString(payload, "plan_id").TrimOrDefault(PayloadString(payload, "plan")),
+            CheckoutSessionId = PayloadString(payload, "checkout_session_id"),
+            Currency = PayloadString(payload, "currency").TrimOrDefault("BRL").ToUpperInvariant(),
+            AmountCents = PayloadInt(payload, "amount_total"),
+            When = PayloadDate(payload, "paid_at")
+                ?? PayloadDate(payload, "renewed_at")
+                ?? record.CreatedAt
+        };
+    }
+
+    private static string PayloadString(JsonElement payload, string propertyName)
+    {
+        if (payload.ValueKind != JsonValueKind.Object ||
+            !payload.TryGetProperty(propertyName, out var property))
+        {
+            return "";
+        }
+
+        return property.ValueKind switch
+        {
+            JsonValueKind.String => property.GetString() ?? "",
+            JsonValueKind.Number => property.GetRawText(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            _ => ""
+        };
+    }
+
+    private static int PayloadInt(JsonElement payload, string propertyName)
+    {
+        if (payload.ValueKind != JsonValueKind.Object ||
+            !payload.TryGetProperty(propertyName, out var property))
+        {
+            return 0;
+        }
+
+        if (property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out var number))
+        {
+            return number;
+        }
+
+        return int.TryParse(PayloadString(payload, propertyName), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : 0;
+    }
+
+    private static DateTimeOffset? PayloadDate(JsonElement payload, string propertyName)
+    {
+        return DateTimeOffset.TryParse(PayloadString(payload, propertyName), out var parsed)
+            ? parsed
+            : null;
+    }
+}
+
+sealed class SiteAnalyticsDashboard
+{
+    public int TotalVisitors { get; set; }
+    public int Visitors24h { get; set; }
+    public int ViewsTotal { get; set; }
+    public int Views24h { get; set; }
+    public int CheckoutStartedTotal { get; set; }
+    public int CheckoutStarted24h { get; set; }
+    public int CheckoutCompletedTotal { get; set; }
+    public int CheckoutCompleted24h { get; set; }
+    public long CheckoutCompletedRevenueCents { get; set; }
+    public int TrialDownloadsTotal { get; set; }
+    public int WhatsappClicksTotal { get; set; }
+    public List<object> TopPages { get; set; } = [];
+    public List<SiteAnalyticsEvent> RecentEvents { get; set; } = [];
+
+    public static SiteAnalyticsDashboard From(IEnumerable<SiteAnalyticsEvent> analytics)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var events = analytics
+            .Where(item => item.When > DateTimeOffset.MinValue)
+            .OrderByDescending(item => item.When)
+            .ToList();
+        var visits = events.Where(item => item.Type == AnalyticsEventType.SiteVisit).ToList();
+        var started = events.Where(item => item.Type == AnalyticsEventType.CheckoutStarted).ToList();
+        var completed = events
+            .Where(item => item.Type == AnalyticsEventType.CheckoutCompleted)
+            .GroupBy(item => item.CheckoutSessionId.TrimOrDefault(item.Id), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderByDescending(item => item.When).First())
+            .ToList();
+
+        return new SiteAnalyticsDashboard
+        {
+            TotalVisitors = visits.Select(item => item.VisitorHash).Where(item => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.Ordinal).Count(),
+            Visitors24h = visits.Where(item => item.When >= now.AddHours(-24)).Select(item => item.VisitorHash).Where(item => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.Ordinal).Count(),
+            ViewsTotal = visits.Count,
+            Views24h = visits.Count(item => item.When >= now.AddHours(-24)),
+            CheckoutStartedTotal = started.Count,
+            CheckoutStarted24h = started.Count(item => item.When >= now.AddHours(-24)),
+            CheckoutCompletedTotal = completed.Count,
+            CheckoutCompleted24h = completed.Count(item => item.When >= now.AddHours(-24)),
+            CheckoutCompletedRevenueCents = completed.Sum(item => (long)Math.Max(0, item.AmountCents)),
+            TrialDownloadsTotal = events.Count(item => item.Type == AnalyticsEventType.TrialDownload),
+            WhatsappClicksTotal = events.Count(item => item.Type == AnalyticsEventType.WhatsappClick),
+            TopPages = visits
+                .GroupBy(item => item.Path.TrimOrDefault("/"))
+                .Select(group => new { path = group.Key, views = group.Count(), visitors = group.Select(item => item.VisitorHash).Distinct(StringComparer.Ordinal).Count() })
+                .OrderByDescending(item => item.views)
+                .Take(8)
+                .Cast<object>()
+                .ToList(),
+            RecentEvents = events
+                .Where(item => item.Type != AnalyticsEventType.SiteVisit)
+                .Take(12)
+                .ToList()
+        };
+    }
+}
+
 sealed class AdminDashboard
 {
     public object Metrics { get; set; } = new();
+    public SiteAnalyticsDashboard SiteAnalytics { get; set; } = new();
+    public StripeCheckoutSummary Stripe { get; set; } = new();
     public IEnumerable<object> VersionDistribution { get; set; } = [];
     public IEnumerable<LicenseRecord> ExpiringSoon { get; set; } = [];
     public IEnumerable<DeviceRecord> RecentDevices { get; set; } = [];
     public IEnumerable<AdminEvent> Events { get; set; } = [];
 
-    public static AdminDashboard From(AdminStore store)
+    public static AdminDashboard From(AdminStore store, StripeCheckoutSummary stripe)
     {
         var now = DateTimeOffset.UtcNow;
         var active = store.Licenses.Count(item => item.Status == LicenseStatus.Active && item.ExpiresAt > now);
@@ -2198,6 +3050,13 @@ sealed class AdminDashboard
         var urgentSupport = store.SupportTickets.Count(item =>
             item.Status != SupportStatus.Resolved &&
             string.Equals(item.Priority, "URGENTE", StringComparison.OrdinalIgnoreCase));
+        var site = SiteAnalyticsDashboard.From(store.SiteAnalytics);
+        var stripePurchasesTotal = stripe.TotalPurchases > 0 ? stripe.TotalPurchases : site.CheckoutCompletedTotal;
+        var stripePurchases24h = stripe.TotalPurchases > 0 ? stripe.Purchases24h : site.CheckoutCompleted24h;
+        var stripeRevenueCents = stripe.TotalRevenueCents > 0 ? stripe.TotalRevenueCents : site.CheckoutCompletedRevenueCents;
+        var conversionRate = site.TotalVisitors > 0
+            ? Math.Round(stripePurchasesTotal * 100m / site.TotalVisitors, 1)
+            : 0m;
 
         return new AdminDashboard
         {
@@ -2212,8 +3071,20 @@ sealed class AdminDashboard
                 online24h,
                 registeredUsers,
                 openSupport,
-                urgentSupport
+                urgentSupport,
+                siteVisitors24h = site.Visitors24h,
+                siteVisitorsTotal = site.TotalVisitors,
+                siteViews24h = site.Views24h,
+                siteViewsTotal = site.ViewsTotal,
+                checkoutStarted24h = site.CheckoutStarted24h,
+                checkoutStartedTotal = site.CheckoutStartedTotal,
+                stripePurchases24h,
+                stripePurchasesTotal,
+                stripeRevenueCents,
+                stripeConversionRate = conversionRate
             },
+            SiteAnalytics = site,
+            Stripe = stripe,
             VersionDistribution = store.Devices
                 .GroupBy(item => string.IsNullOrWhiteSpace(item.AppVersion) ? "sem versao" : item.AppVersion)
                 .Select(group => new { version = group.Key, count = group.Count() })

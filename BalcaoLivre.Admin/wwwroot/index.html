@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Balcao Livre PDV Admin</title>
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=20260605-release-downloads-1">
 </head>
 <body>
   <main id="loginView" class="login-shell">
@@ -30,48 +30,116 @@
           <span>Admin interno</span>
         </div>
       </div>
-      <button class="nav active" data-view="dashboard">Dashboard</button>
-      <button class="nav" data-view="licenses">Licencas</button>
-      <button class="nav" data-view="support">Suporte</button>
-      <button class="nav" data-view="devices">Clientes</button>
-      <button class="nav" data-view="keys">Criar chave</button>
-      <button id="logoutButton" class="nav danger">Sair</button>
+      <nav class="nav-list">
+        <button class="nav active" data-view="dashboard">Dashboard</button>
+        <button class="nav" data-view="licenses">Licencas</button>
+        <button class="nav" data-view="support">Suporte</button>
+        <button class="nav" data-view="devices">Clientes</button>
+        <button class="nav" data-view="downloads">Downloads</button>
+        <button class="nav" data-view="keys">Criar chave</button>
+      </nav>
+      <div class="sidebar-footer">
+        <span id="sidebarSync">Carregando dados...</span>
+        <button id="logoutButton" class="nav danger">Sair</button>
+      </div>
     </aside>
 
     <section class="content">
       <header class="topbar">
         <div>
           <h1 id="viewTitle">Dashboard</h1>
-          <p id="viewSubtitle">Uso do programa, chaves e clientes ativos.</p>
+          <p id="viewSubtitle">Operacao, vendas, clientes e licencas em tempo real.</p>
         </div>
         <div class="top-actions">
-          <span id="realtimeMode" class="storage-badge pending">Tempo real conectando</span>
-          <span id="storageMode" class="storage-badge error">Supabase nao configurado</span>
-          <button id="refreshButton">Atualizar</button>
+          <span id="realtimeMode" class="status-pill pending">Tempo real iniciando</span>
+          <span id="storageMode" class="status-pill pending">Checando Supabase</span>
+          <span id="lastSync" class="status-pill pending">Carregando</span>
         </div>
       </header>
 
       <section id="dashboardView" class="view">
-        <div class="metric-grid">
-          <article class="metric"><span>Licencas ativas</span><strong id="mActive">0</strong></article>
-          <article class="metric"><span>Disponiveis</span><strong id="mAvailable">0</strong></article>
-          <article class="metric"><span>Clientes 24h</span><strong id="mOnline">0</strong></article>
-          <article class="metric"><span>Usuarios do app</span><strong id="mUsers">0</strong></article>
-          <article class="metric"><span>Apps instalados</span><strong id="mDevices">0</strong></article>
-          <article class="metric support-metric"><span>Suporte aberto</span><strong id="mSupport">0</strong></article>
-        </div>
-        <div class="grid-two">
+        <section class="executive-grid">
+          <article class="hero-stat metric-card">
+            <span class="metric-label">Receita Stripe</span>
+            <strong id="mStripeRevenue">R$ 0,00</strong>
+            <small><b id="mStripePurchases">0 / 0</b> compras 24h / total</small>
+          </article>
+          <article class="summary-card metric-card">
+            <span class="metric-label">Licencas ativas</span>
+            <strong id="mActive">0</strong>
+            <small><b id="mAvailable">0</b> disponiveis</small>
+          </article>
+          <article class="summary-card metric-card">
+            <span class="metric-label">Clientes 24h</span>
+            <strong id="mOnline">0</strong>
+            <small><b id="mDevices">0</b> apps instalados</small>
+          </article>
+          <article class="summary-card metric-card">
+            <span class="metric-label">Suporte aberto</span>
+            <strong id="mSupport">0</strong>
+            <small><b id="mUsers">0</b> usuarios do app</small>
+          </article>
+        </section>
+
+        <section class="funnel-strip">
+          <div>
+            <span>Entraram no site</span>
+            <strong id="mSiteVisitors">0 / 0</strong>
+            <small>24h / total</small>
+          </div>
+          <div>
+            <span>Paginas vistas</span>
+            <strong id="mSiteViews">0 / 0</strong>
+            <small>24h / total</small>
+          </div>
+          <div>
+            <span>Checkout iniciado</span>
+            <strong id="mCheckoutStarted">0 / 0</strong>
+            <small>24h / total</small>
+          </div>
+          <div>
+            <span>Conversao site</span>
+            <strong id="mConversion">0%</strong>
+            <small>compra / visitante</small>
+          </div>
+        </section>
+
+        <section class="dashboard-grid">
           <article class="panel">
-            <h2>Vencendo em ate 15 dias</h2>
-            <div id="expiringList" class="list"></div>
+            <div class="panel-head compact">
+              <h2>Compras Stripe</h2>
+              <span id="stripeBadge" class="mini-badge">ao vivo</span>
+            </div>
+            <div id="stripeList" class="list dense"></div>
           </article>
           <article class="panel">
-            <h2>Versoes instaladas</h2>
-            <div id="versionsList" class="list"></div>
+            <div class="panel-head compact">
+              <h2>Site e funil</h2>
+              <span id="analyticsBadge" class="mini-badge">ao vivo</span>
+            </div>
+            <div id="analyticsList" class="list dense"></div>
           </article>
-        </div>
+          <article class="panel">
+            <div class="panel-head compact">
+              <h2>Licencas vencendo</h2>
+              <span class="mini-badge muted">15 dias</span>
+            </div>
+            <div id="expiringList" class="list dense"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head compact">
+              <h2>Versoes instaladas</h2>
+              <span class="mini-badge muted">clientes</span>
+            </div>
+            <div id="versionsList" class="list dense"></div>
+          </article>
+        </section>
+
         <article class="panel">
-          <h2>Eventos recentes</h2>
+          <div class="panel-head compact">
+            <h2>Eventos recentes</h2>
+            <span id="eventsBadge" class="mini-badge">tempo real</span>
+          </div>
           <div id="eventsList" class="event-list"></div>
         </article>
       </section>
@@ -81,7 +149,7 @@
           <div class="panel-head">
             <div>
               <h2>Suporte por conversa</h2>
-              <span id="supportLiveBadge" class="live-badge">tempo real ligado</span>
+              <span id="supportLiveBadge" class="mini-badge">tempo real</span>
             </div>
             <input id="supportSearch" placeholder="Buscar por cliente, telefone, chave ou mensagem">
           </div>
@@ -92,17 +160,21 @@
       <section id="licensesView" class="view hidden">
         <article class="panel">
           <div class="panel-head">
-            <h2>Licencas</h2>
-            <input id="licenseSearch" placeholder="Buscar por cliente, chave, CNPJ ou PC">
+            <div>
+              <h2>Licencas</h2>
+              <span id="licenseLiveBadge" class="mini-badge">tempo real</span>
+            </div>
+            <input id="licenseSearch" placeholder="Buscar por cliente, chave, CNPJ, cidade, IP ou PC">
           </div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Status</th>
-                  <th>Cliente</th>
+                  <th>Cliente / local</th>
                   <th>Chave</th>
-                  <th>PC</th>
+                  <th>Produto / PC</th>
+                  <th>Rede</th>
                   <th>Expira</th>
                   <th>Ultimo uso</th>
                   <th></th>
@@ -116,8 +188,46 @@
 
       <section id="devicesView" class="view hidden">
         <article class="panel">
-          <h2>Clientes</h2>
+          <div class="panel-head compact">
+            <h2>Clientes</h2>
+            <span id="devicesLiveBadge" class="mini-badge">tempo real</span>
+          </div>
           <div id="devicesList" class="device-grid"></div>
+        </article>
+        <article class="panel">
+          <div class="panel-head compact">
+            <h2>IPs bloqueados</h2>
+            <span id="blockedIpLiveBadge" class="mini-badge">0 bloqueado(s)</span>
+          </div>
+          <div id="blockedIpList" class="blocked-ip-list"></div>
+        </article>
+      </section>
+
+      <section id="downloadsView" class="view hidden">
+        <article class="panel release-panel">
+          <div>
+            <span class="release-eyebrow">Release atual</span>
+            <h2 id="releaseTitle">Balcao Livre PDV Online</h2>
+            <p id="releaseSubtitle">Links oficiais para teste, compra e atualizacao dos clientes instalados.</p>
+          </div>
+          <div class="release-version-box">
+            <span>Versao</span>
+            <strong id="releaseVersion">-</strong>
+            <small id="releasePublishedAt">-</small>
+          </div>
+        </article>
+
+        <section id="downloadCards" class="download-grid"></section>
+
+        <article class="panel manifest-panel">
+          <div>
+            <h2>Atualizacao dos clientes ativos</h2>
+            <p>O app instalado consulta este manifesto. Depois que o instalador e o version.json forem publicados, quem ja tem o PDV recebe a nova versao automaticamente.</p>
+          </div>
+          <div class="release-url-box">
+            <code id="releaseManifestUrl"></code>
+            <button class="secondary" type="button" onclick="copyDownloadUrl('manifest')">Copiar manifesto</button>
+          </div>
         </article>
       </section>
 
@@ -149,6 +259,6 @@
     </section>
   </main>
 
-  <script src="./app.js"></script>
+  <script src="./app.js?v=20260605-release-downloads-1"></script>
 </body>
 </html>
