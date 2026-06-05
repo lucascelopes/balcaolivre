@@ -71,9 +71,21 @@ public sealed class AgendaDataStore
         data.Professionals ??= [];
         data.Customers ??= [];
         data.Appointments ??= [];
+        data.Settings.BusinessName ??= "Balcão Livre";
         data.Settings.BusinessDocument ??= "";
         data.Settings.BusinessPhone ??= "";
         data.Settings.BusinessAddress ??= "";
+        data.Settings.AccountFullName ??= "";
+        data.Settings.AccountPhone ??= "";
+        data.Settings.AccountEmail ??= "";
+        data.Settings.ProfessionalCountRange ??= "";
+        data.Settings.MainObjective ??= "";
+        data.Settings.PostalCode ??= "";
+        data.Settings.Neighborhood ??= "";
+        data.Settings.Street ??= "";
+        data.Settings.AddressNumber ??= "";
+        data.Settings.AddressComplement ??= "";
+        data.Settings.AccountPasswordHash ??= "";
 
         if (data.Settings.Resources.Count == 0)
         {
@@ -136,7 +148,7 @@ public sealed class AgendaDataStore
         {
             Settings =
             {
-                BusinessName = "Agenda Livre",
+                BusinessName = "Balcão Livre",
                 WorkdayStartHour = 8,
                 WorkdayEndHour = 20,
                 Resources = DefaultResources()

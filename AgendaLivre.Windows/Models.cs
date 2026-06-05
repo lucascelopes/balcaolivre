@@ -25,7 +25,10 @@ public sealed class AgendaData
 
 public sealed class AgendaSettings
 {
-    public string BusinessName { get; set; } = "Agenda Livre";
+    public string AccountFullName { get; set; } = "";
+    public string AccountPhone { get; set; } = "";
+    public string AccountEmail { get; set; } = "";
+    public string BusinessName { get; set; } = "Balcão Livre";
     public string BusinessDocument { get; set; } = "";
     public string BusinessPhone { get; set; } = "";
     public string BusinessAddress { get; set; } = "";
@@ -37,6 +40,15 @@ public sealed class AgendaSettings
     public int WorkdayStartHour { get; set; } = 8;
     public int WorkdayEndHour { get; set; } = 20;
     public List<string> Resources { get; set; } = [];
+    public string ProfessionalCountRange { get; set; } = "";
+    public string MainObjective { get; set; } = "";
+    public string PostalCode { get; set; } = "";
+    public string Neighborhood { get; set; } = "";
+    public string Street { get; set; } = "";
+    public string AddressNumber { get; set; } = "";
+    public string AddressComplement { get; set; } = "";
+    public string AccountPasswordHash { get; set; } = "";
+    public DateTime AccountCreatedAt { get; set; } = DateTime.MinValue;
 }
 
 public sealed class ServiceItem
