@@ -1,4 +1,5 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -7,12 +8,17 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shapes;
+using MaterialDesignThemes.Wpf;
 
 namespace AgendaLivre.Windows;
 
 public partial class MainWindow : Window
 {
     private const string AllSegments = "Todos";
+    private const string ReportChartAppointments = "Agendamentos por dia";
+    private const string ReportChartRevenue = "Receita por dia";
+    private const string ReportChartStatus = "Status dos atendimentos";
     private const double ScheduleTimeColumnWidth = 78;
     private const double ScheduleProfessionalColumnWidth = 240;
     private static readonly CultureInfo Brazil = CultureInfo.GetCultureInfo("pt-BR");
@@ -26,11 +32,64 @@ public partial class MainWindow : Window
     private static readonly Brush InkBrush = Solid("#172033");
     private static readonly Brush MutedBrush = Solid("#68758A");
     private static readonly Brush LineBrush = Solid("#E2E8F0");
+    private static readonly Brush SidebarTextBrush = Solid("#EFF6FF");
+    private static readonly Brush SidebarActiveTextBrush = Solid("#0F172A");
+    private static readonly Brush[] ReportPalette =
+    [
+        AccentBrush,
+        Solid("#38BDF8"),
+        Solid("#0F172A"),
+        Solid("#8B5CF6"),
+        Solid("#F59E0B"),
+        Solid("#10B981"),
+        Solid("#EF4444")
+    ];
+    private static readonly Brush[] ReportSoftPalette =
+    [
+        AccentSoftBrush,
+        Solid("#E0F2FE"),
+        Solid("#EEF2F6"),
+        Solid("#F3E8FF"),
+        Solid("#FEF3C7"),
+        Solid("#DCFCE7"),
+        RedSoftBrush
+    ];
 
     private readonly AgendaDataStore _store = new();
     private readonly ObservableCollection<AppointmentRow> _dayRows = [];
     private readonly ObservableCollection<AppointmentRow> _weekRows = [];
     private readonly ObservableCollection<MetricRow> _metrics = [];
+    private readonly ObservableCollection<HomeMetricRow> _homeMetrics = [];
+    private readonly ObservableCollection<HomeAgendaSummaryRow> _homeAgendaRows = [];
+    private readonly ObservableCollection<HomeServiceRow> _homeTopServices = [];
+    private readonly ObservableCollection<HomeCustomerSummaryRow> _homeRecentCustomers = [];
+    private readonly ObservableCollection<HomeAlertRow> _homeAlerts = [];
+    private readonly ObservableCollection<HomeFinanceBarRow> _homeFinanceBars = [];
+    private readonly ObservableCollection<EstablishmentMetricRow> _establishmentMetrics = [];
+    private readonly ObservableCollection<EstablishmentSectionRow> _establishmentSections = [];
+    private readonly ObservableCollection<EstablishmentListRow> _establishmentClients = [];
+    private readonly ObservableCollection<EstablishmentListRow> _establishmentProfessionals = [];
+    private readonly ObservableCollection<EstablishmentListRow> _establishmentServices = [];
+    private readonly ObservableCollection<EstablishmentListRow> _establishmentProducts = [];
+    private readonly ObservableCollection<EstablishmentListRow> _establishmentSales = [];
+    private readonly ObservableCollection<EstablishmentMetricRow> _financeMetrics = [];
+    private readonly ObservableCollection<HomeFinanceBarRow> _financeEntries = [];
+    private readonly ObservableCollection<EstablishmentListRow> _financePendingPayments = [];
+    private readonly ObservableCollection<EstablishmentListRow> _financeExpenses = [];
+    private readonly ObservableCollection<HomeFinanceBarRow> _financeChartRows = [];
+    private readonly ObservableCollection<EstablishmentMetricRow> _reportsMetrics = [];
+    private readonly ObservableCollection<string> _reportChartOptions = [];
+    private readonly ObservableCollection<ReportChartRow> _reportsColumnChartRows = [];
+    private readonly ObservableCollection<ReportChartRow> _reportsLineChartRows = [];
+    private readonly ObservableCollection<ReportChartRow> _reportsDonutChartRows = [];
+    private readonly ObservableCollection<ReportChartRow> _reportsRankingChartRows = [];
+    private IReadOnlyList<ReportChartRow> _activeReportChartRows = [];
+    private readonly ObservableCollection<EstablishmentListRow> _reportsInsights = [];
+    private readonly ObservableCollection<EstablishmentListRow> _reportsServices = [];
+    private readonly ObservableCollection<EstablishmentListRow> _reportsProfessionals = [];
+    private readonly ObservableCollection<MarketingContactRow> _marketingContacts = [];
+    private readonly ObservableCollection<EstablishmentListRow> _marketingMessages = [];
+    private readonly ObservableCollection<EstablishmentListRow> _marketingCampaigns = [];
     private readonly ObservableCollection<ProfessionalDayRow> _professionalRows = [];
     private readonly ObservableCollection<RecentCustomerRow> _recentCustomers = [];
     private readonly ObservableCollection<ServiceItem> _filteredServices = [];
@@ -40,27 +99,27 @@ public partial class MainWindow : Window
     private static readonly string[] OnboardingStepTitles =
     [
         "Dados iniciais",
-        "Segmento do negócio",
+        "Segmento do negÃ³cio",
         "Tamanho da equipe",
         "Objetivo principal",
-        "Endereço",
+        "EndereÃ§o",
         "Senha de acesso"
     ];
     private static readonly string[] OnboardingStepCaptions =
     [
-        "Identifique o responsável e o nome que aparecerá no sistema.",
-        "Escolha o setor para carregar serviços e recursos mais próximos da sua rotina.",
+        "Identifique o responsÃ¡vel e o nome que aparecerÃ¡ no sistema.",
+        "Escolha o setor para carregar serviÃ§os e recursos mais prÃ³ximos da sua rotina.",
         "Informe quantas pessoas atendem para preparar a agenda do tamanho certo.",
-        "Marque a prioridade inicial para a configuração nascer alinhada ao seu uso.",
-        "Cadastre onde o negócio funciona para consultas e relatórios.",
+        "Marque a prioridade inicial para a configuraÃ§Ã£o nascer alinhada ao seu uso.",
+        "Cadastre onde o negÃ³cio funciona para consultas e relatÃ³rios.",
         "Defina a senha que libera o acesso ao sistema."
     ];
 
     private readonly string[] _segments =
     [
-        "Clínica médica",
+        "ClÃ­nica mÃ©dica",
         "Petshop",
-        "Mecânica",
+        "MecÃ¢nica",
         "Unha e beleza",
         "Cabelo e barbearia"
     ];
@@ -78,6 +137,28 @@ public partial class MainWindow : Window
     private int _onboardingStep;
     private bool _loadingEditor;
     private bool _syncingSelection;
+    private bool _sidebarCollapsed;
+    private bool _configuringReportChart;
+    private Appointment? _homeNextAppointment;
+
+    private enum MainPage
+    {
+        Home,
+        Establishment,
+        Finance,
+        Reports,
+        Marketing,
+        Settings,
+        Agenda
+    }
+
+    private enum ReportChartStyle
+    {
+        Columns,
+        Line,
+        Donut,
+        Ranking
+    }
 
     public MainWindow()
     {
@@ -89,6 +170,7 @@ public partial class MainWindow : Window
         ClearEditor();
         RefreshAll();
         ApplyBusinessLabels();
+        ShowMainPage(MainPage.Home);
 
         DataPathText.Text = _store.DataPath;
         ShowStatus($"Agenda pronta. Dados salvos localmente em {_store.DataPath}");
@@ -105,6 +187,36 @@ public partial class MainWindow : Window
         var availableSegments = GetAvailableSegments();
 
         MetricsItemsControl.ItemsSource = _metrics;
+        HomeMetricsItemsControl.ItemsSource = _homeMetrics;
+        HomeAgendaItemsControl.ItemsSource = _homeAgendaRows;
+        HomeTopServicesItemsControl.ItemsSource = _homeTopServices;
+        HomeRecentCustomersItemsControl.ItemsSource = _homeRecentCustomers;
+        HomeAlertsItemsControl.ItemsSource = _homeAlerts;
+        HomeFinanceBarsItemsControl.ItemsSource = _homeFinanceBars;
+        EstablishmentMetricsItemsControl.ItemsSource = _establishmentMetrics;
+        EstablishmentSectionsItemsControl.ItemsSource = _establishmentSections;
+        EstablishmentClientsItemsControl.ItemsSource = _establishmentClients;
+        EstablishmentProfessionalsItemsControl.ItemsSource = _establishmentProfessionals;
+        EstablishmentServicesItemsControl.ItemsSource = _establishmentServices;
+        EstablishmentProductsItemsControl.ItemsSource = _establishmentProducts;
+        EstablishmentSalesItemsControl.ItemsSource = _establishmentSales;
+        FinanceMetricsItemsControl.ItemsSource = _financeMetrics;
+        FinanceEntriesItemsControl.ItemsSource = _financeEntries;
+        FinancePendingItemsControl.ItemsSource = _financePendingPayments;
+        FinanceExpensesItemsControl.ItemsSource = _financeExpenses;
+        FinanceChartItemsControl.ItemsSource = _financeChartRows;
+        ReportsMetricsItemsControl.ItemsSource = _reportsMetrics;
+        ReportsColumnChartItemsControl.ItemsSource = _reportsColumnChartRows;
+        ReportsLineLegendItemsControl.ItemsSource = _reportsLineChartRows;
+        ReportsDonutLegendItemsControl.ItemsSource = _reportsDonutChartRows;
+        ReportsRankingChartItemsControl.ItemsSource = _reportsRankingChartRows;
+        ReportsInsightsItemsControl.ItemsSource = _reportsInsights;
+        ReportsServicesItemsControl.ItemsSource = _reportsServices;
+        ReportsProfessionalsItemsControl.ItemsSource = _reportsProfessionals;
+        MarketingContactsItemsControl.ItemsSource = _marketingContacts;
+        MarketingMessagesItemsControl.ItemsSource = _marketingMessages;
+        MarketingCampaignsItemsControl.ItemsSource = _marketingCampaigns;
+        ConfigureReportChartOptions();
         ProfessionalListBox.ItemsSource = _professionalRows;
         RecentCustomerListBox.ItemsSource = _recentCustomers;
         DayAgendaList.ItemsSource = _dayRows;
@@ -126,6 +238,25 @@ public partial class MainWindow : Window
 
         UpdateDateFilterButton();
         AppointmentDatePicker.SelectedDate = _selectedDate;
+    }
+
+    private void ConfigureReportChartOptions()
+    {
+        _configuringReportChart = true;
+
+        var selected = ReportsChartTypeCombo.SelectedItem as string ?? ReportChartAppointments;
+        _reportChartOptions.Clear();
+        _reportChartOptions.Add(ReportChartAppointments);
+        _reportChartOptions.Add(ReportChartRevenue);
+        _reportChartOptions.Add(ReportChartStatus);
+
+        ReportsChartTypeCombo.ItemsSource = _reportChartOptions;
+        ReportsChartTypeCombo.SelectedItem = _reportChartOptions.Contains(selected)
+            ? selected
+            : ReportChartAppointments;
+
+        _configuringReportChart = false;
+        UpdateReportChartModeButtons();
     }
 
     private List<string> GetAvailableSegments()
@@ -169,7 +300,13 @@ public partial class MainWindow : Window
     private static bool IsDefaultBusinessName(string? businessName) =>
         string.IsNullOrWhiteSpace(businessName) ||
         businessName.Equals("Agenda Livre", StringComparison.OrdinalIgnoreCase) ||
-        businessName.Equals("Balcão Livre", StringComparison.OrdinalIgnoreCase);
+        businessName.Equals("Balcão Livre", StringComparison.OrdinalIgnoreCase) ||
+        businessName.Equals("BalcÃ£o Livre", StringComparison.OrdinalIgnoreCase);
+
+    private string BusinessDisplayName() =>
+        IsDefaultBusinessName(_data.Settings.BusinessName)
+            ? "Balcão Livre"
+            : _data.Settings.BusinessName;
 
     private void ShowOnboarding()
     {
@@ -234,7 +371,7 @@ public partial class MainWindow : Window
         var email = InitialEmailTextBox.Text.Trim();
         if (!LooksLikeEmail(email))
         {
-            ShowStatus("Informe um e-mail válido antes de continuar.");
+            ShowStatus("Informe um e-mail vÃ¡lido antes de continuar.");
             InitialEmailTextBox.Focus();
             return false;
         }
@@ -242,7 +379,7 @@ public partial class MainWindow : Window
         var businessName = ToNameCase(InitialBusinessNameTextBox.Text);
         if (string.IsNullOrWhiteSpace(businessName))
         {
-            ShowStatus("Informe o nome do negócio antes de continuar.");
+            ShowStatus("Informe o nome do negÃ³cio antes de continuar.");
             InitialBusinessNameTextBox.Focus();
             return false;
         }
@@ -298,7 +435,7 @@ public partial class MainWindow : Window
     {
         if (_selectedOnboardingTemplate is null)
         {
-            ShowStatus("Escolha o segmento do negócio antes de continuar.");
+            ShowStatus("Escolha o segmento do negÃ³cio antes de continuar.");
             return;
         }
 
@@ -332,7 +469,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(OnboardingCepTextBox.Text) &&
             string.IsNullOrWhiteSpace(OnboardingStreetTextBox.Text))
         {
-            ShowStatus("Informe pelo menos o CEP ou o logradouro do negócio.");
+            ShowStatus("Informe pelo menos o CEP ou o logradouro do negÃ³cio.");
             OnboardingCepTextBox.Focus();
             return;
         }
@@ -351,7 +488,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var template = _selectedOnboardingTemplate ?? CreateBusinessTemplate("Salão de Beleza");
+        var template = _selectedOnboardingTemplate ?? CreateBusinessTemplate("SalÃ£o de Beleza");
         var professionalCount = string.IsNullOrWhiteSpace(_selectedProfessionalCount)
             ? "1 profissional"
             : _selectedProfessionalCount;
@@ -392,7 +529,8 @@ public partial class MainWindow : Window
         ClearEditor();
         RefreshAll();
         ApplyBusinessLabels();
-        ShowStatus($"Conta criada para {template.Title}. A agenda está pronta para uso.");
+        ShowMainPage(MainPage.Home);
+        ShowStatus($"Conta criada para {template.Title}. A agenda estÃ¡ pronta para uso.");
     }
 
     private void OnboardingBackButton_Click(object sender, RoutedEventArgs e)
@@ -478,7 +616,7 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(segment))
         {
-            return CreateBusinessTemplate("Salão de Beleza");
+            return CreateBusinessTemplate("SalÃ£o de Beleza");
         }
 
         return CreateBusinessTemplate(segment);
@@ -489,50 +627,50 @@ public partial class MainWindow : Window
         var trimmed = businessType.Trim();
         return trimmed switch
         {
-            "Salão de Beleza" or "Unha e beleza + salão" => RenameTemplate(
+            "SalÃ£o de Beleza" or "Unha e beleza + salÃ£o" => RenameTemplate(
                 OnboardingTemplate.CreateIntegratedBeauty(),
-                "Salão de Beleza",
-                "Meu salão de beleza",
-                "Agenda para salão com cabelo, unha, estética, lavatório, cadeiras e profissionais.",
+                "SalÃ£o de Beleza",
+                "Meu salÃ£o de beleza",
+                "Agenda para salÃ£o com cabelo, unha, estÃ©tica, lavatÃ³rio, cadeiras e profissionais.",
                 "Cliente: Camila | Escova + manicure | Cadeira 1 / Mesa 1"),
             "Barbearia" or "Cabelo e barbearia" => RenameTemplate(
                 TemplateByTitle("Barbearia"),
                 "Barbearia",
                 "Minha barbearia",
-                "Agenda para cortes, barba, combos, preferências do cliente e cadeiras de atendimento.",
-                "Cliente: André | Corte + barba | Cadeira 1"),
+                "Agenda para cortes, barba, combos, preferÃªncias do cliente e cadeiras de atendimento.",
+                "Cliente: AndrÃ© | Corte + barba | Cadeira 1"),
             "Esmalteria" => RenameTemplate(
                 TemplateBySegment(OnboardingTemplate.NailsSegment),
                 "Esmalteria",
                 "Minha esmalteria",
                 "Agenda para manicure, pedicure, alongamento, design e mesas de atendimento.",
                 "Cliente: Camila | Alongamento almond | Mesa 2"),
-            "Centro de Estética" => RenameTemplate(
+            "Centro de EstÃ©tica" => RenameTemplate(
                 TemplateBySegment(OnboardingTemplate.NailsSegment),
-                "Centro de Estética",
-                "Meu centro de estética",
-                "Agenda para procedimentos, avaliação, retorno, preferências e salas de atendimento.",
-                "Cliente: Larissa | Limpeza de pele | Sala estética 1"),
+                "Centro de EstÃ©tica",
+                "Meu centro de estÃ©tica",
+                "Agenda para procedimentos, avaliaÃ§Ã£o, retorno, preferÃªncias e salas de atendimento.",
+                "Cliente: Larissa | Limpeza de pele | Sala estÃ©tica 1"),
             "Podologia" => RenameTemplate(
                 TemplateBySegment(OnboardingTemplate.NailsSegment),
                 "Podologia",
-                "Minha clínica de podologia",
-                "Agenda para avaliação, retorno, procedimento, observações e sala de atendimento.",
-                "Cliente: Renata | Avaliação podológica | Sala 1"),
+                "Minha clÃ­nica de podologia",
+                "Agenda para avaliaÃ§Ã£o, retorno, procedimento, observaÃ§Ãµes e sala de atendimento.",
+                "Cliente: Renata | AvaliaÃ§Ã£o podolÃ³gica | Sala 1"),
             "Spa" => RenameTemplate(
                 TemplateBySegment(OnboardingTemplate.NailsSegment),
                 "Spa",
                 "Meu spa",
-                "Agenda para terapias, massagens, salas, pacotes e preferências do cliente.",
+                "Agenda para terapias, massagens, salas, pacotes e preferÃªncias do cliente.",
                 "Cliente: Marina | Massagem relaxante | Sala 1"),
-            "Clínica médica" => TemplateBySegment("Clínica médica"),
+            "ClÃ­nica mÃ©dica" => TemplateBySegment("ClÃ­nica mÃ©dica"),
             "Petshop" => TemplateBySegment("Petshop"),
-            "Mecânica" or "Oficina" => RenameTemplate(
-                TemplateBySegment("Mecânica"),
+            "MecÃ¢nica" or "Oficina" => RenameTemplate(
+                TemplateBySegment("MecÃ¢nica"),
                 "Oficina",
                 "Minha oficina",
-                "Agenda para diagnósticos, revisões, veículos, box e acompanhamento de entrega.",
-                "Cliente: Lucas | Onix ABC1D23 | Diagnóstico | Box 1"),
+                "Agenda para diagnÃ³sticos, revisÃµes, veÃ­culos, box e acompanhamento de entrega.",
+                "Cliente: Lucas | Onix ABC1D23 | DiagnÃ³stico | Box 1"),
             "Outro segmento" => CreateGenericTemplate(),
             _ => _onboardingTemplates.FirstOrDefault(template =>
                      template.Title.Equals(trimmed, StringComparison.OrdinalIgnoreCase) ||
@@ -566,11 +704,11 @@ public partial class MainWindow : Window
         new(
             "Outro segmento",
             "Outro segmento",
-            "Meu negócio",
-            "Agenda simples para organizar clientes, profissionais, serviços e locais de atendimento.",
+            "Meu negÃ³cio",
+            "Agenda simples para organizar clientes, profissionais, serviÃ§os e locais de atendimento.",
             "Cliente: Ana | Atendimento | Profissional 1 | Sala 1",
             "Cliente",
-            "Observação / preferência / motivo",
+            "ObservaÃ§Ã£o / preferÃªncia / motivo",
             "Sala ou local",
             8,
             18,
@@ -656,7 +794,7 @@ public partial class MainWindow : Window
             return true;
         }
 
-        error = "Informe CPF com 11 dígitos ou CNPJ com 14 dígitos.";
+        error = "Informe CPF com 11 dÃ­gitos ou CNPJ com 14 dÃ­gitos.";
         return false;
     }
 
@@ -683,7 +821,7 @@ public partial class MainWindow : Window
             return true;
         }
 
-        error = "Informe telefone com DDD e 10 ou 11 dígitos.";
+        error = "Informe telefone com DDD e 10 ou 11 dÃ­gitos.";
         return false;
     }
 
@@ -792,13 +930,11 @@ public partial class MainWindow : Window
 
     private void ApplyBusinessLabels()
     {
-        AppTitleText.Text = IsDefaultBusinessName(_data.Settings.BusinessName)
-            ? "Balcão Livre"
-            : _data.Settings.BusinessName;
+        AppTitleText.Text = BusinessDisplayName();
 
         if (string.IsNullOrWhiteSpace(_data.Settings.BusinessSegment))
         {
-            AppSubtitleText.Text = "Atendimento, agenda e gestão em um só lugar";
+            AppSubtitleText.Text = "Atendimento, agenda e gestÃ£o em um sÃ³ lugar";
             AppSubtitleText.ToolTip = null;
         }
         else
@@ -843,6 +979,11 @@ public partial class MainWindow : Window
         RefreshProfessionals();
         RefreshRecentCustomers();
         RefreshTitles();
+        RefreshHomeDashboard();
+        RefreshEstablishmentPage();
+        RefreshFinancePage();
+        RefreshReportsPage();
+        RefreshMarketingPage();
 
         if (!string.IsNullOrWhiteSpace(selectedId))
         {
@@ -956,7 +1097,1238 @@ public partial class MainWindow : Window
         var dateText = _selectedDate.ToString("dddd, dd 'de' MMMM 'de' yyyy", Brazil);
         SelectedDateTitleText.Text = dateText;
         AgendaTitleText.Text = segment == AllSegments ? "Agenda geral" : $"Agenda - {segment}";
-        AgendaSubtitleText.Text = $"{dateText} | {_dayRows.Count} item(ns) visíveis";
+        AgendaSubtitleText.Text = $"{dateText} | {_dayRows.Count} item(ns) visÃ­veis";
+    }
+
+    private void RefreshHomeDashboard()
+    {
+        var today = DateTime.Today;
+        var now = DateTime.Now;
+        var dayAppointments = _data.Appointments
+            .Where(item => item.Start.Date == today)
+            .OrderBy(item => item.Start)
+            .ThenBy(item => item.CustomerName)
+            .ToList();
+        var operational = dayAppointments.Where(IsOperationalStatus).ToList();
+        var confirmed = dayAppointments.Count(item => item.Status is AppointmentStatus.Confirmed or AppointmentStatus.Waiting or AppointmentStatus.InService);
+        var pending = dayAppointments.Count(item => item.Status == AppointmentStatus.Scheduled);
+        var noShows = dayAppointments.Count(item => item.Status == AppointmentStatus.NoShow);
+        var done = dayAppointments.Count(item => item.Status == AppointmentStatus.Done);
+        var forecast = dayAppointments
+            .Where(item => item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
+            .Sum(item => item.Price);
+        var realizedToday = dayAppointments
+            .Where(item => item.Status == AppointmentStatus.Done)
+            .Sum(item => item.Price);
+
+        var professionalCount = Math.Max(1, _data.Professionals.Count);
+        var workdayMinutes = Math.Max(60, (_data.Settings.WorkdayEndHour - _data.Settings.WorkdayStartHour) * 60);
+        var busyMinutes = operational.Sum(item => Math.Max(15, item.DurationMinutes));
+        var freeSlots = Math.Max(0, ((workdayMinutes * professionalCount) - busyMinutes) / 30);
+
+        HomeGreetingText.Text = $"{GreetingFor(now)}, {FirstName(_data.Settings.AccountFullName)}";
+        HomeDateText.Text = today.ToString("dddd, dd 'de' MMMM 'de' yyyy", Brazil);
+        HomeBusinessText.Text = string.IsNullOrWhiteSpace(_data.Settings.BusinessName)
+            ? "Balcão Livre"
+            : _data.Settings.BusinessName;
+
+        _homeMetrics.Clear();
+        _homeMetrics.Add(new HomeMetricRow("Agendamentos de hoje", dayAppointments.Count.ToString(Brazil), "total na operação", AccentSoftBrush));
+        _homeMetrics.Add(new HomeMetricRow("Confirmados", confirmed.ToString(Brazil), "inclui chegada e atendimento", BlueSoftBrush));
+        _homeMetrics.Add(new HomeMetricRow("Pendentes", pending.ToString(Brazil), "aguardando confirmação", GraySoftBrush));
+        _homeMetrics.Add(new HomeMetricRow("Faltas", noShows.ToString(Brazil), "clientes ausentes", RedSoftBrush));
+        _homeMetrics.Add(new HomeMetricRow("Horários livres", freeSlots.ToString(Brazil), "janelas estimadas de 30 min", GraySoftBrush));
+        _homeMetrics.Add(new HomeMetricRow("Receita prevista", forecast.ToString("C0", Brazil), "valor esperado no dia", WarmSoftBrush));
+        _homeMetrics.Add(new HomeMetricRow("Receita realizada", realizedToday.ToString("C0", Brazil), $"{done} finalizado(s)", AccentSoftBrush));
+
+        _homeNextAppointment = dayAppointments.FirstOrDefault(item =>
+            item.Start >= now &&
+            item.Status is AppointmentStatus.Scheduled or AppointmentStatus.Confirmed or AppointmentStatus.Waiting or AppointmentStatus.InService);
+        RefreshHomeNextAppointment();
+        RefreshHomeAgendaRows(dayAppointments, now);
+        RefreshHomeFinance(today, forecast, realizedToday);
+        RefreshHomeGoals(realizedToday);
+        RefreshHomeAlerts(dayAppointments, pending);
+        RefreshHomeTopServices();
+        RefreshHomeCustomers();
+    }
+
+    private void RefreshHomeNextAppointment()
+    {
+        if (_homeNextAppointment is null)
+        {
+            HomeNextTimeText.Text = "--:--";
+            HomeNextCustomerText.Text = "Nenhum atendimento pendente";
+            HomeNextServiceText.Text = "A agenda está livre no momento";
+            HomeNextProfessionalText.Text = "Sem profissional vinculado";
+            return;
+        }
+
+        HomeNextTimeText.Text = _homeNextAppointment.Start.ToString("HH:mm", Brazil);
+        HomeNextCustomerText.Text = _homeNextAppointment.CustomerName;
+        HomeNextServiceText.Text = _homeNextAppointment.ServiceName;
+        HomeNextProfessionalText.Text = _homeNextAppointment.ProfessionalName;
+    }
+
+    private void RefreshHomeAgendaRows(IReadOnlyList<Appointment> dayAppointments, DateTime now)
+    {
+        _homeAgendaRows.Clear();
+        var nextRows = dayAppointments
+            .Where(item => item.Start >= now || item.Status is AppointmentStatus.Waiting or AppointmentStatus.InService)
+            .Where(item => item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
+            .OrderBy(item => item.Start)
+            .Take(6)
+            .ToList();
+
+        if (nextRows.Count == 0)
+        {
+            _homeAgendaRows.Add(new HomeAgendaSummaryRow("--:--", "Sem próximos atendimentos", "Agenda livre", "Livre", GraySoftBrush, MutedBrush));
+            return;
+        }
+
+        foreach (var appointment in nextRows)
+        {
+            _homeAgendaRows.Add(new HomeAgendaSummaryRow(
+                appointment.Start.ToString("HH:mm", Brazil),
+                appointment.CustomerName,
+                appointment.ServiceName,
+                StatusLabel(appointment.Status),
+                StatusBackground(appointment.Status),
+                StatusForeground(appointment.Status)));
+        }
+    }
+
+    private void RefreshHomeFinance(DateTime today, decimal forecast, decimal realizedToday)
+    {
+        var weekStart = StartOfWeek(today);
+        var weekEnd = weekStart.AddDays(7);
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        var monthEnd = monthStart.AddMonths(1);
+
+        var realizedWeek = SumRealizedRevenue(weekStart, weekEnd);
+        var realizedMonth = SumRealizedRevenue(monthStart, monthEnd);
+        HomeRevenueDayText.Text = realizedToday.ToString("C0", Brazil);
+        HomeRevenueWeekText.Text = realizedWeek.ToString("C0", Brazil);
+        HomeRevenueMonthText.Text = realizedMonth.ToString("C0", Brazil);
+        HomeFinancialSubtitleText.Text = $"Previsto hoje: {forecast.ToString("C0", Brazil)}";
+
+        var max = Math.Max(1m, Math.Max(realizedToday, Math.Max(realizedWeek, realizedMonth)));
+        _homeFinanceBars.Clear();
+        _homeFinanceBars.Add(new HomeFinanceBarRow("Faturamento do dia", realizedToday.ToString("C0", Brazil), Percent(realizedToday, max)));
+        _homeFinanceBars.Add(new HomeFinanceBarRow("Faturamento da semana", realizedWeek.ToString("C0", Brazil), Percent(realizedWeek, max)));
+        _homeFinanceBars.Add(new HomeFinanceBarRow("Faturamento do mês", realizedMonth.ToString("C0", Brazil), Percent(realizedMonth, max)));
+    }
+
+    private void RefreshHomeGoals(decimal realizedToday)
+    {
+        var today = DateTime.Today;
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        var monthEnd = monthStart.AddMonths(1);
+        var realizedMonth = SumRealizedRevenue(monthStart, monthEnd);
+        var dailyGoal = Math.Max(500m, realizedToday == 0 ? 500m : Math.Ceiling(realizedToday * 1.25m / 50m) * 50m);
+        var monthlyGoal = dailyGoal * 22m;
+
+        HomeDailyGoalText.Text = $"{realizedToday.ToString("C0", Brazil)} / {dailyGoal.ToString("C0", Brazil)}";
+        HomeMonthlyGoalText.Text = $"{realizedMonth.ToString("C0", Brazil)} / {monthlyGoal.ToString("C0", Brazil)}";
+        HomeDailyGoalProgress.Value = Percent(realizedToday, dailyGoal);
+        HomeMonthlyGoalProgress.Value = Percent(realizedMonth, monthlyGoal);
+        HomeGoalSubtitleText.Text = $"Realizado no mês: {realizedMonth.ToString("C0", Brazil)}";
+    }
+
+    private void RefreshHomeAlerts(IReadOnlyList<Appointment> dayAppointments, int pending)
+    {
+        var paymentPending = dayAppointments.Count(item =>
+            item.Price > 0 &&
+            item.Status is AppointmentStatus.Confirmed or AppointmentStatus.Waiting or AppointmentStatus.InService);
+        var staleCustomers = _data.Customers.Count(item => item.LastSeenAt.Date <= DateTime.Today.AddDays(-30));
+
+        _homeAlerts.Clear();
+        _homeAlerts.Add(new HomeAlertRow(
+            "Confirmações pendentes",
+            $"{pending} agendamento(s) aguardando confirmação.",
+            PackIconKind.ClockOutline,
+            Solid("#B45309"),
+            Solid("#FFF7ED"),
+            Solid("#FED7AA")));
+        _homeAlerts.Add(new HomeAlertRow(
+            "Pagamentos pendentes",
+            $"{paymentPending} atendimento(s) com valor ainda não finalizado.",
+            PackIconKind.CashClock,
+            Solid("#1D4ED8"),
+            Solid("#EFF6FF"),
+            Solid("#BFDBFE")));
+        _homeAlerts.Add(new HomeAlertRow(
+            "Clientes sem retorno",
+            $"{staleCustomers} cliente(s) sem atendimento há mais de 30 dias.",
+            PackIconKind.AccountClock,
+            Solid("#7C3AED"),
+            Solid("#F5F3FF"),
+            Solid("#DDD6FE")));
+    }
+
+    private void RefreshHomeTopServices()
+    {
+        _homeTopServices.Clear();
+        var since = DateTime.Today.AddDays(-30);
+        var rows = _data.Appointments
+            .Where(item => item.Start >= since && item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
+            .GroupBy(item => item.ServiceName)
+            .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key)
+            .Take(6)
+            .Select(group => new HomeServiceRow(group.Key, $"{group.Count()} ag."))
+            .ToList();
+
+        if (rows.Count == 0)
+        {
+            _homeTopServices.Add(new HomeServiceRow("Sem serviços agendados", "0 ag."));
+            return;
+        }
+
+        foreach (var row in rows)
+        {
+            _homeTopServices.Add(row);
+        }
+    }
+
+    private void RefreshHomeCustomers()
+    {
+        _homeRecentCustomers.Clear();
+        foreach (var customer in _data.Customers.OrderByDescending(item => item.LastSeenAt).Take(5))
+        {
+            var lastAppointment = _data.Appointments
+                .Where(item => item.CustomerName.Equals(customer.Name, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(item => item.Start)
+                .FirstOrDefault();
+            var detail = lastAppointment is null
+                ? $"Último atendimento: {customer.LastSeenAt:dd/MM}"
+                : $"{lastAppointment.Start:dd/MM} | {lastAppointment.ServiceName}";
+            _homeRecentCustomers.Add(new HomeCustomerSummaryRow(customer.Name, detail));
+        }
+
+        if (_homeRecentCustomers.Count == 0)
+        {
+            _homeRecentCustomers.Add(new HomeCustomerSummaryRow("Nenhum cliente recente", "Os próximos atendimentos aparecerão aqui."));
+        }
+    }
+
+    private void RefreshEstablishmentPage()
+    {
+        EstablishmentBusinessText.Text = BusinessDisplayName();
+
+        var now = DateTime.Now;
+        var monthStart = new DateTime(now.Year, now.Month, 1);
+        var nextMonth = monthStart.AddMonths(1);
+        var productSalesThisMonth = _data.ProductSales
+            .Where(item => item.SoldAt >= monthStart && item.SoldAt < nextMonth)
+            .ToList();
+        var productRevenueThisMonth = productSalesThisMonth.Sum(item => item.Total);
+        var productsInStock = _data.Products.Sum(item => Math.Max(0, item.StockQuantity));
+
+        _establishmentMetrics.Clear();
+        _establishmentMetrics.Add(new EstablishmentMetricRow("Clientes", _data.Customers.Count.ToString(Brazil), "cadastros ativos", AccentSoftBrush));
+        _establishmentMetrics.Add(new EstablishmentMetricRow("Profissionais", _data.Professionals.Count.ToString(Brazil), "equipe cadastrada", BlueSoftBrush));
+        _establishmentMetrics.Add(new EstablishmentMetricRow("Serviços", _data.Services.Count.ToString(Brazil), "itens no catálogo", GraySoftBrush));
+        _establishmentMetrics.Add(new EstablishmentMetricRow("Produtos", _data.Products.Count.ToString(Brazil), $"{productsInStock} em estoque", AccentSoftBrush));
+        _establishmentMetrics.Add(new EstablishmentMetricRow("Vendas do mês", productSalesThisMonth.Count.ToString(Brazil), "produtos vendidos", WarmSoftBrush));
+        _establishmentMetrics.Add(new EstablishmentMetricRow("Receita produtos", productRevenueThisMonth.ToString("C0", Brazil), "faturamento no mês", BlueSoftBrush));
+
+        _establishmentSections.Clear();
+        _establishmentSections.Add(new EstablishmentSectionRow("Clientes", $"{_data.Customers.Count} cadastrado(s)", "Acesse a base completa de clientes e acompanhe o último atendimento.", "Gerenciar", PackIconKind.AccountGroup, AccentBrush, AccentSoftBrush));
+        _establishmentSections.Add(new EstablishmentSectionRow("Profissionais", $"{_data.Professionals.Count} cadastrado(s)", "Controle equipe, funções e vínculo com os segmentos do negócio.", "Gerenciar", PackIconKind.AccountTie, AccentBrush, AccentSoftBrush));
+        _establishmentSections.Add(new EstablishmentSectionRow("Serviços", $"{_data.Services.Count} cadastrado(s)", "Organize serviços, duração, preço e recurso padrão.", "Gerenciar", PackIconKind.ClipboardText, AccentBrush, AccentSoftBrush));
+        _establishmentSections.Add(new EstablishmentSectionRow("Produtos", $"{_data.Products.Count} cadastrado(s)", "Cadastre itens de estoque para venda no balcão.", "Gerenciar", PackIconKind.PackageVariant, AccentBrush, AccentSoftBrush));
+        _establishmentSections.Add(new EstablishmentSectionRow("Venda de produtos", $"{productSalesThisMonth.Count} no mês", "Acompanhe vendas, quantidade e receita de produtos.", "Registrar", PackIconKind.Cart, AccentBrush, AccentSoftBrush));
+
+        RefreshEstablishmentClients();
+        RefreshEstablishmentProfessionals();
+        RefreshEstablishmentServices();
+        RefreshEstablishmentProducts();
+        RefreshEstablishmentSales();
+    }
+
+    private void RefreshEstablishmentClients()
+    {
+        _establishmentClients.Clear();
+        foreach (var customer in _data.Customers.OrderBy(item => item.Name))
+        {
+            var detailParts = new[] { customer.Phone, customer.Profile, customer.Segment }
+                .Where(part => !string.IsNullOrWhiteSpace(part));
+            _establishmentClients.Add(new EstablishmentListRow(
+                customer.Name,
+                string.Join(" | ", detailParts.DefaultIfEmpty("Sem detalhes cadastrados")),
+                customer.LastSeenAt == DateTime.MinValue ? "novo" : customer.LastSeenAt.ToString("dd/MM", Brazil),
+                AccentSoftBrush,
+                AccentBrush));
+        }
+
+        if (_establishmentClients.Count == 0)
+        {
+            _establishmentClients.Add(EmptyEstablishmentRow("Nenhum cliente cadastrado", "Os clientes criados nos agendamentos aparecerão aqui.", "0"));
+        }
+    }
+
+    private void RefreshEstablishmentProfessionals()
+    {
+        _establishmentProfessionals.Clear();
+        foreach (var professional in _data.Professionals.OrderBy(item => item.Name))
+        {
+            _establishmentProfessionals.Add(new EstablishmentListRow(
+                professional.Name,
+                professional.SegmentLine,
+                string.IsNullOrWhiteSpace(professional.Role) ? "equipe" : professional.Role,
+                AccentSoftBrush,
+                AccentBrush));
+        }
+
+        if (_establishmentProfessionals.Count == 0)
+        {
+            _establishmentProfessionals.Add(EmptyEstablishmentRow("Nenhum profissional cadastrado", "Cadastre a equipe para montar a agenda.", "0"));
+        }
+    }
+
+    private void RefreshEstablishmentServices()
+    {
+        _establishmentServices.Clear();
+        foreach (var service in _data.Services.OrderBy(item => item.Name))
+        {
+            var detailParts = new[]
+            {
+                service.Segment,
+                $"{service.DurationMinutes} min",
+                service.DefaultResource
+            }.Where(part => !string.IsNullOrWhiteSpace(part));
+
+            _establishmentServices.Add(new EstablishmentListRow(
+                service.Name,
+                string.Join(" | ", detailParts),
+                service.Price.ToString("C0", Brazil),
+                AccentSoftBrush,
+                AccentBrush));
+        }
+
+        if (_establishmentServices.Count == 0)
+        {
+            _establishmentServices.Add(EmptyEstablishmentRow("Nenhum serviço cadastrado", "Crie serviços para montar os agendamentos.", "0"));
+        }
+    }
+
+    private void RefreshEstablishmentProducts()
+    {
+        _establishmentProducts.Clear();
+        foreach (var product in _data.Products.OrderBy(item => item.Name))
+        {
+            var detail = string.IsNullOrWhiteSpace(product.Category)
+                ? $"{product.StockQuantity} em estoque"
+                : $"{product.Category} | {product.StockQuantity} em estoque";
+            _establishmentProducts.Add(new EstablishmentListRow(
+                product.Name,
+                detail,
+                product.Price.ToString("C0", Brazil),
+                AccentSoftBrush,
+                AccentBrush));
+        }
+
+        if (_establishmentProducts.Count == 0)
+        {
+            _establishmentProducts.Add(EmptyEstablishmentRow("Nenhum produto cadastrado", "Os produtos de venda aparecerão aqui.", "0"));
+        }
+    }
+
+    private void RefreshEstablishmentSales()
+    {
+        _establishmentSales.Clear();
+        foreach (var sale in _data.ProductSales.OrderByDescending(item => item.SoldAt).Take(8))
+        {
+            var customer = string.IsNullOrWhiteSpace(sale.CustomerName) ? "Venda avulsa" : sale.CustomerName;
+            _establishmentSales.Add(new EstablishmentListRow(
+                sale.ProductName,
+                $"{sale.SoldAt:dd/MM HH:mm} | {customer} | {sale.Quantity} un.",
+                sale.Total.ToString("C0", Brazil),
+                WarmSoftBrush,
+                InkBrush));
+        }
+
+        if (_establishmentSales.Count == 0)
+        {
+            _establishmentSales.Add(EmptyEstablishmentRow("Nenhuma venda registrada", "As vendas de produtos aparecerão nesta lista.", "R$ 0"));
+        }
+    }
+
+    private static EstablishmentListRow EmptyEstablishmentRow(string name, string detail, string badge) =>
+        new(name, detail, badge, GraySoftBrush, MutedBrush);
+
+    private void RefreshFinancePage()
+    {
+        FinanceBusinessText.Text = BusinessDisplayName();
+
+        var today = DateTime.Today;
+        var tomorrow = today.AddDays(1);
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        var nextMonth = monthStart.AddMonths(1);
+
+        var serviceToday = SumServiceRevenue(today, tomorrow);
+        var productToday = SumProductRevenue(today, tomorrow);
+        var manualToday = SumManualPayments(today, tomorrow);
+        var serviceMonth = SumServiceRevenue(monthStart, nextMonth);
+        var productMonth = SumProductRevenue(monthStart, nextMonth);
+        var manualMonth = SumManualPayments(monthStart, nextMonth);
+        var receivedToday = serviceToday + productToday + manualToday;
+        var receivedMonth = serviceMonth + productMonth + manualMonth;
+        var pending = PendingPaymentAppointments().ToList();
+        var pendingValue = pending.Sum(item => item.Price);
+        var monthExpenses = _data.Expenses
+            .Where(item => item.Date >= monthStart && item.Date < nextMonth)
+            .Sum(item => item.Value);
+        var monthBalance = receivedMonth - monthExpenses;
+
+        _financeMetrics.Clear();
+        _financeMetrics.Add(new EstablishmentMetricRow("Receita de hoje", receivedToday.ToString("C0", Brazil), "serviços, produtos e pagamentos", AccentSoftBrush));
+        _financeMetrics.Add(new EstablishmentMetricRow("Receita do mês", receivedMonth.ToString("C0", Brazil), "total recebido no mês", BlueSoftBrush));
+        _financeMetrics.Add(new EstablishmentMetricRow("A receber", pendingValue.ToString("C0", Brazil), $"{pending.Count} pagamento(s) pendente(s)", YellowSoftBrush));
+        _financeMetrics.Add(new EstablishmentMetricRow("Despesas do mês", monthExpenses.ToString("C0", Brazil), $"{_data.Expenses.Count(item => item.Date >= monthStart && item.Date < nextMonth)} lançamento(s)", RedSoftBrush));
+        _financeMetrics.Add(new EstablishmentMetricRow("Saldo do mês", monthBalance.ToString("C0", Brazil), "receita menos despesas", monthBalance >= 0 ? AccentSoftBrush : RedSoftBrush));
+
+        _financeEntries.Clear();
+        var maxEntry = Math.Max(1m, Math.Max(serviceMonth, Math.Max(productMonth, manualMonth)));
+        _financeEntries.Add(new HomeFinanceBarRow("Receita de serviços", serviceMonth.ToString("C0", Brazil), Percent(serviceMonth, maxEntry)));
+        _financeEntries.Add(new HomeFinanceBarRow("Receita de produtos", productMonth.ToString("C0", Brazil), Percent(productMonth, maxEntry)));
+        _financeEntries.Add(new HomeFinanceBarRow("Pagamentos manuais", manualMonth.ToString("C0", Brazil), Percent(manualMonth, maxEntry)));
+
+        RefreshFinancePendingPayments(pending);
+        RefreshFinanceExpenses();
+        RefreshFinanceChart(today);
+    }
+
+    private void RefreshFinancePendingPayments(IReadOnlyList<Appointment> pending)
+    {
+        _financePendingPayments.Clear();
+        foreach (var appointment in pending.OrderBy(item => item.Start).Take(8))
+        {
+            _financePendingPayments.Add(new EstablishmentListRow(
+                appointment.CustomerName,
+                $"{appointment.Start:dd/MM HH:mm} | {appointment.ServiceName}",
+                appointment.Price.ToString("C0", Brazil),
+                YellowSoftBrush,
+                InkBrush));
+        }
+
+        if (_financePendingPayments.Count == 0)
+        {
+            _financePendingPayments.Add(EmptyEstablishmentRow("Nenhum pagamento pendente", "Atendimentos em aberto aparecerão aqui.", "R$ 0"));
+        }
+    }
+
+    private void RefreshFinanceExpenses()
+    {
+        _financeExpenses.Clear();
+        foreach (var expense in _data.Expenses.OrderByDescending(item => item.Date).Take(8))
+        {
+            var category = string.IsNullOrWhiteSpace(expense.Category) ? "Despesa" : expense.Category;
+            var status = expense.IsPaid ? "pago" : "pendente";
+            _financeExpenses.Add(new EstablishmentListRow(
+                expense.Description,
+                $"{expense.Date:dd/MM} | {category} | {status}",
+                expense.Value.ToString("C0", Brazil),
+                RedSoftBrush,
+                InkBrush));
+        }
+
+        if (_financeExpenses.Count == 0)
+        {
+            _financeExpenses.Add(EmptyEstablishmentRow("Nenhuma despesa cadastrada", "Cadastre despesas fixas ou avulsas nesta página.", "R$ 0"));
+        }
+    }
+
+    private void RefreshFinanceChart(DateTime today)
+    {
+        _financeChartRows.Clear();
+        var days = Enumerable.Range(0, 7)
+            .Select(offset => today.AddDays(offset - 6))
+            .Select(day => new
+            {
+                Day = day,
+                Value = SumReceivedRevenue(day, day.AddDays(1))
+            })
+            .ToList();
+        var max = Math.Max(1m, days.Max(item => item.Value));
+
+        foreach (var day in days)
+        {
+            _financeChartRows.Add(new HomeFinanceBarRow(
+                day.Day.ToString("ddd, dd/MM", Brazil),
+                day.Value.ToString("C0", Brazil),
+                Percent(day.Value, max)));
+        }
+    }
+
+    private IEnumerable<Appointment> PendingPaymentAppointments() =>
+        _data.Appointments.Where(item =>
+            item.Price > 0 &&
+            item.Status is not AppointmentStatus.Done
+                and not AppointmentStatus.Cancelled
+                and not AppointmentStatus.NoShow
+                and not AppointmentStatus.Blocked);
+
+    private decimal SumReceivedRevenue(DateTime start, DateTime end) =>
+        SumServiceRevenue(start, end) + SumProductRevenue(start, end) + SumManualPayments(start, end);
+
+    private decimal SumServiceRevenue(DateTime start, DateTime end) =>
+        _data.Appointments
+            .Where(item => item.Start >= start && item.Start < end && item.Status == AppointmentStatus.Done)
+            .Sum(item => item.Price);
+
+    private decimal SumProductRevenue(DateTime start, DateTime end) =>
+        _data.ProductSales
+            .Where(item => item.SoldAt >= start && item.SoldAt < end)
+            .Sum(item => item.Total);
+
+    private decimal SumManualPayments(DateTime start, DateTime end) =>
+        _data.ManualPayments
+            .Where(item => item.PaidAt >= start && item.PaidAt < end)
+            .Sum(item => item.Value);
+
+    private void RefreshReportsPage()
+    {
+        var today = DateTime.Today;
+        var periodStart = today.AddDays(-6);
+        var periodEnd = today.AddDays(1);
+        ReportsPeriodText.Text = $"{periodStart:dd/MM} a {today:dd/MM}";
+
+        var appointments = _data.Appointments
+            .Where(item => item.Start >= periodStart && item.Start < periodEnd)
+            .Where(item => item.Status != AppointmentStatus.Blocked)
+            .ToList();
+        var finalizados = appointments.Count(item => item.Status == AppointmentStatus.Done);
+        var canceladosFaltas = appointments.Count(item => item.Status is AppointmentStatus.Cancelled or AppointmentStatus.NoShow);
+        var receitaServicos = SumServiceRevenue(periodStart, periodEnd);
+        var receita = SumReceivedRevenue(periodStart, periodEnd);
+        var ticketMedio = finalizados > 0 ? receitaServicos / finalizados : 0m;
+        var taxaConclusao = appointments.Count > 0 ? finalizados * 100m / appointments.Count : 0m;
+
+        _reportsMetrics.Clear();
+        _reportsMetrics.Add(new EstablishmentMetricRow("Agendamentos", appointments.Count.ToString(Brazil), "total do período", AccentSoftBrush));
+        _reportsMetrics.Add(new EstablishmentMetricRow("Finalizados", finalizados.ToString(Brazil), "atendimentos concluídos", BlueSoftBrush));
+        _reportsMetrics.Add(new EstablishmentMetricRow("Cancelados/faltas", canceladosFaltas.ToString(Brazil), "perdas no período", canceladosFaltas > 0 ? RedSoftBrush : GraySoftBrush));
+        _reportsMetrics.Add(new EstablishmentMetricRow("Receita", receita.ToString("C0", Brazil), "serviços, produtos e pagamentos", WarmSoftBrush));
+        _reportsMetrics.Add(new EstablishmentMetricRow("Ticket médio", ticketMedio.ToString("C0", Brazil), "por atendimento finalizado", AccentSoftBrush));
+        _reportsMetrics.Add(new EstablishmentMetricRow("Conclusão", $"{taxaConclusao:N0}%", "finalizados sobre o total", taxaConclusao >= 70 ? BlueSoftBrush : YellowSoftBrush));
+
+        RefreshReportsInsights(periodStart, periodEnd, appointments, ticketMedio, taxaConclusao);
+        RefreshReportsChart(periodStart, today, appointments);
+        RefreshReportsServices(periodStart, periodEnd);
+        RefreshReportsProfessionals(periodStart, periodEnd);
+    }
+
+    private void RefreshReportsChart(DateTime periodStart, DateTime today, IReadOnlyList<Appointment> appointments)
+    {
+        var option = CurrentReportChartOption();
+        ReportsChartTitleText.Text = option;
+
+        switch (option)
+        {
+            case ReportChartRevenue:
+                ReportsChartSubtitleText.Text = "Entradas por dia, incluindo serviços, produtos e pagamentos.";
+                SetReportsChartRows(
+                    ReportChartStyle.Line,
+                    Enumerable.Range(0, 7)
+                        .Select(offset => periodStart.AddDays(offset))
+                        .Select(day =>
+                        {
+                            var value = SumReceivedRevenue(day, day.AddDays(1));
+                            return (Label: day.ToString("ddd, dd/MM", Brazil), Value: value, ValueText: value.ToString("C0", Brazil));
+                        }),
+                    keepZeroRows: true,
+                    emptyLabel: "Sem receita no período");
+                break;
+            case ReportChartStatus:
+                ReportsChartSubtitleText.Text = "Distribuição dos atendimentos por situação.";
+                SetReportsChartRows(
+                    ReportChartStyle.Donut,
+                    appointments
+                        .GroupBy(item => StatusLabel(item.Status))
+                        .Select(group => (Label: group.Key, Value: (decimal)group.Count(), ValueText: $"{group.Count()} ag."))
+                        .OrderByDescending(row => row.Value),
+                    emptyLabel: "Sem agendamentos no período");
+                break;
+            default:
+                ReportsChartSubtitleText.Text = "Volume dos últimos 7 dias.";
+                SetReportsChartRows(
+                    ReportChartStyle.Columns,
+                    Enumerable.Range(0, 7)
+                        .Select(offset => periodStart.AddDays(offset))
+                        .Select(day =>
+                        {
+                            var count = appointments.Count(item => item.Start.Date == day.Date);
+                            return (Label: day.ToString("ddd, dd/MM", Brazil), Value: (decimal)count, ValueText: $"{count} ag.");
+                        }),
+                    keepZeroRows: true,
+                    emptyLabel: "Sem agendamentos no período");
+                break;
+        }
+    }
+
+    private void RefreshReportsInsights(
+        DateTime start,
+        DateTime end,
+        IReadOnlyList<Appointment> appointments,
+        decimal ticketMedio,
+        decimal taxaConclusao)
+    {
+        _reportsInsights.Clear();
+
+        var activeAppointments = appointments
+            .Where(item => item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow)
+            .ToList();
+        var busyMinutes = activeAppointments.Sum(item => item.DurationMinutes);
+        var professionalCount = Math.Max(1, _data.Professionals.Count);
+        var workMinutesPerDay = Math.Max(1, _data.Settings.WorkdayEndHour - _data.Settings.WorkdayStartHour) * 60;
+        var capacityMinutes = Math.Max(1, professionalCount * workMinutesPerDay * 7);
+        var occupancy = Math.Min(100m, busyMinutes * 100m / capacityMinutes);
+        var productSales = _data.ProductSales.Where(item => item.SoldAt >= start && item.SoldAt < end).ToList();
+        var manualPayments = _data.ManualPayments.Where(item => item.PaidAt >= start && item.PaidAt < end).ToList();
+        var customersServed = appointments
+            .Where(item => item.Status == AppointmentStatus.Done && !string.IsNullOrWhiteSpace(item.CustomerName))
+            .Select(item => item.CustomerName.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+        var bestDay = appointments
+            .GroupBy(item => item.Start.Date)
+            .Select(group => new
+            {
+                Day = group.Key,
+                Count = group.Count(),
+                Revenue = SumReceivedRevenue(group.Key, group.Key.AddDays(1))
+            })
+            .OrderByDescending(item => item.Count)
+            .ThenByDescending(item => item.Revenue)
+            .FirstOrDefault();
+
+        _reportsInsights.Add(new EstablishmentListRow(
+            "Melhor dia",
+            bestDay is null ? "Sem movimento no período" : $"{bestDay.Count} agendamento(s) | {bestDay.Revenue.ToString("C0", Brazil)}",
+            bestDay is null ? "-" : bestDay.Day.ToString("ddd", Brazil),
+            AccentSoftBrush,
+            AccentBrush));
+        _reportsInsights.Add(new EstablishmentListRow(
+            "Ocupação estimada",
+            $"{busyMinutes / 60:N0}h ocupada(s) em {professionalCount} profissional(is)",
+            $"{occupancy:N0}%",
+            BlueSoftBrush,
+            AccentBrush));
+        _reportsInsights.Add(new EstablishmentListRow(
+            "Clientes atendidos",
+            "Clientes únicos com atendimento finalizado",
+            customersServed.ToString(Brazil),
+            GraySoftBrush,
+            InkBrush));
+        _reportsInsights.Add(new EstablishmentListRow(
+            "Produtos vendidos",
+            $"{productSales.Count} venda(s) no período",
+            productSales.Sum(item => item.Total).ToString("C0", Brazil),
+            WarmSoftBrush,
+            AccentBrush));
+        _reportsInsights.Add(new EstablishmentListRow(
+            "Pagamentos avulsos",
+            $"{manualPayments.Count} recebimento(s) manual(is)",
+            manualPayments.Sum(item => item.Value).ToString("C0", Brazil),
+            AccentSoftBrush,
+            AccentBrush));
+        _reportsInsights.Add(new EstablishmentListRow(
+            "Saúde da operação",
+            $"Ticket médio {ticketMedio.ToString("C0", Brazil)} | conclusão {taxaConclusao:N0}%",
+            taxaConclusao >= 70 ? "Boa" : "Atenção",
+            taxaConclusao >= 70 ? BlueSoftBrush : YellowSoftBrush,
+            taxaConclusao >= 70 ? AccentBrush : InkBrush));
+    }
+
+    private string CurrentReportChartOption() =>
+        ReportsChartTypeCombo.SelectedItem as string ?? ReportChartAppointments;
+
+    private void SetReportsChartRows(
+        ReportChartStyle style,
+        IEnumerable<(string Label, decimal Value, string ValueText)> rows,
+        bool keepZeroRows = false,
+        string emptyLabel = "Sem dados")
+    {
+        var rawRows = rows
+            .Where(row => keepZeroRows || row.Value > 0)
+            .ToList();
+        var max = rawRows.Count == 0 ? 1m : Math.Max(1m, rawRows.Max(row => row.Value));
+        var chartRows = rawRows
+            .Select((row, index) =>
+            {
+                var percent = row.Value <= 0 ? 0 : Math.Max(6, Percent(row.Value, max));
+                var accent = style == ReportChartStyle.Columns ? AccentBrush : ReportPalette[index % ReportPalette.Length];
+                var background = style == ReportChartStyle.Columns ? AccentSoftBrush : ReportSoftPalette[index % ReportSoftPalette.Length];
+                return new ReportChartRow(
+                    row.Label,
+                    row.Value,
+                    row.ValueText,
+                    percent,
+                    accent,
+                    background);
+            })
+            .ToList();
+
+        if (chartRows.Count == 0)
+        {
+            chartRows.Add(new ReportChartRow(emptyLabel, 0, "0", 0, AccentBrush, AccentSoftBrush));
+        }
+
+        _activeReportChartRows = chartRows;
+        ApplyReportChartStyle(style, chartRows);
+        UpdateReportChartModeButtons();
+    }
+
+    private void ApplyReportChartStyle(ReportChartStyle style, IReadOnlyList<ReportChartRow> rows)
+    {
+        ReportsColumnChartItemsControl.Visibility = style == ReportChartStyle.Columns ? Visibility.Visible : Visibility.Collapsed;
+        ReportsLineChartView.Visibility = style == ReportChartStyle.Line ? Visibility.Visible : Visibility.Collapsed;
+        ReportsDonutChartView.Visibility = style == ReportChartStyle.Donut ? Visibility.Visible : Visibility.Collapsed;
+        ReportsRankingChartView.Visibility = style == ReportChartStyle.Ranking ? Visibility.Visible : Visibility.Collapsed;
+
+        _reportsColumnChartRows.Clear();
+        _reportsLineChartRows.Clear();
+        _reportsDonutChartRows.Clear();
+        _reportsRankingChartRows.Clear();
+
+        var target = style switch
+        {
+            ReportChartStyle.Line => _reportsLineChartRows,
+            ReportChartStyle.Donut => _reportsDonutChartRows,
+            ReportChartStyle.Ranking => _reportsRankingChartRows,
+            _ => _reportsColumnChartRows
+        };
+
+        foreach (var row in rows)
+        {
+            target.Add(row);
+        }
+
+        DrawReportsLineChart();
+        DrawReportsDonutChart();
+    }
+
+    private void UpdateReportChartModeButtons()
+    {
+        var current = CurrentReportChartOption();
+        ReportAppointmentsChartButton.Style = (Style)FindResource(current == ReportChartAppointments ? "CommandButton" : "GhostButton");
+        ReportRevenueChartButton.Style = (Style)FindResource(current == ReportChartRevenue ? "CommandButton" : "GhostButton");
+        ReportStatusChartButton.Style = (Style)FindResource(current == ReportChartStatus ? "CommandButton" : "GhostButton");
+    }
+
+    private void ReportsLineChartCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => DrawReportsLineChart();
+
+    private void ReportsDonutCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => DrawReportsDonutChart();
+
+    private void DrawReportsLineChart()
+    {
+        ReportsLineChartCanvas.Children.Clear();
+        if (ReportsLineChartView.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        var rows = _reportsLineChartRows.ToList();
+        var width = Math.Max(420, ReportsLineChartCanvas.ActualWidth);
+        var height = Math.Max(180, ReportsLineChartCanvas.ActualHeight);
+        const double left = 38;
+        const double top = 16;
+        const double right = 18;
+        const double bottom = 34;
+        var chartWidth = Math.Max(1, width - left - right);
+        var chartHeight = Math.Max(1, height - top - bottom);
+
+        for (var i = 0; i <= 4; i++)
+        {
+            var y = top + chartHeight * i / 4;
+            ReportsLineChartCanvas.Children.Add(new Line
+            {
+                X1 = left,
+                X2 = left + chartWidth,
+                Y1 = y,
+                Y2 = y,
+                Stroke = LineBrush,
+                StrokeThickness = 1
+            });
+        }
+
+        var realRows = rows.Where(row => row.Value > 0).ToList();
+        var max = Math.Max(1m, rows.Max(row => row.Value));
+        var points = new PointCollection();
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var x = rows.Count == 1
+                ? left + chartWidth / 2
+                : left + chartWidth * i / (rows.Count - 1);
+            var y = top + chartHeight - (double)(rows[i].Value / max) * chartHeight;
+            points.Add(new Point(x, y));
+        }
+
+        if (points.Count > 1)
+        {
+            var areaPoints = new PointCollection(points)
+            {
+                new(left + chartWidth, top + chartHeight),
+                new(left, top + chartHeight)
+            };
+            ReportsLineChartCanvas.Children.Add(new Polygon
+            {
+                Points = areaPoints,
+                Fill = AccentSoftBrush,
+                Opacity = realRows.Count == 0 ? 0.1 : 0.55
+            });
+
+            ReportsLineChartCanvas.Children.Add(new Polyline
+            {
+                Points = points,
+                Stroke = AccentBrush,
+                StrokeThickness = 3,
+                StrokeLineJoin = PenLineJoin.Round
+            });
+        }
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var point = points[i];
+            var dot = new Ellipse
+            {
+                Width = 11,
+                Height = 11,
+                Fill = rows[i].AccentBrush,
+                Stroke = Brushes.White,
+                StrokeThickness = 2
+            };
+            Canvas.SetLeft(dot, point.X - 5.5);
+            Canvas.SetTop(dot, point.Y - 5.5);
+            ReportsLineChartCanvas.Children.Add(dot);
+
+            var value = new TextBlock
+            {
+                Text = rows[i].ValueText,
+                Foreground = InkBrush,
+                FontSize = 11,
+                FontWeight = FontWeights.Bold
+            };
+            Canvas.SetLeft(value, Math.Max(0, Math.Min(width - 70, point.X - 28)));
+            Canvas.SetTop(value, Math.Max(0, point.Y - 25));
+            ReportsLineChartCanvas.Children.Add(value);
+
+            var label = new TextBlock
+            {
+                Text = rows[i].Label,
+                Foreground = MutedBrush,
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold
+            };
+            Canvas.SetLeft(label, Math.Max(0, Math.Min(width - 72, point.X - 30)));
+            Canvas.SetTop(label, top + chartHeight + 9);
+            ReportsLineChartCanvas.Children.Add(label);
+        }
+    }
+
+    private void DrawReportsDonutChart()
+    {
+        ReportsDonutCanvas.Children.Clear();
+        if (ReportsDonutChartView.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        var rows = _reportsDonutChartRows.Where(row => row.Value > 0).ToList();
+        var total = rows.Sum(row => row.Value);
+        const double size = 220;
+        const double center = size / 2;
+        const double outer = 102;
+        const double inner = 62;
+
+        if (total <= 0)
+        {
+            ReportsDonutCanvas.Children.Add(new Ellipse
+            {
+                Width = outer * 2,
+                Height = outer * 2,
+                Stroke = LineBrush,
+                StrokeThickness = 24,
+                Fill = Brushes.Transparent
+            });
+            Canvas.SetLeft(ReportsDonutCanvas.Children[^1], center - outer);
+            Canvas.SetTop(ReportsDonutCanvas.Children[^1], center - outer);
+        }
+        else
+        {
+            var startAngle = 0d;
+            foreach (var row in rows)
+            {
+                var sweep = Math.Max(1, Math.Min(359.8, (double)(row.Value / total) * 360));
+                ReportsDonutCanvas.Children.Add(CreateDonutSlice(center, center, outer, inner, startAngle, sweep, row.AccentBrush));
+                startAngle += sweep;
+            }
+        }
+
+        var centerCircle = new Ellipse
+        {
+            Width = inner * 2 - 8,
+            Height = inner * 2 - 8,
+            Fill = Brushes.White
+        };
+        Canvas.SetLeft(centerCircle, center - inner + 4);
+        Canvas.SetTop(centerCircle, center - inner + 4);
+        ReportsDonutCanvas.Children.Add(centerCircle);
+
+        var totalText = new TextBlock
+        {
+            Text = total.ToString("N0", Brazil),
+            Foreground = InkBrush,
+            FontSize = 26,
+            FontWeight = FontWeights.Bold,
+            TextAlignment = TextAlignment.Center,
+            Width = 110
+        };
+        Canvas.SetLeft(totalText, center - 55);
+        Canvas.SetTop(totalText, center - 28);
+        ReportsDonutCanvas.Children.Add(totalText);
+
+        var labelText = new TextBlock
+        {
+            Text = "total",
+            Foreground = MutedBrush,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            TextAlignment = TextAlignment.Center,
+            Width = 110
+        };
+        Canvas.SetLeft(labelText, center - 55);
+        Canvas.SetTop(labelText, center + 6);
+        ReportsDonutCanvas.Children.Add(labelText);
+    }
+
+    private static Path CreateDonutSlice(
+        double centerX,
+        double centerY,
+        double outerRadius,
+        double innerRadius,
+        double startAngle,
+        double sweepAngle,
+        Brush fill)
+    {
+        var endAngle = startAngle + sweepAngle;
+        var outerStart = PointOnCircle(centerX, centerY, outerRadius, startAngle);
+        var outerEnd = PointOnCircle(centerX, centerY, outerRadius, endAngle);
+        var innerEnd = PointOnCircle(centerX, centerY, innerRadius, endAngle);
+        var innerStart = PointOnCircle(centerX, centerY, innerRadius, startAngle);
+        var largeArc = sweepAngle > 180;
+
+        var figure = new PathFigure { StartPoint = outerStart, IsClosed = true };
+        figure.Segments.Add(new ArcSegment(outerEnd, new Size(outerRadius, outerRadius), 0, largeArc, SweepDirection.Clockwise, true));
+        figure.Segments.Add(new LineSegment(innerEnd, true));
+        figure.Segments.Add(new ArcSegment(innerStart, new Size(innerRadius, innerRadius), 0, largeArc, SweepDirection.Counterclockwise, true));
+        figure.Segments.Add(new LineSegment(outerStart, true));
+
+        return new Path
+        {
+            Data = new PathGeometry([figure]),
+            Fill = fill,
+            Stroke = Brushes.White,
+            StrokeThickness = 2
+        };
+    }
+
+    private static Point PointOnCircle(double centerX, double centerY, double radius, double angleDegrees)
+    {
+        var angle = (angleDegrees - 90) * Math.PI / 180;
+        return new Point(centerX + radius * Math.Cos(angle), centerY + radius * Math.Sin(angle));
+    }
+
+    private void RefreshReportsServices(DateTime start, DateTime end)
+    {
+        _reportsServices.Clear();
+        var rows = _data.Appointments
+            .Where(item => item.Start >= start && item.Start < end &&
+                           item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
+            .Where(item => !string.IsNullOrWhiteSpace(item.ServiceName))
+            .GroupBy(item => item.ServiceName)
+            .OrderByDescending(group => group.Count())
+            .ThenByDescending(group => group.Sum(item => item.Price))
+            .Take(6)
+            .ToList();
+
+        foreach (var group in rows)
+        {
+            var revenue = group.Where(item => item.Status == AppointmentStatus.Done).Sum(item => item.Price);
+            _reportsServices.Add(new EstablishmentListRow(
+                group.Key,
+                $"{group.Count()} atendimento(s) no período",
+                revenue.ToString("C0", Brazil),
+                AccentSoftBrush,
+                AccentBrush));
+        }
+
+        if (_reportsServices.Count == 0)
+        {
+            _reportsServices.Add(EmptyEstablishmentRow("Nenhum serviço no período", "Os serviços realizados aparecerão aqui.", "0"));
+        }
+    }
+
+    private void RefreshReportsProfessionals(DateTime start, DateTime end)
+    {
+        _reportsProfessionals.Clear();
+        var rows = _data.Appointments
+            .Where(item => item.Start >= start && item.Start < end &&
+                           item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
+            .Where(item => !string.IsNullOrWhiteSpace(item.ProfessionalName))
+            .GroupBy(item => item.ProfessionalName)
+            .OrderByDescending(group => group.Count())
+            .ThenByDescending(group => group.Where(item => item.Status == AppointmentStatus.Done).Sum(item => item.Price))
+            .Take(8)
+            .ToList();
+
+        foreach (var group in rows)
+        {
+            var done = group.Count(item => item.Status == AppointmentStatus.Done);
+            var revenue = group.Where(item => item.Status == AppointmentStatus.Done).Sum(item => item.Price);
+            _reportsProfessionals.Add(new EstablishmentListRow(
+                group.Key,
+                $"{done} finalizado(s) | {group.Count()} atendimento(s)",
+                revenue.ToString("C0", Brazil),
+                AccentSoftBrush,
+                AccentBrush));
+        }
+
+        if (_reportsProfessionals.Count == 0)
+        {
+            _reportsProfessionals.Add(EmptyEstablishmentRow("Nenhum profissional no período", "Os atendimentos da equipe aparecerão aqui.", "0"));
+        }
+    }
+
+    private void RefreshMarketingPage()
+    {
+        MarketingBusinessText.Text = BusinessDisplayName();
+        EnsureDefaultPromotionMessage();
+        RefreshMarketingPreview();
+
+        var today = DateTime.Today;
+        var staleCustomers = _data.Customers
+            .Where(item => item.LastSeenAt.Date <= today.AddDays(-30))
+            .ToList();
+        var noShows = _data.Appointments
+            .Where(item => item.Status == AppointmentStatus.NoShow && item.Start.Date >= today.AddDays(-60))
+            .ToList();
+        var pendingConfirmations = _data.Appointments
+            .Where(item => item.Status == AppointmentStatus.Scheduled && item.Start.Date >= today)
+            .ToList();
+        RefreshMarketingContacts();
+        RefreshMarketingMessages();
+        RefreshMarketingCampaigns(staleCustomers.Count, noShows.Count, pendingConfirmations.Count);
+    }
+
+    private void EnsureDefaultPromotionMessage()
+    {
+        if (!string.IsNullOrWhiteSpace(PromotionMessageTextBox.Text))
+        {
+            return;
+        }
+
+        PromotionMessageTextBox.Text = "Oi, {nome}! Tudo bem? Aqui é da {empresa}. Temos uma promoção especial: {oferta}. Quer que eu veja um horário para você?";
+    }
+
+    private void RefreshMarketingContacts()
+    {
+        _marketingContacts.Clear();
+        foreach (var contact in BuildMarketingContacts().Take(12))
+        {
+            _marketingContacts.Add(contact);
+        }
+
+        if (_marketingContacts.Count == 0)
+        {
+            _marketingContacts.Add(new MarketingContactRow(
+                "Nenhum cliente prioritário",
+                "Clientes sem retorno, faltas ou confirmações pendentes aparecerão aqui.",
+                "",
+                "Sem ação",
+                "Cadastre clientes com telefone para abrir WhatsApp.",
+                GraySoftBrush,
+                MutedBrush));
+        }
+    }
+
+    private List<MarketingContactRow> BuildMarketingContacts()
+    {
+        var rows = new List<MarketingContactRow>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var today = DateTime.Today;
+
+        foreach (var appointment in _data.Appointments
+                     .Where(item => item.Status == AppointmentStatus.Scheduled && item.Start.Date >= today)
+                     .OrderBy(item => item.Start))
+        {
+            AddMarketingContact(rows, seen, appointment.CustomerName, appointment.CustomerPhone, $"Confirmar horário de {appointment.Start:dd/MM HH:mm}", appointment.ServiceName, "Confirmação");
+        }
+
+        foreach (var appointment in _data.Appointments
+                     .Where(item => item.Status == AppointmentStatus.NoShow && item.Start.Date >= today.AddDays(-60))
+                     .OrderByDescending(item => item.Start))
+        {
+            AddMarketingContact(rows, seen, appointment.CustomerName, appointment.CustomerPhone, $"Faltou em {appointment.Start:dd/MM}", appointment.ServiceName, "Retorno");
+        }
+
+        foreach (var customer in _data.Customers
+                     .Where(item => item.LastSeenAt.Date <= today.AddDays(-30))
+                     .OrderBy(item => item.LastSeenAt))
+        {
+            AddMarketingContact(rows, seen, customer.Name, customer.Phone, $"Último atendimento em {customer.LastSeenAt:dd/MM}", customer.Profile, "Sem retorno");
+        }
+
+        return rows;
+    }
+
+    private void AddMarketingContact(
+        ICollection<MarketingContactRow> rows,
+        ISet<string> seen,
+        string name,
+        string phone,
+        string reason,
+        string context,
+        string badge)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
+        var key = string.IsNullOrWhiteSpace(phone) ? name.Trim() : $"{name.Trim()}|{OnlyDigits(phone)}";
+        if (!seen.Add(key))
+        {
+            return;
+        }
+
+        rows.Add(new MarketingContactRow(
+            name.Trim(),
+            string.Join(" | ", new[] { reason, phone, context }.Where(item => !string.IsNullOrWhiteSpace(item))),
+            phone,
+            badge,
+            BuildMarketingMessage(name.Trim()),
+            string.IsNullOrWhiteSpace(phone) ? YellowSoftBrush : AccentSoftBrush,
+            string.IsNullOrWhiteSpace(phone) ? InkBrush : AccentBrush));
+    }
+
+    private void RefreshMarketingMessages()
+    {
+        _marketingMessages.Clear();
+        _marketingMessages.Add(new EstablishmentListRow("Promoção", "Texto para divulgar oferta, desconto ou pacote especial.", "oferta", AccentSoftBrush, AccentBrush));
+        _marketingMessages.Add(new EstablishmentListRow("Confirmação", "Mensagem curta para confirmar presença antes do horário.", "agenda", BlueSoftBrush, AccentBrush));
+        _marketingMessages.Add(new EstablishmentListRow("Pós-atendimento", "Agradeça o cliente e incentive retorno ou avaliação.", "retorno", GraySoftBrush, InkBrush));
+        _marketingMessages.Add(new EstablishmentListRow("Cliente sumido", "Convide clientes sem atendimento recente para voltar.", "30 dias", YellowSoftBrush, InkBrush));
+    }
+
+    private void RefreshMarketingCampaigns(int staleCustomers, int noShows, int pendingConfirmations)
+    {
+        _marketingCampaigns.Clear();
+        _marketingCampaigns.Add(new EstablishmentListRow("Volta para agenda", $"{staleCustomers} cliente(s) sem retorno para chamar.", "WhatsApp", AccentSoftBrush, AccentBrush));
+        _marketingCampaigns.Add(new EstablishmentListRow("Confirmar horários", $"{pendingConfirmations} agendamento(s) aguardando confirmação.", "Hoje", BlueSoftBrush, AccentBrush));
+        _marketingCampaigns.Add(new EstablishmentListRow("Recuperar faltas", $"{noShows} falta(s) recente(s) para remarcar.", "Retorno", RedSoftBrush, InkBrush));
+        _marketingCampaigns.Add(new EstablishmentListRow("Oferta da semana", PromotionOfferTextBox.Text.Trim(), "Promo", YellowSoftBrush, InkBrush));
+    }
+
+    private void RefreshMarketingPreview()
+    {
+        if (MarketingPreviewText is null ||
+            PromotionNameTextBox is null ||
+            PromotionOfferTextBox is null ||
+            PromotionMessageTextBox is null)
+        {
+            return;
+        }
+
+        MarketingPreviewText.Text = BuildMarketingMessage(_data.Customers.FirstOrDefault()?.Name ?? "Cliente");
+    }
+
+    private string BuildMarketingMessage(string customerName)
+    {
+        var offer = string.IsNullOrWhiteSpace(PromotionOfferTextBox.Text)
+            ? "uma condição especial"
+            : PromotionOfferTextBox.Text.Trim();
+        var promotionName = string.IsNullOrWhiteSpace(PromotionNameTextBox.Text)
+            ? "promoção"
+            : PromotionNameTextBox.Text.Trim();
+        var template = string.IsNullOrWhiteSpace(PromotionMessageTextBox.Text)
+            ? "Oi, {nome}! Aqui é da {empresa}. Temos {oferta}. Quer reservar um horário?"
+            : PromotionMessageTextBox.Text.Trim();
+
+        return template
+            .Replace("{nome}", customerName, StringComparison.OrdinalIgnoreCase)
+            .Replace("{empresa}", BusinessDisplayName(), StringComparison.OrdinalIgnoreCase)
+            .Replace("{oferta}", offer, StringComparison.OrdinalIgnoreCase)
+            .Replace("{promocao}", promotionName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string OnlyDigits(string value) =>
+        new(value.Where(char.IsDigit).ToArray());
+
+    private static string NormalizeBrazilPhone(string phone)
+    {
+        var digits = OnlyDigits(phone);
+        if (digits.Length is 10 or 11)
+        {
+            return $"55{digits}";
+        }
+
+        return digits;
+    }
+
+    private void OpenMarketingWhatsApp(MarketingContactRow row)
+    {
+        var phone = NormalizeBrazilPhone(row.Phone);
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            ShowStatus($"Telefone não cadastrado para {row.Name}.");
+            return;
+        }
+
+        var message = BuildMarketingMessage(row.Name);
+        var url = $"https://wa.me/{phone}?text={Uri.EscapeDataString(message)}";
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        ShowStatus($"WhatsApp aberto para {row.Name}.");
+    }
+
+    private decimal SumRealizedRevenue(DateTime start, DateTime end) =>
+        _data.Appointments
+            .Where(item => item.Start >= start && item.Start < end && item.Status == AppointmentStatus.Done)
+            .Sum(item => item.Price);
+
+    private static double Percent(decimal current, decimal total)
+    {
+        if (total <= 0)
+        {
+            return 0;
+        }
+
+        return (double)Math.Clamp(current / total * 100m, 0m, 100m);
+    }
+
+    private static string GreetingFor(DateTime dateTime)
+    {
+        if (dateTime.Hour < 12)
+        {
+            return "Bom dia";
+        }
+
+        return dateTime.Hour < 18 ? "Boa tarde" : "Boa noite";
+    }
+
+    private static string FirstName(string name)
+    {
+        var cleanName = name.Trim();
+        if (string.IsNullOrWhiteSpace(cleanName))
+        {
+            return "tudo certo?";
+        }
+
+        return cleanName.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
     }
 
     private void UpdateSegmentFilterButton()
@@ -981,7 +2353,7 @@ public partial class MainWindow : Window
 
         if (date.Date == today.AddDays(1))
         {
-            return $"Amanhã, {date:dd/MM}";
+            return $"AmanhÃ£, {date:dd/MM}";
         }
 
         if (date.Date == today.AddDays(-1))
@@ -1373,10 +2745,10 @@ public partial class MainWindow : Window
         {
             ProfileLabelText.Text = segment switch
             {
-                "Clínica médica" => "Paciente / prontuário",
-                "Petshop" => "Tutor / pet / raça",
-                "Mecânica" => "Cliente / veículo / placa",
-                "Unha e beleza" => "Cliente / preferência",
+                "ClÃ­nica mÃ©dica" => "Paciente / prontuÃ¡rio",
+                "Petshop" => "Tutor / pet / raÃ§a",
+                "MecÃ¢nica" => "Cliente / veÃ­culo / placa",
+                "Unha e beleza" => "Cliente / preferÃªncia",
                 "Cabelo e barbearia" => "Cliente / estilo",
                 _ => "Cliente / detalhe"
             };
@@ -1470,7 +2842,7 @@ public partial class MainWindow : Window
         PriceTextBox.Text = appointment.Price.ToString("N2", Brazil);
         NotesTextBox.Text = appointment.Notes;
 
-        EditorTitleText.Text = appointment.Status == AppointmentStatus.Blocked ? "Bloqueio de horário" : "Editar agendamento";
+        EditorTitleText.Text = appointment.Status == AppointmentStatus.Blocked ? "Bloqueio de horÃ¡rio" : "Editar agendamento";
         EditorStatusText.Text = $"{StatusLabel(appointment.Status)} | criado em {appointment.CreatedAt:dd/MM HH:mm}";
         ShowSelectedAppointment(appointment);
         _loadingEditor = false;
@@ -1491,30 +2863,410 @@ public partial class MainWindow : Window
         CloseAppointmentEditorModal();
     }
 
-    private void OpenSettingsModal()
-    {
-        RefreshSettingsSummary();
-        SettingsOverlay.Visibility = Visibility.Visible;
-    }
-
-    private void CloseSettingsModal()
-    {
-        SettingsOverlay.Visibility = Visibility.Collapsed;
-    }
-
     private void ConfigButton_Click(object sender, RoutedEventArgs e)
     {
-        OpenSettingsModal();
+        ShowMainPage(MainPage.Settings);
+        ShowStatus("Configurações abertas.");
     }
 
-    private void CloseSettingsModalButton_Click(object sender, RoutedEventArgs e)
+    private void HomeSidebarButton_Click(object sender, RoutedEventArgs e)
     {
-        CloseSettingsModal();
+        ShowMainPage(MainPage.Home);
+    }
+
+    private void EstablishmentSidebarButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowMainPage(MainPage.Establishment);
+    }
+
+    private void FinanceSidebarButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowMainPage(MainPage.Finance);
+    }
+
+    private void ReportsSidebarButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowMainPage(MainPage.Reports);
+    }
+
+    private void MarketingSidebarButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowMainPage(MainPage.Marketing);
+    }
+
+    private void AgendaSidebarButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowMainPage(MainPage.Agenda);
+    }
+
+    private void OpenNextAppointmentButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_homeNextAppointment is null)
+        {
+            ShowStatus("Não há próximo atendimento para abrir.");
+            return;
+        }
+
+        ShowMainPage(MainPage.Agenda);
+        _selectedAppointment = _homeNextAppointment;
+        LoadEditor(_homeNextAppointment);
+        OpenAppointmentEditorModal();
+        ShowStatus($"{_homeNextAppointment.CustomerName} aberto pelo painel Home.");
+    }
+
+    private void NewCustomerQuickButton_Click(object sender, RoutedEventArgs e)
+    {
+        ClearEditor();
+        CustomerNameTextBox.Focus();
+        OpenAppointmentEditorModal();
+        ShowStatus("Novo cliente iniciado. Informe os dados no agendamento.");
+    }
+
+    private void RegisterPaymentQuickButton_Click(object sender, RoutedEventArgs e)
+    {
+        RegisterPaymentButton_Click(sender, e);
+    }
+
+    private void RegisterPaymentButton_Click(object sender, RoutedEventArgs e)
+    {
+        var description = PromptText("Registrar pagamento", "Descrição do pagamento", "Pagamento avulso");
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return;
+        }
+
+        var customer = PromptText("Registrar pagamento", "Cliente (opcional)", "");
+        var valueText = PromptText("Registrar pagamento", "Valor recebido", "0,00");
+        if (string.IsNullOrWhiteSpace(valueText) || !TryParseMoney(valueText, out var value) || value <= 0)
+        {
+            ShowStatus("Informe um valor válido para registrar o pagamento.");
+            return;
+        }
+
+        _data.ManualPayments.Add(new ManualPayment
+        {
+            Description = description.Trim(),
+            CustomerName = customer?.Trim() ?? "",
+            Value = value,
+            PaidAt = DateTime.Now
+        });
+
+        _store.Save(_data);
+        RefreshAll();
+        ShowMainPage(MainPage.Finance);
+        ShowStatus($"Pagamento registrado: {value.ToString("C", Brazil)}.");
+    }
+
+    private void NewExpenseButton_Click(object sender, RoutedEventArgs e)
+    {
+        var description = PromptText("Nova despesa", "Descrição da despesa", "");
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return;
+        }
+
+        var category = PromptText("Nova despesa", "Categoria", "Operacional");
+        var valueText = PromptText("Nova despesa", "Valor", "0,00");
+        if (string.IsNullOrWhiteSpace(valueText) || !TryParseMoney(valueText, out var value) || value <= 0)
+        {
+            ShowStatus("Informe um valor válido para cadastrar a despesa.");
+            return;
+        }
+
+        _data.Expenses.Add(new ExpenseItem
+        {
+            Description = description.Trim(),
+            Category = category?.Trim() ?? "",
+            Value = value,
+            Date = DateTime.Now,
+            IsPaid = true
+        });
+
+        _store.Save(_data);
+        RefreshAll();
+        ShowMainPage(MainPage.Finance);
+        ShowStatus($"Despesa cadastrada: {value.ToString("C", Brazil)}.");
+    }
+
+    private void ReportsQuickButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowMainPage(MainPage.Reports);
+        ShowStatus("Página de relatórios aberta.");
+    }
+
+    private void ReportsChartTypeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_configuringReportChart)
+        {
+            return;
+        }
+
+        RefreshReportsPage();
+        ShowStatus($"Gráfico alterado para {CurrentReportChartOption()}.");
+    }
+
+    private void ReportChartModeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string option })
+        {
+            return;
+        }
+
+        _configuringReportChart = true;
+        ReportsChartTypeCombo.SelectedItem = option;
+        _configuringReportChart = false;
+        RefreshReportsPage();
+        ShowStatus($"Gráfico alterado para {option}.");
+    }
+
+    private void MarketingPromotionTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        RefreshMarketingPreview();
+        if (MarketingCampaignsItemsControl is not null)
+        {
+            RefreshMarketingCampaigns(
+                _data.Customers.Count(item => item.LastSeenAt.Date <= DateTime.Today.AddDays(-30)),
+                _data.Appointments.Count(item => item.Status == AppointmentStatus.NoShow && item.Start.Date >= DateTime.Today.AddDays(-60)),
+                _data.Appointments.Count(item => item.Status == AppointmentStatus.Scheduled && item.Start.Date >= DateTime.Today));
+        }
+    }
+
+    private void CreatePromotionButton_Click(object sender, RoutedEventArgs e)
+    {
+        EnsureDefaultPromotionMessage();
+        RefreshMarketingPage();
+        ShowStatus($"Promoção pronta: {PromotionNameTextBox.Text.Trim()}.");
+    }
+
+    private void CopyMarketingMessageButton_Click(object sender, RoutedEventArgs e)
+    {
+        EnsureDefaultPromotionMessage();
+        Clipboard.SetText(BuildMarketingMessage(_data.Customers.FirstOrDefault()?.Name ?? "Cliente"));
+        ShowStatus("Mensagem de marketing copiada para a área de transferência.");
+    }
+
+    private void OpenFirstMarketingWhatsAppButton_Click(object sender, RoutedEventArgs e)
+    {
+        var row = _marketingContacts.FirstOrDefault(item => !string.IsNullOrWhiteSpace(item.Phone));
+        if (row is null)
+        {
+            ShowStatus("Nenhum cliente com telefone disponível para WhatsApp.");
+            return;
+        }
+
+        OpenMarketingWhatsApp(row);
+    }
+
+    private void OpenMarketingWhatsAppButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: MarketingContactRow row })
+        {
+            OpenMarketingWhatsApp(row);
+        }
+    }
+
+    private void RefreshMarketingButton_Click(object sender, RoutedEventArgs e)
+    {
+        RefreshMarketingPage();
+        ShowStatus("Marketing atualizado com os dados mais recentes.");
+    }
+
+    private void OpenHomeCustomerButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: HomeCustomerSummaryRow row })
+        {
+            ShowStatus($"Cadastro de {row.Name} selecionado.");
+        }
+    }
+
+    private void NewServiceFromEstablishmentButton_Click(object sender, RoutedEventArgs e)
+    {
+        CreateServiceButton_Click(sender, e);
+        ShowMainPage(MainPage.Establishment);
+    }
+
+    private void NewProfessionalFromEstablishmentButton_Click(object sender, RoutedEventArgs e)
+    {
+        CreateProfessionalButton_Click(sender, e);
+        ShowMainPage(MainPage.Establishment);
+    }
+
+    private void NewProductButton_Click(object sender, RoutedEventArgs e)
+    {
+        var name = PromptText("Criar produto", "Nome do produto", "");
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
+        var category = PromptText("Criar produto", "Categoria do produto (opcional)", "");
+        var priceText = PromptText("Criar produto", "Preço de venda", "0,00");
+        var stockText = PromptText("Criar produto", "Quantidade em estoque", "0");
+
+        var product = new ProductItem
+        {
+            Name = name.Trim(),
+            Category = category?.Trim() ?? "",
+            Price = !string.IsNullOrWhiteSpace(priceText) && TryParseMoney(priceText, out var price) ? price : 0m,
+            StockQuantity = int.TryParse(stockText, NumberStyles.Integer, Brazil, out var stock) ? Math.Max(0, stock) : 0
+        };
+
+        _data.Products.Add(product);
+        _store.Save(_data);
+        RefreshAll();
+        ShowMainPage(MainPage.Establishment);
+        ShowStatus($"Produto criado: {product.Name}.");
+    }
+
+    private void RegisterProductSaleButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_data.Products.Count == 0)
+        {
+            ShowStatus("Cadastre um produto antes de registrar uma venda.");
+            return;
+        }
+
+        var defaultProduct = _data.Products.OrderBy(item => item.Name).First();
+        var productName = PromptText("Registrar venda", "Produto vendido", defaultProduct.Name);
+        if (string.IsNullOrWhiteSpace(productName))
+        {
+            return;
+        }
+
+        var product = _data.Products.FirstOrDefault(item => item.Name.Equals(productName.Trim(), StringComparison.OrdinalIgnoreCase))
+                      ?? defaultProduct;
+        var quantityText = PromptText("Registrar venda", "Quantidade", "1");
+        var customerName = PromptText("Registrar venda", "Cliente (opcional)", "");
+        var quantity = int.TryParse(quantityText, NumberStyles.Integer, Brazil, out var parsedQuantity)
+            ? Math.Max(1, parsedQuantity)
+            : 1;
+
+        _data.ProductSales.Add(new ProductSale
+        {
+            ProductId = product.Id,
+            ProductName = product.Name,
+            CustomerName = customerName?.Trim() ?? "",
+            Quantity = quantity,
+            UnitPrice = product.Price,
+            SoldAt = DateTime.Now
+        });
+
+        product.StockQuantity = Math.Max(0, product.StockQuantity - quantity);
+        _store.Save(_data);
+        RefreshAll();
+        ShowStatus($"Venda registrada: {quantity}x {product.Name}.");
+    }
+
+    private void OpenEstablishmentSectionButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: EstablishmentSectionRow row })
+        {
+            ShowStatus($"{row.Title}: seção aberta em Meu estabelecimento.");
+        }
+    }
+
+    private void ShowMainPage(MainPage page)
+    {
+        var showHome = page == MainPage.Home;
+        var showEstablishment = page == MainPage.Establishment;
+        var showFinance = page == MainPage.Finance;
+        var showReports = page == MainPage.Reports;
+        var showMarketing = page == MainPage.Marketing;
+        var showSettings = page == MainPage.Settings;
+        var showAgenda = page == MainPage.Agenda;
+        HomeDashboardView.Visibility = showHome ? Visibility.Visible : Visibility.Collapsed;
+        EstablishmentView.Visibility = showEstablishment ? Visibility.Visible : Visibility.Collapsed;
+        FinanceView.Visibility = showFinance ? Visibility.Visible : Visibility.Collapsed;
+        ReportsView.Visibility = showReports ? Visibility.Visible : Visibility.Collapsed;
+        MarketingView.Visibility = showMarketing ? Visibility.Visible : Visibility.Collapsed;
+        SettingsView.Visibility = showSettings ? Visibility.Visible : Visibility.Collapsed;
+        AgendaWorkspaceView.Visibility = showAgenda ? Visibility.Visible : Visibility.Collapsed;
+
+        HomeSidebarButton.Style = (Style)FindResource(showHome ? "SidebarMenuButtonActive" : "SidebarMenuButton");
+        EstablishmentSidebarButton.Style = (Style)FindResource(showEstablishment ? "SidebarMenuButtonActive" : "SidebarMenuButton");
+        FinanceSidebarButton.Style = (Style)FindResource(showFinance ? "SidebarMenuButtonActive" : "SidebarMenuButton");
+        ReportsSidebarButton.Style = (Style)FindResource(showReports ? "SidebarMenuButtonActive" : "SidebarMenuButton");
+        MarketingSidebarButton.Style = (Style)FindResource(showMarketing ? "SidebarMenuButtonActive" : "SidebarMenuButton");
+        SettingsSidebarButton.Style = (Style)FindResource(showSettings ? "SidebarMenuButtonActive" : "SidebarMenuButton");
+        AgendaSidebarButton.Style = (Style)FindResource(showAgenda ? "SidebarMenuButtonActive" : "SidebarMenuButton");
+        HomeCollapsedButton.Style = (Style)FindResource(showHome ? "SidebarIconButtonActive" : "SidebarIconButton");
+        EstablishmentCollapsedButton.Style = (Style)FindResource(showEstablishment ? "SidebarIconButtonActive" : "SidebarIconButton");
+        FinanceCollapsedButton.Style = (Style)FindResource(showFinance ? "SidebarIconButtonActive" : "SidebarIconButton");
+        ReportsCollapsedButton.Style = (Style)FindResource(showReports ? "SidebarIconButtonActive" : "SidebarIconButton");
+        MarketingCollapsedButton.Style = (Style)FindResource(showMarketing ? "SidebarIconButtonActive" : "SidebarIconButton");
+        SettingsCollapsedButton.Style = (Style)FindResource(showSettings ? "SidebarIconButtonActive" : "SidebarIconButton");
+        AgendaCollapsedButton.Style = (Style)FindResource(showAgenda ? "SidebarIconButtonActive" : "SidebarIconButton");
+
+        HomeSidebarIcon.Foreground = showHome ? SidebarActiveTextBrush : SidebarTextBrush;
+        HomeSidebarText.Foreground = showHome ? SidebarActiveTextBrush : SidebarTextBrush;
+        HomeSidebarText.FontWeight = showHome ? FontWeights.Bold : FontWeights.SemiBold;
+        EstablishmentSidebarIcon.Foreground = showEstablishment ? SidebarActiveTextBrush : SidebarTextBrush;
+        EstablishmentSidebarText.Foreground = showEstablishment ? SidebarActiveTextBrush : SidebarTextBrush;
+        EstablishmentSidebarText.FontWeight = showEstablishment ? FontWeights.Bold : FontWeights.SemiBold;
+        FinanceSidebarIcon.Foreground = showFinance ? SidebarActiveTextBrush : SidebarTextBrush;
+        FinanceSidebarText.Foreground = showFinance ? SidebarActiveTextBrush : SidebarTextBrush;
+        FinanceSidebarText.FontWeight = showFinance ? FontWeights.Bold : FontWeights.SemiBold;
+        ReportsSidebarIcon.Foreground = showReports ? SidebarActiveTextBrush : SidebarTextBrush;
+        ReportsSidebarText.Foreground = showReports ? SidebarActiveTextBrush : SidebarTextBrush;
+        ReportsSidebarText.FontWeight = showReports ? FontWeights.Bold : FontWeights.SemiBold;
+        MarketingSidebarIcon.Foreground = showMarketing ? SidebarActiveTextBrush : SidebarTextBrush;
+        MarketingSidebarText.Foreground = showMarketing ? SidebarActiveTextBrush : SidebarTextBrush;
+        MarketingSidebarText.FontWeight = showMarketing ? FontWeights.Bold : FontWeights.SemiBold;
+        SettingsSidebarIcon.Foreground = showSettings ? SidebarActiveTextBrush : SidebarTextBrush;
+        SettingsSidebarText.Foreground = showSettings ? SidebarActiveTextBrush : SidebarTextBrush;
+        SettingsSidebarText.FontWeight = showSettings ? FontWeights.Bold : FontWeights.SemiBold;
+        AgendaSidebarIcon.Foreground = showAgenda ? SidebarActiveTextBrush : SidebarTextBrush;
+        AgendaSidebarText.Foreground = showAgenda ? SidebarActiveTextBrush : SidebarTextBrush;
+        AgendaSidebarText.FontWeight = showAgenda ? FontWeights.Bold : FontWeights.SemiBold;
+        HomeCollapsedIcon.Foreground = showHome ? SidebarActiveTextBrush : SidebarTextBrush;
+        EstablishmentCollapsedIcon.Foreground = showEstablishment ? SidebarActiveTextBrush : SidebarTextBrush;
+        FinanceCollapsedIcon.Foreground = showFinance ? SidebarActiveTextBrush : SidebarTextBrush;
+        ReportsCollapsedIcon.Foreground = showReports ? SidebarActiveTextBrush : SidebarTextBrush;
+        MarketingCollapsedIcon.Foreground = showMarketing ? SidebarActiveTextBrush : SidebarTextBrush;
+        SettingsCollapsedIcon.Foreground = showSettings ? SidebarActiveTextBrush : SidebarTextBrush;
+        AgendaCollapsedIcon.Foreground = showAgenda ? SidebarActiveTextBrush : SidebarTextBrush;
+
+        if (showHome)
+        {
+            RefreshHomeDashboard();
+        }
+
+        if (showEstablishment)
+        {
+            RefreshEstablishmentPage();
+        }
+
+        if (showFinance)
+        {
+            RefreshFinancePage();
+        }
+
+        if (showReports)
+        {
+            RefreshReportsPage();
+        }
+
+        if (showMarketing)
+        {
+            RefreshMarketingPage();
+        }
+
+        if (showSettings)
+        {
+            RefreshSettingsSummary();
+        }
+    }
+
+    private void ToggleSidebarButton_Click(object sender, RoutedEventArgs e)
+    {
+        _sidebarCollapsed = !_sidebarCollapsed;
+        SidebarColumn.Width = new GridLength(_sidebarCollapsed ? 72 : 230);
+        SidebarExpandedPanel.Visibility = _sidebarCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        SidebarCollapsedPanel.Visibility = _sidebarCollapsed ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OpenOnboardingFromSettingsButton_Click(object sender, RoutedEventArgs e)
     {
-        CloseSettingsModal();
         ShowOnboarding();
     }
 
@@ -1522,7 +3274,7 @@ public partial class MainWindow : Window
     {
         var result = MessageBox.Show(
             this,
-            "Você vai sair da agenda atual e voltar para a configuração inicial.\n\nOs dados atuais continuam salvos neste computador. Eles só serão substituídos se você criar outra agenda.",
+            "VocÃª vai sair da agenda atual e voltar para a configuraÃ§Ã£o inicial.\n\nOs dados atuais continuam salvos neste computador. Eles sÃ³ serÃ£o substituÃ­dos se vocÃª criar outra agenda.",
             "Sair do sistema",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,
@@ -1533,11 +3285,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        CloseSettingsModal();
         _selectedAppointment = null;
         _selectedSegmentFilter = AllSegments;
 
-        _data.Settings.BusinessName = "Balcão Livre";
+        _data.Settings.BusinessName = "BalcÃ£o Livre";
         _data.Settings.BusinessDocument = "";
         _data.Settings.BusinessPhone = "";
         _data.Settings.BusinessAddress = "";
@@ -1546,7 +3297,7 @@ public partial class MainWindow : Window
         _data.Settings.AccountEmail = "";
         _data.Settings.BusinessSegment = "";
         _data.Settings.ClientLabel = "Cliente";
-        _data.Settings.ClientDetailLabel = "Paciente / pet / veículo / preferência";
+        _data.Settings.ClientDetailLabel = "Paciente / pet / veÃ­culo / preferÃªncia";
         _data.Settings.ResourceLabel = "Sala, box ou cadeira";
         _data.Settings.WorkdayStartHour = 8;
         _data.Settings.WorkdayEndHour = 20;
@@ -1569,21 +3320,21 @@ public partial class MainWindow : Window
         ClearEditor();
         RefreshAll();
         ShowOnboarding();
-        ShowStatus("Você saiu do sistema atual. Escolha um setor para iniciar outra agenda.");
+        ShowStatus("VocÃª saiu do sistema atual. Escolha um setor para iniciar outra agenda.");
     }
 
     private void RefreshSettingsSummary()
     {
         var businessParts = new[]
         {
-            IsDefaultBusinessName(_data.Settings.BusinessName) ? "Balcão Livre" : _data.Settings.BusinessName,
+            IsDefaultBusinessName(_data.Settings.BusinessName) ? "BalcÃ£o Livre" : _data.Settings.BusinessName,
             _data.Settings.BusinessSegment,
             _data.Settings.BusinessDocument,
             _data.Settings.BusinessPhone
         }.Where(part => !string.IsNullOrWhiteSpace(part));
 
         SettingsBusinessText.Text = string.Join(" | ", businessParts);
-        ServicesCountText.Text = $"{_data.Services.Count} serviço(s) cadastrados";
+        ServicesCountText.Text = $"{_data.Services.Count} serviÃ§o(s) cadastrados";
         ProfessionalsCountText.Text = $"{_data.Professionals.Count} profissional(is) cadastrados";
         ResourcesCountText.Text = $"{_data.Settings.Resources.Count} sala(s) ou recurso(s)";
     }
@@ -1636,7 +3387,7 @@ public partial class MainWindow : Window
     private void CreateServiceButton_Click(object sender, RoutedEventArgs e)
     {
         var segment = CurrentEditorSegment();
-        var name = PromptText("Criar serviço", "Nome do serviço", "");
+        var name = PromptText("Criar serviÃ§o", "Nome do serviÃ§o", "");
         if (string.IsNullOrWhiteSpace(name))
         {
             return;
@@ -1649,7 +3400,7 @@ public partial class MainWindow : Window
         {
             ServiceCombo.SelectedItem = existing;
             RefreshSettingsSummary();
-            ShowStatus($"Serviço já existia e foi selecionado: {existing.Name}.");
+            ShowStatus($"ServiÃ§o jÃ¡ existia e foi selecionado: {existing.Name}.");
             return;
         }
 
@@ -1672,7 +3423,7 @@ public partial class MainWindow : Window
         ApplyServiceDefaults(service);
         RefreshSettingsSummary();
         RefreshAll();
-        ShowStatus($"Serviço criado: {service.Name}.");
+        ShowStatus($"ServiÃ§o criado: {service.Name}.");
     }
 
     private void CreateProfessionalButton_Click(object sender, RoutedEventArgs e)
@@ -1691,7 +3442,7 @@ public partial class MainWindow : Window
         {
             ProfessionalCombo.SelectedItem = existing;
             RefreshSettingsSummary();
-            ShowStatus($"Profissional já existia e foi selecionado: {existing.Name}.");
+            ShowStatus($"Profissional jÃ¡ existia e foi selecionado: {existing.Name}.");
             return;
         }
 
@@ -1753,11 +3504,11 @@ public partial class MainWindow : Window
 
     private static string DefaultRoleForSegment(string segment) => segment switch
     {
-        "Clínica médica" => "Profissional de saúde",
+        "ClÃ­nica mÃ©dica" => "Profissional de saÃºde",
         "Petshop" => "Atendimento pet",
-        "Mecânica" => "Mecânico",
+        "MecÃ¢nica" => "MecÃ¢nico",
         "Unha e beleza" => "Profissional de beleza",
-        "Unha e beleza + salão" => "Profissional de beleza",
+        "Unha e beleza + salÃ£o" => "Profissional de beleza",
         "Cabelo e barbearia" => "Cabeleireiro",
         _ => "Profissional"
     };
@@ -1871,7 +3622,7 @@ public partial class MainWindow : Window
 
         ApplyDraft(target, draft, target.Status == AppointmentStatus.Blocked ? AppointmentStatus.Scheduled : target.Status);
         UpsertCustomer(target);
-        SaveAndRefresh(target.Id, $"Agendamento salvo para {target.CustomerName} às {target.Start:HH:mm}.");
+        SaveAndRefresh(target.Id, $"Agendamento salvo para {target.CustomerName} Ã s {target.Start:HH:mm}.");
     }
 
     private void BlockTimeButton_Click(object sender, RoutedEventArgs e)
@@ -1892,7 +3643,7 @@ public partial class MainWindow : Window
         {
             Id = Guid.NewGuid().ToString("N"),
             Segment = draft.Segment,
-            CustomerName = "Horário bloqueado",
+            CustomerName = "HorÃ¡rio bloqueado",
             CustomerProfile = string.IsNullOrWhiteSpace(draft.Profile) ? "Bloqueio interno" : draft.Profile,
             CustomerPhone = "",
             ServiceId = "",
@@ -1904,13 +3655,13 @@ public partial class MainWindow : Window
             DurationMinutes = draft.DurationMinutes,
             Price = 0,
             Status = AppointmentStatus.Blocked,
-            Notes = string.IsNullOrWhiteSpace(draft.Notes) ? "Horário indisponível para novos agendamentos." : draft.Notes,
+            Notes = string.IsNullOrWhiteSpace(draft.Notes) ? "HorÃ¡rio indisponÃ­vel para novos agendamentos." : draft.Notes,
             CreatedAt = DateTime.Now,
             UpdatedAt = DateTime.Now
         };
 
         _data.Appointments.Add(appointment);
-        SaveAndRefresh(appointment.Id, $"Horário bloqueado em {appointment.Start:dd/MM HH:mm}.");
+        SaveAndRefresh(appointment.Id, $"HorÃ¡rio bloqueado em {appointment.Start:dd/MM HH:mm}.");
     }
 
     private void ConfirmButton_Click(object sender, RoutedEventArgs e) => SetSelectedStatus(AppointmentStatus.Confirmed);
@@ -1995,7 +3746,7 @@ public partial class MainWindow : Window
         ClearEditor();
         CloseAppointmentEditorModal();
         RefreshAll();
-        ShowStatus($"Agendamento de {removedName} excluído.");
+        ShowStatus($"Agendamento de {removedName} excluÃ­do.");
     }
 
     private void SetSelectedStatus(AppointmentStatus status)
@@ -2008,7 +3759,7 @@ public partial class MainWindow : Window
 
         if (_selectedAppointment.Status == AppointmentStatus.Blocked && status != AppointmentStatus.Cancelled)
         {
-            ShowStatus("Bloqueios podem ser cancelados ou excluídos.");
+            ShowStatus("Bloqueios podem ser cancelados ou excluÃ­dos.");
             return;
         }
 
@@ -2070,7 +3821,7 @@ public partial class MainWindow : Window
 
         if (!TryReadDuration(out var duration))
         {
-            ShowStatus("Informe uma duração válida entre 5 e 480 minutos.");
+            ShowStatus("Informe uma duraÃ§Ã£o vÃ¡lida entre 5 e 480 minutos.");
             return false;
         }
 
@@ -2084,7 +3835,7 @@ public partial class MainWindow : Window
         var service = ServiceCombo.SelectedItem as ServiceItem;
         if (!block && service is null)
         {
-            ShowStatus("Escolha um serviço.");
+            ShowStatus("Escolha um serviÃ§o.");
             return false;
         }
 
@@ -2095,10 +3846,10 @@ public partial class MainWindow : Window
             return false;
         }
 
-        var customerName = block ? "Horário bloqueado" : CustomerNameTextBox.Text.Trim();
+        var customerName = block ? "HorÃ¡rio bloqueado" : CustomerNameTextBox.Text.Trim();
         if (!block && string.IsNullOrWhiteSpace(customerName))
         {
-            ShowStatus("Informe o cliente, paciente, tutor ou veículo.");
+            ShowStatus("Informe o cliente, paciente, tutor ou veÃ­culo.");
             return false;
         }
 
@@ -2111,7 +3862,7 @@ public partial class MainWindow : Window
             }
             else if (!TryParseMoney(PriceTextBox.Text, out price))
             {
-                ShowStatus("Informe um valor válido.");
+                ShowStatus("Informe um valor vÃ¡lido.");
                 return false;
             }
         }
@@ -2187,18 +3938,18 @@ public partial class MainWindow : Window
     {
         var conflict = conflicts.OrderBy(item => item.Start).First();
         MessageBox.Show(
-            $"Horário ocupado: {conflict.Start:dd/MM HH:mm} - {conflict.End:HH:mm}\n{conflict.CustomerName}\n{conflict.ProfessionalName} / {conflict.ResourceName}",
+            $"HorÃ¡rio ocupado: {conflict.Start:dd/MM HH:mm} - {conflict.End:HH:mm}\n{conflict.CustomerName}\n{conflict.ProfessionalName} / {conflict.ResourceName}",
             "Conflito de agenda",
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
-        ShowStatus("Conflito encontrado. Escolha outro horário, profissional ou recurso.");
+        ShowStatus("Conflito encontrado. Escolha outro horÃ¡rio, profissional ou recurso.");
     }
 
     private void UpsertCustomer(Appointment appointment)
     {
         if (appointment.Status == AppointmentStatus.Blocked ||
             string.IsNullOrWhiteSpace(appointment.CustomerName) ||
-            appointment.CustomerName.Equals("Horário bloqueado", StringComparison.OrdinalIgnoreCase))
+            appointment.CustomerName.Equals("HorÃ¡rio bloqueado", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
@@ -2359,7 +4110,7 @@ public partial class MainWindow : Window
         }
 
         OpenAppointmentEditorModal();
-        ShowStatus($"Novo horário preparado para {slot.Professional.Name} às {slot.Start:HH:mm}.");
+        ShowStatus($"Novo horÃ¡rio preparado para {slot.Professional.Name} Ã s {slot.Start:HH:mm}.");
     }
 
     private void AgendaList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -2417,14 +4168,68 @@ public partial class MainWindow : Window
     private void ClearEditorButton_Click(object sender, RoutedEventArgs e)
     {
         ClearEditor();
-        ShowStatus("Formulário limpo.");
+        ShowStatus("FormulÃ¡rio limpo.");
     }
 
     private void CopySummaryButton_Click(object sender, RoutedEventArgs e)
     {
         var summary = BuildSummaryText();
         Clipboard.SetText(summary);
-        ShowStatus("Resumo do dia copiado para a área de transferência.");
+        ShowStatus("Resumo do dia copiado para a Ã¡rea de transferÃªncia.");
+    }
+
+    private void CopyReportButton_Click(object sender, RoutedEventArgs e)
+    {
+        RefreshReportsPage();
+        Clipboard.SetText(BuildReportSummaryText());
+        ShowStatus("Relatório copiado para a área de transferência.");
+    }
+
+    private void ExportReportButton_Click(object sender, RoutedEventArgs e)
+    {
+        RefreshReportsPage();
+        Clipboard.SetText(BuildReportSummaryText());
+        ShowStatus("Relatório exportado como texto para a área de transferência.");
+    }
+
+    private void PrintReportButton_Click(object sender, RoutedEventArgs e)
+    {
+        RefreshReportsPage();
+
+        var document = new FlowDocument
+        {
+            PagePadding = new Thickness(40),
+            FontFamily = new FontFamily("Segoe UI"),
+            FontSize = 12
+        };
+
+        document.Blocks.Add(new Paragraph(new Run($"{BusinessDisplayName()} - Relatórios"))
+        {
+            FontSize = 22,
+            FontWeight = FontWeights.Bold,
+            Margin = new Thickness(0, 0, 0, 8)
+        });
+
+        document.Blocks.Add(new Paragraph(new Run($"Período: {ReportsPeriodText.Text}"))
+        {
+            Foreground = MutedBrush,
+            Margin = new Thickness(0, 0, 0, 16)
+        });
+
+        AddReportSection(document, "Resumo do período", _reportsMetrics.Select(item => $"{item.Label}: {item.Value} - {item.Hint}"));
+        AddReportSection(document, "Leituras rápidas", _reportsInsights.Select(ReportListLine));
+        AddReportSection(document, $"Gráfico - {CurrentReportChartOption()}", _activeReportChartRows.Select(item => $"{item.Label}: {item.ValueText}"));
+        AddReportSection(document, "Serviços mais realizados", _reportsServices.Select(ReportListLine));
+        AddReportSection(document, "Profissionais", _reportsProfessionals.Select(ReportListLine));
+
+        var printDialog = new PrintDialog();
+        if (printDialog.ShowDialog() == true)
+        {
+            document.PageHeight = printDialog.PrintableAreaHeight;
+            document.PageWidth = printDialog.PrintableAreaWidth;
+            printDialog.PrintDocument(((IDocumentPaginatorSource)document).DocumentPaginator, "Relatórios - Balcão Livre");
+            ShowStatus("Relatório enviado para impressão.");
+        }
     }
 
     private void PrintButton_Click(object sender, RoutedEventArgs e)
@@ -2440,7 +4245,7 @@ public partial class MainWindow : Window
             FontSize = 12
         };
 
-        document.Blocks.Add(new Paragraph(new Run($"Balcão Livre - {_selectedDate:dddd, dd/MM/yyyy}"))
+        document.Blocks.Add(new Paragraph(new Run($"BalcÃ£o Livre - {_selectedDate:dddd, dd/MM/yyyy}"))
         {
             FontSize = 22,
             FontWeight = FontWeights.Bold,
@@ -2466,7 +4271,7 @@ public partial class MainWindow : Window
         var header = new TableRow { FontWeight = FontWeights.Bold, Background = AccentSoftBrush };
         AddCell(header, "Hora");
         AddCell(header, "Cliente");
-        AddCell(header, "Serviço");
+        AddCell(header, "ServiÃ§o");
         AddCell(header, "Profissional");
         AddCell(header, "Status");
         group.Rows.Add(header);
@@ -2487,8 +4292,8 @@ public partial class MainWindow : Window
         var dialog = new PrintDialog();
         if (dialog.ShowDialog() == true)
         {
-            dialog.PrintDocument(((IDocumentPaginatorSource)document).DocumentPaginator, $"Balcão Livre {_selectedDate:yyyy-MM-dd}");
-            ShowStatus("Agenda enviada para impressão.");
+            dialog.PrintDocument(((IDocumentPaginatorSource)document).DocumentPaginator, $"BalcÃ£o Livre {_selectedDate:yyyy-MM-dd}");
+            ShowStatus("Agenda enviada para impressÃ£o.");
         }
     }
 
@@ -2499,7 +4304,7 @@ public partial class MainWindow : Window
             .OrderBy(item => item.Start)
             .ToList();
 
-        builder.AppendLine($"Balcão Livre - {_selectedDate:dddd, dd/MM/yyyy}");
+        builder.AppendLine($"BalcÃ£o Livre - {_selectedDate:dddd, dd/MM/yyyy}");
         builder.AppendLine($"Filtro: {CurrentSegmentFilter()}");
         builder.AppendLine();
 
@@ -2514,6 +4319,81 @@ public partial class MainWindow : Window
         }
 
         return builder.ToString();
+    }
+
+    private string BuildReportSummaryText()
+    {
+        RefreshReportsPage();
+
+        var builder = new StringBuilder();
+        builder.AppendLine($"{BusinessDisplayName()} - Relatórios");
+        builder.AppendLine($"Período: {ReportsPeriodText.Text}");
+        builder.AppendLine();
+
+        builder.AppendLine("Resumo do período");
+        foreach (var metric in _reportsMetrics)
+        {
+            builder.AppendLine($"{metric.Label}: {metric.Value} - {metric.Hint}");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Leituras rápidas");
+        foreach (var insight in _reportsInsights)
+        {
+            builder.AppendLine(ReportListLine(insight));
+        }
+
+        builder.AppendLine();
+        builder.AppendLine($"Gráfico - {CurrentReportChartOption()}");
+        foreach (var row in _activeReportChartRows)
+        {
+            builder.AppendLine($"{row.Label}: {row.ValueText}");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Serviços mais realizados");
+        foreach (var service in _reportsServices)
+        {
+            builder.AppendLine(ReportListLine(service));
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Profissionais");
+        foreach (var professional in _reportsProfessionals)
+        {
+            builder.AppendLine(ReportListLine(professional));
+        }
+
+        return builder.ToString();
+    }
+
+    private static string ReportListLine(EstablishmentListRow row) =>
+        $"{row.Name}: {row.Detail} ({row.BadgeText})";
+
+    private static void AddReportSection(FlowDocument document, string title, IEnumerable<string> lines)
+    {
+        document.Blocks.Add(new Paragraph(new Run(title))
+        {
+            FontSize = 16,
+            FontWeight = FontWeights.Bold,
+            Margin = new Thickness(0, 10, 0, 6)
+        });
+
+        var list = new List
+        {
+            MarkerStyle = TextMarkerStyle.Disc,
+            Margin = new Thickness(16, 0, 0, 8)
+        };
+
+        foreach (var line in lines)
+        {
+            list.ListItems.Add(new ListItem(new Paragraph(new Run(line)))
+            {
+                Margin = new Thickness(0, 0, 0, 2)
+            });
+        }
+
+        document.Blocks.Add(list);
     }
 
     private static void AddCell(TableRow row, string text)
@@ -2639,6 +4519,53 @@ public partial class MainWindow : Window
 
     public sealed record MetricRow(string Label, string Value, string Hint, Brush Background);
 
+    public sealed record HomeMetricRow(string Label, string Value, string Hint, Brush Background);
+
+    public sealed record HomeAgendaSummaryRow(string Time, string CustomerName, string ServiceName, string StatusText, Brush StatusBackground, Brush StatusForeground);
+
+    public sealed record HomeServiceRow(string Name, string CountText);
+
+    public sealed record HomeCustomerSummaryRow(string Name, string Detail);
+
+    public sealed record HomeAlertRow(string Title, string Detail, PackIconKind Icon, Brush AccentBrush, Brush Background, Brush BorderBrush);
+
+    public sealed record HomeFinanceBarRow(string Label, string ValueText, double Percent);
+
+    public sealed record ReportChartRow(
+        string Label,
+        decimal Value,
+        string ValueText,
+        double Percent,
+        Brush AccentBrush,
+        Brush BackgroundBrush);
+
+    public sealed record EstablishmentMetricRow(string Label, string Value, string Hint, Brush Background);
+
+    public sealed record EstablishmentSectionRow(
+        string Title,
+        string CountText,
+        string Description,
+        string ActionText,
+        PackIconKind Icon,
+        Brush AccentBrush,
+        Brush IconBackground);
+
+    public sealed record EstablishmentListRow(
+        string Name,
+        string Detail,
+        string BadgeText,
+        Brush BadgeBackground,
+        Brush BadgeForeground);
+
+    public sealed record MarketingContactRow(
+        string Name,
+        string Detail,
+        string Phone,
+        string BadgeText,
+        string MessagePreview,
+        Brush BadgeBackground,
+        Brush BadgeForeground);
+
     public sealed record ProfessionalDayRow(string Name, string SegmentLine, string LoadText, Brush LoadBrush);
 
     public sealed record RecentCustomerRow(string Name, string Detail);
@@ -2667,22 +4594,22 @@ public partial class MainWindow : Window
         public override string ToString() => Title;
 
         public const string NailsSegment = "Unha e beleza";
-        public const string IntegratedBeautySegment = "Unha e beleza + salão";
-        public const string SalonTitle = "Cabelo / salão";
+        public const string IntegratedBeautySegment = "Unha e beleza + salÃ£o";
+        public const string SalonTitle = "Cabelo / salÃ£o";
 
         public static OnboardingTemplate CreateIntegratedBeauty() =>
             new(
-                "Unha / beleza + salão",
+                "Unha / beleza + salÃ£o",
                 IntegratedBeautySegment,
                 "Meu studio integrado",
-                "Cria uma agenda única para unha, design, cabelo, escova, coloração, lavatório, cadeiras e profissionais do salão.",
+                "Cria uma agenda Ãºnica para unha, design, cabelo, escova, coloraÃ§Ã£o, lavatÃ³rio, cadeiras e profissionais do salÃ£o.",
                 "Cliente: Camila | Alongamento + escova | Mesa 2 / Cadeira 1",
                 "Cliente",
-                "Preferência / química / alergia / estilo",
-                "Mesa, cadeira ou lavatório",
+                "PreferÃªncia / quÃ­mica / alergia / estilo",
+                "Mesa, cadeira ou lavatÃ³rio",
                 9,
                 20,
-                ["Mesa 1", "Mesa 2", "Cadeira 1", "Cadeira 2", "Lavatório", "Coloração"],
+                ["Mesa 1", "Mesa 2", "Cadeira 1", "Cadeira 2", "LavatÃ³rio", "ColoraÃ§Ã£o"],
                 [
                     new("Manicure", 45, 55, "Mesa 1"),
                     new("Pedicure", 45, 60, "Mesa 1"),
@@ -2690,8 +4617,8 @@ public partial class MainWindow : Window
                     new("Sobrancelha", 30, 45, "Mesa 2"),
                     new("Escova", 45, 70, "Cadeira 1"),
                     new("Corte feminino", 50, 90, "Cadeira 1"),
-                    new("Coloração", 120, 240, "Coloração"),
-                    new("Hidratação", 60, 120, "Lavatório")
+                    new("ColoraÃ§Ã£o", 120, 240, "ColoraÃ§Ã£o"),
+                    new("HidrataÃ§Ã£o", 60, 120, "LavatÃ³rio")
                 ],
                 [
                     new("Manicure 1", "Manicure"),
@@ -2703,79 +4630,79 @@ public partial class MainWindow : Window
         public static IReadOnlyList<OnboardingTemplate> CreateDefaults() =>
         [
             new(
-                "Clínica médica",
-                "Clínica médica",
-                "Minha clínica",
-                "Controla paciente, prontuário, profissional, sala, consulta, retorno, encaixe e chegada.",
-                "Paciente: Maria Souza | Prontuário 0321 | Consulta médica | Consultório 1",
+                "ClÃ­nica mÃ©dica",
+                "ClÃ­nica mÃ©dica",
+                "Minha clÃ­nica",
+                "Controla paciente, prontuÃ¡rio, profissional, sala, consulta, retorno, encaixe e chegada.",
+                "Paciente: Maria Souza | ProntuÃ¡rio 0321 | Consulta mÃ©dica | ConsultÃ³rio 1",
                 "Paciente",
-                "Prontuário / convênio / motivo",
-                "Sala ou consultório",
+                "ProntuÃ¡rio / convÃªnio / motivo",
+                "Sala ou consultÃ³rio",
                 8,
                 18,
-                ["Consultório 1", "Consultório 2", "Sala de exames"],
+                ["ConsultÃ³rio 1", "ConsultÃ³rio 2", "Sala de exames"],
                 [
-                    new("Consulta médica", 45, 180, "Consultório 1"),
-                    new("Retorno", 30, 90, "Consultório 1"),
+                    new("Consulta mÃ©dica", 45, 180, "ConsultÃ³rio 1"),
+                    new("Retorno", 30, 90, "ConsultÃ³rio 1"),
                     new("Exame simples", 30, 120, "Sala de exames"),
-                    new("Encaixe", 20, 80, "Consultório 2")
+                    new("Encaixe", 20, 80, "ConsultÃ³rio 2")
                 ],
                 [
-                    new("Profissional 1", "Médico"),
-                    new("Profissional 2", "Médico")
+                    new("Profissional 1", "MÃ©dico"),
+                    new("Profissional 2", "MÃ©dico")
                 ]),
             new(
                 "Petshop",
                 "Petshop",
                 "Meu petshop",
-                "Controla tutor, pet, raça, porte, banho, tosa, vacinação, veterinário e baia de espera.",
-                "Tutor: João | Pet: Nina, Spitz | Banho e tosa | Tosa 1",
+                "Controla tutor, pet, raÃ§a, porte, banho, tosa, vacinaÃ§Ã£o, veterinÃ¡rio e baia de espera.",
+                "Tutor: JoÃ£o | Pet: Nina, Spitz | Banho e tosa | Tosa 1",
                 "Tutor / pet",
-                "Raça / porte / observação do pet",
+                "RaÃ§a / porte / observaÃ§Ã£o do pet",
                 "Sala, baia ou mesa",
                 8,
                 19,
-                ["Banho 1", "Tosa 1", "Sala veterinária", "Baia de espera"],
+                ["Banho 1", "Tosa 1", "Sala veterinÃ¡ria", "Baia de espera"],
                 [
                     new("Banho", 60, 70, "Banho 1"),
                     new("Banho e tosa", 90, 110, "Tosa 1"),
-                    new("Consulta veterinária", 40, 160, "Sala veterinária"),
-                    new("Vacinação", 25, 85, "Sala veterinária")
+                    new("Consulta veterinÃ¡ria", 40, 160, "Sala veterinÃ¡ria"),
+                    new("VacinaÃ§Ã£o", 25, 85, "Sala veterinÃ¡ria")
                 ],
                 [
                     new("Tosador 1", "Banho e tosa"),
-                    new("Veterinário 1", "Veterinário")
+                    new("VeterinÃ¡rio 1", "VeterinÃ¡rio")
                 ]),
             new(
-                "Mecânica",
-                "Mecânica",
+                "MecÃ¢nica",
+                "MecÃ¢nica",
                 "Minha oficina",
-                "Controla cliente, veículo, placa, problema relatado, box, diagnóstico, revisão e entrega.",
-                "Cliente: Lucas | Veículo: Onix ABC1D23 | Troca de óleo | Box 1",
-                "Cliente / veículo",
+                "Controla cliente, veÃ­culo, placa, problema relatado, box, diagnÃ³stico, revisÃ£o e entrega.",
+                "Cliente: Lucas | VeÃ­culo: Onix ABC1D23 | Troca de Ã³leo | Box 1",
+                "Cliente / veÃ­culo",
                 "Placa / modelo / problema",
                 "Box ou elevador",
                 8,
                 18,
-                ["Box 1", "Box 2", "Elevador 1", "Diagnóstico"],
+                ["Box 1", "Box 2", "Elevador 1", "DiagnÃ³stico"],
                 [
-                    new("Diagnóstico", 60, 120, "Diagnóstico"),
-                    new("Troca de óleo", 45, 90, "Box 1"),
-                    new("Revisão completa", 150, 420, "Box 2"),
+                    new("DiagnÃ³stico", 60, 120, "DiagnÃ³stico"),
+                    new("Troca de Ã³leo", 45, 90, "Box 1"),
+                    new("RevisÃ£o completa", 150, 420, "Box 2"),
                     new("Alinhamento", 50, 130, "Elevador 1")
                 ],
                 [
-                    new("Mecânico 1", "Mecânico"),
-                    new("Consultor técnico", "Recepção técnica")
+                    new("MecÃ¢nico 1", "MecÃ¢nico"),
+                    new("Consultor tÃ©cnico", "RecepÃ§Ã£o tÃ©cnica")
                 ]),
             new(
                 "Barbearia",
                 "Cabelo e barbearia",
                 "Minha barbearia",
-                "Controla cliente, preferência de corte, barbeiro, cadeira, barba, cabelo e combos.",
-                "Cliente: André | Degradê baixo | Corte + barba | Cadeira 1",
+                "Controla cliente, preferÃªncia de corte, barbeiro, cadeira, barba, cabelo e combos.",
+                "Cliente: AndrÃ© | DegradÃª baixo | Corte + barba | Cadeira 1",
                 "Cliente",
-                "Estilo / preferência / observação",
+                "Estilo / preferÃªncia / observaÃ§Ã£o",
                 "Cadeira",
                 9,
                 20,
@@ -2793,20 +4720,20 @@ public partial class MainWindow : Window
             new(
                 SalonTitle,
                 "Cabelo e barbearia",
-                "Meu salão",
-                "Controla cliente, histórico, química, cadeira, lavatório, escova, coloração e tratamentos.",
-                "Cliente: Patrícia | Coloração sem amônia | Colorista 1 | Cadeira 2",
+                "Meu salÃ£o",
+                "Controla cliente, histÃ³rico, quÃ­mica, cadeira, lavatÃ³rio, escova, coloraÃ§Ã£o e tratamentos.",
+                "Cliente: PatrÃ­cia | ColoraÃ§Ã£o sem amÃ´nia | Colorista 1 | Cadeira 2",
                 "Cliente",
-                "Preferência / química / histórico",
-                "Cadeira ou lavatório",
+                "PreferÃªncia / quÃ­mica / histÃ³rico",
+                "Cadeira ou lavatÃ³rio",
                 9,
                 20,
-                ["Cadeira 1", "Cadeira 2", "Lavatorio", "Coloração"],
+                ["Cadeira 1", "Cadeira 2", "Lavatorio", "ColoraÃ§Ã£o"],
                 [
                     new("Escova", 45, 70, "Cadeira 1"),
                     new("Corte feminino", 50, 90, "Cadeira 1"),
-                    new("Coloração", 120, 240, "Coloração"),
-                    new("Hidratação", 60, 120, "Lavatorio")
+                    new("ColoraÃ§Ã£o", 120, 240, "ColoraÃ§Ã£o"),
+                    new("HidrataÃ§Ã£o", 60, 120, "Lavatorio")
                 ],
                 [
                     new("Cabeleireiro 1", "Cabeleireiro"),
@@ -2816,10 +4743,10 @@ public partial class MainWindow : Window
                 "Unha / beleza",
                 "Unha e beleza",
                 "Meu studio de beleza",
-                "Controla cliente, preferência, alergias, mesa, manicure, pedicure, alongamento e design.",
+                "Controla cliente, preferÃªncia, alergias, mesa, manicure, pedicure, alongamento e design.",
                 "Cliente: Camila | Alongamento almond | Mesa 2",
                 "Cliente",
-                "Preferência / alergia / estilo",
+                "PreferÃªncia / alergia / estilo",
                 "Mesa ou cadeira",
                 9,
                 20,

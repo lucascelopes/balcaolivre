@@ -64,9 +64,11 @@
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter Property="Background" Value="{StaticResource AccentDark}"/>
                                 <Setter Property="BorderBrush" Value="{StaticResource AccentDark}"/>
+                                <Setter Property="Foreground" Value="White"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter Property="Opacity" Value="0.86"/>
+                                <Setter Property="Foreground" Value="White"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.45"/>
@@ -133,7 +135,66 @@
         </Style>
 
         <Style x:Key="SidebarMenuButtonActive" TargetType="Button" BasedOn="{StaticResource SidebarMenuButton}">
-            <Setter Property="Background" Value="#0F172A"/>
+            <Setter Property="Background" Value="#F3F8FF"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="10"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#EAF2FF"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Opacity" Value="0.88"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SidebarIconButton" TargetType="Button" BasedOn="{StaticResource SidebarMenuButton}">
+            <Setter Property="Width" Value="48"/>
+            <Setter Property="Height" Value="44"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+
+        <Style x:Key="SidebarIconButtonActive" TargetType="Button" BasedOn="{StaticResource SidebarIconButton}">
+            <Setter Property="Background" Value="#F3F8FF"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="10"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#EAF2FF"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Opacity" Value="0.88"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource CommandButton}">
@@ -566,6 +627,274 @@
                 </StackPanel>
             </Border>
         </DataTemplate>
+
+        <DataTemplate x:Key="HomeMetricTemplate">
+            <Border Background="{Binding Background}"
+                    BorderBrush="#DDE7F4"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Padding="10"
+                    HorizontalAlignment="Stretch"
+                    MinHeight="74"
+                    Margin="0,0,8,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="{Binding Label}" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Grid.Row="1" Text="{Binding Value}" Foreground="{StaticResource Ink}" FontSize="21" FontWeight="Bold" Margin="0,4,0,1"/>
+                    <TextBlock Grid.Row="2" Text="{Binding Hint}" Foreground="{StaticResource Muted}" FontSize="10" TextWrapping="Wrap"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="HomeAgendaTemplate">
+            <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="56"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding Time}" Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                        <TextBlock Text="{Binding CustomerName}" Foreground="{StaticResource Ink}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding ServiceName}" Foreground="{StaticResource Muted}" FontSize="12" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                    </StackPanel>
+                    <Border Grid.Column="2" Background="{Binding StatusBackground}" CornerRadius="14" Padding="8,4" VerticalAlignment="Center" HorizontalAlignment="Right">
+                        <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusForeground}" FontSize="10.5" FontWeight="Bold"/>
+                    </Border>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="HomeServiceTemplate">
+            <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource Ink}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                    <Border Grid.Column="1" Background="#EAF2FF" CornerRadius="12" Padding="9,3">
+                        <TextBlock Text="{Binding CountText}" Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="11"/>
+                    </Border>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="HomeCustomerTemplate">
+            <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="{Binding Name}" Foreground="{StaticResource Ink}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding Detail}" Foreground="{StaticResource Muted}" FontSize="12" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="Abrir" Style="{StaticResource SubtleButton}" MinWidth="58" Height="30" Padding="8,0" Click="OpenHomeCustomerButton_Click"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="HomeAlertTemplate">
+            <Border Background="{Binding Background}" BorderBrush="{Binding BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="28"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <materialDesign:PackIcon Kind="{Binding Icon}" Foreground="{Binding AccentBrush}" Width="18" Height="18" VerticalAlignment="Top" Margin="0,2,0,0"/>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="{Binding Title}" Foreground="{StaticResource Ink}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Detail}" Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="HomeFinanceBarTemplate">
+            <StackPanel Margin="0,0,0,10">
+                <Grid Margin="0,0,0,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding Label}" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBlock Grid.Column="1" Text="{Binding ValueText}" Foreground="{StaticResource Ink}" FontSize="12" FontWeight="Bold"/>
+                </Grid>
+                <ProgressBar Height="8" Maximum="100" Value="{Binding Percent}" Foreground="{StaticResource Accent}" Background="#EAF2FF"/>
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="ReportColumnChartTemplate">
+            <Border Background="#F8FBFF"
+                    BorderBrush="#DDE7F4"
+                    BorderThickness="1"
+                    CornerRadius="14"
+                    Padding="10,12"
+                    Margin="4,0"
+                    MinWidth="76"
+                    MinHeight="208">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="12" Padding="8,4" HorizontalAlignment="Center" Margin="0,0,0,8">
+                        <TextBlock Text="{Binding ValueText}" Foreground="{StaticResource Ink}" FontSize="12" FontWeight="Bold" TextAlignment="Center"/>
+                    </Border>
+                    <Grid Grid.Row="1" Height="126" VerticalAlignment="Bottom">
+                        <Border Width="22" Background="#EAF1FF" CornerRadius="12" HorizontalAlignment="Center"/>
+                        <ProgressBar Orientation="Vertical"
+                                     Width="22"
+                                     Maximum="100"
+                                     Value="{Binding Percent}"
+                                     Foreground="{StaticResource Accent}"
+                                     Background="Transparent"
+                                     BorderThickness="0"
+                                     HorizontalAlignment="Center"/>
+                    </Grid>
+                    <TextBlock Grid.Row="2"
+                               Text="{Binding Label}"
+                               Foreground="{StaticResource Muted}"
+                               FontSize="11"
+                               FontWeight="SemiBold"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap"
+                               Margin="0,10,0,0"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="ReportLegendTemplate">
+            <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="10" Padding="9" Margin="0,0,0,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="18"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Ellipse Width="10" Height="10" Fill="{Binding AccentBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{Binding Label}" Foreground="{StaticResource Ink}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="4,0,10,0"/>
+                    <TextBlock Grid.Column="2" Text="{Binding ValueText}" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="Bold" VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="ReportRankingChartTemplate">
+            <Border Background="{Binding BackgroundBrush}" BorderBrush="#DDE7F4" BorderThickness="1" CornerRadius="12" Padding="12" Margin="0,0,0,9">
+                <StackPanel>
+                    <Grid Margin="0,0,0,7">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding Label}" Foreground="{StaticResource Ink}" FontSize="14" FontWeight="Bold" TextWrapping="Wrap"/>
+                        <TextBlock Grid.Column="1" Text="{Binding ValueText}" Foreground="{Binding AccentBrush}" FontSize="13" FontWeight="Bold" Margin="12,0,0,0"/>
+                    </Grid>
+                    <ProgressBar Height="10" Maximum="100" Value="{Binding Percent}" Foreground="{Binding AccentBrush}" Background="#FFFFFF"/>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="EstablishmentMetricTemplate">
+            <Border Background="{Binding Background}"
+                    BorderBrush="#DDE7F4"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Padding="12"
+                    MinHeight="78"
+                    Margin="0,0,8,0">
+                <StackPanel>
+                    <TextBlock Text="{Binding Label}" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding Value}" Foreground="{StaticResource Ink}" FontSize="22" FontWeight="Bold" Margin="0,5,0,1"/>
+                    <TextBlock Text="{Binding Hint}" Foreground="{StaticResource Muted}" FontSize="10.5" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="EstablishmentSectionTemplate">
+            <Border Background="#FFFFFF" BorderBrush="#DDE7F4" BorderThickness="1" CornerRadius="12" Padding="12" Margin="0,0,10,10">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="42"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Width="34" Height="34" Background="{Binding IconBackground}" CornerRadius="10">
+                            <materialDesign:PackIcon Kind="{Binding Icon}" Foreground="{Binding AccentBrush}" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                            <TextBlock Text="{Binding Title}" Foreground="{StaticResource Ink}" FontSize="15" FontWeight="Bold" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding CountText}" Foreground="{Binding AccentBrush}" FontSize="12" FontWeight="SemiBold" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock Grid.Row="1" Text="{Binding Description}" Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,10,0,12"/>
+                    <Button Grid.Row="2" Content="{Binding ActionText}" Style="{StaticResource GhostButton}" Height="32" Click="OpenEstablishmentSectionButton_Click"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="EstablishmentListTemplate">
+            <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Margin="0,0,10,0">
+                        <TextBlock Text="{Binding Name}" Foreground="{StaticResource Ink}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Detail}" Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                    </StackPanel>
+                    <Border Grid.Column="1" Background="{Binding BadgeBackground}" CornerRadius="12" Padding="9,4" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding BadgeText}" Foreground="{Binding BadgeForeground}" FontSize="11" FontWeight="Bold"/>
+                    </Border>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="MarketingContactTemplate">
+            <Border Background="#FFFFFF" BorderBrush="#DCE7F7" BorderThickness="1" CornerRadius="14" Padding="12" Margin="0,0,0,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="42"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Width="34" Height="34" Background="{Binding BadgeBackground}" CornerRadius="12" VerticalAlignment="Top">
+                        <materialDesign:PackIcon Kind="Whatsapp" Foreground="{Binding BadgeForeground}" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="8,0,12,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding Name}" Foreground="{StaticResource Ink}" FontSize="14.5" FontWeight="Bold" TextWrapping="Wrap"/>
+                            <Border Grid.Column="1" Background="{Binding BadgeBackground}" CornerRadius="14" Padding="8,3" Margin="8,0,0,0">
+                                <TextBlock Text="{Binding BadgeText}" Foreground="{Binding BadgeForeground}" FontSize="10.5" FontWeight="Bold"/>
+                            </Border>
+                        </Grid>
+                        <TextBlock Text="{Binding Detail}" Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,3,0,8"/>
+                        <Border Background="#F8FBFF" BorderBrush="#E4ECF8" BorderThickness="1" CornerRadius="10" Padding="9">
+                            <TextBlock Text="{Binding MessagePreview}" Foreground="{StaticResource Ink}" FontSize="12" TextWrapping="Wrap"/>
+                        </Border>
+                    </StackPanel>
+                    <Button Grid.Column="2" Content="Abrir" Style="{StaticResource SubtleButton}" Height="32" MinWidth="72" Padding="10,0" VerticalAlignment="Top" Click="OpenMarketingWhatsAppButton_Click"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
     </Window.Resources>
 
     <Grid>
@@ -679,11 +1008,11 @@
 
         <Grid Grid.Row="1" Margin="0" Background="#F5F7FB">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="230"/>
+                <ColumnDefinition x:Name="SidebarColumn" Width="230"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" Background="#2563EB">
+            <Border x:Name="SidebarExpandedPanel" Grid.Column="0" Background="#2563EB">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -709,111 +1038,101 @@
                     </StackPanel>
 
                     <StackPanel Grid.Row="1" Margin="8,0,8,0">
-                        <Button Style="{StaticResource SidebarMenuButton}">
+                        <Button x:Name="HomeSidebarButton" Style="{StaticResource SidebarMenuButtonActive}" Click="HomeSidebarButton_Click">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="30"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <materialDesign:PackIcon Kind="Home" Foreground="#EFF6FF" Width="20" Height="20" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Text="Home" Foreground="#EFF6FF" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                <materialDesign:PackIcon x:Name="HomeSidebarIcon" Kind="Home" Foreground="#0F172A" Width="20" Height="20" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="HomeSidebarText" Grid.Column="1" Text="Home" Foreground="#0F172A" FontWeight="Bold" VerticalAlignment="Center"/>
                             </Grid>
                         </Button>
+                        <Border Height="1" Background="#60A5FA" Opacity="0.28" Margin="16,2,16,6"/>
 
-                        <Button Style="{StaticResource SidebarMenuButtonActive}">
+                        <Button x:Name="AgendaSidebarButton" Style="{StaticResource SidebarMenuButton}" Click="AgendaSidebarButton_Click">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="30"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <materialDesign:PackIcon Kind="CalendarMonth" Foreground="#FFFFFF" Width="20" Height="20" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Text="Agenda" Foreground="#FFFFFF" FontWeight="Bold" VerticalAlignment="Center"/>
-                                <materialDesign:PackIcon Grid.Column="2" Kind="ChevronDown" Foreground="#93C5FD" Width="18" Height="18" VerticalAlignment="Center"/>
+                                <materialDesign:PackIcon x:Name="AgendaSidebarIcon" Kind="CalendarMonth" Foreground="#EFF6FF" Width="20" Height="20" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="AgendaSidebarText" Grid.Column="1" Text="Agenda" Foreground="#EFF6FF" FontWeight="SemiBold" VerticalAlignment="Center"/>
                             </Grid>
                         </Button>
+                        <Border Height="1" Background="#60A5FA" Opacity="0.28" Margin="16,2,16,6"/>
 
-                        <Button Style="{StaticResource SidebarMenuButton}">
+                        <Button x:Name="EstablishmentSidebarButton" Style="{StaticResource SidebarMenuButton}" Click="EstablishmentSidebarButton_Click">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="30"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <materialDesign:PackIcon Kind="Store" Foreground="#EFF6FF" Width="20" Height="20" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Text="Meu estabelecimento" Foreground="#EFF6FF" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                <materialDesign:PackIcon Grid.Column="2" Kind="ChevronDown" Foreground="#BFDBFE" Width="18" Height="18" VerticalAlignment="Center"/>
+                                <materialDesign:PackIcon x:Name="EstablishmentSidebarIcon" Kind="Store" Foreground="#EFF6FF" Width="20" Height="20" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="EstablishmentSidebarText" Grid.Column="1" Text="Meu estabelecimento" Foreground="#EFF6FF" FontWeight="SemiBold" VerticalAlignment="Center"/>
                             </Grid>
                         </Button>
+                        <Border Height="1" Background="#60A5FA" Opacity="0.28" Margin="16,2,16,6"/>
 
-                        <Button Style="{StaticResource SidebarMenuButton}">
+                        <Button x:Name="FinanceSidebarButton" Style="{StaticResource SidebarMenuButton}" Click="FinanceSidebarButton_Click">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="30"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <materialDesign:PackIcon Kind="CurrencyUsd" Foreground="#EFF6FF" Width="20" Height="20" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Text="Financeiro" Foreground="#EFF6FF" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                <materialDesign:PackIcon Grid.Column="2" Kind="ChevronDown" Foreground="#BFDBFE" Width="18" Height="18" VerticalAlignment="Center"/>
+                                <materialDesign:PackIcon x:Name="FinanceSidebarIcon" Kind="CurrencyUsd" Foreground="#EFF6FF" Width="20" Height="20" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="FinanceSidebarText" Grid.Column="1" Text="Financeiro" Foreground="#EFF6FF" FontWeight="SemiBold" VerticalAlignment="Center"/>
                             </Grid>
                         </Button>
+                        <Border Height="1" Background="#60A5FA" Opacity="0.28" Margin="16,2,16,6"/>
 
-                        <Button Style="{StaticResource SidebarMenuButton}">
+                        <Button x:Name="ReportsSidebarButton" Style="{StaticResource SidebarMenuButton}" Click="ReportsSidebarButton_Click">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="30"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <materialDesign:PackIcon Kind="ChartLine" Foreground="#EFF6FF" Width="20" Height="20" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Text="Relatórios" Foreground="#EFF6FF" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                <materialDesign:PackIcon Grid.Column="2" Kind="ChevronDown" Foreground="#BFDBFE" Width="18" Height="18" VerticalAlignment="Center"/>
+                                <materialDesign:PackIcon x:Name="ReportsSidebarIcon" Kind="ChartLine" Foreground="#EFF6FF" Width="20" Height="20" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="ReportsSidebarText" Grid.Column="1" Text="Relatórios" Foreground="#EFF6FF" FontWeight="SemiBold" VerticalAlignment="Center"/>
                             </Grid>
                         </Button>
+                        <Border Height="1" Background="#60A5FA" Opacity="0.28" Margin="16,2,16,6"/>
 
-                        <Button Style="{StaticResource SidebarMenuButton}">
+                        <Button x:Name="MarketingSidebarButton" Style="{StaticResource SidebarMenuButton}" Click="MarketingSidebarButton_Click">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="30"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <materialDesign:PackIcon Kind="Bullhorn" Foreground="#EFF6FF" Width="20" Height="20" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Text="Marketing" Foreground="#EFF6FF" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                <materialDesign:PackIcon Grid.Column="2" Kind="ChevronDown" Foreground="#BFDBFE" Width="18" Height="18" VerticalAlignment="Center"/>
+                                <materialDesign:PackIcon x:Name="MarketingSidebarIcon" Kind="Bullhorn" Foreground="#EFF6FF" Width="20" Height="20" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="MarketingSidebarText" Grid.Column="1" Text="Marketing" Foreground="#EFF6FF" FontWeight="SemiBold" VerticalAlignment="Center"/>
                             </Grid>
                         </Button>
+                        <Border Height="1" Background="#60A5FA" Opacity="0.28" Margin="16,2,16,6"/>
 
-                        <Button Style="{StaticResource SidebarMenuButton}" Click="ConfigButton_Click">
+                        <Button x:Name="SettingsSidebarButton" Style="{StaticResource SidebarMenuButton}" Click="ConfigButton_Click">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="30"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <materialDesign:PackIcon Kind="Cog" Foreground="#EFF6FF" Width="20" Height="20" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Text="Configurações" Foreground="#EFF6FF" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                <materialDesign:PackIcon Grid.Column="2" Kind="ChevronDown" Foreground="#BFDBFE" Width="18" Height="18" VerticalAlignment="Center"/>
-                            </Grid>
-                        </Button>
-
-                        <Button Style="{StaticResource SidebarMenuButton}">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="30"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <materialDesign:PackIcon Kind="CalendarCheck" Foreground="#EFF6FF" Width="20" Height="20" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Text="Balcão online" Foreground="#EFF6FF" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                <materialDesign:PackIcon x:Name="SettingsSidebarIcon" Kind="Cog" Foreground="#EFF6FF" Width="20" Height="20" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="SettingsSidebarText" Grid.Column="1" Text="Configurações" Foreground="#EFF6FF" FontWeight="SemiBold" VerticalAlignment="Center"/>
                             </Grid>
                         </Button>
                     </StackPanel>
 
                     <Button Grid.Row="2"
                             Style="{StaticResource SidebarMenuButton}"
-                            Margin="8,0,8,16"
-                            Background="#1D4ED8">
+                            Margin="8,20,8,16"
+                            Background="#1D4ED8"
+                            Click="ToggleSidebarButton_Click">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
@@ -826,7 +1145,873 @@
                 </Grid>
             </Border>
 
-            <Grid Grid.Column="1" Margin="20,18,20,18">
+            <Border x:Name="SidebarCollapsedPanel"
+                    Grid.Column="0"
+                    Background="#2563EB"
+                    Visibility="Collapsed">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0"
+                            Width="46"
+                            Height="46"
+                            Background="#FFFFFF"
+                            CornerRadius="14"
+                            HorizontalAlignment="Center"
+                            Margin="0,16,0,18">
+                        <Grid>
+                            <TextBlock Text="BL"
+                                       Foreground="#0F172A"
+                                       FontFamily="Segoe UI Black"
+                                       FontSize="17"
+                                       FontWeight="Black"
+                                       HorizontalAlignment="Left"
+                                       VerticalAlignment="Center"
+                                       Margin="8,-1,0,0"/>
+                            <materialDesign:PackIcon Kind="ReceiptText"
+                                                     Foreground="#2563EB"
+                                                     Width="16"
+                                                     Height="16"
+                                                     HorizontalAlignment="Right"
+                                                     VerticalAlignment="Center"
+                                                     Margin="0,0,6,0"/>
+                        </Grid>
+                    </Border>
+
+                    <StackPanel Grid.Row="1" HorizontalAlignment="Center">
+                        <Button x:Name="HomeCollapsedButton" Style="{StaticResource SidebarIconButtonActive}" ToolTip="Home" Click="HomeSidebarButton_Click">
+                            <materialDesign:PackIcon x:Name="HomeCollapsedIcon" Kind="Home" Foreground="#0F172A" Width="21" Height="21"/>
+                        </Button>
+                        <Border Height="1" Width="28" Background="#60A5FA" Opacity="0.32" Margin="0,2,0,6"/>
+
+                        <Button x:Name="AgendaCollapsedButton" Style="{StaticResource SidebarIconButton}" ToolTip="Agenda" Click="AgendaSidebarButton_Click">
+                            <materialDesign:PackIcon x:Name="AgendaCollapsedIcon" Kind="CalendarMonth" Foreground="#EFF6FF" Width="21" Height="21"/>
+                        </Button>
+                        <Border Height="1" Width="28" Background="#60A5FA" Opacity="0.32" Margin="0,2,0,6"/>
+
+                        <Button x:Name="EstablishmentCollapsedButton" Style="{StaticResource SidebarIconButton}" ToolTip="Meu estabelecimento" Click="EstablishmentSidebarButton_Click">
+                            <materialDesign:PackIcon x:Name="EstablishmentCollapsedIcon" Kind="Store" Foreground="#EFF6FF" Width="21" Height="21"/>
+                        </Button>
+                        <Border Height="1" Width="28" Background="#60A5FA" Opacity="0.32" Margin="0,2,0,6"/>
+
+                        <Button x:Name="FinanceCollapsedButton" Style="{StaticResource SidebarIconButton}" ToolTip="Financeiro" Click="FinanceSidebarButton_Click">
+                            <materialDesign:PackIcon x:Name="FinanceCollapsedIcon" Kind="CurrencyUsd" Foreground="#EFF6FF" Width="21" Height="21"/>
+                        </Button>
+                        <Border Height="1" Width="28" Background="#60A5FA" Opacity="0.32" Margin="0,2,0,6"/>
+
+                        <Button x:Name="ReportsCollapsedButton" Style="{StaticResource SidebarIconButton}" ToolTip="Relatórios" Click="ReportsSidebarButton_Click">
+                            <materialDesign:PackIcon x:Name="ReportsCollapsedIcon" Kind="ChartLine" Foreground="#EFF6FF" Width="21" Height="21"/>
+                        </Button>
+                        <Border Height="1" Width="28" Background="#60A5FA" Opacity="0.32" Margin="0,2,0,6"/>
+
+                        <Button x:Name="MarketingCollapsedButton" Style="{StaticResource SidebarIconButton}" ToolTip="Marketing" Click="MarketingSidebarButton_Click">
+                            <materialDesign:PackIcon x:Name="MarketingCollapsedIcon" Kind="Bullhorn" Foreground="#EFF6FF" Width="21" Height="21"/>
+                        </Button>
+                        <Border Height="1" Width="28" Background="#60A5FA" Opacity="0.32" Margin="0,2,0,6"/>
+
+                        <Button x:Name="SettingsCollapsedButton" Style="{StaticResource SidebarIconButton}" ToolTip="Configurações" Click="ConfigButton_Click">
+                            <materialDesign:PackIcon x:Name="SettingsCollapsedIcon" Kind="Cog" Foreground="#EFF6FF" Width="21" Height="21"/>
+                        </Button>
+                    </StackPanel>
+
+                    <Button Grid.Row="2"
+                            Style="{StaticResource SidebarIconButton}"
+                            Background="#1D4ED8"
+                            Margin="0,20,0,16"
+                            HorizontalAlignment="Center"
+                            ToolTip="Abrir menu"
+                            Click="ToggleSidebarButton_Click">
+                        <materialDesign:PackIcon Kind="ChevronRight" Foreground="#FFFFFF" Width="22" Height="22"/>
+                    </Button>
+                </Grid>
+            </Border>
+
+            <ScrollViewer x:Name="HomeDashboardView"
+                          Grid.Column="1"
+                          Margin="12,10,12,10"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="14" Padding="14" Margin="0,0,0,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock x:Name="HomeGreetingText" Text="Bom dia" Foreground="{StaticResource Ink}" FontSize="24" FontWeight="Bold"/>
+                                <TextBlock x:Name="HomeDateText" Text="sexta-feira, 05 de junho de 2026" Foreground="{StaticResource Muted}" FontSize="12.5" Margin="0,3,0,0"/>
+                                <TextBlock x:Name="HomeBusinessText" Text="Isabelinha Clinics" Foreground="{StaticResource Accent}" FontSize="14" FontWeight="SemiBold" Margin="0,6,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="Novo Agendamento" Style="{StaticResource CommandButton}" Click="NewButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="Abrir Agenda" Style="{StaticResource GhostButton}" Click="AgendaSidebarButton_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <ItemsControl Grid.Row="1"
+                                  x:Name="HomeMetricsItemsControl"
+                                  ItemTemplate="{StaticResource HomeMetricTemplate}"
+                                  Margin="0,0,0,8">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Rows="1" Columns="7"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+
+                    <Border Grid.Row="2" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,0,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center" Margin="0,0,22,0">
+                                <TextBlock Text="Ações rápidas" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                <TextBlock Text="Atalhos do dia" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                            </StackPanel>
+                            <UniformGrid Grid.Column="1" Rows="2" Columns="3" VerticalAlignment="Center">
+                                <Button Content="Novo Agendamento" Style="{StaticResource GhostButton}" Click="NewButton_Click" Height="32" Margin="4,0,4,6"/>
+                                <Button Content="Novo Cliente" Style="{StaticResource GhostButton}" Click="NewCustomerQuickButton_Click" Height="32" Margin="4,0,4,6"/>
+                                <Button Content="Registrar Pagamento" Style="{StaticResource GhostButton}" Click="RegisterPaymentQuickButton_Click" Height="32" Margin="4,0,4,6"/>
+                                <Button Content="Abrir Agenda" Style="{StaticResource GhostButton}" Click="AgendaSidebarButton_Click" Height="32" Margin="4,0"/>
+                                <Button Content="Relatórios" Style="{StaticResource GhostButton}" Click="ReportsQuickButton_Click" Height="32" Margin="4,0"/>
+                                <Button Content="Configurações" Style="{StaticResource GhostButton}" Click="ConfigButton_Click" Height="32" Margin="4,0"/>
+                            </UniformGrid>
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="3" Margin="0,0,0,8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.15*"/>
+                            <ColumnDefinition Width="1*"/>
+                            <ColumnDefinition Width="0.95*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,10,8">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="112"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,8,0">
+                                        <TextBlock Text="Próximo atendimento" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                        <TextBlock Text="Acompanhe o próximo compromisso do dia" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="Abrir" Style="{StaticResource SubtleButton}" Click="OpenNextAppointmentButton_Click" Height="32" MinWidth="92" Padding="10,0"/>
+                                </Grid>
+                                <Border Background="#F8FBFF" BorderBrush="#CFE0FF" BorderThickness="1" CornerRadius="12" Padding="10">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="86"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Background="{StaticResource Accent}" CornerRadius="14" Padding="10" VerticalAlignment="Stretch">
+                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <TextBlock x:Name="HomeNextTimeText" Text="--:--" Foreground="#FFFFFF" FontSize="22" FontWeight="Bold" TextAlignment="Center"/>
+                                                <TextBlock Text="hoje" Foreground="#DBEAFE" FontSize="11" FontWeight="SemiBold" TextAlignment="Center"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock x:Name="HomeNextCustomerText" Text="Nenhum atendimento pendente" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold" TextWrapping="Wrap"/>
+                                            <TextBlock x:Name="HomeNextServiceText" Text="A agenda está livre no momento" Foreground="{StaticResource Muted}" FontSize="13" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                            <TextBlock x:Name="HomeNextProfessionalText" Text="Sem profissional vinculado" Foreground="{StaticResource Accent}" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,10,8">
+                            <StackPanel>
+                                <TextBlock Text="Resumo financeiro" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                <TextBlock x:Name="HomeFinancialSubtitleText" Text="Receitas previstas e realizadas" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,10"/>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Dia" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold"/>
+                                        <TextBlock x:Name="HomeRevenueDayText" Text="R$ 0" Foreground="{StaticResource Ink}" FontSize="19" FontWeight="Bold"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                                        <TextBlock Text="Semana" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold"/>
+                                        <TextBlock x:Name="HomeRevenueWeekText" Text="R$ 0" Foreground="{StaticResource Ink}" FontSize="19" FontWeight="Bold"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Margin="12,0,0,0">
+                                        <TextBlock Text="Mês" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold"/>
+                                        <TextBlock x:Name="HomeRevenueMonthText" Text="R$ 0" Foreground="{StaticResource Ink}" FontSize="19" FontWeight="Bold"/>
+                                    </StackPanel>
+                                </Grid>
+                                <ItemsControl x:Name="HomeFinanceBarsItemsControl" ItemTemplate="{StaticResource HomeFinanceBarTemplate}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="0" Grid.Column="2" Grid.RowSpan="2" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,0,8">
+                            <StackPanel>
+                                <TextBlock Text="Alertas operacionais" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                <TextBlock Text="Pontos que precisam de atenção" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,10"/>
+                                <ItemsControl x:Name="HomeAlertsItemsControl" ItemTemplate="{StaticResource HomeAlertTemplate}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,10,8">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Agenda de hoje" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                    <Button Grid.Column="1" Content="Ver agenda" Style="{StaticResource SubtleButton}" Click="AgendaSidebarButton_Click" Height="30" MinWidth="82"/>
+                                </Grid>
+                                <ItemsControl x:Name="HomeAgendaItemsControl" ItemTemplate="{StaticResource HomeAgendaTemplate}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,10,8">
+                            <StackPanel>
+                                <TextBlock Text="Metas" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                <TextBlock x:Name="HomeGoalSubtitleText" Text="Meta diária e mensal" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,10"/>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Meta diária" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="HomeDailyGoalText" Grid.Column="1" Text="R$ 0 / R$ 0" Foreground="{StaticResource Ink}" FontWeight="Bold"/>
+                                </Grid>
+                                <ProgressBar x:Name="HomeDailyGoalProgress" Height="8" Maximum="100" Value="0" Foreground="{StaticResource Accent}" Background="#EAF2FF" Margin="0,0,0,10"/>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Meta mensal" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="HomeMonthlyGoalText" Grid.Column="1" Text="R$ 0 / R$ 0" Foreground="{StaticResource Ink}" FontWeight="Bold"/>
+                                </Grid>
+                                <ProgressBar x:Name="HomeMonthlyGoalProgress" Height="8" Maximum="100" Value="0" Foreground="{StaticResource Accent}" Background="#EAF2FF"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="2" Grid.Column="0" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,10,0">
+                            <StackPanel>
+                                <TextBlock Text="Serviços mais procurados" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                <TextBlock Text="Ranking por quantidade de agendamentos" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,10"/>
+                                <ItemsControl x:Name="HomeTopServicesItemsControl" ItemTemplate="{StaticResource HomeServiceTemplate}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource PanelCard}" Padding="12">
+                            <StackPanel>
+                                <TextBlock Text="Clientes recentes" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                <TextBlock Text="Últimos atendimentos registrados" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,10"/>
+                                <ItemsControl x:Name="HomeRecentCustomersItemsControl" ItemTemplate="{StaticResource HomeCustomerTemplate}"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                </Grid>
+            </ScrollViewer>
+
+            <ScrollViewer x:Name="EstablishmentView"
+                          Grid.Column="1"
+                          Margin="12,10,12,10"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Visibility="Collapsed">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="14" Padding="16" Margin="0,0,0,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Meu estabelecimento" Foreground="{StaticResource Ink}" FontSize="26" FontWeight="Bold"/>
+                                <TextBlock Text="Clientes, equipe, serviços, produtos e vendas em um só lugar." Foreground="{StaticResource Muted}" FontSize="13" Margin="0,3,0,0"/>
+                                <TextBlock x:Name="EstablishmentBusinessText" Text="Isabelinha Clinics" Foreground="{StaticResource Accent}" FontSize="14" FontWeight="SemiBold" Margin="0,7,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="Novo cliente" Style="{StaticResource GhostButton}" Click="NewCustomerQuickButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="Novo serviço" Style="{StaticResource GhostButton}" Click="NewServiceFromEstablishmentButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="Novo produto" Style="{StaticResource CommandButton}" Click="NewProductButton_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <ItemsControl Grid.Row="1"
+                                  x:Name="EstablishmentMetricsItemsControl"
+                                  ItemTemplate="{StaticResource EstablishmentMetricTemplate}"
+                                  Margin="0,0,0,10">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Rows="1" Columns="6"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+
+                    <ItemsControl Grid.Row="2"
+                                  x:Name="EstablishmentSectionsItemsControl"
+                                  ItemTemplate="{StaticResource EstablishmentSectionTemplate}"
+                                  Margin="0,0,-10,0">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Rows="1" Columns="5"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+
+                    <Grid Grid.Row="3" Margin="0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.1*"/>
+                            <ColumnDefinition Width="1*"/>
+                            <ColumnDefinition Width="1*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,0">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Todos os clientes" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                        <TextBlock Text="Cadastros atendidos pelo estabelecimento" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="Novo" Style="{StaticResource SubtleButton}" Height="32" MinWidth="70" Click="NewCustomerQuickButton_Click"/>
+                                </Grid>
+                                <ItemsControl x:Name="EstablishmentClientsItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <StackPanel Grid.Column="1" Margin="0,0,10,0">
+                            <Border Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="Todos os profissionais" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                            <TextBlock Text="Equipe disponível para atendimento" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Novo" Style="{StaticResource SubtleButton}" Height="32" MinWidth="70" Click="NewProfessionalFromEstablishmentButton_Click"/>
+                                    </Grid>
+                                    <ItemsControl x:Name="EstablishmentProfessionalsItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PanelCard}" Padding="14">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="Todos os serviços" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                            <TextBlock Text="Procedimentos, duração e valor" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Novo" Style="{StaticResource SubtleButton}" Height="32" MinWidth="70" Click="NewServiceFromEstablishmentButton_Click"/>
+                                    </Grid>
+                                    <ItemsControl x:Name="EstablishmentServicesItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2">
+                            <Border Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="Todos os produtos" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                            <TextBlock Text="Itens de estoque e valor de venda" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Novo" Style="{StaticResource SubtleButton}" Height="32" MinWidth="70" Click="NewProductButton_Click"/>
+                                    </Grid>
+                                    <ItemsControl x:Name="EstablishmentProductsItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PanelCard}" Padding="14">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="Venda de produtos" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                            <TextBlock Text="Últimas movimentações de venda" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Vender" Style="{StaticResource SubtleButton}" Height="32" MinWidth="76" Click="RegisterProductSaleButton_Click"/>
+                                    </Grid>
+                                    <ItemsControl x:Name="EstablishmentSalesItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </ScrollViewer>
+
+            <ScrollViewer x:Name="FinanceView"
+                          Grid.Column="1"
+                          Margin="12,10,12,10"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Visibility="Collapsed">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="14" Padding="16" Margin="0,0,0,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Financeiro" Foreground="{StaticResource Ink}" FontSize="26" FontWeight="Bold"/>
+                                <TextBlock Text="Controle receitas, despesas e pagamentos do negócio." Foreground="{StaticResource Muted}" FontSize="13" Margin="0,3,0,0"/>
+                                <TextBlock x:Name="FinanceBusinessText" Text="Isabelinha Clinics" Foreground="{StaticResource Accent}" FontSize="14" FontWeight="SemiBold" Margin="0,7,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="Registrar pagamento" Style="{StaticResource CommandButton}" Click="RegisterPaymentButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="Nova despesa" Style="{StaticResource GhostButton}" Click="NewExpenseButton_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <ItemsControl Grid.Row="1"
+                                  x:Name="FinanceMetricsItemsControl"
+                                  ItemTemplate="{StaticResource EstablishmentMetricTemplate}"
+                                  Margin="0,0,0,10">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Rows="1" Columns="5"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+
+                    <Grid Grid.Row="2" Margin="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1*"/>
+                            <ColumnDefinition Width="1.1*"/>
+                            <ColumnDefinition Width="0.95*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,10">
+                            <StackPanel>
+                                <TextBlock Text="Entradas do mês" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                <TextBlock Text="Serviços, produtos e pagamentos manuais" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,12"/>
+                                <ItemsControl x:Name="FinanceEntriesItemsControl" ItemTemplate="{StaticResource HomeFinanceBarTemplate}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,10">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Pagamentos pendentes" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                        <TextBlock Text="Atendimentos com valor ainda em aberto" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="Registrar" Style="{StaticResource SubtleButton}" Height="32" MinWidth="86" Click="RegisterPaymentButton_Click"/>
+                                </Grid>
+                                <ItemsControl x:Name="FinancePendingItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,10" MaxHeight="344" VerticalAlignment="Top">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Despesas recentes" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                        <TextBlock Text="Saídas cadastradas no financeiro" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="Nova" Style="{StaticResource SubtleButton}" Height="32" MinWidth="70" Click="NewExpenseButton_Click"/>
+                                </Grid>
+                                <ItemsControl x:Name="FinanceExpensesItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,0">
+                            <StackPanel>
+                                <TextBlock Text="Faturamento dos últimos 7 dias" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                <TextBlock Text="Entradas recebidas por dia" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,12"/>
+                                <ItemsControl x:Name="FinanceChartItemsControl" ItemTemplate="{StaticResource HomeFinanceBarTemplate}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="1" Grid.Column="2" Style="{StaticResource PanelCard}" Padding="14">
+                            <StackPanel>
+                                <TextBlock Text="Ações rápidas" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold" Margin="0,0,0,12"/>
+                                <Button Content="Registrar pagamento" Style="{StaticResource CommandButton}" Click="RegisterPaymentButton_Click" Margin="0,0,0,8"/>
+                                <Button Content="Nova despesa" Style="{StaticResource GhostButton}" Click="NewExpenseButton_Click" Margin="0,0,0,8"/>
+                                <Button Content="Registrar venda de produto" Style="{StaticResource GhostButton}" Click="RegisterProductSaleButton_Click"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </ScrollViewer>
+
+            <ScrollViewer x:Name="ReportsView"
+                          Grid.Column="1"
+                          Margin="12,10,12,10"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Visibility="Collapsed">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="14" Padding="16" Margin="0,0,0,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Relatórios" Foreground="{StaticResource Ink}" FontSize="26" FontWeight="Bold"/>
+                                <TextBlock Text="Resumo objetivo dos atendimentos, receita, serviços e profissionais." Foreground="{StaticResource Muted}" FontSize="13" Margin="0,3,0,0"/>
+                                <TextBlock x:Name="ReportsPeriodText" Text="Últimos 7 dias" Foreground="{StaticResource Accent}" FontSize="14" FontWeight="SemiBold" Margin="0,7,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="Copiar resumo" Style="{StaticResource CommandButton}" Click="CopyReportButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="Imprimir" Style="{StaticResource GhostButton}" Click="PrintReportButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="Exportar" Style="{StaticResource GhostButton}" Click="ExportReportButton_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <ItemsControl Grid.Row="1"
+                                  x:Name="ReportsMetricsItemsControl"
+                                  ItemTemplate="{StaticResource EstablishmentMetricTemplate}"
+                                  Margin="0,0,0,10">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Columns="6"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+
+                    <Grid Grid.Row="2" Margin="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.15*"/>
+                            <ColumnDefinition Width="1*"/>
+                            <ColumnDefinition Width="1*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,10" VerticalAlignment="Top">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock x:Name="ReportsChartTitleText" Text="Agendamentos por dia" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                        <TextBlock x:Name="ReportsChartSubtitleText" Text="Volume dos últimos 7 dias" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button x:Name="ReportAppointmentsChartButton" Content="Agendamentos" Style="{StaticResource CommandButton}" Height="34" MinWidth="116" Padding="12,0" Tag="Agendamentos por dia" Click="ReportChartModeButton_Click" Margin="0,0,6,0"/>
+                                        <Button x:Name="ReportRevenueChartButton" Content="Receita" Style="{StaticResource GhostButton}" Height="34" MinWidth="82" Padding="12,0" Tag="Receita por dia" Click="ReportChartModeButton_Click" Margin="0,0,6,0"/>
+                                        <Button x:Name="ReportStatusChartButton" Content="Status" Style="{StaticResource GhostButton}" Height="34" MinWidth="76" Padding="12,0" Tag="Status dos atendimentos" Click="ReportChartModeButton_Click"/>
+                                    </StackPanel>
+                                    <ComboBox x:Name="ReportsChartTypeCombo"
+                                              Visibility="Collapsed"
+                                              Grid.Column="1"
+                                              SelectionChanged="ReportsChartTypeCombo_SelectionChanged"/>
+                                </Grid>
+                                <Grid MinHeight="244">
+                                    <ItemsControl x:Name="ReportsColumnChartItemsControl"
+                                                  ItemTemplate="{StaticResource ReportColumnChartTemplate}"
+                                                  Visibility="Visible">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <UniformGrid Rows="1"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                    </ItemsControl>
+
+                                    <Grid x:Name="ReportsLineChartView" Visibility="Collapsed">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="220"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <Border Background="#F8FBFF" BorderBrush="#DDE7F4" BorderThickness="1" CornerRadius="14" Padding="10">
+                                            <Canvas x:Name="ReportsLineChartCanvas" Height="198" SizeChanged="ReportsLineChartCanvas_SizeChanged"/>
+                                        </Border>
+                                        <ItemsControl Grid.Row="1" x:Name="ReportsLineLegendItemsControl" ItemTemplate="{StaticResource ReportLegendTemplate}" Margin="0,10,0,0"/>
+                                    </Grid>
+
+                                    <Grid x:Name="ReportsDonutChartView" Visibility="Collapsed">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="260"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Background="#F8FBFF" BorderBrush="#DDE7F4" BorderThickness="1" CornerRadius="14" Padding="14" HorizontalAlignment="Left">
+                                            <Canvas x:Name="ReportsDonutCanvas" Width="220" Height="220" SizeChanged="ReportsDonutCanvas_SizeChanged"/>
+                                        </Border>
+                                        <ItemsControl Grid.Column="1" x:Name="ReportsDonutLegendItemsControl" ItemTemplate="{StaticResource ReportLegendTemplate}" Margin="12,0,0,0"/>
+                                    </Grid>
+
+                                    <ScrollViewer x:Name="ReportsRankingChartView" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" MaxHeight="270">
+                                        <ItemsControl x:Name="ReportsRankingChartItemsControl" ItemTemplate="{StaticResource ReportRankingChartTemplate}"/>
+                                    </ScrollViewer>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,10">
+                            <StackPanel>
+                                <TextBlock Text="Leituras rápidas" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                <TextBlock Text="Pontos importantes do período" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,12"/>
+                                <ScrollViewer MaxHeight="270" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                    <ItemsControl x:Name="ReportsInsightsItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                                </ScrollViewer>
+
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,0">
+                            <StackPanel>
+                                <TextBlock Text="Serviços mais realizados" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                <TextBlock Text="Quantidade e receita gerada" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,12"/>
+                                <ItemsControl x:Name="ReportsServicesItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource PanelCard}" Padding="14">
+                            <StackPanel>
+                                <TextBlock Text="Profissionais" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                <TextBlock Text="Atendimentos realizados e receita gerada" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,12"/>
+                                <ItemsControl x:Name="ReportsProfessionalsItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </ScrollViewer>
+
+            <ScrollViewer x:Name="MarketingView"
+                          Grid.Column="1"
+                          Margin="12,10,12,10"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Visibility="Collapsed">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="14" Padding="16" Margin="0,0,0,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Marketing" Foreground="{StaticResource Ink}" FontSize="26" FontWeight="Bold"/>
+                                <TextBlock Text="Crie campanhas simples, copie mensagens e chame clientes pelo WhatsApp." Foreground="{StaticResource Muted}" FontSize="13" Margin="0,3,0,0"/>
+                                <TextBlock x:Name="MarketingBusinessText" Text="Isabelinha Clinics" Foreground="{StaticResource Accent}" FontSize="14" FontWeight="SemiBold" Margin="0,7,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="Nova promoção" Style="{StaticResource CommandButton}" Click="CreatePromotionButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="Copiar mensagem" Style="{StaticResource GhostButton}" Click="CopyMarketingMessageButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="Abrir WhatsApp" Style="{StaticResource GhostButton}" Click="OpenFirstMarketingWhatsAppButton_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="1">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.32*"/>
+                            <ColumnDefinition Width="0.95*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource PanelCard}" Padding="16" Margin="0,0,10,10">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="1.05*"/>
+                                    <ColumnDefinition Width="14"/>
+                                    <ColumnDefinition Width="0.95*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Grid Grid.Row="0" Grid.ColumnSpan="3" Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Campanha ativa" Foreground="{StaticResource Ink}" FontSize="19" FontWeight="Bold"/>
+                                        <TextBlock Text="Monte uma oferta curta e veja como ela vai chegar no cliente." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <Border Grid.Column="1" Background="#EAF2FF" CornerRadius="16" Padding="10,4" VerticalAlignment="Center">
+                                        <TextBlock Text="WhatsApp" Foreground="{StaticResource Accent}" FontSize="11" FontWeight="Bold"/>
+                                    </Border>
+                                </Grid>
+
+                                <StackPanel Grid.Row="1" Grid.Column="0">
+                                    <TextBlock Text="Nome da promoção" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold"/>
+                                    <TextBox x:Name="PromotionNameTextBox" Text="Promoção da semana" Height="38" Padding="10,6" Margin="0,4,0,10" BorderBrush="{StaticResource Line}" Foreground="{StaticResource Ink}" TextChanged="MarketingPromotionTextBox_TextChanged"/>
+
+                                    <TextBlock Text="Oferta" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold"/>
+                                    <TextBox x:Name="PromotionOfferTextBox" Text="20% de desconto em serviços selecionados" Height="38" Padding="10,6" Margin="0,4,0,10" BorderBrush="{StaticResource Line}" Foreground="{StaticResource Ink}" TextChanged="MarketingPromotionTextBox_TextChanged"/>
+
+                                    <TextBlock Text="Texto da mensagem" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold"/>
+                                    <TextBox x:Name="PromotionMessageTextBox"
+                                             TextWrapping="Wrap"
+                                             AcceptsReturn="True"
+                                             Height="96"
+                                             Padding="10"
+                                             Margin="0,4,0,0"
+                                             BorderBrush="{StaticResource Line}"
+                                             Foreground="{StaticResource Ink}"
+                                             TextChanged="MarketingPromotionTextBox_TextChanged"/>
+                                </StackPanel>
+
+                                <Border Grid.Row="1" Grid.Column="2" Background="#F8FBFF" BorderBrush="#DDE7F4" BorderThickness="1" CornerRadius="14" Padding="14">
+                                    <StackPanel>
+                                        <Grid Margin="0,0,0,10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="34"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="30" Height="30" Background="{StaticResource Accent}" CornerRadius="12">
+                                                <materialDesign:PackIcon Kind="Whatsapp" Foreground="#FFFFFF" Width="17" Height="17" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                                <TextBlock Text="Prévia da mensagem" Foreground="{StaticResource Ink}" FontWeight="Bold"/>
+                                                <TextBlock Text="Substitui {nome}, {empresa} e {oferta}" Foreground="{StaticResource Muted}" FontSize="11.5" Margin="0,2,0,0"/>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <Border Background="#FFFFFF" BorderBrush="#DCE7F7" BorderThickness="1" CornerRadius="14" Padding="12">
+                                            <TextBlock x:Name="MarketingPreviewText" Text="Mensagem de prévia" Foreground="{StaticResource Ink}" FontSize="13" TextWrapping="Wrap"/>
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+
+                                <Grid Grid.Row="2" Grid.ColumnSpan="3" Margin="0,14,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Button Grid.Column="0" Content="Atualizar promoção" Style="{StaticResource CommandButton}" Click="CreatePromotionButton_Click"/>
+                                    <Button Grid.Column="2" Content="Copiar texto" Style="{StaticResource GhostButton}" Click="CopyMarketingMessageButton_Click"/>
+                                    <Button Grid.Column="4" Content="Abrir WhatsApp" Style="{StaticResource GhostButton}" Click="OpenFirstMarketingWhatsAppButton_Click"/>
+                                </Grid>
+                            </Grid>
+                        </Border>
+
+                        <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelCard}" Padding="16" Margin="0,0,0,10">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Fila de contatos" Foreground="{StaticResource Ink}" FontSize="19" FontWeight="Bold"/>
+                                        <TextBlock Text="Clientes com mais chance de responder hoje." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="Atualizar" Style="{StaticResource SubtleButton}" Height="32" MinWidth="82" Click="RefreshMarketingButton_Click"/>
+                                </Grid>
+
+                                <ScrollViewer MaxHeight="410" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                    <ItemsControl x:Name="MarketingContactsItemsControl" ItemTemplate="{StaticResource MarketingContactTemplate}"/>
+                                </ScrollViewer>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource PanelCard}" Padding="16" Margin="0,0,10,0">
+                            <StackPanel>
+                                <TextBlock Text="Mensagens prontas" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                <TextBlock Text="Modelos objetivos para copiar, adaptar e enviar." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,12"/>
+                                <ItemsControl x:Name="MarketingMessagesItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource PanelCard}" Padding="16">
+                            <StackPanel>
+                                <TextBlock Text="Campanhas sugeridas" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                <TextBlock Text="Ideias simples para iniciar sem lotar o cliente de informação." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,12"/>
+                                <ItemsControl x:Name="MarketingCampaignsItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </ScrollViewer>
+
+            <Grid x:Name="AgendaWorkspaceView" Grid.Column="1" Margin="20,18,20,18" Visibility="Collapsed">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -1127,126 +2312,175 @@
                 </Border>
             </Grid>
 
-            <Grid x:Name="SettingsOverlay"
-                  Grid.ColumnSpan="2"
-                  Background="#B50F172A"
-                  Visibility="Collapsed">
-                <Border Width="720"
-                        MaxHeight="640"
-                        Style="{StaticResource PanelCard}"
-                        Padding="16"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
+            <ScrollViewer x:Name="SettingsView"
+                          Grid.Column="1"
+                          Margin="12,10,12,10"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Visibility="Collapsed">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
 
-                        <Border Grid.Row="0" Background="#F8FAFC" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,0,0,14">
+                    <Border Grid.Row="0" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="16" Padding="18" Margin="0,0,0,10">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                <GradientStop Color="#FFFFFF" Offset="0"/>
+                                <GradientStop Color="#F3F8FF" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Border.Background>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
                             <Grid>
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="48"/>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="Configuração" Foreground="{StaticResource Ink}" FontSize="22" FontWeight="Bold"/>
-                                    <TextBlock Text="Cadastros e dados da agenda" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
-                                </StackPanel>
-                                <Button Grid.Column="1"
-                                        Content="Fechar"
-                                        Style="{StaticResource GhostButton}"
-                                        Height="34"
-                                        MinWidth="74"
-                                        Margin="12,0,0,0"
-                                        Click="CloseSettingsModalButton_Click"/>
-                            </Grid>
-                        </Border>
-
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                            <StackPanel>
-                                <Border Background="#F8FAFC" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,12">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <TextBlock Text="Dados do negócio" Foreground="{StaticResource Ink}" FontSize="16" FontWeight="Bold"/>
-                                            <TextBlock x:Name="SettingsBusinessText" Text="Nome, setor, documento, telefone e endereço" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,3,0,0"/>
-                                        </StackPanel>
-                                        <Button Grid.Column="1" Content="Editar dados" Style="{StaticResource SubtleButton}" Click="OpenOnboardingFromSettingsButton_Click"/>
-                                    </Grid>
+                                <Border Width="42" Height="42" Background="{StaticResource Accent}" CornerRadius="14" VerticalAlignment="Top">
+                                    <materialDesign:PackIcon Kind="Cog" Foreground="#FFFFFF" Width="22" Height="22" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
+                                <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                                    <TextBlock Text="Configurações" Foreground="{StaticResource Ink}" FontSize="26" FontWeight="Bold"/>
+                                    <TextBlock Text="Ajuste os cadastros, dados do negócio e acesso do sistema." Foreground="{StaticResource Muted}" FontSize="13" Margin="0,3,0,0"/>
+                                    <TextBlock x:Name="SettingsBusinessText" Text="Nome, setor, documento, telefone e endereço" Foreground="{StaticResource Accent}" FontSize="13" FontWeight="SemiBold" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Grid>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="Editar cadastro" Style="{StaticResource GhostButton}" Click="OpenOnboardingFromSettingsButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="Sair" Style="{StaticResource ExitButton}" MinWidth="74" Click="ExitCurrentSystemButton_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
 
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.55*"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="0.9*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Grid Grid.Column="0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Border Grid.Row="0" Style="{StaticResource PanelCard}" Padding="16" Margin="0,0,0,10">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="44"/>
                                         <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="12"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="12"/>
-                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-
-                                    <Border Grid.Column="0" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="14">
-                                        <StackPanel>
-                                            <TextBlock Text="Serviços" Foreground="{StaticResource Ink}" FontSize="16" FontWeight="Bold"/>
-                                            <TextBlock x:Name="ServicesCountText" Text="0 cadastrados" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,4,0,14"/>
-                                            <TextBlock Text="Consulta, corte, banho, revisão, manicure ou qualquer item vendável." Foreground="{StaticResource Muted}" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,14"/>
-                                            <Button Content="+ Criar serviço" Style="{StaticResource CommandButton}" Click="CreateServiceButton_Click"/>
-                                        </StackPanel>
+                                    <Border Width="36" Height="36" Background="#EAF2FF" CornerRadius="12" VerticalAlignment="Top">
+                                        <materialDesign:PackIcon Kind="Store" Foreground="{StaticResource Accent}" Width="19" Height="19" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
-
-                                    <Border Grid.Column="2" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="14">
-                                        <StackPanel>
-                                            <TextBlock Text="Profissionais" Foreground="{StaticResource Ink}" FontSize="16" FontWeight="Bold"/>
-                                            <TextBlock x:Name="ProfessionalsCountText" Text="0 cadastrados" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,4,0,14"/>
-                                            <TextBlock Text="Quem atende: médico, barbeiro, manicure, mecânico, tosador ou equipe." Foreground="{StaticResource Muted}" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,14"/>
-                                            <Button Content="+ Criar profissional" Style="{StaticResource CommandButton}" Click="CreateProfessionalButton_Click"/>
-                                        </StackPanel>
-                                    </Border>
-
-                                    <Border Grid.Column="4" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="14">
-                                        <StackPanel>
-                                            <TextBlock Text="Salas e recursos" Foreground="{StaticResource Ink}" FontSize="16" FontWeight="Bold"/>
-                                            <TextBlock x:Name="ResourcesCountText" Text="0 cadastrados" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,4,0,14"/>
-                                            <TextBlock Text="Sala, consultório, cadeira, mesa, box, elevador, lavatório ou baia." Foreground="{StaticResource Muted}" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,14"/>
-                                            <Button Content="+ Criar sala" Style="{StaticResource CommandButton}" Click="CreateResourceButton_Click"/>
-                                        </StackPanel>
-                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="8,0,18,0">
+                                        <TextBlock Text="Dados do negócio" Foreground="{StaticResource Ink}" FontSize="19" FontWeight="Bold"/>
+                                        <TextBlock Text="Nome, segmento, telefone e informações usadas nas telas do sistema." Foreground="{StaticResource Muted}" FontSize="12.5" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="2" Content="Editar dados" Style="{StaticResource SubtleButton}" Click="OpenOnboardingFromSettingsButton_Click" MinWidth="102"/>
                                 </Grid>
+                            </Border>
 
-                                <Border Background="#FFF7F7"
-                                        BorderBrush="#FECACA"
-                                        BorderThickness="1"
-                                        CornerRadius="8"
-                                        Padding="14"
-                                        Margin="0,12,0,0">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <TextBlock Text="Sair do sistema" Foreground="{StaticResource Ink}" FontSize="16" FontWeight="Bold"/>
-                                            <TextBlock Text="Volta para a configuração inicial para escolher outro setor ou agenda."
-                                                       Foreground="{StaticResource Muted}"
-                                                       FontSize="12"
-                                                       TextWrapping="Wrap"
-                                                       Margin="0,3,0,0"/>
-                                        </StackPanel>
-                                        <Button Grid.Column="1"
-                                                Content="Sair do sistema"
-                                                Style="{StaticResource ExitButton}"
-                                                Margin="14,0,0,0"
-                                                Click="ExitCurrentSystemButton_Click"/>
-                                    </Grid>
+                            <Grid Grid.Row="1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="10"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="10"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Border Grid.Column="0" Style="{StaticResource PanelCard}" Padding="14" MinHeight="184">
+                                    <StackPanel>
+                                        <Border Width="34" Height="34" Background="#EAF2FF" CornerRadius="12" HorizontalAlignment="Left">
+                                            <materialDesign:PackIcon Kind="TagMultiple" Foreground="{StaticResource Accent}" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock Text="Serviços" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold" Margin="0,10,0,0"/>
+                                        <TextBlock x:Name="ServicesCountText" Text="0 cadastrados" Foreground="{StaticResource Accent}" FontSize="12.5" FontWeight="SemiBold" Margin="0,3,0,10"/>
+                                        <TextBlock Text="Valores, duração e itens oferecidos." Foreground="{StaticResource Muted}" TextWrapping="Wrap" FontSize="12.5" Margin="0,0,0,14"/>
+                                        <Button Content="+ Criar serviço" Style="{StaticResource CommandButton}" Click="CreateServiceButton_Click"/>
+                                    </StackPanel>
                                 </Border>
-                            </StackPanel>
-                        </ScrollViewer>
+
+                                <Border Grid.Column="2" Style="{StaticResource PanelCard}" Padding="14" MinHeight="184">
+                                    <StackPanel>
+                                        <Border Width="34" Height="34" Background="#EAF2FF" CornerRadius="12" HorizontalAlignment="Left">
+                                            <materialDesign:PackIcon Kind="AccountGroup" Foreground="{StaticResource Accent}" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock Text="Profissionais" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold" Margin="0,10,0,0"/>
+                                        <TextBlock x:Name="ProfessionalsCountText" Text="0 cadastrados" Foreground="{StaticResource Accent}" FontSize="12.5" FontWeight="SemiBold" Margin="0,3,0,10"/>
+                                        <TextBlock Text="Equipe, funções e responsáveis pela agenda." Foreground="{StaticResource Muted}" TextWrapping="Wrap" FontSize="12.5" Margin="0,0,0,14"/>
+                                        <Button Content="+ Criar profissional" Style="{StaticResource CommandButton}" Click="CreateProfessionalButton_Click"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Grid.Column="4" Style="{StaticResource PanelCard}" Padding="14" MinHeight="184">
+                                    <StackPanel>
+                                        <Border Width="34" Height="34" Background="#EAF2FF" CornerRadius="12" HorizontalAlignment="Left">
+                                            <materialDesign:PackIcon Kind="Door" Foreground="{StaticResource Accent}" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock Text="Salas e recursos" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold" Margin="0,10,0,0"/>
+                                        <TextBlock x:Name="ResourcesCountText" Text="0 cadastrados" Foreground="{StaticResource Accent}" FontSize="12.5" FontWeight="SemiBold" Margin="0,3,0,10"/>
+                                        <TextBlock Text="Salas, cadeiras, boxes e equipamentos." Foreground="{StaticResource Muted}" TextWrapping="Wrap" FontSize="12.5" Margin="0,0,0,14"/>
+                                        <Button Content="+ Criar sala" Style="{StaticResource CommandButton}" Click="CreateResourceButton_Click"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Grid>
+
+                        <StackPanel Grid.Column="2">
+                            <Border Style="{StaticResource PanelCard}" Padding="16" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="40"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="34" Height="34" Background="#EAF2FF" CornerRadius="12">
+                                            <materialDesign:PackIcon Kind="ShieldAccount" Foreground="{StaticResource Accent}" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                            <TextBlock Text="Cadastro inicial" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                            <TextBlock Text="Volte ao assistente para revisar dados." Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Button Content="Editar cadastro" Style="{StaticResource GhostButton}" Click="OpenOnboardingFromSettingsButton_Click"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="#FFF7F7"
+                                    BorderBrush="#FECACA"
+                                    BorderThickness="1"
+                                    CornerRadius="14"
+                                    Padding="16">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="40"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="34" Height="34" Background="#FEE2E2" CornerRadius="12">
+                                            <materialDesign:PackIcon Kind="Logout" Foreground="#DC2626" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                            <TextBlock Text="Sair do sistema" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                            <TextBlock Text="Volta para a configuração inicial. Os dados continuam salvos neste computador." Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Button Content="Sair do sistema" Style="{StaticResource ExitButton}" Click="ExitCurrentSystemButton_Click"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
                     </Grid>
-                </Border>
-            </Grid>
+                </Grid>
+            </ScrollViewer>
         </Grid>
 
         <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="14,8">
