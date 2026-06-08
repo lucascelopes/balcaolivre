@@ -71,6 +71,10 @@ public sealed class AgendaDataStore
         data.Professionals ??= [];
         data.Customers ??= [];
         data.Appointments ??= [];
+        data.Products ??= [];
+        data.ProductSales ??= [];
+        data.ManualPayments ??= [];
+        data.Expenses ??= [];
         data.Settings.BusinessName ??= "Balcão Livre";
         data.Settings.BusinessDocument ??= "";
         data.Settings.BusinessPhone ??= "";
@@ -139,6 +143,26 @@ public sealed class AgendaDataStore
         foreach (var appointment in data.Appointments.Where(appointment => string.IsNullOrWhiteSpace(appointment.Id)))
         {
             appointment.Id = Guid.NewGuid().ToString("N");
+        }
+
+        foreach (var product in data.Products.Where(product => string.IsNullOrWhiteSpace(product.Id)))
+        {
+            product.Id = Guid.NewGuid().ToString("N");
+        }
+
+        foreach (var sale in data.ProductSales.Where(sale => string.IsNullOrWhiteSpace(sale.Id)))
+        {
+            sale.Id = Guid.NewGuid().ToString("N");
+        }
+
+        foreach (var payment in data.ManualPayments.Where(payment => string.IsNullOrWhiteSpace(payment.Id)))
+        {
+            payment.Id = Guid.NewGuid().ToString("N");
+        }
+
+        foreach (var expense in data.Expenses.Where(expense => string.IsNullOrWhiteSpace(expense.Id)))
+        {
+            expense.Id = Guid.NewGuid().ToString("N");
         }
     }
 

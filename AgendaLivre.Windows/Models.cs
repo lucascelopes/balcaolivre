@@ -21,6 +21,10 @@ public sealed class AgendaData
     public List<Professional> Professionals { get; set; } = [];
     public List<Customer> Customers { get; set; } = [];
     public List<Appointment> Appointments { get; set; } = [];
+    public List<ProductItem> Products { get; set; } = [];
+    public List<ProductSale> ProductSales { get; set; } = [];
+    public List<ManualPayment> ManualPayments { get; set; } = [];
+    public List<ExpenseItem> Expenses { get; set; } = [];
 }
 
 public sealed class AgendaSettings
@@ -83,6 +87,49 @@ public sealed class Customer
     public string Segment { get; set; } = "";
     public string Profile { get; set; } = "";
     public DateTime LastSeenAt { get; set; } = DateTime.Now;
+}
+
+public sealed class ProductItem
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = "";
+    public string Category { get; set; } = "";
+    public decimal Price { get; set; }
+    public int StockQuantity { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+}
+
+public sealed class ProductSale
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string ProductId { get; set; } = "";
+    public string ProductName { get; set; } = "";
+    public string CustomerName { get; set; } = "";
+    public int Quantity { get; set; } = 1;
+    public decimal UnitPrice { get; set; }
+    public DateTime SoldAt { get; set; } = DateTime.Now;
+
+    [JsonIgnore]
+    public decimal Total => Quantity * UnitPrice;
+}
+
+public sealed class ManualPayment
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Description { get; set; } = "";
+    public string CustomerName { get; set; } = "";
+    public decimal Value { get; set; }
+    public DateTime PaidAt { get; set; } = DateTime.Now;
+}
+
+public sealed class ExpenseItem
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Description { get; set; } = "";
+    public string Category { get; set; } = "";
+    public decimal Value { get; set; }
+    public DateTime Date { get; set; } = DateTime.Now;
+    public bool IsPaid { get; set; } = true;
 }
 
 public sealed class Appointment
