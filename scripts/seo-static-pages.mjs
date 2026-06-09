@@ -114,25 +114,7 @@ export function seoPageSitemapEntries(pages, publicSiteUrl) {
 }
 
 export function homeSalesBoostHtml(pages = []) {
-  const featured = pages.slice(0, 12);
   return `
-      <section class="lpSection lpSeoLinksSection" id="encontre-o-pdv-certo">
-        <div class="lpSectionHead">
-          <p class="lpKicker">Encontre o PDV certo</p>
-          <h2>Páginas diretas para cada tipo de restaurante.</h2>
-          <p>Escolha o cenário mais parecido com sua loja e vá direto para o teste, WhatsApp ou plano indicado.</p>
-        </div>
-        <div class="lpSeoLinksGrid">
-          ${featured.map((page) => `
-            <a href="/${escapeHtml(page.slug)}/">
-              <span>${escapeHtml(page.title.split(" ")[0] || "PDV")}</span>
-              <strong>${escapeHtml(page.title)}</strong>
-              <small>${escapeHtml(page.description)}</small>
-            </a>
-          `).join("")}
-        </div>
-      </section>
-
       <section class="lpSection lpStorySection" id="casos-de-uso">
         <div class="lpSectionHead">
           <p class="lpKicker">Casos de uso</p>
@@ -186,9 +168,44 @@ export function homeSalesBoostHtml(pages = []) {
 `;
 }
 
+export function homeSeoLinksHtml(pages = []) {
+  const featured = pages.slice(0, 6);
+  return `
+      <section class="lpSection lpSeoLinksSection" id="encontre-o-pdv-certo">
+        <div class="lpSectionHead">
+          <p class="lpKicker">Links úteis</p>
+          <h2>Outros cenários para comparar.</h2>
+          <p>Algumas rotinas parecidas para quem quer ver o plano mais próximo da loja antes de testar.</p>
+        </div>
+        <div class="lpSeoLinksGrid">
+          ${featured.map((page) => `
+            <a href="/${escapeHtml(page.slug)}/">
+              <span>${escapeHtml(page.segment || page.title.split(" ")[0] || "PDV")}</span>
+              <strong>${escapeHtml(page.title)}</strong>
+              <small>${escapeHtml(page.description)}</small>
+            </a>
+          `).join("")}
+        </div>
+      </section>
+`;
+}
+
 export function injectHomeSalesBoost(html, pages) {
-  if (html.includes('id="encontre-o-pdv-certo"')) return html;
-  const marker = '<section class="lpSection lpPlansSection" id="planos">';
-  if (!html.includes(marker)) return html;
-  return html.replace(marker, `${homeSalesBoostHtml(pages)}\n      ${marker}`);
+  let nextHtml = html;
+
+  if (!nextHtml.includes('id="casos-de-uso"')) {
+    const plansMarker = '<section class="lpSection lpPlansSection" id="planos">';
+    if (nextHtml.includes(plansMarker)) {
+      nextHtml = nextHtml.replace(plansMarker, `${homeSalesBoostHtml(pages)}\n      ${plansMarker}`);
+    }
+  }
+
+  if (!nextHtml.includes('id="encontre-o-pdv-certo"')) {
+    const footerMarker = '<footer class="lpFooter">';
+    if (nextHtml.includes(footerMarker)) {
+      nextHtml = nextHtml.replace(footerMarker, `${homeSeoLinksHtml(pages)}\n      ${footerMarker}`);
+    }
+  }
+
+  return nextHtml;
 }
