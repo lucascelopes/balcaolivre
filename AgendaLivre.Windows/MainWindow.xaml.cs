@@ -5213,10 +5213,22 @@ public partial class MainWindow : Window
         var shell = CreateEditorDialog(title, subtitle, primaryText);
         shell.Dialog.Width = 760;
         shell.Dialog.MinHeight = 560;
-        AddManagerRows(shell.Body, section, emptyTitle, emptyDetail);
+        string? editId = null;
+        AddManagerRows(shell.Body, section, emptyTitle, emptyDetail, id =>
+        {
+            editId = id;
+            shell.Dialog.DialogResult = false;
+        });
         shell.PrimaryButton.Click += (_, _) => shell.Dialog.DialogResult = true;
 
-        if (shell.Dialog.ShowDialog() != true)
+        var dialogResult = shell.Dialog.ShowDialog();
+        if (!string.IsNullOrWhiteSpace(editId))
+        {
+            OpenManagerItemEditor(section, editId);
+            return;
+        }
+
+        if (dialogResult != true)
         {
             return;
         }
@@ -5247,7 +5259,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void AddManagerRows(StackPanel body, string section, string emptyTitle, string emptyDetail)
+    private void AddManagerRows(StackPanel body, string section, string emptyTitle, string emptyDetail, Action<string>? editRequested = null)
     {
         var rows = section switch
         {
@@ -5258,7 +5270,8 @@ public partial class MainWindow : Window
                     string.Join(" | ", new[] { item.Phone, item.Email, item.Tags, item.Profile, item.Segment }.Where(part => !string.IsNullOrWhiteSpace(part)).DefaultIfEmpty("Sem detalhes cadastrados")),
                     item.LastSeenAt == DateTime.MinValue ? "novo" : item.LastSeenAt.ToString("dd/MM", Brazil),
                     AccentSoftBrush,
-                    AccentBrush))
+                    AccentBrush,
+                    item.Id))
                 .ToList(),
             "Profissionais" => _data.Professionals
                 .OrderBy(item => item.Name)
@@ -5267,7 +5280,8 @@ public partial class MainWindow : Window
                     string.Join(" | ", new[] { item.SegmentLine, item.Phone, item.Email, item.CommissionPercent > 0 ? $"{item.CommissionPercent:N0}% comissão" : "" }.Where(part => !string.IsNullOrWhiteSpace(part)).DefaultIfEmpty("Sem detalhes cadastrados")),
                     item.IsActive ? "ativo" : "inativo",
                     BlueSoftBrush,
-                    AccentBrush))
+                    AccentBrush,
+                    item.Id))
                 .ToList(),
             "Serviços" => _data.Services
                 .OrderBy(item => item.Segment)
@@ -5285,7 +5299,8 @@ public partial class MainWindow : Window
                     }.Where(part => !string.IsNullOrWhiteSpace(part))),
                     item.IsActive ? "ativo" : "inativo",
                     GraySoftBrush,
-                    AccentBrush))
+                    AccentBrush,
+                    item.Id))
                 .ToList(),
             "Produtos" => _data.Products
                 .OrderBy(item => item.Name)
@@ -5302,7 +5317,8 @@ public partial class MainWindow : Window
                     }.Where(part => !string.IsNullOrWhiteSpace(part))),
                     item.StockQuantity <= item.MinimumStock && item.MinimumStock > 0 ? "baixo" : item.StockQuantity.ToString(Brazil),
                     AccentSoftBrush,
-                    AccentBrush))
+                    AccentBrush,
+                    item.Id))
                 .ToList(),
             "Venda de produtos" => _data.ProductSales
                 .OrderByDescending(item => item.SoldAt)
@@ -5313,7 +5329,8 @@ public partial class MainWindow : Window
                     (string.IsNullOrWhiteSpace(item.PaymentMethod) ? "" : $" | {item.PaymentMethod}"),
                     item.SoldAt.ToString("dd/MM", Brazil),
                     WarmSoftBrush,
-                    AccentBrush))
+                    AccentBrush,
+                    item.Id))
                 .ToList(),
             _ => []
         };
@@ -5335,7 +5352,10 @@ public partial class MainWindow : Window
 
         foreach (var row in rows)
         {
-            body.Children.Add(CreateManagerRow(row));
+            Action? clickAction = !string.IsNullOrWhiteSpace(row.Id) && editRequested is not null
+                ? () => editRequested(row.Id)
+                : null;
+            body.Children.Add(CreateManagerRow(row, clickAction));
         }
     }
 
@@ -5500,9 +5520,34 @@ public partial class MainWindow : Window
         _ => PackIconKind.Folder
     };
 
-    private Border CreateManagerRow(EstablishmentListRow row)
+    private Border CreateManagerRow(EstablishmentListRow row, Action? clickAction = null)
     {
-        return new Border
+        var rightPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children =
+            {
+                Badge(row.BadgeText, row.BadgeBackground, row.BadgeForeground)
+            }
+        };
+
+        if (clickAction is not null)
+        {
+            rightPanel.Children.Add(new TextBlock
+            {
+                Text = "Editar",
+                Foreground = AccentBrush,
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(10, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+        }
+
+        Grid.SetColumn(rightPanel, 1);
+
+        var rowCard = new Border
         {
             Background = Brushes.White,
             BorderBrush = LineBrush,
@@ -5510,6 +5555,8 @@ public partial class MainWindow : Window
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(12),
             Margin = new Thickness(0, 0, 0, 8),
+            Cursor = clickAction is null ? Cursors.Arrow : Cursors.Hand,
+            ToolTip = clickAction is null ? null : "Clique para ver e editar",
             Child = new Grid
             {
                 ColumnDefinitions =
@@ -5527,10 +5574,17 @@ public partial class MainWindow : Window
                             new TextBlock { Text = row.Detail, Foreground = MutedBrush, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 12, 0) }
                         }
                     },
-                    Badge(row.BadgeText, row.BadgeBackground, row.BadgeForeground)
+                    rightPanel
                 }
             }
         };
+
+        if (clickAction is not null)
+        {
+            rowCard.MouseLeftButtonUp += (_, _) => clickAction();
+        }
+
+        return rowCard;
     }
 
     private static Border Badge(string text, Brush background, Brush foreground)
@@ -5546,6 +5600,188 @@ public partial class MainWindow : Window
         };
         Grid.SetColumn(badge, 1);
         return badge;
+    }
+
+    private void OpenManagerItemEditor(string section, string id)
+    {
+        switch (section)
+        {
+            case "Clientes":
+                EditCustomer(id);
+                break;
+            case "Profissionais":
+                EditProfessional(id);
+                break;
+            case "Serviços":
+                EditService(id);
+                break;
+            case "Produtos":
+                EditProduct(id);
+                break;
+            case "Venda de produtos":
+                EditProductSale(id);
+                break;
+        }
+    }
+
+    private void EditCustomer(string id)
+    {
+        var customer = _data.Customers.FirstOrDefault(item => item.Id == id);
+        if (customer is null)
+        {
+            ShowStatus("Cliente não encontrado para edição.");
+            return;
+        }
+
+        var form = ShowCustomerEditorDialog(customer.Segment, customer.Name, customer.Phone, customer.Profile, customer);
+        if (form is null)
+        {
+            return;
+        }
+
+        customer.Name = form.Name;
+        customer.Phone = form.Phone;
+        customer.Email = form.Email;
+        customer.Document = form.Document;
+        customer.Segment = form.Segment;
+        customer.Profile = form.Profile;
+        customer.Tags = form.Tags;
+        customer.Notes = form.Notes;
+        customer.AcceptsWhatsApp = form.AcceptsWhatsApp;
+        customer.LastSeenAt = DateTime.Now;
+        _store.Save(_data);
+        RefreshAll();
+        ShowStatus($"Cliente atualizado: {customer.Name}.");
+    }
+
+    private void EditProfessional(string id)
+    {
+        var professional = _data.Professionals.FirstOrDefault(item => item.Id == id);
+        if (professional is null)
+        {
+            ShowStatus("Profissional não encontrado para edição.");
+            return;
+        }
+
+        var segment = professional.Segments.FirstOrDefault() ?? CurrentEditorSegment();
+        var form = ShowProfessionalEditorDialog(segment, professional);
+        if (form is null)
+        {
+            return;
+        }
+
+        professional.Name = form.Name;
+        professional.Role = form.Role;
+        professional.Phone = form.Phone;
+        professional.Email = form.Email;
+        professional.Document = form.Document;
+        professional.CommissionPercent = form.CommissionPercent;
+        professional.Segments = [form.Segment];
+        professional.Notes = form.Notes;
+        professional.IsActive = form.IsActive;
+        _store.Save(_data);
+        UpdateAppointmentOptions(CurrentEditorSegment());
+        RefreshAll();
+        ShowStatus($"Profissional atualizado: {professional.Name}.");
+    }
+
+    private void EditService(string id)
+    {
+        var service = _data.Services.FirstOrDefault(item => item.Id == id);
+        if (service is null)
+        {
+            ShowStatus("Serviço não encontrado para edição.");
+            return;
+        }
+
+        var form = ShowServiceEditorDialog(service.Segment, service);
+        if (form is null)
+        {
+            return;
+        }
+
+        service.Segment = form.Segment;
+        service.Name = form.Name;
+        service.Category = form.Category;
+        service.Description = form.Description;
+        service.DurationMinutes = form.DurationMinutes;
+        service.PreparationMinutes = form.PreparationMinutes;
+        service.BufferMinutes = form.BufferMinutes;
+        service.Price = form.Price;
+        service.CommissionPercent = form.CommissionPercent;
+        service.DefaultResource = form.DefaultResource;
+        service.IsActive = form.IsActive;
+        _store.Save(_data);
+        UpdateAppointmentOptions(CurrentEditorSegment());
+        RefreshAll();
+        ShowStatus($"Serviço atualizado: {service.Name}.");
+    }
+
+    private void EditProduct(string id)
+    {
+        var product = _data.Products.FirstOrDefault(item => item.Id == id);
+        if (product is null)
+        {
+            ShowStatus("Produto não encontrado para edição.");
+            return;
+        }
+
+        var form = ShowProductEditorDialog(product);
+        if (form is null)
+        {
+            return;
+        }
+
+        product.Name = form.Name;
+        product.Category = form.Category;
+        product.Sku = form.Sku;
+        product.Supplier = form.Supplier;
+        product.CostPrice = form.CostPrice;
+        product.Price = form.Price;
+        product.StockQuantity = form.StockQuantity;
+        product.MinimumStock = form.MinimumStock;
+        product.Notes = form.Notes;
+        product.IsActive = form.IsActive;
+        _store.Save(_data);
+        RefreshAll();
+        ShowStatus($"Produto atualizado: {product.Name}.");
+    }
+
+    private void EditProductSale(string id)
+    {
+        var sale = _data.ProductSales.FirstOrDefault(item => item.Id == id);
+        if (sale is null)
+        {
+            ShowStatus("Venda não encontrada para edição.");
+            return;
+        }
+
+        var originalProduct = _data.Products.FirstOrDefault(item => item.Id == sale.ProductId);
+        var originalQuantity = sale.Quantity;
+        var form = ShowProductSaleEditorDialog(sale);
+        if (form is null)
+        {
+            return;
+        }
+
+        if (originalProduct is not null)
+        {
+            originalProduct.StockQuantity += originalQuantity;
+        }
+
+        sale.ProductId = form.Product.Id;
+        sale.ProductName = form.Product.Name;
+        sale.CustomerName = form.CustomerName;
+        sale.Quantity = form.Quantity;
+        sale.UnitPrice = form.Product.Price;
+        sale.Discount = form.Discount;
+        sale.PaymentMethod = form.PaymentMethod;
+        sale.Notes = form.Notes;
+
+        form.Product.StockQuantity = Math.Max(0, form.Product.StockQuantity - form.Quantity);
+        _store.Save(_data);
+        RefreshAll();
+        ShowStatus($"Venda atualizada: {sale.ProductName}.");
     }
 
     private void ShowMainPage(MainPage page)
@@ -5956,26 +6192,33 @@ public partial class MainWindow : Window
             .OrderBy(item => item)
             .Concat(["Fornecedor local", "Marca própria", "Distribuidor"]);
 
-    private CustomerEditorForm? ShowCustomerEditorDialog(string segment, string name = "", string phone = "", string profile = "")
+    private CustomerEditorForm? ShowCustomerEditorDialog(string segment, string name = "", string phone = "", string profile = "", Customer? existing = null)
     {
-        var shell = CreateEditorDialog("Criar cliente", "Cadastro completo para agenda, WhatsApp e histórico.", "Salvar cliente");
+        var initialSegment = string.IsNullOrWhiteSpace(existing?.Segment) ? segment : existing.Segment;
+        var initialName = existing?.Name ?? name;
+        var initialPhone = existing?.Phone ?? phone;
+        var initialProfile = existing?.Profile ?? profile;
+        var shell = CreateEditorDialog(
+            existing is null ? "Criar cliente" : "Editar cliente",
+            "Cadastro completo para agenda, WhatsApp e histórico.",
+            existing is null ? "Salvar cliente" : "Salvar alterações");
         shell.Dialog.Width = 820;
         AddDialogSection(shell.Body, "Dados do cliente", "Informações usadas na agenda, histórico e WhatsApp.");
         var identityRow = AddDialogColumns(shell.Body);
-        var nameBox = AddDialogTextField(identityRow.Left, "Nome do cliente", name, "Ex: Maria Silva");
-        var phoneBox = AddDialogTextField(identityRow.Right, "WhatsApp principal", phone, "Ex: (27) 99999-0000");
+        var nameBox = AddDialogTextField(identityRow.Left, "Nome do cliente", initialName, "Ex: Maria Silva");
+        var phoneBox = AddDialogTextField(identityRow.Right, "WhatsApp principal", initialPhone, "Ex: (27) 99999-0000");
 
         var contactRow = AddDialogColumns(shell.Body);
-        var emailBox = AddDialogTextField(contactRow.Left, "E-mail", "", "Ex: cliente@email.com");
-        var documentBox = AddDialogTextField(contactRow.Right, "CPF / documento", "", "Ex: 123.456.789-00");
+        var emailBox = AddDialogTextField(contactRow.Left, "E-mail", existing?.Email ?? "", "Ex: cliente@email.com");
+        var documentBox = AddDialogTextField(contactRow.Right, "CPF / documento", existing?.Document ?? "", "Ex: 123.456.789-00");
 
         AddDialogSection(shell.Body, "Atendimento", "Preferências e observações para a equipe.");
         var segmentRow = AddDialogColumns(shell.Body);
-        var segmentCombo = AddDialogComboField(segmentRow.Left, "Segmento", GetAvailableSegments(), segment, editable: false);
-        var tagsBox = AddDialogTextField(segmentRow.Right, "Tags", "", "Ex: VIP, recorrente, pós-venda");
-        var profileBox = AddDialogTextField(shell.Body, _data.Settings.ClientDetailLabel, profile, "Preferência, observação, paciente, pet ou veículo", multiline: true);
-        var notesBox = AddDialogTextField(shell.Body, "Observações internas", "", "Ex: horário preferido, restrições, combinado financeiro", multiline: true);
-        var whatsAppCheck = AddDialogCheckBox(shell.Body, "Pode receber confirmação e retorno pelo WhatsApp", true);
+        var segmentCombo = AddDialogComboField(segmentRow.Left, "Segmento", GetAvailableSegments(), initialSegment, editable: false);
+        var tagsBox = AddDialogTextField(segmentRow.Right, "Tags", existing?.Tags ?? "", "Ex: VIP, recorrente, pós-venda");
+        var profileBox = AddDialogTextField(shell.Body, _data.Settings.ClientDetailLabel, initialProfile, "Preferência, observação, paciente, pet ou veículo", multiline: true);
+        var notesBox = AddDialogTextField(shell.Body, "Observações internas", existing?.Notes ?? "", "Ex: horário preferido, restrições, combinado financeiro", multiline: true);
+        var whatsAppCheck = AddDialogCheckBox(shell.Body, "Pode receber confirmação e retorno pelo WhatsApp", existing?.AcceptsWhatsApp ?? true);
 
         CustomerEditorForm? result = null;
         shell.PrimaryButton.Click += (_, _) =>
@@ -5993,7 +6236,7 @@ public partial class MainWindow : Window
                 phoneBox.Text.Trim(),
                 emailBox.Text.Trim(),
                 documentBox.Text.Trim(),
-                DialogComboText(segmentCombo, segment),
+                DialogComboText(segmentCombo, initialSegment),
                 profileBox.Text.Trim(),
                 tagsBox.Text.Trim(),
                 notesBox.Text.Trim(),
@@ -6006,30 +6249,38 @@ public partial class MainWindow : Window
         return shell.Dialog.ShowDialog() == true ? result : null;
     }
 
-    private ServiceEditorForm? ShowServiceEditorDialog(string segment)
+    private ServiceEditorForm? ShowServiceEditorDialog(string segment, ServiceItem? existing = null)
     {
-        var shell = CreateEditorDialog("Criar serviço", "Defina como o serviço aparece na agenda e no atendimento.", "Salvar serviço");
+        var initialSegment = string.IsNullOrWhiteSpace(existing?.Segment) ? segment : existing.Segment;
+        var categoryOptions = ServiceCategoryOptions(initialSegment).ToList();
+        var initialCategory = string.IsNullOrWhiteSpace(existing?.Category)
+            ? categoryOptions.FirstOrDefault() ?? ""
+            : existing.Category;
+        var shell = CreateEditorDialog(
+            existing is null ? "Criar serviço" : "Editar serviço",
+            "Defina como o serviço aparece na agenda e no atendimento.",
+            existing is null ? "Salvar serviço" : "Salvar alterações");
         shell.Dialog.Width = 840;
         AddDialogSection(shell.Body, "Catálogo", "Como o serviço aparece na criação de agendamentos.");
         var catalogRow = AddDialogColumns(shell.Body);
-        var segmentCombo = AddDialogComboField(catalogRow.Left, "Tipo de atendimento", GetAvailableSegments(), segment, editable: false);
-        var categoryCombo = AddDialogComboField(catalogRow.Right, "Categoria", ServiceCategoryOptions(segment), ServiceCategoryOptions(segment).FirstOrDefault() ?? "", editable: true);
-        var nameBox = AddDialogTextField(shell.Body, "Nome do serviço", "", "Ex: Corte masculino, consulta, revisão");
-        var descriptionBox = AddDialogTextField(shell.Body, "Descrição para a equipe", "", "Ex: inclui lavagem, avaliação inicial ou checklist", multiline: true);
+        var segmentCombo = AddDialogComboField(catalogRow.Left, "Tipo de atendimento", GetAvailableSegments(), initialSegment, editable: false);
+        var categoryCombo = AddDialogComboField(catalogRow.Right, "Categoria", categoryOptions, initialCategory, editable: true);
+        var nameBox = AddDialogTextField(shell.Body, "Nome do serviço", existing?.Name ?? "", "Ex: Corte masculino, consulta, revisão");
+        var descriptionBox = AddDialogTextField(shell.Body, "Descrição para a equipe", existing?.Description ?? "", "Ex: inclui lavagem, avaliação inicial ou checklist", multiline: true);
 
         AddDialogSection(shell.Body, "Tempo e agenda", "Duração real do atendimento e bloqueios automáticos.");
         var timeRow = AddDialogColumns(shell.Body);
-        var durationBox = AddDialogTextField(timeRow.Left, "Duração em minutos", ReadCurrentDurationOrDefault().ToString(Brazil), "Ex: 30");
-        var preparationBox = AddDialogTextField(timeRow.Right, "Preparação antes (min)", "0", "Ex: 5");
+        var durationBox = AddDialogTextField(timeRow.Left, "Duração em minutos", (existing?.DurationMinutes ?? ReadCurrentDurationOrDefault()).ToString(Brazil), "Ex: 30");
+        var preparationBox = AddDialogTextField(timeRow.Right, "Preparação antes (min)", (existing?.PreparationMinutes ?? 0).ToString(Brazil), "Ex: 5");
         var flowRow = AddDialogColumns(shell.Body);
-        var bufferBox = AddDialogTextField(flowRow.Left, "Intervalo após (min)", "0", "Ex: 10");
-        var resourceCombo = AddDialogComboField(flowRow.Right, "Sala, cadeira ou recurso padrão", _data.Settings.Resources, CurrentResourceText(), editable: true);
+        var bufferBox = AddDialogTextField(flowRow.Left, "Intervalo após (min)", (existing?.BufferMinutes ?? 0).ToString(Brazil), "Ex: 10");
+        var resourceCombo = AddDialogComboField(flowRow.Right, "Sala, cadeira ou recurso padrão", _data.Settings.Resources, existing?.DefaultResource ?? CurrentResourceText(), editable: true);
 
         AddDialogSection(shell.Body, "Preço e equipe", "Valor cobrado e comissão padrão deste serviço.");
         var moneyRow = AddDialogColumns(shell.Body);
-        var priceBox = AddDialogTextField(moneyRow.Left, "Valor de venda", PriceTextBox.Text.Trim(), "Ex: 45,00");
-        var commissionBox = AddDialogTextField(moneyRow.Right, "Comissão (%)", "0", "Ex: 40");
-        var activeCheck = AddDialogCheckBox(shell.Body, "Serviço ativo para novos agendamentos", true);
+        var priceBox = AddDialogTextField(moneyRow.Left, "Valor de venda", (existing?.Price ?? 0) > 0 ? existing!.Price.ToString("N2", Brazil) : PriceTextBox.Text.Trim(), "Ex: 45,00");
+        var commissionBox = AddDialogTextField(moneyRow.Right, "Comissão (%)", (existing?.CommissionPercent ?? 0).ToString("N2", Brazil), "Ex: 40");
+        var activeCheck = AddDialogCheckBox(shell.Body, "Serviço ativo para novos agendamentos", existing?.IsActive ?? true);
 
         ServiceEditorForm? result = null;
         shell.PrimaryButton.Click += (_, _) =>
@@ -6078,7 +6329,7 @@ public partial class MainWindow : Window
             }
 
             result = new ServiceEditorForm(
-                DialogComboText(segmentCombo, segment),
+                DialogComboText(segmentCombo, initialSegment),
                 serviceName,
                 DialogComboText(categoryCombo, ""),
                 descriptionBox.Text.Trim(),
@@ -6096,26 +6347,30 @@ public partial class MainWindow : Window
         return shell.Dialog.ShowDialog() == true ? result : null;
     }
 
-    private ProfessionalEditorForm? ShowProfessionalEditorDialog(string segment)
+    private ProfessionalEditorForm? ShowProfessionalEditorDialog(string segment, Professional? existing = null)
     {
-        var shell = CreateEditorDialog("Criar profissional", "Cadastre quem atende e em qual agenda ele aparece.", "Salvar profissional");
+        var initialSegment = existing?.Segments.FirstOrDefault() ?? segment;
+        var shell = CreateEditorDialog(
+            existing is null ? "Criar profissional" : "Editar profissional",
+            "Cadastre quem atende e em qual agenda ele aparece.",
+            existing is null ? "Salvar profissional" : "Salvar alterações");
         shell.Dialog.Width = 820;
         AddDialogSection(shell.Body, "Identificação", "Dados usados na agenda e no cadastro da equipe.");
         var identityRow = AddDialogColumns(shell.Body);
-        var nameBox = AddDialogTextField(identityRow.Left, "Nome do profissional", "", "Ex: Lucas");
-        var roleBox = AddDialogTextField(identityRow.Right, "Função", DefaultRoleForSegment(segment), "Ex: Barbeiro, mecânico, dentista");
+        var nameBox = AddDialogTextField(identityRow.Left, "Nome do profissional", existing?.Name ?? "", "Ex: Lucas");
+        var roleBox = AddDialogTextField(identityRow.Right, "Função", string.IsNullOrWhiteSpace(existing?.Role) ? DefaultRoleForSegment(initialSegment) : existing.Role, "Ex: Barbeiro, mecânico, dentista");
 
         var contactRow = AddDialogColumns(shell.Body);
-        var phoneBox = AddDialogTextField(contactRow.Left, "Telefone / WhatsApp", "", "Ex: (27) 99999-0000");
-        var emailBox = AddDialogTextField(contactRow.Right, "E-mail", "", "Ex: profissional@email.com");
+        var phoneBox = AddDialogTextField(contactRow.Left, "Telefone / WhatsApp", existing?.Phone ?? "", "Ex: (27) 99999-0000");
+        var emailBox = AddDialogTextField(contactRow.Right, "E-mail", existing?.Email ?? "", "Ex: profissional@email.com");
 
         AddDialogSection(shell.Body, "Agenda e financeiro", "Segmento atendido, documento e comissão padrão.");
         var agendaRow = AddDialogColumns(shell.Body);
-        var segmentCombo = AddDialogComboField(agendaRow.Left, "Segmento atendido", GetAvailableSegments(), segment, editable: false);
-        var documentBox = AddDialogTextField(agendaRow.Right, "CPF / documento", "", "Ex: 123.456.789-00");
-        var commissionBox = AddDialogTextField(shell.Body, "Comissão padrão (%)", "0", "Ex: 40");
-        var notesBox = AddDialogTextField(shell.Body, "Observações internas", "", "Ex: folgas, especialidades, restrições de horário", multiline: true);
-        var activeCheck = AddDialogCheckBox(shell.Body, "Profissional ativo na agenda", true);
+        var segmentCombo = AddDialogComboField(agendaRow.Left, "Segmento atendido", GetAvailableSegments(), initialSegment, editable: false);
+        var documentBox = AddDialogTextField(agendaRow.Right, "CPF / documento", existing?.Document ?? "", "Ex: 123.456.789-00");
+        var commissionBox = AddDialogTextField(shell.Body, "Comissão padrão (%)", (existing?.CommissionPercent ?? 0).ToString("N2", Brazil), "Ex: 40");
+        var notesBox = AddDialogTextField(shell.Body, "Observações internas", existing?.Notes ?? "", "Ex: folgas, especialidades, restrições de horário", multiline: true);
+        var activeCheck = AddDialogCheckBox(shell.Body, "Profissional ativo na agenda", existing?.IsActive ?? true);
 
         ProfessionalEditorForm? result = null;
         shell.PrimaryButton.Click += (_, _) =>
@@ -6137,12 +6392,12 @@ public partial class MainWindow : Window
 
             result = new ProfessionalEditorForm(
                 professionalName,
-                string.IsNullOrWhiteSpace(roleBox.Text) ? DefaultRoleForSegment(segment) : roleBox.Text.Trim(),
+                string.IsNullOrWhiteSpace(roleBox.Text) ? DefaultRoleForSegment(initialSegment) : roleBox.Text.Trim(),
                 phoneBox.Text.Trim(),
                 emailBox.Text.Trim(),
                 documentBox.Text.Trim(),
                 commission,
-                DialogComboText(segmentCombo, segment),
+                DialogComboText(segmentCombo, initialSegment),
                 notesBox.Text.Trim(),
                 activeCheck.IsChecked == true);
             shell.Dialog.DialogResult = true;
@@ -6179,30 +6434,37 @@ public partial class MainWindow : Window
         return shell.Dialog.ShowDialog() == true ? result : null;
     }
 
-    private ProductEditorForm? ShowProductEditorDialog()
+    private ProductEditorForm? ShowProductEditorDialog(ProductItem? existing = null)
     {
-        var shell = CreateEditorDialog("Criar produto", "Produto vendido no balcão, no atendimento ou no pós-venda.", "Salvar produto");
+        var categoryOptions = ProductCategoryOptions().ToList();
+        var initialCategory = string.IsNullOrWhiteSpace(existing?.Category)
+            ? categoryOptions.FirstOrDefault() ?? ""
+            : existing.Category;
+        var shell = CreateEditorDialog(
+            existing is null ? "Criar produto" : "Editar produto",
+            "Produto vendido no balcão, no atendimento ou no pós-venda.",
+            existing is null ? "Salvar produto" : "Salvar alterações");
         shell.Dialog.Width = 840;
         AddDialogSection(shell.Body, "Produto", "Identificação para estoque, balcão e pós-venda.");
         var productRow = AddDialogColumns(shell.Body);
-        var nameBox = AddDialogTextField(productRow.Left, "Nome do produto", "", "Ex: Pomada modeladora");
-        var categoryBox = AddDialogComboField(productRow.Right, "Categoria", ProductCategoryOptions(), ProductCategoryOptions().FirstOrDefault() ?? "", editable: true);
+        var nameBox = AddDialogTextField(productRow.Left, "Nome do produto", existing?.Name ?? "", "Ex: Pomada modeladora");
+        var categoryBox = AddDialogComboField(productRow.Right, "Categoria", categoryOptions, initialCategory, editable: true);
 
         var codeRow = AddDialogColumns(shell.Body);
-        var skuBox = AddDialogTextField(codeRow.Left, "SKU / código interno", "", "Ex: POM-001");
-        var supplierBox = AddDialogComboField(codeRow.Right, "Fornecedor / marca", SupplierOptions(), "", editable: true);
+        var skuBox = AddDialogTextField(codeRow.Left, "SKU / código interno", existing?.Sku ?? "", "Ex: POM-001");
+        var supplierBox = AddDialogComboField(codeRow.Right, "Fornecedor / marca", SupplierOptions(), existing?.Supplier ?? "", editable: true);
 
         AddDialogSection(shell.Body, "Preço e margem", "Controle de custo para vender sem perder margem.");
         var priceRow = AddDialogColumns(shell.Body);
-        var costBox = AddDialogTextField(priceRow.Left, "Preço de custo", "0,00", "Ex: 18,00");
-        var priceBox = AddDialogTextField(priceRow.Right, "Preço de venda", "0,00", "Ex: 39,90");
+        var costBox = AddDialogTextField(priceRow.Left, "Preço de custo", (existing?.CostPrice ?? 0).ToString("N2", Brazil), "Ex: 18,00");
+        var priceBox = AddDialogTextField(priceRow.Right, "Preço de venda", (existing?.Price ?? 0).ToString("N2", Brazil), "Ex: 39,90");
 
         AddDialogSection(shell.Body, "Estoque", "Quantidade inicial e ponto de reposição.");
         var stockRow = AddDialogColumns(shell.Body);
-        var stockBox = AddDialogTextField(stockRow.Left, "Estoque inicial", "0", "Ex: 10");
-        var minimumStockBox = AddDialogTextField(stockRow.Right, "Estoque mínimo", "0", "Ex: 3");
-        var notesBox = AddDialogTextField(shell.Body, "Observações de compra ou venda", "", "Ex: validade, variação, melhor oferta, comissão", multiline: true);
-        var activeCheck = AddDialogCheckBox(shell.Body, "Produto ativo para venda", true);
+        var stockBox = AddDialogTextField(stockRow.Left, "Estoque atual", (existing?.StockQuantity ?? 0).ToString(Brazil), "Ex: 10");
+        var minimumStockBox = AddDialogTextField(stockRow.Right, "Estoque mínimo", (existing?.MinimumStock ?? 0).ToString(Brazil), "Ex: 3");
+        var notesBox = AddDialogTextField(shell.Body, "Observações de compra ou venda", existing?.Notes ?? "", "Ex: validade, variação, melhor oferta, comissão", multiline: true);
+        var activeCheck = AddDialogCheckBox(shell.Body, "Produto ativo para venda", existing?.IsActive ?? true);
 
         ProductEditorForm? result = null;
         shell.PrimaryButton.Click += (_, _) =>
@@ -6356,19 +6618,27 @@ public partial class MainWindow : Window
         return shell.Dialog.ShowDialog() == true ? result : null;
     }
 
-    private ProductSaleEditorForm? ShowProductSaleEditorDialog()
+    private ProductSaleEditorForm? ShowProductSaleEditorDialog(ProductSale? existing = null)
     {
-        var shell = CreateEditorDialog("Registrar venda", "Baixe estoque e registre o valor vendido.", "Registrar venda");
+        var selectedProduct = existing is null
+            ? _data.Products.OrderBy(item => item.Name).First()
+            : _data.Products.FirstOrDefault(item => item.Id == existing.ProductId)
+              ?? _data.Products.FirstOrDefault(item => item.Name.Equals(existing.ProductName, StringComparison.OrdinalIgnoreCase))
+              ?? _data.Products.OrderBy(item => item.Name).First();
+        var shell = CreateEditorDialog(
+            existing is null ? "Registrar venda" : "Editar venda",
+            "Baixe estoque e registre o valor vendido.",
+            existing is null ? "Registrar venda" : "Salvar alterações");
         shell.Dialog.Width = 780;
         AddDialogSection(shell.Body, "Produto vendido", "Venda com baixa automática de estoque.");
-        var productCombo = AddDialogComboField(shell.Body, "Produto", _data.Products.OrderBy(item => item.Name), _data.Products.OrderBy(item => item.Name).First(), editable: false);
+        var productCombo = AddDialogComboField(shell.Body, "Produto", _data.Products.OrderBy(item => item.Name), selectedProduct, editable: false);
         productCombo.DisplayMemberPath = nameof(ProductItem.Name);
         var saleRow = AddDialogColumns(shell.Body);
-        var quantityBox = AddDialogTextField(saleRow.Left, "Quantidade", "1", "Ex: 2");
-        var discountBox = AddDialogTextField(saleRow.Right, "Desconto", "0,00", "Ex: 5,00");
-        var customerBox = AddDialogComboField(shell.Body, "Cliente", _data.Customers.Select(item => item.Name).Distinct().OrderBy(item => item), "", editable: true);
-        var methodBox = AddDialogComboField(shell.Body, "Forma de pagamento", PaymentMethodOptions(), "Pix", editable: true);
-        var notesBox = AddDialogTextField(shell.Body, "Observações", "", "Ex: retirada no balcão, venda junto ao atendimento", multiline: true);
+        var quantityBox = AddDialogTextField(saleRow.Left, "Quantidade", (existing?.Quantity ?? 1).ToString(Brazil), "Ex: 2");
+        var discountBox = AddDialogTextField(saleRow.Right, "Desconto", (existing?.Discount ?? 0).ToString("N2", Brazil), "Ex: 5,00");
+        var customerBox = AddDialogComboField(shell.Body, "Cliente", _data.Customers.Select(item => item.Name).Distinct().OrderBy(item => item), existing?.CustomerName ?? "", editable: true);
+        var methodBox = AddDialogComboField(shell.Body, "Forma de pagamento", PaymentMethodOptions(), string.IsNullOrWhiteSpace(existing?.PaymentMethod) ? "Pix" : existing.PaymentMethod, editable: true);
+        var notesBox = AddDialogTextField(shell.Body, "Observações", existing?.Notes ?? "", "Ex: retirada no balcão, venda junto ao atendimento", multiline: true);
 
         ProductSaleEditorForm? result = null;
         shell.PrimaryButton.Click += (_, _) =>
@@ -7811,7 +8081,8 @@ public partial class MainWindow : Window
         string Detail,
         string BadgeText,
         Brush BadgeBackground,
-        Brush BadgeForeground);
+        Brush BadgeForeground,
+        string Id = "");
 
     public sealed record MarketingContactRow(
         string Name,
