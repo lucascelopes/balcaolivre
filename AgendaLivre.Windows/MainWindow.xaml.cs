@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -29,7 +30,14 @@ public partial class MainWindow : Window
     private const string WhatsAppEvolutionLicenseSecret = "BalcaoLivrePDV-local-license-v1";
     private const string WhatsAppEvolutionLicenseExpires = "203512312359";
     private const string WhatsAppEvolutionLicenseScope = "AGENDALIVRE";
+    private const string DefaultMercadoPagoPaymentsApiUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/payments";
+    private const string MercadoPagoCreditMethod = "Mercado Pago - crédito na maquininha";
+    private const string MercadoPagoDebitMethod = "Mercado Pago - débito na maquininha";
     private static readonly CultureInfo Brazil = CultureInfo.GetCultureInfo("pt-BR");
+    private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true
+    };
     private static readonly Brush AccentBrush = Solid("#2563EB");
     private static readonly Brush AccentSoftBrush = Solid("#EAF1FF");
     private static readonly Brush WarmSoftBrush = Solid("#DBEAFE");
@@ -4944,6 +4952,9 @@ public partial class MainWindow : Window
             CustomerName = form.CustomerName,
             Category = form.Category,
             PaymentMethod = form.PaymentMethod,
+            PaymentProvider = form.PaymentProvider,
+            PaymentReference = form.PaymentReference,
+            PaymentStatus = form.PaymentStatus,
             Notes = form.Notes,
             Value = form.Value,
             PaidAt = DateTime.Now
@@ -5175,6 +5186,9 @@ public partial class MainWindow : Window
             UnitPrice = product.Price,
             Discount = form.Discount,
             PaymentMethod = form.PaymentMethod,
+            PaymentProvider = form.PaymentProvider,
+            PaymentReference = form.PaymentReference,
+            PaymentStatus = form.PaymentStatus,
             Notes = form.Notes,
             SoldAt = DateTime.Now
         });
@@ -5776,6 +5790,9 @@ public partial class MainWindow : Window
         sale.UnitPrice = form.Product.Price;
         sale.Discount = form.Discount;
         sale.PaymentMethod = form.PaymentMethod;
+        sale.PaymentProvider = form.PaymentProvider;
+        sale.PaymentReference = form.PaymentReference;
+        sale.PaymentStatus = form.PaymentStatus;
         sale.Notes = form.Notes;
 
         form.Product.StockQuantity = Math.Max(0, form.Product.StockQuantity - form.Quantity);
@@ -5930,6 +5947,14 @@ public partial class MainWindow : Window
         _data.Settings.AddressComplement = "";
         _data.Settings.AccountPasswordHash = "";
         _data.Settings.AccountCreatedAt = DateTime.MinValue;
+        _data.Settings.MercadoPagoEnabled = false;
+        _data.Settings.MercadoPagoConnected = false;
+        _data.Settings.MercadoPagoLicenseKey = "";
+        _data.Settings.MercadoPagoSellerUserId = "";
+        _data.Settings.MercadoPagoDefaultTerminalId = "";
+        _data.Settings.MercadoPagoDefaultTerminalLabel = "";
+        _data.Settings.MercadoPagoLastError = "";
+        _data.Settings.MercadoPagoLastSyncAt = null;
         _data.Settings.OnboardingCompleted = false;
 
         _store.Save(_data);
@@ -5956,6 +5981,559 @@ public partial class MainWindow : Window
         ServicesCountText.Text = $"{_data.Services.Count} serviço(s) cadastrados";
         ProfessionalsCountText.Text = $"{_data.Professionals.Count} profissional(is) cadastrados";
         ResourcesCountText.Text = $"{_data.Settings.Resources.Count} sala(s) ou recurso(s)";
+        RefreshMercadoPagoSettingsSummary();
+    }
+
+    private void RefreshMercadoPagoSettingsSummary()
+    {
+        var terminal = MercadoPagoTerminalLabel();
+        if (!_data.Settings.MercadoPagoEnabled)
+        {
+            SettingsMercadoPagoStatusText.Text = "Desativado";
+            SettingsMercadoPagoStatusText.Foreground = MutedBrush;
+            SettingsMercadoPagoDetailText.Text = "Ative em Configurações para liberar crédito/débito pela maquininha no registro de pagamento.";
+            return;
+        }
+
+        if (!_data.Settings.MercadoPagoConnected)
+        {
+            SettingsMercadoPagoStatusText.Text = "Ativado, falta conectar";
+            SettingsMercadoPagoStatusText.Foreground = Solid("#D97706");
+            SettingsMercadoPagoDetailText.Text = "Mercado Pago ativado, mas a conta da loja ainda precisa ser conectada para cobrar na Point.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_data.Settings.MercadoPagoDefaultTerminalId))
+        {
+            SettingsMercadoPagoStatusText.Text = "Conectado, sem Point";
+            SettingsMercadoPagoStatusText.Foreground = Solid("#D97706");
+            SettingsMercadoPagoDetailText.Text = "Conta conectada. Escolha uma maquininha Point para liberar cartão no financeiro.";
+            return;
+        }
+
+        SettingsMercadoPagoStatusText.Text = "Maquininha pronta";
+        SettingsMercadoPagoStatusText.Foreground = Solid("#16A34A");
+        SettingsMercadoPagoDetailText.Text = $"Cartão será enviado para {terminal}. O pagamento só registra quando o Mercado Pago aprovar.";
+    }
+
+    private void OpenMercadoPagoSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        var shell = CreateEditorDialog("Mercado Pago", "Ative a conta e escolha a Point usada nos pagamentos da agenda.", "Salvar configuração");
+        shell.Dialog.Width = 820;
+
+        AddDialogSection(shell.Body, "Ativação", "Use a mesma chave/licença do Balcão Livre para conectar a conta Mercado Pago da loja.");
+        var enabledCheck = AddDialogCheckBox(shell.Body, "Ativar Mercado Pago nos pagamentos", _data.Settings.MercadoPagoEnabled);
+        var licenseBox = AddDialogTextField(shell.Body, "Chave/licença da loja", _data.Settings.MercadoPagoLicenseKey, "Cole a chave usada para ativar o Balcão Livre");
+        var apiBox = AddDialogTextField(shell.Body, "URL de pagamentos", FirstFilled(_data.Settings.MercadoPagoPaymentsApiUrl, DefaultMercadoPagoPaymentsApiUrl), DefaultMercadoPagoPaymentsApiUrl);
+
+        AddDialogSection(shell.Body, "Conta e maquininha", "Conecte a conta Mercado Pago e selecione a Point da loja.");
+        var statusText = new TextBlock
+        {
+            Text = MercadoPagoSettingsDetailText(),
+            Foreground = MutedBrush,
+            TextWrapping = TextWrapping.Wrap,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+        shell.Body.Children.Add(statusText);
+
+        var terminalOptions = CurrentMercadoPagoTerminalOptions();
+        var terminalBox = AddDialogComboField(shell.Body, "Point da loja", terminalOptions, terminalOptions.FirstOrDefault(item => item.Id == _data.Settings.MercadoPagoDefaultTerminalId), editable: false);
+        terminalBox.DisplayMemberPath = nameof(AgendaMercadoPagoTerminalDto.Display);
+
+        var actions = new Grid { Margin = new Thickness(0, 2, 0, 14) };
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var connectButton = new Button { Content = "Conectar", Style = (Style)FindResource("CommandButton"), Height = 40 };
+        var statusButton = new Button { Content = "Checar conta", Style = (Style)FindResource("GhostButton"), Height = 40 };
+        var terminalsButton = new Button { Content = "Buscar Points", Style = (Style)FindResource("GhostButton"), Height = 40 };
+        Grid.SetColumn(statusButton, 2);
+        Grid.SetColumn(terminalsButton, 4);
+        actions.Children.Add(connectButton);
+        actions.Children.Add(statusButton);
+        actions.Children.Add(terminalsButton);
+        shell.Body.Children.Add(actions);
+
+        void CopyDialogFieldsToSettings()
+        {
+            _data.Settings.MercadoPagoEnabled = enabledCheck.IsChecked == true;
+            _data.Settings.MercadoPagoLicenseKey = licenseBox.Text.Trim();
+            _data.Settings.MercadoPagoPaymentsApiUrl = NormalizeMercadoPagoPaymentsApiUrl(apiBox.Text);
+            if (terminalBox.SelectedItem is AgendaMercadoPagoTerminalDto terminal)
+            {
+                _data.Settings.MercadoPagoDefaultTerminalId = terminal.Id.Trim();
+                _data.Settings.MercadoPagoDefaultTerminalLabel = terminal.Display.Trim();
+            }
+        }
+
+        void RefreshDialogStatus()
+        {
+            statusText.Text = MercadoPagoSettingsDetailText();
+            statusText.Foreground = IsMercadoPagoPointReady()
+                ? Solid("#16A34A")
+                : _data.Settings.MercadoPagoEnabled ? Solid("#D97706") : MutedBrush;
+            enabledCheck.IsChecked = _data.Settings.MercadoPagoEnabled;
+        }
+
+        async Task RefreshTerminalsAsync()
+        {
+            CopyDialogFieldsToSettings();
+            var terminals = await FetchMercadoPagoTerminalsAsync();
+            if (!terminals.Ok)
+            {
+                _data.Settings.MercadoPagoLastError = FirstFilled(terminals.Message, "Não consegui buscar as maquininhas Mercado Pago.");
+                RefreshDialogStatus();
+                return;
+            }
+
+            ApplyMercadoPagoTerminals(terminals);
+            var list = CurrentMercadoPagoTerminalOptions();
+            terminalBox.ItemsSource = list;
+            terminalBox.SelectedItem = list.FirstOrDefault(item => item.Id == _data.Settings.MercadoPagoDefaultTerminalId);
+            _store.Save(_data);
+            RefreshDialogStatus();
+        }
+
+        connectButton.Click += async (_, _) =>
+        {
+            CopyDialogFieldsToSettings();
+            if (string.IsNullOrWhiteSpace(_data.Settings.MercadoPagoLicenseKey))
+            {
+                SetDialogError(shell.ErrorText, "Informe a chave/licença da loja antes de conectar o Mercado Pago.");
+                licenseBox.Focus();
+                return;
+            }
+
+            _data.Settings.MercadoPagoEnabled = true;
+            _store.Save(_data);
+            var result = await StartMercadoPagoConnectAsync();
+            if (!result.Ok || string.IsNullOrWhiteSpace(result.AuthUrl))
+            {
+                _data.Settings.MercadoPagoLastError = FirstFilled(result.Message, "Não consegui iniciar a conexão com o Mercado Pago.");
+                RefreshDialogStatus();
+                return;
+            }
+
+            Process.Start(new ProcessStartInfo(result.AuthUrl) { UseShellExecute = true });
+            _data.Settings.MercadoPagoLastError = "Autorize no navegador e depois clique em Checar conta.";
+            _store.Save(_data);
+            RefreshDialogStatus();
+        };
+
+        statusButton.Click += async (_, _) =>
+        {
+            CopyDialogFieldsToSettings();
+            var status = await FetchMercadoPagoConnectionStatusAsync();
+            ApplyMercadoPagoStatus(status);
+            _store.Save(_data);
+            RefreshDialogStatus();
+            if (status.Ok && status.Connected)
+            {
+                await RefreshTerminalsAsync();
+            }
+        };
+
+        terminalsButton.Click += async (_, _) => await RefreshTerminalsAsync();
+
+        shell.PrimaryButton.Click += (_, _) =>
+        {
+            CopyDialogFieldsToSettings();
+            _store.Save(_data);
+            RefreshSettingsSummary();
+            shell.Dialog.DialogResult = true;
+        };
+
+        RefreshDialogStatus();
+        shell.Dialog.ShowDialog();
+        RefreshSettingsSummary();
+    }
+
+    private string MercadoPagoSettingsDetailText()
+    {
+        if (!_data.Settings.MercadoPagoEnabled)
+        {
+            return "Desativado. Ative para aparecer no pagamento como crédito/débito pela maquininha.";
+        }
+
+        if (string.IsNullOrWhiteSpace(_data.Settings.MercadoPagoLicenseKey))
+        {
+            return "Ativado, mas falta informar a chave/licença da loja.";
+        }
+
+        if (!_data.Settings.MercadoPagoConnected)
+        {
+            return FirstFilled(_data.Settings.MercadoPagoLastError, "Conta ainda não conectada. Clique em Conectar e autorize no navegador.");
+        }
+
+        if (string.IsNullOrWhiteSpace(_data.Settings.MercadoPagoDefaultTerminalId))
+        {
+            return FirstFilled(_data.Settings.MercadoPagoLastError, "Conta conectada. Busque e escolha uma maquininha Point.");
+        }
+
+        return $"Pronto: {MercadoPagoTerminalLabel()} selecionada. Cartão na agenda vai direto para a maquininha.";
+    }
+
+    private string MercadoPagoPaymentHintText()
+    {
+        if (IsMercadoPagoPointReady())
+        {
+            return $"Pronto para cobrar em {MercadoPagoTerminalLabel()}. O sistema só registra o pagamento depois da aprovação.";
+        }
+
+        if (_data.Settings.MercadoPagoEnabled)
+        {
+            return "Mercado Pago ativado, mas falta conectar a conta ou escolher a Point em Configurações.";
+        }
+
+        return "Mercado Pago está desativado. Ative em Configurações para liberar crédito/débito pela maquininha.";
+    }
+
+    private List<AgendaMercadoPagoTerminalDto> CurrentMercadoPagoTerminalOptions()
+    {
+        if (string.IsNullOrWhiteSpace(_data.Settings.MercadoPagoDefaultTerminalId))
+        {
+            return [];
+        }
+
+        return
+        [
+            new AgendaMercadoPagoTerminalDto
+            {
+                Id = _data.Settings.MercadoPagoDefaultTerminalId,
+                Label = MercadoPagoTerminalLabel()
+            }
+        ];
+    }
+
+    private void ApplyMercadoPagoStatus(AgendaMercadoPagoConnectionStatusResult result)
+    {
+        if (!result.Ok)
+        {
+            _data.Settings.MercadoPagoLastError = FirstFilled(result.Message, "Não consegui consultar o Mercado Pago.");
+            return;
+        }
+
+        _data.Settings.MercadoPagoConnected = result.Connected;
+        _data.Settings.MercadoPagoSellerUserId = result.SellerUserId ?? "";
+        _data.Settings.MercadoPagoLastError = result.LastError ?? "";
+        _data.Settings.MercadoPagoLastSyncAt = DateTime.Now;
+        if (!string.IsNullOrWhiteSpace(result.SelectedTerminalId))
+        {
+            _data.Settings.MercadoPagoDefaultTerminalId = result.SelectedTerminalId.Trim();
+            _data.Settings.MercadoPagoDefaultTerminalLabel = FirstFilled(result.SelectedTerminalLabel, result.SelectedTerminalId).Trim();
+        }
+    }
+
+    private void ApplyMercadoPagoTerminals(AgendaMercadoPagoTerminalsResult result)
+    {
+        if (!result.Ok)
+        {
+            _data.Settings.MercadoPagoLastError = FirstFilled(result.Message, "Não consegui listar as Points.");
+            return;
+        }
+
+        var selected = result.Terminals
+            .Where(item => !string.IsNullOrWhiteSpace(item.Id))
+            .FirstOrDefault(item => item.Id.Equals(result.SelectedTerminalId, StringComparison.OrdinalIgnoreCase))
+            ?? result.Terminals.FirstOrDefault(item => !string.IsNullOrWhiteSpace(item.Id));
+        if (selected is null)
+        {
+            _data.Settings.MercadoPagoDefaultTerminalId = "";
+            _data.Settings.MercadoPagoDefaultTerminalLabel = "";
+            _data.Settings.MercadoPagoLastError = "Conta conectada, mas nenhuma Point apareceu para esta loja.";
+            return;
+        }
+
+        _data.Settings.MercadoPagoDefaultTerminalId = selected.Id.Trim();
+        _data.Settings.MercadoPagoDefaultTerminalLabel = selected.Display.Trim();
+        _data.Settings.MercadoPagoLastError = "";
+        _data.Settings.MercadoPagoLastSyncAt = DateTime.Now;
+    }
+
+    private Task<AgendaMercadoPagoConnectResult> StartMercadoPagoConnectAsync() =>
+        PostMercadoPagoOperationAsync<AgendaMercadoPagoConnectResult>(
+            "/mercadopago/connect/start",
+            FillMercadoPagoPayload(new AgendaMercadoPagoClientPayload { EventName = "agendalivre.mercadopago.connect" }),
+            TimeSpan.FromSeconds(12));
+
+    private Task<AgendaMercadoPagoConnectionStatusResult> FetchMercadoPagoConnectionStatusAsync() =>
+        PostMercadoPagoOperationAsync<AgendaMercadoPagoConnectionStatusResult>(
+            "/mercadopago/status",
+            FillMercadoPagoPayload(new AgendaMercadoPagoClientPayload { EventName = "agendalivre.mercadopago.status" }),
+            TimeSpan.FromSeconds(12));
+
+    private Task<AgendaMercadoPagoTerminalsResult> FetchMercadoPagoTerminalsAsync() =>
+        PostMercadoPagoOperationAsync<AgendaMercadoPagoTerminalsResult>(
+            "/mercadopago/terminals",
+            FillMercadoPagoPayload(new AgendaMercadoPagoClientPayload { EventName = "agendalivre.mercadopago.terminals" }),
+            TimeSpan.FromSeconds(16));
+
+    private Task<AgendaMercadoPagoChargeResult> CreateMercadoPagoPointChargeAsync(decimal amount, string method, string description)
+    {
+        var payload = FillMercadoPagoPayload(new AgendaMercadoPagoChargePayload
+        {
+            EventName = "agendalivre.mercadopago.point.charge",
+            Amount = amount.ToString("0.00", CultureInfo.InvariantCulture),
+            Method = MercadoPagoPointMethodCode(method),
+            LocalReference = BuildMercadoPagoLocalReference(),
+            Description = ClipMercadoPagoDescription(description),
+            TerminalId = _data.Settings.MercadoPagoDefaultTerminalId,
+            Items =
+            [
+                new AgendaMercadoPagoItemPayload
+                {
+                    Code = "AGENDALIVRE",
+                    Title = "Agenda Livre",
+                    Quantity = 1,
+                    UnitPrice = amount.ToString("0.00", CultureInfo.InvariantCulture),
+                    Description = ClipMercadoPagoDescription(description)
+                }
+            ]
+        });
+        return PostMercadoPagoOperationAsync<AgendaMercadoPagoChargeResult>(
+            "/mercadopago/point/charge",
+            payload,
+            TimeSpan.FromSeconds(16));
+    }
+
+    private Task<AgendaMercadoPagoPointStatusResult> FetchMercadoPagoPointStatusAsync(string attemptId, string orderId, string localReference)
+    {
+        var payload = FillMercadoPagoPayload(new AgendaMercadoPagoPointStatusPayload
+        {
+            EventName = "agendalivre.mercadopago.point.status",
+            AttemptId = attemptId,
+            OrderId = orderId,
+            LocalReference = localReference
+        });
+        return PostMercadoPagoOperationAsync<AgendaMercadoPagoPointStatusResult>(
+            "/mercadopago/point/status",
+            payload,
+            TimeSpan.FromSeconds(10));
+    }
+
+    private async Task<AgendaMercadoPagoPaymentOutcome?> ProcessMercadoPagoPointPaymentAsync(string method, decimal amount, string payer, string description, Window owner)
+    {
+        if (!IsMercadoPagoPointReady())
+        {
+            MessageBox.Show(owner, "Ative o Mercado Pago em Configurações, conecte a conta e escolha a maquininha Point.", "Mercado Pago", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        var charge = await CreateMercadoPagoPointChargeAsync(amount, method, description);
+        if (!charge.Ok)
+        {
+            MessageBox.Show(owner, FirstFilled(charge.Message, "Mercado Pago recusou a cobrança."), "Mercado Pago", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        var cancelled = false;
+        var paid = false;
+        var lastStatus = FirstFilled(charge.Status, "criado");
+        var waitDialog = new Window
+        {
+            Title = "Mercado Pago Point",
+            Owner = owner,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.NoResize,
+            Width = 480,
+            SizeToContent = SizeToContent.Height,
+            Background = Brushes.White
+        };
+
+        var statusText = new TextBlock
+        {
+            Text = $"Cobrança enviada para {MercadoPagoTerminalLabel()}.",
+            Foreground = InkBrush,
+            FontSize = 17,
+            FontWeight = FontWeights.Bold,
+            TextWrapping = TextWrapping.Wrap
+        };
+        var detailText = new TextBlock
+        {
+            Text = $"{amount.ToString("C", Brazil)} | {method}",
+            Foreground = MutedBrush,
+            FontSize = 13,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 14)
+        };
+        var cancelButton = new Button
+        {
+            Content = "Parar espera",
+            Style = (Style)FindResource("GhostButton"),
+            Height = 40,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        cancelButton.Click += (_, _) =>
+        {
+            cancelled = true;
+            waitDialog.Close();
+        };
+        waitDialog.Closed += (_, _) => cancelled = !paid;
+        waitDialog.Content = new StackPanel
+        {
+            Margin = new Thickness(18),
+            Children =
+            {
+                new TextBlock { Text = "Passe o cartão na maquininha", Foreground = AccentBrush, FontWeight = FontWeights.Bold, FontSize = 13 },
+                statusText,
+                detailText,
+                new TextBlock
+                {
+                    Text = "O pagamento só será salvo quando o Mercado Pago confirmar aprovação.",
+                    Foreground = MutedBrush,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 14)
+                },
+                cancelButton
+            }
+        };
+        waitDialog.Show();
+
+        for (var attempt = 0; attempt < 45 && !cancelled; attempt++)
+        {
+            await Task.Delay(attempt == 0 ? 1200 : 2500);
+            if (cancelled)
+            {
+                break;
+            }
+
+            var status = await FetchMercadoPagoPointStatusAsync(charge.AttemptId, charge.OrderId, charge.LocalReference);
+            if (!status.Ok)
+            {
+                detailText.Text = FirstFilled(status.Message, $"Aguardando retorno. Último status: {lastStatus}");
+                continue;
+            }
+
+            lastStatus = FirstFilled(status.Status, lastStatus);
+            detailText.Text = $"Status: {lastStatus} | tentativa {attempt + 1}/45";
+            if (status.Paid)
+            {
+                paid = true;
+                waitDialog.Close();
+                return new AgendaMercadoPagoPaymentOutcome(
+                    FirstFilled(status.PaymentId, charge.PaymentId, charge.OrderId, charge.LocalReference),
+                    FirstFilled(status.Status, "approved"));
+            }
+
+            if (IsMercadoPagoFinalFailure(lastStatus))
+            {
+                waitDialog.Close();
+                MessageBox.Show(owner, $"Pagamento não aprovado: {lastStatus}", "Mercado Pago", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return null;
+            }
+        }
+
+        if (!paid && !cancelled)
+        {
+            waitDialog.Close();
+            MessageBox.Show(owner, "Ainda não houve confirmação do Mercado Pago. Confira a maquininha antes de registrar de novo.", "Mercado Pago", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        return null;
+    }
+
+    private async Task<T> PostMercadoPagoOperationAsync<T>(string path, AgendaMercadoPagoClientPayload payload, TimeSpan timeout)
+        where T : AgendaMercadoPagoResult, new()
+    {
+        var endpoint = BuildMercadoPagoApiUri(path);
+        if (endpoint is null)
+        {
+            return new T { Ok = false, Message = "URL de pagamentos inválida." };
+        }
+
+        try
+        {
+            using var client = new HttpClient { Timeout = timeout };
+            using var content = new StringContent(JsonSerializer.Serialize(payload, payload.GetType(), WebJsonOptions), Encoding.UTF8, "application/json");
+            using var response = await client.PostAsync(endpoint, content);
+            var body = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<T>(body, WebJsonOptions) ?? new T { Ok = response.IsSuccessStatusCode };
+            if (!response.IsSuccessStatusCode && string.IsNullOrWhiteSpace(result.Message))
+            {
+                result.Message = $"Pagamentos online retornou {(int)response.StatusCode}: {CompactMercadoPagoResponse(body)}";
+            }
+
+            return result;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            return new T { Ok = false, Message = $"Falha ao chamar Mercado Pago: {ex.Message}" };
+        }
+    }
+
+    private AgendaMercadoPagoClientPayload FillMercadoPagoPayload(AgendaMercadoPagoClientPayload payload)
+    {
+        payload.LicenseKey = _data.Settings.MercadoPagoLicenseKey.Trim();
+        payload.MachineHash = BuildMercadoPagoMachineHash();
+        payload.MachineCode = Environment.MachineName;
+        payload.AppVersion = "AgendaLivre.Windows";
+        payload.Profile = new Dictionary<string, object?>
+        {
+            ["businessName"] = BusinessDisplayName(),
+            ["businessDocument"] = OnlyDigits(_data.Settings.BusinessDocument),
+            ["businessPhone"] = OnlyDigits(FirstFilled(_data.Settings.BusinessPhone, _data.Settings.AccountPhone)),
+            ["segment"] = _data.Settings.BusinessSegment
+        };
+        return payload;
+    }
+
+    private Uri? BuildMercadoPagoApiUri(string path)
+    {
+        var baseUrl = NormalizeMercadoPagoPaymentsApiUrl(_data.Settings.MercadoPagoPaymentsApiUrl);
+        if (!Uri.TryCreate(EnsureTrailingSlash(baseUrl), UriKind.Absolute, out var baseUri))
+        {
+            return null;
+        }
+
+        return new Uri(baseUri, path.TrimStart('/'));
+    }
+
+    private static string NormalizeMercadoPagoPaymentsApiUrl(string value)
+    {
+        var clean = string.IsNullOrWhiteSpace(value) ? DefaultMercadoPagoPaymentsApiUrl : value.Trim();
+        return clean.TrimEnd('/');
+    }
+
+    private string BuildMercadoPagoMachineHash()
+    {
+        var raw = $"{Environment.MachineName}|{Environment.UserName}|{OnlyDigits(_data.Settings.BusinessDocument)}|AGENDALIVRE";
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    private static string BuildMercadoPagoLocalReference() =>
+        $"AGL-{DateTime.Now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..32].ToUpperInvariant();
+
+    private static string ClipMercadoPagoDescription(string value)
+    {
+        var clean = string.IsNullOrWhiteSpace(value) ? "Agenda Livre" : value.Trim();
+        return clean.Length <= 180 ? clean : clean[..180];
+    }
+
+    private static bool IsMercadoPagoFinalFailure(string status)
+    {
+        var text = (status ?? "").Trim().ToLowerInvariant();
+        return text.Contains("cancel", StringComparison.Ordinal)
+               || text.Contains("reject", StringComparison.Ordinal)
+               || text.Contains("refus", StringComparison.Ordinal)
+               || text.Contains("fail", StringComparison.Ordinal)
+               || text.Contains("expired", StringComparison.Ordinal)
+               || text.Contains("erro", StringComparison.Ordinal);
+    }
+
+    private static string CompactMercadoPagoResponse(string value)
+    {
+        var clean = (value ?? "").Replace("\r", " ").Replace("\n", " ").Replace("\t", " ").Trim();
+        while (clean.Contains("  ", StringComparison.Ordinal))
+        {
+            clean = clean.Replace("  ", " ");
+        }
+
+        return clean.Length > 260 ? clean[..260] + "..." : clean;
     }
 
     private void ShowSelectedAppointment(Appointment appointment)
@@ -6182,7 +6760,22 @@ public partial class MainWindow : Window
     }
 
     private static IEnumerable<string> PaymentMethodOptions() =>
-        ["Pix", "Dinheiro", "Cartão de débito", "Cartão de crédito", "Cortesia", "Fiado"];
+        ["Pix", "Dinheiro", "Cartão de débito", "Cartão de crédito", MercadoPagoDebitMethod, MercadoPagoCreditMethod, "Cortesia", "Fiado"];
+
+    private static bool IsMercadoPagoPaymentMethod(string method) =>
+        method.Equals(MercadoPagoCreditMethod, StringComparison.OrdinalIgnoreCase) ||
+        method.Equals(MercadoPagoDebitMethod, StringComparison.OrdinalIgnoreCase);
+
+    private static string MercadoPagoPointMethodCode(string method) =>
+        method.Equals(MercadoPagoDebitMethod, StringComparison.OrdinalIgnoreCase) ? "DEBITO" : "CREDITO";
+
+    private string MercadoPagoTerminalLabel() =>
+        FirstFilled(_data.Settings.MercadoPagoDefaultTerminalLabel, _data.Settings.MercadoPagoDefaultTerminalId, "Point Mercado Pago");
+
+    private bool IsMercadoPagoPointReady() =>
+        _data.Settings.MercadoPagoEnabled &&
+        _data.Settings.MercadoPagoConnected &&
+        !string.IsNullOrWhiteSpace(_data.Settings.MercadoPagoDefaultTerminalId);
 
     private IEnumerable<string> SupplierOptions() =>
         _data.Products
@@ -6535,11 +7128,12 @@ public partial class MainWindow : Window
         var paymentRow = AddDialogColumns(shell.Body);
         var categoryBox = AddDialogComboField(paymentRow.Left, "Categoria", new[] { "Agendamento", "Produto", "Sinal", "Mensalidade", "Ajuste", "Outro" }, "Agendamento", editable: true);
         var methodBox = AddDialogComboField(paymentRow.Right, "Forma de pagamento", PaymentMethodOptions(), "Pix", editable: true);
+        AddDialogInfoCard(shell.Body, "Mercado Pago na maquininha", MercadoPagoPaymentHintText(), IsMercadoPagoPointReady() ? "#DCFCE7" : "#FFF7ED", IsMercadoPagoPointReady() ? "#16A34A" : "#D97706");
         var valueBox = AddDialogTextField(shell.Body, "Valor recebido", "0,00", "Ex: 80,00");
         var notesBox = AddDialogTextField(shell.Body, "Observações", "", "Ex: pago antecipado, comprovante enviado, ajuste manual", multiline: true);
 
         PaymentEditorForm? result = null;
-        shell.PrimaryButton.Click += (_, _) =>
+        shell.PrimaryButton.Click += async (_, _) =>
         {
             var description = descriptionBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(description))
@@ -6556,13 +7150,47 @@ public partial class MainWindow : Window
                 return;
             }
 
+            var selectedMethod = DialogComboText(methodBox, "Pix");
+            var provider = "";
+            var reference = "";
+            var status = "";
+            if (IsMercadoPagoPaymentMethod(selectedMethod))
+            {
+                if (!IsMercadoPagoPointReady())
+                {
+                    SetDialogError(shell.ErrorText, "Ative o Mercado Pago em Configurações, conecte a conta e escolha uma maquininha Point antes de registrar este pagamento.");
+                    methodBox.Focus();
+                    return;
+                }
+
+                shell.PrimaryButton.IsEnabled = false;
+                var outcome = await ProcessMercadoPagoPointPaymentAsync(
+                    selectedMethod,
+                    value,
+                    customerBox.Text.Trim(),
+                    description,
+                    shell.Dialog);
+                shell.PrimaryButton.IsEnabled = true;
+                if (outcome is null)
+                {
+                    return;
+                }
+
+                provider = "Mercado Pago";
+                reference = outcome.Reference;
+                status = outcome.Status;
+            }
+
             result = new PaymentEditorForm(
                 description,
                 customerBox.Text.Trim(),
                 DialogComboText(categoryBox, "Agendamento"),
-                DialogComboText(methodBox, "Pix"),
+                selectedMethod,
                 notesBox.Text.Trim(),
-                value);
+                value,
+                provider,
+                reference,
+                status);
             shell.Dialog.DialogResult = true;
         };
 
@@ -6638,10 +7266,11 @@ public partial class MainWindow : Window
         var discountBox = AddDialogTextField(saleRow.Right, "Desconto", (existing?.Discount ?? 0).ToString("N2", Brazil), "Ex: 5,00");
         var customerBox = AddDialogComboField(shell.Body, "Cliente", _data.Customers.Select(item => item.Name).Distinct().OrderBy(item => item), existing?.CustomerName ?? "", editable: true);
         var methodBox = AddDialogComboField(shell.Body, "Forma de pagamento", PaymentMethodOptions(), string.IsNullOrWhiteSpace(existing?.PaymentMethod) ? "Pix" : existing.PaymentMethod, editable: true);
+        AddDialogInfoCard(shell.Body, "Mercado Pago na maquininha", MercadoPagoPaymentHintText(), IsMercadoPagoPointReady() ? "#DCFCE7" : "#FFF7ED", IsMercadoPagoPointReady() ? "#16A34A" : "#D97706");
         var notesBox = AddDialogTextField(shell.Body, "Observações", existing?.Notes ?? "", "Ex: retirada no balcão, venda junto ao atendimento", multiline: true);
 
         ProductSaleEditorForm? result = null;
-        shell.PrimaryButton.Click += (_, _) =>
+        shell.PrimaryButton.Click += async (_, _) =>
         {
             if (productCombo.SelectedItem is not ProductItem product)
             {
@@ -6671,13 +7300,55 @@ public partial class MainWindow : Window
                 return;
             }
 
+            var selectedMethod = DialogComboText(methodBox, "Pix");
+            var provider = "";
+            var reference = "";
+            var status = "";
+            if (IsMercadoPagoPaymentMethod(selectedMethod))
+            {
+                var amount = Math.Max(0, (product.Price * quantity) - discount);
+                if (amount <= 0)
+                {
+                    SetDialogError(shell.ErrorText, "O valor para cobrar no Mercado Pago precisa ser maior que zero.");
+                    discountBox.Focus();
+                    return;
+                }
+
+                if (!IsMercadoPagoPointReady())
+                {
+                    SetDialogError(shell.ErrorText, "Ative o Mercado Pago em Configurações, conecte a conta e escolha uma maquininha Point antes de registrar esta venda.");
+                    methodBox.Focus();
+                    return;
+                }
+
+                shell.PrimaryButton.IsEnabled = false;
+                var outcome = await ProcessMercadoPagoPointPaymentAsync(
+                    selectedMethod,
+                    amount,
+                    customerBox.Text.Trim(),
+                    $"{quantity}x {product.Name}",
+                    shell.Dialog);
+                shell.PrimaryButton.IsEnabled = true;
+                if (outcome is null)
+                {
+                    return;
+                }
+
+                provider = "Mercado Pago";
+                reference = outcome.Reference;
+                status = outcome.Status;
+            }
+
             result = new ProductSaleEditorForm(
                 product,
                 quantity,
                 customerBox.Text.Trim(),
-                DialogComboText(methodBox, "Pix"),
+                selectedMethod,
                 discount,
-                notesBox.Text.Trim());
+                notesBox.Text.Trim(),
+                provider,
+                reference,
+                status);
             shell.Dialog.DialogResult = true;
         };
 
@@ -6868,6 +7539,41 @@ public partial class MainWindow : Window
                         FontSize = 12,
                         TextWrapping = TextWrapping.Wrap,
                         Margin = new Thickness(0, 3, 0, 0)
+                    }
+                }
+            }
+        });
+    }
+
+    private static void AddDialogInfoCard(StackPanel body, string title, string text, string background, string accent)
+    {
+        body.Children.Add(new Border
+        {
+            Background = Solid(background),
+            BorderBrush = Solid(accent),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12, 10, 12, 10),
+            Margin = new Thickness(0, 0, 0, 12),
+            Child = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = title,
+                        Foreground = InkBrush,
+                        FontWeight = FontWeights.Bold,
+                        FontSize = 13,
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    new TextBlock
+                    {
+                        Text = text,
+                        Foreground = MutedBrush,
+                        FontSize = 12,
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(0, 4, 0, 0)
                     }
                 }
             }
@@ -7971,7 +8677,10 @@ public partial class MainWindow : Window
         string CustomerName,
         string PaymentMethod,
         decimal Discount,
-        string Notes);
+        string Notes,
+        string PaymentProvider,
+        string PaymentReference,
+        string PaymentStatus);
 
     private sealed record PaymentEditorForm(
         string Description,
@@ -7979,7 +8688,10 @@ public partial class MainWindow : Window
         string Category,
         string PaymentMethod,
         string Notes,
-        decimal Value);
+        decimal Value,
+        string PaymentProvider,
+        string PaymentReference,
+        string PaymentStatus);
 
     private sealed record ExpenseEditorForm(
         string Description,
@@ -7988,6 +8700,108 @@ public partial class MainWindow : Window
         string PaymentMethod,
         string Notes,
         decimal Value);
+
+    private sealed record AgendaMercadoPagoPaymentOutcome(
+        string Reference,
+        string Status);
+
+    public class AgendaMercadoPagoResult
+    {
+        public bool Ok { get; set; }
+        public string Message { get; set; } = "";
+    }
+
+    public class AgendaMercadoPagoClientPayload
+    {
+        public string EventName { get; set; } = "";
+        public string LicenseKey { get; set; } = "";
+        public string MachineHash { get; set; } = "";
+        public string MachineCode { get; set; } = "";
+        public string AppVersion { get; set; } = "";
+        public Dictionary<string, object?> Profile { get; set; } = [];
+    }
+
+    public sealed class AgendaMercadoPagoConnectResult : AgendaMercadoPagoResult
+    {
+        public string AuthUrl { get; set; } = "";
+        public DateTime? ExpiresAt { get; set; }
+    }
+
+    public sealed class AgendaMercadoPagoConnectionStatusResult : AgendaMercadoPagoResult
+    {
+        public bool Connected { get; set; }
+        public string Status { get; set; } = "";
+        public string SellerUserId { get; set; } = "";
+        public string SelectedTerminalId { get; set; } = "";
+        public string SelectedTerminalLabel { get; set; } = "";
+        public string LastSyncAt { get; set; } = "";
+        public string LastError { get; set; } = "";
+    }
+
+    public sealed class AgendaMercadoPagoTerminalsResult : AgendaMercadoPagoResult
+    {
+        public List<AgendaMercadoPagoTerminalDto> Terminals { get; set; } = [];
+        public string SelectedTerminalId { get; set; } = "";
+        public string SelectedTerminalLabel { get; set; } = "";
+    }
+
+    public sealed class AgendaMercadoPagoTerminalDto
+    {
+        public string Id { get; set; } = "";
+        public string Label { get; set; } = "";
+        public string PosId { get; set; } = "";
+        public string StoreId { get; set; } = "";
+        public string OperatingMode { get; set; } = "";
+
+        [JsonIgnore]
+        public string Display => string.IsNullOrWhiteSpace(Label) ? Id : Label;
+    }
+
+    public sealed class AgendaMercadoPagoItemPayload
+    {
+        public string Code { get; set; } = "";
+        public string Title { get; set; } = "";
+        public int Quantity { get; set; }
+        public string UnitPrice { get; set; } = "";
+        public string Description { get; set; } = "";
+    }
+
+    public sealed class AgendaMercadoPagoChargePayload : AgendaMercadoPagoClientPayload
+    {
+        public string Amount { get; set; } = "";
+        public string Method { get; set; } = "";
+        public string LocalReference { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string TerminalId { get; set; } = "";
+        public List<AgendaMercadoPagoItemPayload> Items { get; set; } = [];
+    }
+
+    public sealed class AgendaMercadoPagoChargeResult : AgendaMercadoPagoResult
+    {
+        public string AttemptId { get; set; } = "";
+        public string LocalReference { get; set; } = "";
+        public string OrderId { get; set; } = "";
+        public string PaymentId { get; set; } = "";
+        public string Status { get; set; } = "";
+        public string StatusDetail { get; set; } = "";
+    }
+
+    public sealed class AgendaMercadoPagoPointStatusPayload : AgendaMercadoPagoClientPayload
+    {
+        public string AttemptId { get; set; } = "";
+        public string OrderId { get; set; } = "";
+        public string LocalReference { get; set; } = "";
+    }
+
+    public sealed class AgendaMercadoPagoPointStatusResult : AgendaMercadoPagoResult
+    {
+        public string AttemptId { get; set; } = "";
+        public string OrderId { get; set; } = "";
+        public string PaymentId { get; set; } = "";
+        public string Status { get; set; } = "";
+        public string StatusDetail { get; set; } = "";
+        public bool Paid { get; set; }
+    }
 
     public sealed class WhatsAppEvolutionResult
     {

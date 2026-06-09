@@ -67,6 +67,15 @@ public sealed class AgendaSettings
     public string WhatsAppEvolutionState { get; set; } = "";
     public string WhatsAppEvolutionQrBase64 { get; set; } = "";
     public DateTime? WhatsAppEvolutionLastCheckedAt { get; set; }
+    public bool MercadoPagoEnabled { get; set; }
+    public bool MercadoPagoConnected { get; set; }
+    public string MercadoPagoLicenseKey { get; set; } = "";
+    public string MercadoPagoPaymentsApiUrl { get; set; } = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/payments";
+    public string MercadoPagoSellerUserId { get; set; } = "";
+    public string MercadoPagoDefaultTerminalId { get; set; } = "";
+    public string MercadoPagoDefaultTerminalLabel { get; set; } = "";
+    public string MercadoPagoLastError { get; set; } = "";
+    public DateTime? MercadoPagoLastSyncAt { get; set; }
 }
 
 public sealed class ServiceItem
@@ -150,6 +159,9 @@ public sealed class ProductSale
     public decimal UnitPrice { get; set; }
     public decimal Discount { get; set; }
     public string PaymentMethod { get; set; } = "";
+    public string PaymentProvider { get; set; } = "";
+    public string PaymentReference { get; set; } = "";
+    public string PaymentStatus { get; set; } = "";
     public string Notes { get; set; } = "";
     public DateTime SoldAt { get; set; } = DateTime.Now;
 
@@ -164,6 +176,9 @@ public sealed class ManualPayment
     public string CustomerName { get; set; } = "";
     public string Category { get; set; } = "";
     public string PaymentMethod { get; set; } = "";
+    public string PaymentProvider { get; set; } = "";
+    public string PaymentReference { get; set; } = "";
+    public string PaymentStatus { get; set; } = "";
     public string Notes { get; set; } = "";
     public decimal Value { get; set; }
     public DateTime PaidAt { get; set; } = DateTime.Now;

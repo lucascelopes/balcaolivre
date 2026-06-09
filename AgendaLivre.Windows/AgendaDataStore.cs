@@ -201,6 +201,17 @@ public sealed class AgendaDataStore
         data.Settings.WhatsAppEvolutionInstanceName = RepairText(data.Settings.WhatsAppEvolutionInstanceName);
         data.Settings.WhatsAppEvolutionState = RepairText(data.Settings.WhatsAppEvolutionState);
         data.Settings.WhatsAppEvolutionQrBase64 = RepairText(data.Settings.WhatsAppEvolutionQrBase64);
+        data.Settings.MercadoPagoLicenseKey = RepairText(data.Settings.MercadoPagoLicenseKey);
+        data.Settings.MercadoPagoPaymentsApiUrl = RepairText(data.Settings.MercadoPagoPaymentsApiUrl);
+        data.Settings.MercadoPagoSellerUserId = RepairText(data.Settings.MercadoPagoSellerUserId);
+        data.Settings.MercadoPagoDefaultTerminalId = RepairText(data.Settings.MercadoPagoDefaultTerminalId);
+        data.Settings.MercadoPagoDefaultTerminalLabel = RepairText(data.Settings.MercadoPagoDefaultTerminalLabel);
+        data.Settings.MercadoPagoLastError = RepairText(data.Settings.MercadoPagoLastError);
+
+        if (string.IsNullOrWhiteSpace(data.Settings.MercadoPagoPaymentsApiUrl))
+        {
+            data.Settings.MercadoPagoPaymentsApiUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/payments";
+        }
 
         for (var index = 0; index < data.Settings.Resources.Count; index++)
         {
@@ -271,6 +282,9 @@ public sealed class AgendaDataStore
             sale.ProductName = RepairText(sale.ProductName);
             sale.CustomerName = RepairText(sale.CustomerName);
             sale.PaymentMethod = RepairText(sale.PaymentMethod);
+            sale.PaymentProvider = RepairText(sale.PaymentProvider);
+            sale.PaymentReference = RepairText(sale.PaymentReference);
+            sale.PaymentStatus = RepairText(sale.PaymentStatus);
             sale.Notes = RepairText(sale.Notes);
         }
 
@@ -280,6 +294,9 @@ public sealed class AgendaDataStore
             payment.CustomerName = RepairText(payment.CustomerName);
             payment.Category = RepairText(payment.Category);
             payment.PaymentMethod = RepairText(payment.PaymentMethod);
+            payment.PaymentProvider = RepairText(payment.PaymentProvider);
+            payment.PaymentReference = RepairText(payment.PaymentReference);
+            payment.PaymentStatus = RepairText(payment.PaymentStatus);
             payment.Notes = RepairText(payment.Notes);
         }
 
