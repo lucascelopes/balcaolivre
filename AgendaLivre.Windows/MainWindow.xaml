@@ -635,23 +635,25 @@
         </DataTemplate>
 
         <DataTemplate x:Key="HomeMetricTemplate">
-            <Border Background="{Binding Background}"
+            <Border Background="#FFFFFF"
                     BorderBrush="#DDE7F4"
                     BorderThickness="1"
-                    CornerRadius="12"
-                    Padding="10"
+                    CornerRadius="10"
+                    Padding="0"
                     HorizontalAlignment="Stretch"
-                    MinHeight="74"
+                    MinHeight="68"
                     Margin="0,0,8,0">
                 <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <TextBlock Text="{Binding Label}" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock Grid.Row="1" Text="{Binding Value}" Foreground="{StaticResource Ink}" FontSize="21" FontWeight="Bold" Margin="0,4,0,1"/>
-                    <TextBlock Grid.Row="2" Text="{Binding Hint}" Foreground="{StaticResource Muted}" FontSize="10" TextWrapping="Wrap"/>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="5"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Background="{Binding Background}" CornerRadius="10,0,0,10"/>
+                    <StackPanel Grid.Column="1" Margin="12,8,10,8">
+                        <TextBlock Text="{Binding Label}" Foreground="{StaticResource Muted}" FontSize="10.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding Value}" Foreground="{StaticResource Ink}" FontSize="20" FontWeight="Bold" Margin="0,3,0,0"/>
+                        <TextBlock Text="{Binding Hint}" Foreground="{StaticResource Muted}" FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+                    </StackPanel>
                 </Grid>
             </Border>
         </DataTemplate>
@@ -1326,7 +1328,8 @@
                                 <Button Content="Novo horario" Style="{StaticResource CommandButton}" Click="NewButton_Click" Margin="0,0,8,0"/>
                                 <Button Content="Agenda" Style="{StaticResource GhostButton}" Click="AgendaSidebarButton_Click" Margin="0,0,8,0"/>
                                 <Button Content="Receber" Style="{StaticResource GhostButton}" Click="RegisterPaymentQuickButton_Click" Margin="0,0,8,0"/>
-                                <Button Content="Cliente" Style="{StaticResource GhostButton}" Click="NewCustomerQuickButton_Click"/>
+                                <Button Content="Cliente" Style="{StaticResource GhostButton}" Click="NewCustomerQuickButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="WhatsApp" Style="{StaticResource GhostButton}" Click="OpenWhatsAppPanelButton_Click"/>
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -1410,7 +1413,7 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,10,8">
+                        <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,10,8">
                             <StackPanel>
                                 <TextBlock Text="Caixa de hoje" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
                                 <TextBlock x:Name="HomeFinancialSubtitleText" Text="Receitas previstas e realizadas" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,10"/>
@@ -1445,7 +1448,7 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,10,8">
+                        <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,10,8">
                             <StackPanel>
                                 <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
