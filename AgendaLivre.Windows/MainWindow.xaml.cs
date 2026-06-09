@@ -24,8 +24,10 @@ public partial class MainWindow : Window
     private const string ReportChartAppointments = "Agendamentos por dia";
     private const string ReportChartRevenue = "Receita por dia";
     private const string ReportChartStatus = "Status dos atendimentos";
-    private const double ScheduleTimeColumnWidth = 78;
-    private const double ScheduleProfessionalColumnWidth = 240;
+    private const double ScheduleTimeColumnWidth = 72;
+    private const double ScheduleProfessionalColumnWidth = 250;
+    private const double ScheduleHeaderHeight = 64;
+    private const double ScheduleSlotHeight = 66;
     private const string WhatsAppEvolutionDefaultBaseUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/evolution-proxy";
     private const string WhatsAppEvolutionLicenseSecret = "BalcaoLivrePDV-local-license-v1";
     private const string WhatsAppEvolutionLicenseExpires = "203512312359";
@@ -1071,10 +1073,10 @@ public partial class MainWindow : Window
             .Where(item => item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
             .Sum(item => item.Price);
 
-        _metrics.Add(new MetricRow("Agendados", active.Count.ToString(Brazil), "em aberto no dia", AccentSoftBrush));
-        _metrics.Add(new MetricRow("Confirmados", confirmed.ToString(Brazil), "inclui chegada e atendimento", BlueSoftBrush));
-        _metrics.Add(new MetricRow("Livres", freeSlots.ToString(Brazil), "janelas estimadas de 30 min", GraySoftBrush));
-        _metrics.Add(new MetricRow("Receita", forecast.ToString("C0", Brazil), $"{done} finalizado(s) | {late} atraso(s)", WarmSoftBrush));
+        _metrics.Add(new MetricRow("Atendimentos", active.Count.ToString(Brazil), "em aberto no dia", AccentSoftBrush));
+        _metrics.Add(new MetricRow("Confirmados", confirmed.ToString(Brazil), "chegou ou está confirmado", BlueSoftBrush));
+        _metrics.Add(new MetricRow("Horários livres", freeSlots.ToString(Brazil), "janelas de 30 min", GraySoftBrush));
+        _metrics.Add(new MetricRow("Caixa previsto", forecast.ToString("C0", Brazil), $"{done} finalizado(s) | {late} atraso(s)", WarmSoftBrush));
     }
 
     private void RefreshProfessionals()
@@ -1126,8 +1128,9 @@ public partial class MainWindow : Window
         var segment = CurrentSegmentFilter();
         var dateText = _selectedDate.ToString("dddd, dd 'de' MMMM 'de' yyyy", Brazil);
         SelectedDateTitleText.Text = dateText;
-        AgendaTitleText.Text = segment == AllSegments ? "Agenda geral" : $"Agenda - {segment}";
-        AgendaSubtitleText.Text = $"{dateText} | {_dayRows.Count} item(ns) visíveis";
+        var title = _selectedDate.Date == DateTime.Today ? "Agenda de hoje" : $"Agenda de {_selectedDate:dd/MM}";
+        AgendaTitleText.Text = segment == AllSegments ? title : $"{title} - {segment}";
+        AgendaSubtitleText.Text = $"{dateText} | {_dayRows.Count} atendimento(s) visível(is)";
     }
 
     private void RefreshHomeDashboard()
@@ -4353,10 +4356,10 @@ public partial class MainWindow : Window
             ScheduleBoardGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ScheduleProfessionalColumnWidth) });
         }
 
-        ScheduleBoardGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(58) });
+        ScheduleBoardGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(ScheduleHeaderHeight) });
         for (var index = 0; index < slotCount; index++)
         {
-            ScheduleBoardGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(56) });
+            ScheduleBoardGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(ScheduleSlotHeight) });
         }
 
         AddScheduleCorner(dayStart);
@@ -4532,7 +4535,7 @@ public partial class MainWindow : Window
             var rowSpan = Math.Max(1, (int)Math.Ceiling(appointment.DurationMinutes / 30d));
             rowSpan = Math.Min(rowSpan, slotCount - row + 1);
 
-            var card = CreateScheduleAppointmentCard(appointment);
+            var card = CreateScheduleAppointmentCard(appointment, rowSpan);
             Grid.SetRow(card, row);
             Grid.SetColumn(card, column);
             Grid.SetRowSpan(card, rowSpan);
@@ -4541,61 +4544,96 @@ public partial class MainWindow : Window
         }
     }
 
-    private Border CreateScheduleAppointmentCard(Appointment appointment)
+    private Border CreateScheduleAppointmentCard(Appointment appointment, int rowSpan)
     {
         var statusBrush = StatusBackground(appointment.Status);
         var accentBrush = AccentFor(appointment.Status);
         var card = new Border
         {
-            Margin = new Thickness(5),
-            Padding = new Thickness(9),
+            Margin = new Thickness(4),
+            Padding = new Thickness(8),
             Background = statusBrush,
             BorderBrush = accentBrush,
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(7),
+            CornerRadius = new CornerRadius(8),
+            ClipToBounds = true,
             Cursor = Cursors.Hand,
             Tag = appointment,
             ToolTip = $"{appointment.Start:HH:mm}-{appointment.End:HH:mm} | {appointment.CustomerName} | {appointment.ServiceName}"
         };
         card.PreviewMouseLeftButtonDown += ScheduleAppointment_MouseLeftButtonDown;
 
-        var stack = new StackPanel();
-        stack.Children.Add(new TextBlock
+        var stack = new StackPanel
         {
-            Text = $"{appointment.Start:HH:mm}  {StatusLabel(appointment.Status)}",
+            ClipToBounds = true
+        };
+
+        var header = new Grid { Margin = new Thickness(0, 0, 0, 3) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        header.Children.Add(new TextBlock
+        {
+            Text = appointment.Start.ToString("HH:mm", Brazil),
             Foreground = StatusForeground(appointment.Status),
-            FontSize = 10.5,
+            FontSize = 11,
             FontWeight = FontWeights.Bold,
-            TextTrimming = TextTrimming.CharacterEllipsis
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
         });
+
+        var badge = new Border
+        {
+            Background = Solid("#FFFFFF"),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(7, 2, 7, 3),
+            MaxWidth = 92,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = StatusLabel(appointment.Status),
+                Foreground = StatusForeground(appointment.Status),
+                FontSize = 9.5,
+                FontWeight = FontWeights.Bold,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            }
+        };
+        Grid.SetColumn(badge, 1);
+        header.Children.Add(badge);
+        stack.Children.Add(header);
+
         stack.Children.Add(new TextBlock
         {
             Text = appointment.CustomerName,
             Foreground = InkBrush,
-            FontSize = 13,
+            FontSize = 13.5,
             FontWeight = FontWeights.Bold,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            Margin = new Thickness(0, 2, 0, 0)
-        });
-        stack.Children.Add(new TextBlock
-        {
-            Text = appointment.ServiceName,
-            Foreground = MutedBrush,
-            FontSize = 11,
             TextTrimming = TextTrimming.CharacterEllipsis,
             Margin = new Thickness(0, 1, 0, 0)
         });
 
-        if (!string.IsNullOrWhiteSpace(appointment.ResourceName))
+        if (rowSpan > 1)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = appointment.ServiceName,
+                Foreground = MutedBrush,
+                FontSize = 11.5,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 3, 0, 0)
+            });
+        }
+
+        if (rowSpan > 1 && !string.IsNullOrWhiteSpace(appointment.ResourceName))
         {
             stack.Children.Add(new TextBlock
             {
                 Text = appointment.ResourceName,
                 Foreground = AccentBrush,
-                FontSize = 11,
+                FontSize = 11.5,
                 FontWeight = FontWeights.SemiBold,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                Margin = new Thickness(0, 2, 0, 0)
+                Margin = new Thickness(0, 3, 0, 0)
             });
         }
 
