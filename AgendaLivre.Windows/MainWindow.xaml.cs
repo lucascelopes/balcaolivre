@@ -5950,6 +5950,7 @@ public partial class MainWindow : Window
         _data.Settings.MercadoPagoEnabled = false;
         _data.Settings.MercadoPagoConnected = false;
         _data.Settings.MercadoPagoLicenseKey = "";
+        _data.Settings.MercadoPagoPaymentsApiUrl = DefaultMercadoPagoPaymentsApiUrl;
         _data.Settings.MercadoPagoSellerUserId = "";
         _data.Settings.MercadoPagoDefaultTerminalId = "";
         _data.Settings.MercadoPagoDefaultTerminalLabel = "";
@@ -6021,10 +6022,14 @@ public partial class MainWindow : Window
         var shell = CreateEditorDialog("Mercado Pago", "Ative a conta e escolha a Point usada nos pagamentos da agenda.", "Salvar configuração");
         shell.Dialog.Width = 820;
 
-        AddDialogSection(shell.Body, "Ativação", "Use a mesma chave/licença do Balcão Livre para conectar a conta Mercado Pago da loja.");
-        var enabledCheck = AddDialogCheckBox(shell.Body, "Ativar Mercado Pago nos pagamentos", _data.Settings.MercadoPagoEnabled);
-        var licenseBox = AddDialogTextField(shell.Body, "Chave/licença da loja", _data.Settings.MercadoPagoLicenseKey, "Cole a chave usada para ativar o Balcão Livre");
-        var apiBox = AddDialogTextField(shell.Body, "URL de pagamentos", FirstFilled(_data.Settings.MercadoPagoPaymentsApiUrl, DefaultMercadoPagoPaymentsApiUrl), DefaultMercadoPagoPaymentsApiUrl);
+        AddDialogSection(shell.Body, "Mercado Pago na agenda", "Ative para cobrar cartão na Point e registrar o pagamento só depois da aprovação.");
+        var enabledCheck = AddDialogCheckBox(shell.Body, "Usar Mercado Pago nos pagamentos", _data.Settings.MercadoPagoEnabled);
+        AddDialogInfoCard(
+            shell.Body,
+            "Como funciona",
+            "Conecte a conta Mercado Pago da loja, escolha a Point e use crédito/débito pela maquininha no financeiro.",
+            "#F8FAFC",
+            "#CBD5E1");
 
         AddDialogSection(shell.Body, "Conta e maquininha", "Conecte a conta Mercado Pago e selecione a Point da loja.");
         var statusText = new TextBlock
@@ -6061,8 +6066,7 @@ public partial class MainWindow : Window
         void CopyDialogFieldsToSettings()
         {
             _data.Settings.MercadoPagoEnabled = enabledCheck.IsChecked == true;
-            _data.Settings.MercadoPagoLicenseKey = licenseBox.Text.Trim();
-            _data.Settings.MercadoPagoPaymentsApiUrl = NormalizeMercadoPagoPaymentsApiUrl(apiBox.Text);
+            EnsureMercadoPagoInternalSettings();
             if (terminalBox.SelectedItem is AgendaMercadoPagoTerminalDto terminal)
             {
                 _data.Settings.MercadoPagoDefaultTerminalId = terminal.Id.Trim();
@@ -6101,13 +6105,6 @@ public partial class MainWindow : Window
         connectButton.Click += async (_, _) =>
         {
             CopyDialogFieldsToSettings();
-            if (string.IsNullOrWhiteSpace(_data.Settings.MercadoPagoLicenseKey))
-            {
-                SetDialogError(shell.ErrorText, "Informe a chave/licença da loja antes de conectar o Mercado Pago.");
-                licenseBox.Focus();
-                return;
-            }
-
             _data.Settings.MercadoPagoEnabled = true;
             _store.Save(_data);
             var result = await StartMercadoPagoConnectAsync();
@@ -6157,11 +6154,6 @@ public partial class MainWindow : Window
         if (!_data.Settings.MercadoPagoEnabled)
         {
             return "Desativado. Ative para aparecer no pagamento como crédito/débito pela maquininha.";
-        }
-
-        if (string.IsNullOrWhiteSpace(_data.Settings.MercadoPagoLicenseKey))
-        {
-            return "Ativado, mas falta informar a chave/licença da loja.";
         }
 
         if (!_data.Settings.MercadoPagoConnected)
@@ -6442,7 +6434,7 @@ public partial class MainWindow : Window
         var endpoint = BuildMercadoPagoApiUri(path);
         if (endpoint is null)
         {
-            return new T { Ok = false, Message = "URL de pagamentos inválida." };
+            return new T { Ok = false, Message = "Configuração interna de pagamentos inválida." };
         }
 
         try
@@ -6467,6 +6459,7 @@ public partial class MainWindow : Window
 
     private AgendaMercadoPagoClientPayload FillMercadoPagoPayload(AgendaMercadoPagoClientPayload payload)
     {
+        EnsureMercadoPagoInternalSettings();
         payload.LicenseKey = _data.Settings.MercadoPagoLicenseKey.Trim();
         payload.MachineHash = BuildMercadoPagoMachineHash();
         payload.MachineCode = Environment.MachineName;
@@ -6496,6 +6489,35 @@ public partial class MainWindow : Window
     {
         var clean = string.IsNullOrWhiteSpace(value) ? DefaultMercadoPagoPaymentsApiUrl : value.Trim();
         return clean.TrimEnd('/');
+    }
+
+    private void EnsureMercadoPagoInternalSettings()
+    {
+        _data.Settings.MercadoPagoPaymentsApiUrl = DefaultMercadoPagoPaymentsApiUrl;
+        if (!string.IsNullOrWhiteSpace(_data.Settings.MercadoPagoLicenseKey))
+        {
+            return;
+        }
+
+        var seed = FirstFilled(
+            OnlyDigits(_data.Settings.BusinessDocument),
+            OnlyDigits(_data.Settings.BusinessPhone),
+            OnlyDigits(_data.Settings.AccountPhone),
+            _data.Settings.AccountEmail,
+            BusinessDisplayName(),
+            BuildMercadoPagoMachineHash());
+        var clean = new string(seed.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+        if (string.IsNullOrWhiteSpace(clean))
+        {
+            clean = BuildMercadoPagoMachineHash()[..12].ToUpperInvariant();
+        }
+
+        if (clean.Length > 32)
+        {
+            clean = clean[..32];
+        }
+
+        _data.Settings.MercadoPagoLicenseKey = $"AGENDALIVRE-{clean}";
     }
 
     private string BuildMercadoPagoMachineHash()
@@ -8597,7 +8619,10 @@ public partial class MainWindow : Window
         return brush;
     }
 
-    private void ShowStatus(string message) => StatusTextBlock.Text = $"{DateTime.Now:HH:mm} | {message}";
+    private void ShowStatus(string message)
+    {
+        // Mensagens de fluxo continuam centralizadas aqui, mas o rodape visual foi removido.
+    }
 
     public sealed record WhatsAppConversationRow(
         string Title,

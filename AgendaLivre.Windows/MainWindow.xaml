@@ -970,7 +970,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="66"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="0"/>
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="16,10">
@@ -2918,10 +2918,6 @@
                         Visibility="Collapsed"/>
             </Grid>
         </Button>
-
-        <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="14,8">
-            <TextBlock x:Name="StatusTextBlock" Text="Agenda pronta." Foreground="{StaticResource Ink}" FontWeight="SemiBold"/>
-        </Border>
 
         <Grid x:Name="OnboardingOverlay"
               Grid.RowSpan="3"
