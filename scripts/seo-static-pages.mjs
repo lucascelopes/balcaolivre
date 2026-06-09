@@ -113,99 +113,17 @@ export function seoPageSitemapEntries(pages, publicSiteUrl) {
   }));
 }
 
-export function homeSalesBoostHtml(pages = []) {
-  return `
-      <section class="lpSection lpStorySection" id="casos-de-uso">
-        <div class="lpSectionHead">
-          <p class="lpKicker">Casos de uso</p>
-          <h2>Exemplos de lojas que o Balcão Livre foi feito para atender.</h2>
-          <p>Cenários comerciais por cidade e segmento para o cliente se enxergar na rotina do PDV.</p>
-        </div>
-        <div class="lpStoryGrid">
-          ${[
-            ["Lanchonete e delivery", "Wender Soares", "Vila Velha - ES", "O ponto principal foi parar de perder informação entre WhatsApp, balcão e entrega. Agora o pedido nasce mais organizado e o caixa fecha com mais clareza.", "Saiu do papel para caixa, entrega e fechamento no mesmo lugar."],
-            ["Pizzaria de bairro", "Marina Almeida", "Vila Velha - ES", "Antes a equipe perguntava toda hora se o pedido já tinha sido pago ou se saiu para entrega. Com o PDV, a rotina fica mais visual.", "Pedidos de entrega com cliente, endereço, taxa e pagamento fáceis de conferir."],
-            ["Hamburgueria", "Carlos Duarte", "Governador Valadares - MG", "A loja precisava de um caixa direto, mas sem ficar presa só no computador. O plano conectado ajuda quando entra delivery e WhatsApp.", "Produtos, adicionais, estoque e comprovante no mesmo fluxo."]
-          ].map(([segment, name, city, quote, result]) => `
-            <article>
-              <div><span>${escapeHtml(segment)}</span><strong>${escapeHtml(name)}</strong><small>${escapeHtml(city)}</small></div>
-              <p>“${escapeHtml(quote)}”</p>
-              <b>${escapeHtml(result)}</b>
-            </article>
-          `).join("")}
-        </div>
-      </section>
-
-      <section class="lpSection lpPlanChoiceSection" id="qual-plano">
-        <div class="lpSectionHead">
-          <p class="lpKicker">Oferta direta</p>
-          <h2>Comece com caixa local ou vá direto para restaurante conectado.</h2>
-          <p>A mensagem precisa ser simples: testar grátis, pagar pouco para começar e evoluir para online quando a loja precisar.</p>
-        </div>
-        <div class="lpPlanChoiceGrid">
-          <article><span>Comece barato</span><strong>R$17/mês</strong><p>Para caixa Windows, produto, estoque, venda, comprovante e fechamento local.</p></article>
-          <article><span>Conecte a operação</span><strong>R$139/mês</strong><p>Para cardápio online, garçom no celular, WhatsApp, equipe, entregadores, NFC-e configurável, iFood e Mercado Pago.</p></article>
-          <article><span>Cresça sem trocar sistema</span><strong>Mesmo PDV</strong><p>A loja começa simples e ativa recursos online quando a rotina exigir.</p></article>
-        </div>
-      </section>
-
-      <section class="lpSection lpFunnelSection" id="depois-do-download">
-        <div class="lpSectionHead">
-          <p class="lpKicker">Depois do download</p>
-          <h2>O teste vira venda quando o cliente recebe ajuda no momento certo.</h2>
-          <p>O funil acompanha o caminho do visitante até a primeira venda para saber quem precisa de suporte e quem está pronto para assinar.</p>
-        </div>
-        <div class="lpFunnelGrid">
-          ${[
-            ["1", "Baixou", "O clique no instalador fica medido para saber qual página trouxe o lead."],
-            ["2", "Instalou", "O app identifica versão, chave e primeiro acesso quando sincroniza."],
-            ["3", "Cadastrou produto", "Produto cadastrado mostra que o teste virou uso real."],
-            ["4", "Fez primeira venda", "A primeira venda separa curioso de cliente com intenção de compra."],
-            ["5", "Travou no caminho", "Suporte entra pelo WhatsApp/admin para ajudar antes do teste esfriar."]
-          ].map(([number, title, text]) => `<article><b>${number}</b><strong>${escapeHtml(title)}</strong><p>${escapeHtml(text)}</p></article>`).join("")}
-        </div>
-      </section>
-`;
+function stripHomepageSection(html, id) {
+  return html.replace(
+    new RegExp(`\\s*<section\\b[^>]*\\bid=["']${id}["'][\\s\\S]*?<\\/section>`, "i"),
+    ""
+  );
 }
 
-export function homeSeoLinksHtml(pages = []) {
-  const featured = pages.slice(0, 6);
-  return `
-      <section class="lpSection lpSeoLinksSection" id="encontre-o-pdv-certo">
-        <div class="lpSectionHead">
-          <p class="lpKicker">Links úteis</p>
-          <h2>Outros cenários para comparar.</h2>
-          <p>Algumas rotinas parecidas para quem quer ver o plano mais próximo da loja antes de testar.</p>
-        </div>
-        <div class="lpSeoLinksGrid">
-          ${featured.map((page) => `
-            <a href="/${escapeHtml(page.slug)}/">
-              <span>${escapeHtml(page.segment || page.title.split(" ")[0] || "PDV")}</span>
-              <strong>${escapeHtml(page.title)}</strong>
-              <small>${escapeHtml(page.description)}</small>
-            </a>
-          `).join("")}
-        </div>
-      </section>
-`;
-}
-
-export function injectHomeSalesBoost(html, pages) {
+export function injectHomeSalesBoost(html) {
   let nextHtml = html;
-
-  if (!nextHtml.includes('id="casos-de-uso"')) {
-    const plansMarker = '<section class="lpSection lpPlansSection" id="planos">';
-    if (nextHtml.includes(plansMarker)) {
-      nextHtml = nextHtml.replace(plansMarker, `${homeSalesBoostHtml(pages)}\n      ${plansMarker}`);
-    }
+  for (const id of ["casos-de-uso", "qual-plano", "depois-do-download", "encontre-o-pdv-certo"]) {
+    nextHtml = stripHomepageSection(nextHtml, id);
   }
-
-  if (!nextHtml.includes('id="encontre-o-pdv-certo"')) {
-    const footerMarker = '<footer class="lpFooter">';
-    if (nextHtml.includes(footerMarker)) {
-      nextHtml = nextHtml.replace(footerMarker, `${homeSeoLinksHtml(pages)}\n      ${footerMarker}`);
-    }
-  }
-
   return nextHtml;
 }
