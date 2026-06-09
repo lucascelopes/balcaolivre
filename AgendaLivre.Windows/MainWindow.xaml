@@ -1692,83 +1692,52 @@
 
                     <Grid Grid.Row="1" Margin="0,0,0,10">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="1.4*"/>
-                            <ColumnDefinition Width="0.95*"/>
-                            <ColumnDefinition Width="0.95*"/>
+                            <ColumnDefinition Width="1.15*"/>
+                            <ColumnDefinition Width="0.9*"/>
+                            <ColumnDefinition Width="0.9*"/>
+                            <ColumnDefinition Width="1.05*"/>
                         </Grid.ColumnDefinitions>
 
-                        <Border Grid.Column="0" Background="#172033" BorderBrush="#172033" BorderThickness="1" CornerRadius="14" Padding="18" Margin="0,0,10,0">
+                        <Border Background="#172033" BorderBrush="#172033" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,0,8,0" MinHeight="104">
                             <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                </Grid.RowDefinitions>
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Text="Resultado do mes" Foreground="#DDE7F4" FontSize="12" FontWeight="SemiBold"/>
-                                        <TextBlock x:Name="FinanceBalanceText" Text="R$ 0" Foreground="#FFFFFF" FontSize="34" FontWeight="Bold" Margin="0,5,0,0"/>
-                                        <TextBlock x:Name="FinanceBalanceHintText" Text="Entradas menos despesas" Foreground="#B6C4D8" FontSize="12" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                    <Border x:Name="FinanceBalanceBadgeBorder" Grid.Column="1" Background="#DCFCE7" CornerRadius="14" Padding="10,6" VerticalAlignment="Top">
-                                        <TextBlock x:Name="FinanceBalanceBadgeText" Text="positivo" Foreground="#166534" FontSize="11" FontWeight="Bold"/>
-                                    </Border>
-                                </Grid>
-                                <Grid Grid.Row="1" Margin="0,18,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="12"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <Border Background="#253047" BorderBrush="#34435F" BorderThickness="1" CornerRadius="10" Padding="12">
-                                        <StackPanel>
-                                            <TextBlock Text="Entrou" Foreground="#B6C4D8" FontSize="11" FontWeight="SemiBold"/>
-                                            <TextBlock x:Name="FinanceReceivedMonthText" Text="R$ 0" Foreground="#FFFFFF" FontSize="20" FontWeight="Bold" Margin="0,4,0,0"/>
-                                        </StackPanel>
-                                    </Border>
-                                    <Border Grid.Column="2" Background="#253047" BorderBrush="#34435F" BorderThickness="1" CornerRadius="10" Padding="12">
-                                        <StackPanel>
-                                            <TextBlock Text="Saiu" Foreground="#B6C4D8" FontSize="11" FontWeight="SemiBold"/>
-                                            <TextBlock x:Name="FinanceExpensesMonthText" Text="R$ 0" Foreground="#FFFFFF" FontSize="20" FontWeight="Bold" Margin="0,4,0,0"/>
-                                        </StackPanel>
-                                    </Border>
-                                </Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Resultado do mes" Foreground="#DDE7F4" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="FinanceBalanceText" Text="R$ 0" Foreground="#FFFFFF" FontSize="26" FontWeight="Bold" Margin="0,5,0,0"/>
+                                    <TextBlock x:Name="FinanceBalanceHintText" Text="Entradas menos despesas" Foreground="#B6C4D8" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <Border x:Name="FinanceBalanceBadgeBorder" Grid.Column="1" Background="#DCFCE7" CornerRadius="12" Padding="8,4" VerticalAlignment="Top" Margin="8,0,0,0">
+                                    <TextBlock x:Name="FinanceBalanceBadgeText" Text="positivo" Foreground="#166534" FontSize="10" FontWeight="Bold"/>
+                                </Border>
                             </Grid>
                         </Border>
 
-                        <Border Grid.Column="1" Background="#FFF8DC" BorderBrush="#F8E2A5" BorderThickness="1" CornerRadius="14" Padding="16" Margin="0,0,10,0">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                    <RowDefinition Height="Auto"/>
-                                </Grid.RowDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="Falta cobrar" Foreground="{StaticResource Ink}" FontSize="15" FontWeight="Bold"/>
-                                    <TextBlock x:Name="FinancePendingTotalText" Text="R$ 0" Foreground="{StaticResource Ink}" FontSize="28" FontWeight="Bold" Margin="0,8,0,0"/>
-                                    <TextBlock x:Name="FinancePendingHintText" Text="0 atendimentos em aberto" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,3,0,0"/>
-                                </StackPanel>
-                                <Button Grid.Row="2" Content="Receber pendente" Style="{StaticResource CommandButton}" Click="RegisterPaymentButton_Click" Margin="0,18,0,0"/>
-                            </Grid>
+                        <Border Grid.Column="1" Background="#FFFFFF" BorderBrush="#DDE7F4" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,0,8,0" MinHeight="104">
+                            <StackPanel>
+                                <TextBlock Text="Entrou no mes" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="FinanceReceivedMonthText" Text="R$ 0" Foreground="{StaticResource Ink}" FontSize="22" FontWeight="Bold" Margin="0,5,0,0"/>
+                                <TextBlock Text="Recebido de verdade" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,2,0,0"/>
+                            </StackPanel>
                         </Border>
 
-                        <Border Grid.Column="2" Background="#ECFDF5" BorderBrush="#BBF7D0" BorderThickness="1" CornerRadius="14" Padding="16">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                    <RowDefinition Height="Auto"/>
-                                </Grid.RowDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="Mercado Pago Point" Foreground="{StaticResource Ink}" FontSize="15" FontWeight="Bold"/>
-                                    <TextBlock x:Name="FinanceMercadoPagoText" Text="Desativado" Foreground="#166534" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" Margin="0,8,0,0"/>
-                                    <TextBlock x:Name="FinanceMercadoPagoHintText" Text="Cartao aparece no recebimento quando a Point esta pronta." Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,5,0,0"/>
-                                </StackPanel>
-                                <Button Grid.Row="2" Content="Configurar Point" Style="{StaticResource GhostButton}" Click="OpenMercadoPagoSettingsButton_Click" Margin="0,18,0,0"/>
-                            </Grid>
+                        <Border Grid.Column="2" Background="#FFF8DC" BorderBrush="#F8E2A5" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,0,8,0" MinHeight="104">
+                            <StackPanel>
+                                <TextBlock Text="Falta cobrar" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="FinancePendingTotalText" Text="R$ 0" Foreground="{StaticResource Ink}" FontSize="22" FontWeight="Bold" Margin="0,5,0,0"/>
+                                <TextBlock x:Name="FinancePendingHintText" Text="0 atendimentos em aberto" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="3" Background="#ECFDF5" BorderBrush="#BBF7D0" BorderThickness="1" CornerRadius="12" Padding="14" MinHeight="104">
+                            <StackPanel>
+                                <TextBlock Text="Mercado Pago Point" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="FinanceMercadoPagoText" Text="Desativado" Foreground="#166534" FontSize="17" FontWeight="Bold" TextWrapping="Wrap" Margin="0,5,0,0"/>
+                                <TextBlock x:Name="FinanceMercadoPagoHintText" Text="Cartao na maquininha" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                <TextBlock x:Name="FinanceExpensesMonthText" Text="R$ 0" Visibility="Collapsed"/>
+                            </StackPanel>
                         </Border>
                     </Grid>
 
@@ -1784,25 +1753,31 @@
                     </ItemsControl>
 
                     <Grid Grid.Row="3" Margin="0">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="1*"/>
-                            <ColumnDefinition Width="1.1*"/>
+                            <ColumnDefinition Width="0.95*"/>
+                            <ColumnDefinition Width="1.25*"/>
                             <ColumnDefinition Width="0.95*"/>
                         </Grid.ColumnDefinitions>
 
-                        <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,10">
-                            <StackPanel>
-                                <TextBlock Text="O que entrou" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
-                                <TextBlock Text="Separado por origem do dinheiro recebido." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,12"/>
-                                <ItemsControl x:Name="FinanceEntriesItemsControl" ItemTemplate="{StaticResource HomeFinanceBarTemplate}"/>
-                            </StackPanel>
-                        </Border>
+                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                            <Border Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="Dinheiro que entrou" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                    <TextBlock Text="Origem dos recebimentos do mes." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,12"/>
+                                    <ItemsControl x:Name="FinanceEntriesItemsControl" ItemTemplate="{StaticResource HomeFinanceBarTemplate}"/>
+                                </StackPanel>
+                            </Border>
 
-                        <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,10">
+                            <Border Style="{StaticResource PanelCard}" Padding="14">
+                                <StackPanel>
+                                    <TextBlock Text="Ultimos 7 dias" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                    <TextBlock Text="Recebido por dia." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,12"/>
+                                    <ItemsControl x:Name="FinanceChartItemsControl" ItemTemplate="{StaticResource HomeFinanceBarTemplate}"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <Border Grid.Column="1" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,0" VerticalAlignment="Top">
                             <StackPanel>
                                 <Grid Margin="0,0,0,10">
                                     <Grid.ColumnDefinitions>
@@ -1810,49 +1785,47 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <StackPanel>
-                                        <TextBlock Text="Quem falta receber" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
-                                        <TextBlock Text="Atendimentos ainda sem baixa no caixa." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                                        <TextBlock Text="Clientes para cobrar" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                        <TextBlock Text="Atendimentos sem baixa no caixa." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
                                     </StackPanel>
                                     <Button Grid.Column="1" Content="Receber" Style="{StaticResource SubtleButton}" Height="32" MinWidth="86" Click="RegisterPaymentButton_Click"/>
                                 </Grid>
-                                <ItemsControl x:Name="FinancePendingItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                                <ScrollViewer MaxHeight="410" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                    <ItemsControl x:Name="FinancePendingItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                                </ScrollViewer>
                             </StackPanel>
                         </Border>
 
-                        <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,10" MaxHeight="344" VerticalAlignment="Top">
-                            <StackPanel>
-                                <Grid Margin="0,0,0,10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Text="Gastos lancados" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
-                                        <TextBlock Text="Custos fixos, insumos e despesas avulsas." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                    <Button Grid.Column="1" Content="Lancar" Style="{StaticResource SubtleButton}" Height="32" MinWidth="70" Click="NewExpenseButton_Click"/>
-                                </Grid>
-                                <ItemsControl x:Name="FinanceExpensesItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
-                            </StackPanel>
-                        </Border>
+                        <StackPanel Grid.Column="2">
+                            <Border Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="Gastos" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                            <TextBlock Text="Despesas lancadas." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Lancar" Style="{StaticResource SubtleButton}" Height="32" MinWidth="70" Click="NewExpenseButton_Click"/>
+                                    </Grid>
+                                    <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                        <ItemsControl x:Name="FinanceExpensesItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                                    </ScrollViewer>
+                                </StackPanel>
+                            </Border>
 
-                        <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,0">
-                            <StackPanel>
-                                <TextBlock Text="Entradas dos ultimos 7 dias" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
-                                <TextBlock Text="Recebido por dia, sem misturar com valor pendente." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,12"/>
-                                <ItemsControl x:Name="FinanceChartItemsControl" ItemTemplate="{StaticResource HomeFinanceBarTemplate}"/>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Grid.Row="1" Grid.Column="2" Style="{StaticResource PanelCard}" Padding="14">
-                            <StackPanel>
-                                <TextBlock Text="Rotina do caixa" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold" Margin="0,0,0,12"/>
-                                <Button Content="Receber atendimento" Style="{StaticResource CommandButton}" Click="RegisterPaymentButton_Click" Margin="0,0,0,8"/>
-                                <Button Content="Lancar despesa" Style="{StaticResource GhostButton}" Click="NewExpenseButton_Click" Margin="0,0,0,8"/>
-                                <Button Content="Venda de produto" Style="{StaticResource GhostButton}" Click="RegisterProductSaleButton_Click" Margin="0,0,0,8"/>
-                                <Button Content="Configurar Mercado Pago" Style="{StaticResource GhostButton}" Click="OpenMercadoPagoSettingsButton_Click"/>
-                            </StackPanel>
-                        </Border>
+                            <Border Style="{StaticResource PanelCard}" Padding="14">
+                                <StackPanel>
+                                    <TextBlock Text="Acoes do caixa" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold" Margin="0,0,0,12"/>
+                                    <Button Content="Receber atendimento" Style="{StaticResource CommandButton}" Click="RegisterPaymentButton_Click" Margin="0,0,0,8"/>
+                                    <Button Content="Lancar despesa" Style="{StaticResource GhostButton}" Click="NewExpenseButton_Click" Margin="0,0,0,8"/>
+                                    <Button Content="Venda de produto" Style="{StaticResource GhostButton}" Click="RegisterProductSaleButton_Click" Margin="0,0,0,8"/>
+                                    <Button Content="Mercado Pago" Style="{StaticResource GhostButton}" Click="OpenMercadoPagoSettingsButton_Click"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
                     </Grid>
                 </Grid>
             </ScrollViewer>
