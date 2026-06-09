@@ -1524,20 +1524,42 @@ public partial class MainWindow : Window
         var monthExpenses = _data.Expenses
             .Where(item => item.Date >= monthStart && item.Date < nextMonth)
             .Sum(item => item.Value);
+        var monthExpenseCount = _data.Expenses.Count(item => item.Date >= monthStart && item.Date < nextMonth);
         var monthBalance = receivedMonth - monthExpenses;
+        var pendingLabel = pending.Count == 1 ? "1 atendimento em aberto" : $"{pending.Count} atendimentos em aberto";
+
+        FinanceBalanceText.Text = monthBalance.ToString("C0", Brazil);
+        FinanceBalanceHintText.Text = monthBalance >= 0
+            ? "Mes fechando acima das despesas"
+            : "Despesas acima do dinheiro recebido";
+        FinanceBalanceBadgeText.Text = monthBalance >= 0 ? "positivo" : "negativo";
+        FinanceBalanceBadgeText.Foreground = monthBalance >= 0 ? Solid("#166534") : Solid("#991B1B");
+        FinanceBalanceBadgeBorder.Background = monthBalance >= 0 ? Solid("#DCFCE7") : Solid("#FEE2E2");
+        FinanceReceivedMonthText.Text = receivedMonth.ToString("C0", Brazil);
+        FinanceExpensesMonthText.Text = monthExpenses.ToString("C0", Brazil);
+        FinancePendingTotalText.Text = pendingValue.ToString("C0", Brazil);
+        FinancePendingHintText.Text = pendingLabel;
+        FinanceMercadoPagoText.Text = IsMercadoPagoPointReady()
+            ? MercadoPagoTerminalLabel()
+            : _data.Settings.MercadoPagoEnabled ? "Falta conectar Point" : "Desativado";
+        FinanceMercadoPagoText.Foreground = IsMercadoPagoPointReady()
+            ? Solid("#166534")
+            : _data.Settings.MercadoPagoEnabled ? Solid("#B45309") : MutedBrush;
+        FinanceMercadoPagoHintText.Text = IsMercadoPagoPointReady()
+            ? "Credito e debito podem ir direto para a maquininha."
+            : "Ative em Configuracoes para liberar cartao na maquininha.";
 
         _financeMetrics.Clear();
-        _financeMetrics.Add(new EstablishmentMetricRow("Receita de hoje", receivedToday.ToString("C0", Brazil), "serviços, produtos e pagamentos", AccentSoftBrush));
-        _financeMetrics.Add(new EstablishmentMetricRow("Receita do mês", receivedMonth.ToString("C0", Brazil), "total recebido no mês", BlueSoftBrush));
-        _financeMetrics.Add(new EstablishmentMetricRow("A receber", pendingValue.ToString("C0", Brazil), $"{pending.Count} pagamento(s) pendente(s)", YellowSoftBrush));
-        _financeMetrics.Add(new EstablishmentMetricRow("Despesas do mês", monthExpenses.ToString("C0", Brazil), $"{_data.Expenses.Count(item => item.Date >= monthStart && item.Date < nextMonth)} lançamento(s)", RedSoftBrush));
-        _financeMetrics.Add(new EstablishmentMetricRow("Saldo do mês", monthBalance.ToString("C0", Brazil), "receita menos despesas", monthBalance >= 0 ? AccentSoftBrush : RedSoftBrush));
+        _financeMetrics.Add(new EstablishmentMetricRow("Recebido hoje", receivedToday.ToString("C0", Brazil), "servicos, produtos e avulsos", AccentSoftBrush));
+        _financeMetrics.Add(new EstablishmentMetricRow("Servicos do mes", serviceMonth.ToString("C0", Brazil), "atendimentos finalizados", BlueSoftBrush));
+        _financeMetrics.Add(new EstablishmentMetricRow("Produtos do mes", productMonth.ToString("C0", Brazil), $"{_data.ProductSales.Count(item => item.SoldAt >= monthStart && item.SoldAt < nextMonth)} venda(s)", WarmSoftBrush));
+        _financeMetrics.Add(new EstablishmentMetricRow("Gastos lancados", monthExpenses.ToString("C0", Brazil), $"{monthExpenseCount} despesa(s)", RedSoftBrush));
 
         _financeEntries.Clear();
         var maxEntry = Math.Max(1m, Math.Max(serviceMonth, Math.Max(productMonth, manualMonth)));
-        _financeEntries.Add(new HomeFinanceBarRow("Receita de serviços", serviceMonth.ToString("C0", Brazil), Percent(serviceMonth, maxEntry)));
-        _financeEntries.Add(new HomeFinanceBarRow("Receita de produtos", productMonth.ToString("C0", Brazil), Percent(productMonth, maxEntry)));
-        _financeEntries.Add(new HomeFinanceBarRow("Pagamentos manuais", manualMonth.ToString("C0", Brazil), Percent(manualMonth, maxEntry)));
+        _financeEntries.Add(new HomeFinanceBarRow("Servicos finalizados", serviceMonth.ToString("C0", Brazil), Percent(serviceMonth, maxEntry)));
+        _financeEntries.Add(new HomeFinanceBarRow("Produtos vendidos", productMonth.ToString("C0", Brazil), Percent(productMonth, maxEntry)));
+        _financeEntries.Add(new HomeFinanceBarRow("Recebimentos avulsos", manualMonth.ToString("C0", Brazil), Percent(manualMonth, maxEntry)));
 
         RefreshFinancePendingPayments(pending);
         RefreshFinanceExpenses();
@@ -1559,7 +1581,7 @@ public partial class MainWindow : Window
 
         if (_financePendingPayments.Count == 0)
         {
-            _financePendingPayments.Add(EmptyEstablishmentRow("Nenhum pagamento pendente", "Atendimentos em aberto aparecerão aqui.", "R$ 0"));
+            _financePendingPayments.Add(EmptyEstablishmentRow("Nada para cobrar agora", "Quando um atendimento ficar aberto, ele aparece aqui.", "R$ 0"));
         }
     }
 
@@ -1580,7 +1602,7 @@ public partial class MainWindow : Window
 
         if (_financeExpenses.Count == 0)
         {
-            _financeExpenses.Add(EmptyEstablishmentRow("Nenhuma despesa cadastrada", "Cadastre despesas fixas ou avulsas nesta página.", "R$ 0"));
+            _financeExpenses.Add(EmptyEstablishmentRow("Nenhum gasto lancado", "Aluguel, insumos e marketing aparecem aqui.", "R$ 0"));
         }
     }
 
