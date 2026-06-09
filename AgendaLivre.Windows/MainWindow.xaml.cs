@@ -1139,10 +1139,9 @@ public partial class MainWindow : Window
             .OrderBy(item => item.Start)
             .ThenBy(item => item.CustomerName)
             .ToList();
-        var operational = dayAppointments.Where(IsOperationalStatus).ToList();
         var confirmed = dayAppointments.Count(item => item.Status is AppointmentStatus.Confirmed or AppointmentStatus.Waiting or AppointmentStatus.InService);
+        var activeNow = dayAppointments.Count(item => item.Status is AppointmentStatus.Waiting or AppointmentStatus.InService);
         var pending = dayAppointments.Count(item => item.Status == AppointmentStatus.Scheduled);
-        var noShows = dayAppointments.Count(item => item.Status == AppointmentStatus.NoShow);
         var done = dayAppointments.Count(item => item.Status == AppointmentStatus.Done);
         var forecast = dayAppointments
             .Where(item => item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
@@ -1151,11 +1150,6 @@ public partial class MainWindow : Window
             .Where(item => item.Status == AppointmentStatus.Done)
             .Sum(item => item.Price);
 
-        var professionalCount = Math.Max(1, _data.Professionals.Count);
-        var workdayMinutes = Math.Max(60, (_data.Settings.WorkdayEndHour - _data.Settings.WorkdayStartHour) * 60);
-        var busyMinutes = operational.Sum(item => Math.Max(15, item.DurationMinutes));
-        var freeSlots = Math.Max(0, ((workdayMinutes * professionalCount) - busyMinutes) / 30);
-
         HomeGreetingText.Text = $"{GreetingFor(now)}, {FirstName(_data.Settings.AccountFullName)}";
         HomeDateText.Text = today.ToString("dddd, dd 'de' MMMM 'de' yyyy", Brazil);
         HomeBusinessText.Text = string.IsNullOrWhiteSpace(_data.Settings.BusinessName)
@@ -1163,15 +1157,14 @@ public partial class MainWindow : Window
             : _data.Settings.BusinessName;
 
         _homeMetrics.Clear();
-        _homeMetrics.Add(new HomeMetricRow("Agendamentos de hoje", dayAppointments.Count.ToString(Brazil), "total na operação", AccentSoftBrush));
-        _homeMetrics.Add(new HomeMetricRow("Confirmados", confirmed.ToString(Brazil), "inclui chegada e atendimento", BlueSoftBrush));
-        _homeMetrics.Add(new HomeMetricRow("Pendentes", pending.ToString(Brazil), "aguardando confirmação", GraySoftBrush));
-        _homeMetrics.Add(new HomeMetricRow("Faltas", noShows.ToString(Brazil), "clientes ausentes", RedSoftBrush));
-        _homeMetrics.Add(new HomeMetricRow("Horários livres", freeSlots.ToString(Brazil), "janelas estimadas de 30 min", GraySoftBrush));
-        _homeMetrics.Add(new HomeMetricRow("Receita prevista", forecast.ToString("C0", Brazil), "valor esperado no dia", WarmSoftBrush));
-        _homeMetrics.Add(new HomeMetricRow("Receita realizada", realizedToday.ToString("C0", Brazil), $"{done} finalizado(s)", AccentSoftBrush));
+        _homeMetrics.Add(new HomeMetricRow("Agenda hoje", dayAppointments.Count.ToString(Brazil), $"{confirmed} confirmado(s)", AccentSoftBrush));
+        _homeMetrics.Add(new HomeMetricRow("Em atendimento", activeNow.ToString(Brazil), "chegou ou em servico", BlueSoftBrush));
+        _homeMetrics.Add(new HomeMetricRow("A confirmar", pending.ToString(Brazil), "precisa de WhatsApp", WarmSoftBrush));
+        _homeMetrics.Add(new HomeMetricRow("Caixa hoje", realizedToday.ToString("C0", Brazil), $"{done} finalizado(s) de {forecast.ToString("C0", Brazil)}", BlueSoftBrush));
 
         _homeNextAppointment = dayAppointments.FirstOrDefault(item =>
+            item.Status is AppointmentStatus.Waiting or AppointmentStatus.InService)
+            ?? dayAppointments.FirstOrDefault(item =>
             item.Start >= now &&
             item.Status is AppointmentStatus.Scheduled or AppointmentStatus.Confirmed or AppointmentStatus.Waiting or AppointmentStatus.InService);
         RefreshHomeNextAppointment();
@@ -1252,17 +1245,18 @@ public partial class MainWindow : Window
     private void RefreshHomeGoals(decimal realizedToday)
     {
         var today = DateTime.Today;
-        var monthStart = new DateTime(today.Year, today.Month, 1);
-        var monthEnd = monthStart.AddMonths(1);
-        var realizedMonth = SumRealizedRevenue(monthStart, monthEnd);
-        var dailyGoal = Math.Max(500m, realizedToday == 0 ? 500m : Math.Ceiling(realizedToday * 1.25m / 50m) * 50m);
-        var monthlyGoal = dailyGoal * 22m;
+        var confirmations = _data.Appointments.Count(item =>
+            item.Start.Date >= today &&
+            item.Status == AppointmentStatus.Scheduled);
+        var staleCustomers = _data.Customers.Count(item => item.LastSeenAt.Date <= today.AddDays(-30));
 
-        HomeDailyGoalText.Text = $"{realizedToday.ToString("C0", Brazil)} / {dailyGoal.ToString("C0", Brazil)}";
-        HomeMonthlyGoalText.Text = $"{realizedMonth.ToString("C0", Brazil)} / {monthlyGoal.ToString("C0", Brazil)}";
-        HomeDailyGoalProgress.Value = Percent(realizedToday, dailyGoal);
-        HomeMonthlyGoalProgress.Value = Percent(realizedMonth, monthlyGoal);
-        HomeGoalSubtitleText.Text = $"Realizado no mês: {realizedMonth.ToString("C0", Brazil)}";
+        HomeDailyGoalText.Text = confirmations.ToString(Brazil);
+        HomeMonthlyGoalText.Text = staleCustomers.ToString(Brazil);
+        HomeDailyGoalProgress.Value = 0;
+        HomeMonthlyGoalProgress.Value = 0;
+        HomeGoalSubtitleText.Text = _data.Settings.WhatsAppLinked
+            ? $"WhatsApp linkado em {FormatPhone(_data.Settings.WhatsAppStorePhone)}"
+            : "WhatsApp nao linkado";
     }
 
     private void RefreshHomeAlerts(IReadOnlyList<Appointment> dayAppointments, int pending)
