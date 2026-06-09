@@ -3,9 +3,6 @@ import PaymentSuccess from "./PaymentSuccess";
 import SiteHeader from "./SiteHeader";
 import { checkoutFunctionUrl, downloadUrl, onlineDownloadUrl, sellers } from "./siteLinks";
 import { absoluteUrl, defaultDescription, defaultTitle, siteName, siteUrl } from "./seo";
-import { featuredSeoPages } from "./seoPages";
-
-const homepageSeoPages = featuredSeoPages.slice(0, 6);
 
 const modules = [
   ["01", "Caixa e pagamentos", "Venda no Windows com dinheiro, Pix, cartão, troco, comprovante e Point/Mercado Pago quando configurado."],
@@ -56,56 +53,6 @@ const proofQuotes = [
     segment: "Açaíteria",
     quote: "O cardápio online e o WhatsApp ajudam a receber pedido sem perder o controle do estoque."
   }
-];
-
-const customerStories = [
-  {
-    name: "Wender Soares",
-    city: "Vila Velha - ES",
-    segment: "Lanchonete e delivery",
-    result: "Saiu do papel para um fluxo com caixa, entrega e fechamento no mesmo lugar.",
-    quote: "O ponto principal foi parar de perder informacao entre WhatsApp, balcão e entrega. Agora o pedido nasce mais organizado e o caixa fecha com mais clareza."
-  },
-  {
-    name: "Marina Almeida",
-    city: "Vila Velha - ES",
-    segment: "Pizzaria de bairro",
-    result: "Pedidos de entrega ficaram com cliente, endereco, taxa e pagamento mais faceis de conferir.",
-    quote: "Antes a equipe perguntava toda hora se o pedido ja tinha sido pago ou se saiu para entrega. Com o PDV, a rotina fica mais visual para todo mundo."
-  },
-  {
-    name: "Carlos Duarte",
-    city: "Governador Valadares - MG",
-    segment: "Hamburgueria",
-    result: "Produtos, adicionais, estoque e comprovante ficaram no mesmo fluxo de venda.",
-    quote: "A loja precisava de um caixa direto, mas sem ficar presa só no computador. O plano conectado ajuda quando entra pedido de delivery e WhatsApp."
-  }
-];
-
-const planChoice = [
-  {
-    title: "Comece barato",
-    price: "R$17/mês",
-    text: "Para caixa Windows, produto, estoque, venda, comprovante e fechamento local."
-  },
-  {
-    title: "Conecte a operação",
-    price: "R$139/mês",
-    text: "Para cardápio online, garçom no celular, WhatsApp, equipe, entregadores, NFC-e configurável, iFood e Mercado Pago."
-  },
-  {
-    title: "Cresça sem trocar sistema",
-    price: "Mesmo PDV",
-    text: "A loja começa simples e ativa recursos online quando a rotina exigir."
-  }
-];
-
-const postDownloadFunnel = [
-  ["1", "Baixou", "O clique no instalador fica medido para saber qual página trouxe o lead."],
-  ["2", "Instalou", "O app identifica versão, chave e primeiro acesso quando sincroniza."],
-  ["3", "Cadastrou produto", "Produto cadastrado mostra que o teste virou uso real."],
-  ["4", "Fez primeira venda", "A primeira venda separa curioso de cliente com intenção de compra."],
-  ["5", "Travou no caminho", "Suporte entra pelo WhatsApp/admin para ajudar antes do teste esfriar."]
 ];
 
 const plans = [
@@ -464,27 +411,6 @@ export default function Page({ searchParams }) {
         </div>
       </section>
 
-      <section className="lpSection lpStorySection" id="casos-de-uso">
-        <div className="lpSectionHead">
-          <p className="lpKicker">Casos de uso</p>
-          <h2>Exemplos de lojas que o Balcão Livre foi feito para atender.</h2>
-          <p>Cenários comerciais por cidade e segmento para o cliente se enxergar na rotina do PDV.</p>
-        </div>
-        <div className="lpStoryGrid">
-          {customerStories.map((story) => (
-            <article key={`${story.name}-${story.city}`}>
-              <div>
-                <span>{story.segment}</span>
-                <strong>{story.name}</strong>
-                <small>{story.city}</small>
-              </div>
-              <p>“{story.quote}”</p>
-              <b>{story.result}</b>
-            </article>
-          ))}
-        </div>
-      </section>
-
       <section className="printSection lpPrintReturn" id="impressao">
         <div className="receiptMock" data-print-receipt>
           <h3>BALCÃO LIVRE PDV</h3>
@@ -544,40 +470,6 @@ export default function Page({ searchParams }) {
 
       <section className="lpTrustStrip" aria-label="Confiança antes dos planos">
         {trustItems.map((item) => <span key={item}>{item}</span>)}
-      </section>
-
-      <section className="lpSection lpPlanChoiceSection" id="qual-plano">
-        <div className="lpSectionHead">
-          <p className="lpKicker">Oferta direta</p>
-          <h2>Comece com caixa local ou vá direto para restaurante conectado.</h2>
-          <p>A mensagem precisa ser simples: testar grátis, pagar pouco para começar e evoluir para online quando a loja precisar.</p>
-        </div>
-        <div className="lpPlanChoiceGrid">
-          {planChoice.map((item) => (
-            <article key={item.title}>
-              <span>{item.title}</span>
-              <strong>{item.price}</strong>
-              <p>{item.text}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="lpSection lpFunnelSection" id="depois-do-download">
-        <div className="lpSectionHead">
-          <p className="lpKicker">Depois do download</p>
-          <h2>O teste vira venda quando o cliente recebe ajuda no momento certo.</h2>
-          <p>O funil acompanha o caminho do visitante até a primeira venda para saber quem precisa de suporte e quem está pronto para assinar.</p>
-        </div>
-        <div className="lpFunnelGrid">
-          {postDownloadFunnel.map(([number, title, text]) => (
-            <article key={number}>
-              <b>{number}</b>
-              <strong>{title}</strong>
-              <p>{text}</p>
-            </article>
-          ))}
-        </div>
       </section>
 
       <section className="lpSection lpPlansSection" id="planos">
@@ -692,23 +584,6 @@ export default function Page({ searchParams }) {
               <h3>{title}</h3>
               <p>{text}</p>
             </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="lpSection lpSeoLinksSection" id="encontre-o-pdv-certo">
-        <div className="lpSectionHead">
-          <p className="lpKicker">Links úteis</p>
-          <h2>Outros cenários para comparar.</h2>
-          <p>Algumas rotinas parecidas para quem quer ver o plano mais próximo da loja antes de testar.</p>
-        </div>
-        <div className="lpSeoLinksGrid">
-          {homepageSeoPages.map((page) => (
-            <a key={page.slug} href={`/${page.slug}/`}>
-              <span>{page.segment}</span>
-              <strong>{page.title}</strong>
-              <small>{page.description}</small>
-            </a>
           ))}
         </div>
       </section>
