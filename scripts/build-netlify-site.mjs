@@ -1,6 +1,7 @@
 import { cp, mkdir, rm, writeFile, copyFile, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { injectHomeSalesBoost, loadStaticSeoPages, seoPageSitemapEntries, staticSeoPageHtml } from "./seo-static-pages.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputDir = process.argv[2]
@@ -22,6 +23,7 @@ const publicMenuSupabaseUrl = process.env.BALCAO_SUPABASE_URL || "https://hzvplp
 const publicMenuPublishableKey =
   process.env.BALCAO_SUPABASE_PUBLISHABLE_KEY ||
   "sb_publishable_qNl5_EGAeuhN6PqTzRIeyQ_YQV2MdV6";
+let staticSeoPages = [];
 
 const fromRoot = (...parts) => path.join(root, ...parts);
 const toOutput = (...parts) => path.join(outputDir, ...parts);
@@ -36,13 +38,15 @@ async function copyLandingHtml(source, target, options = {}) {
 }
 
 async function copyLanding() {
+  staticSeoPages = await loadStaticSeoPages(root);
+
   await copyLandingHtml(
     fromRoot("BalcaoLivreLadingPage", "preview.html"),
     toOutput("index.html"),
     {
       canonicalPath: "/",
       title: "Balcao Livre PDV | Sistema Windows para restaurantes",
-      description: "PDV para restaurante com caixa offline, cardapio online, garcom no celular, iFood, Mercado Pago e WhatsApp com IA basica por R$139/mes.",
+      description: "PDV para restaurante com teste de 7 dias, WhatsApp, cardapio online, garcom no celular, NFC-e configuravel, equipe, entregadores, Mercado Pago e iFood no plano de R$139/mes.",
       mainPage: true
     }
   );
@@ -68,6 +72,11 @@ async function copyLanding() {
       description: "Manual para instalar, configurar e operar o Balcao Livre PDV no Windows: caixa, produtos, mesas, delivery, pagamentos, impressao, estoque e fechamento."
     }
   );
+
+  for (const page of staticSeoPages) {
+    await mkdir(toOutput(page.slug), { recursive: true });
+    await writeFile(toOutput(page.slug, "index.html"), staticSeoPageHtml(page, publicSiteUrl), "utf8");
+  }
 
   await mkdir(toOutput("app"), { recursive: true });
   await copyFile(
@@ -172,8 +181,11 @@ function enhanceLandingHtml(html, options = {}) {
   const canonicalUrl = `${publicSiteUrl}${canonicalPath}`;
   const description =
     options.description ||
-    "PDV para restaurante com caixa offline, cardapio online, garcom no celular, iFood, Mercado Pago e WhatsApp com IA basica por R$139/mes.";
+    "PDV para restaurante com teste de 7 dias, WhatsApp, cardapio online, garcom no celular, NFC-e configuravel, equipe, entregadores, Mercado Pago e iFood no plano de R$139/mes.";
   let nextHtml = html;
+  if (options.mainPage) {
+    nextHtml = injectHomeSalesBoost(nextHtml, staticSeoPages);
+  }
 
   if (options.title) {
     nextHtml = nextHtml.replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeHtml(options.title)}</title>`);
@@ -191,7 +203,7 @@ function enhanceLandingHtml(html, options = {}) {
 
   const headTags = [
     `<meta name="description" content="${escapeHtml(description)}" />`,
-    `<meta name="keywords" content="PDV para restaurante, sistema para restaurante, PDV Windows, sistema de caixa, comandas, cardapio digital, garcom no celular, PDV com WhatsApp, PDV com Mercado Pago, PDV com iFood, Balcao Livre PDV" />`,
+    `<meta name="keywords" content="PDV para restaurante, sistema para restaurante, PDV Windows, sistema de caixa, comandas, cardapio digital, garcom no celular, PDV com WhatsApp, PDV com Mercado Pago, PDV com iFood, PDV com NFC-e, gestao de equipe restaurante, sistema para entregadores delivery, Balcao Livre PDV" />`,
     `<link rel="canonical" href="${escapeHtml(canonicalUrl)}" />`,
     `<meta name="robots" content="index, follow, max-image-preview:large" />`,
     googleSiteVerification
@@ -314,7 +326,8 @@ function sitemapXml() {
   const urls = [
     { loc: `${publicSiteUrl}/`, priority: "1.0", changefreq: "weekly" },
     { loc: `${publicSiteUrl}/como-usar/`, priority: "0.85", changefreq: "monthly" },
-    { loc: `${publicSiteUrl}/termos/`, priority: "0.65", changefreq: "yearly" }
+    { loc: `${publicSiteUrl}/termos/`, priority: "0.65", changefreq: "yearly" },
+    ...seoPageSitemapEntries(staticSeoPages, publicSiteUrl)
   ];
 
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((url) => `  <url>\n    <loc>${xmlEscape(url.loc)}</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>${url.changefreq}</changefreq>\n    <priority>${url.priority}</priority>\n  </url>`).join("\n")}\n</urlset>\n`;
