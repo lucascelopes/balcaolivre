@@ -2,21 +2,57 @@ const state = {
   dashboard: null,
   licenses: [],
   support: [],
+  training: [],
+  blockedIps: [],
   health: null,
   currentView: "dashboard",
-  realtimeStatus: "offline",
-  realtimeSnapshot: null
+  realtimeStatus: "booting",
+  realtimeSnapshot: null,
+  isRefreshing: false,
+  refreshQueued: false,
+  lastSyncAt: null
 };
+
 let liveTimer = null;
 let realtimeSource = null;
 let realtimeFallbackTimer = null;
 let refreshAllQueued = null;
 let lastSupportCustomerMessageAt = "";
-const supportPollMs = 5000;
-const realtimeFallbackPollMs = 10000;
+
+const livePollMs = 3000;
+const realtimeFallbackPollMs = 5000;
+const releaseDownloads = {
+  version: "1.8.2026.18",
+  publishedAt: "2026-06-06T10:02:10-03:00",
+  installerUrl: "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.18.exe",
+  trialUrl: "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/trial-download?plan=online",
+  checkoutMonthlyUrl: "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=online-mensal",
+  checkoutAnnualUrl: "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=online-anual",
+  manifestUrl: "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/version.json"
+};
+
+const seoLandingPages = [
+  { slug: "pdv-gratis-para-restaurante", title: "PDV gratis para restaurante", intent: "teste gratis", plan: "entrada" },
+  { slug: "pdv-delivery-gratuito", title: "PDV delivery gratuito", intent: "delivery gratis", plan: "online" },
+  { slug: "pdv-para-restaurante", title: "PDV para restaurante", intent: "principal", plan: "online" },
+  { slug: "pdv-para-pizzaria-delivery", title: "PDV para pizzaria delivery", intent: "segmento", plan: "online" },
+  { slug: "sistema-para-lanchonete-pequena", title: "Sistema para lanchonete pequena", intent: "segmento pequeno", plan: "entrada" },
+  { slug: "pdv-com-whatsapp", title: "PDV com WhatsApp", intent: "whatsapp", plan: "online" },
+  { slug: "pdv-com-cardapio-digital", title: "PDV com cardapio digital", intent: "cardapio", plan: "online" },
+  { slug: "pdv-com-nfce", title: "PDV com NFC-e", intent: "fiscal", plan: "online" },
+  { slug: "alternativa-anota-ai", title: "Alternativa ao Anota AI", intent: "comparativo", plan: "online" },
+  { slug: "alternativa-consumer", title: "Alternativa ao Consumer", intent: "comparativo", plan: "online" },
+  { slug: "programa-para-controlar-comandas", title: "Programa para controlar comandas", intent: "dor operacional", plan: "entrada" },
+  { slug: "como-controlar-estoque-de-lanchonete", title: "Como controlar estoque de lanchonete", intent: "dor de estoque", plan: "entrada" }
+];
 
 const qs = (selector) => document.querySelector(selector);
 const dateTime = (value) => value ? new Date(value).toLocaleString("pt-BR") : "-";
+const timeOnly = (value) => value ? new Date(value).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "-";
+const number = (value) => Number(value || 0).toLocaleString("pt-BR");
+const moneyFromCents = (value, currency = "BRL") =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: currency || "BRL" }).format((Number(value) || 0) / 100);
+
 const adminApiBase = (() => {
   const configured = window.BALCAO_ADMIN_API_BASE || "";
   if (configured) return configured.replace(/\/$/, "");
@@ -46,11 +82,7 @@ async function api(path, options = {}) {
     try {
       data = JSON.parse(text);
     } catch {
-      data = {
-        message: response.ok
-          ? text
-          : "API do admin indisponivel. Verifique se o servidor local esta aberto."
-      };
+      data = { message: response.ok ? text : "API do admin indisponivel." };
     }
   }
   if (!response.ok) {
@@ -68,6 +100,7 @@ function showLogin() {
 function showApp() {
   qs("#loginView").classList.add("hidden");
   qs("#appView").classList.remove("hidden");
+  renderRealtimeBadge();
 }
 
 async function login() {
@@ -81,8 +114,8 @@ async function login() {
       })
     });
     showApp();
-    await refreshAll();
     startLiveRefresh();
+    await loadRealtimeData({ notifySupport: false, force: true });
   } catch (error) {
     qs("#loginMessage").textContent = error.message;
   }
@@ -100,48 +133,77 @@ function setView(view) {
   qs(`#${view}View`).classList.remove("hidden");
   document.querySelectorAll(".nav").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
   const titles = {
-    dashboard: ["Dashboard", "Uso do programa, chaves e clientes ativos."],
-    licenses: ["Licencas", "Chaves criadas, status, maquina vinculada e vencimento."],
-    support: ["Suporte", "Conversas em tempo real entre o PDV e os admins."],
-    devices: ["Clientes", "Dados cadastrais sincronizados pelo Balcao Livre PDV."],
-    keys: ["Criar chave", "Gere uma licenca unica por periodo."]
+    dashboard: ["Dashboard", "Operação, vendas, clientes e licenças em tempo real."],
+    seo: ["SEO e vendas", "Paginas, buscas e funil para aumentar teste, WhatsApp e pagamento."],
+    licenses: ["Licenças", "Chaves, status, computador vinculado e vencimento."],
+    support: ["Suporte", "Conversas entre clientes e administradores."],
+    training: ["Treinamento WhatsApp", "Machine learning operacional, regras globais e atendimento online por setor."],
+    devices: ["Clientes", "Dados sincronizados pelos apps instalados."],
+    downloads: ["Downloads", "Instaladores, checkout e manifesto de atualização."],
+    keys: ["Criar chave", "Gere uma licença única por período."]
   };
   qs("#viewTitle").textContent = titles[view][0];
   qs("#viewSubtitle").textContent = titles[view][1];
 }
 
-async function refreshAll() {
-  const [dashboard, licenses, support, health] = await Promise.all([
-    api("/api/dashboard"),
-    api("/api/licenses"),
-    api("/api/support"),
-    api("/api/health")
-  ]);
-  state.dashboard = dashboard;
-  state.licenses = licenses;
-  state.support = support;
-  lastSupportCustomerMessageAt = newestCustomerMessageAt(support);
-  state.health = health;
-  renderDashboard();
-  renderLicenses();
-  renderSupport();
-  renderDevices();
+async function loadRealtimeData(options = {}) {
+  const notifySupport = options.notifySupport !== false;
+  if (state.isRefreshing) {
+    state.refreshQueued = true;
+    return;
+  }
+
+  state.isRefreshing = true;
+  renderSyncState("loading");
+
+  try {
+    const previousCustomerMessageAt = lastSupportCustomerMessageAt;
+    const [dashboard, licenses, support, training, health, blockedIps] = await Promise.all([
+      api("/api/dashboard"),
+      api("/api/licenses"),
+      api("/api/support"),
+      api("/api/whatsapp-training"),
+      api("/api/health"),
+      api("/api/blocked-ips")
+    ]);
+
+    state.dashboard = dashboard;
+    state.licenses = Array.isArray(licenses) ? licenses : [];
+    state.support = Array.isArray(support) ? support : [];
+    state.training = Array.isArray(training) ? training : [];
+    state.blockedIps = Array.isArray(blockedIps) ? blockedIps : [];
+    state.health = health;
+    state.lastSyncAt = new Date();
+    lastSupportCustomerMessageAt = newestCustomerMessageAt(state.support);
+
+    if (notifySupport) {
+      notifySupportChange(previousCustomerMessageAt, lastSupportCustomerMessageAt);
+    }
+
+    renderAll();
+    renderSyncState("ok");
+  } catch (error) {
+    console.warn("admin realtime refresh failed", error);
+    renderSyncState("error", error.message);
+  } finally {
+    state.isRefreshing = false;
+    if (state.refreshQueued) {
+      state.refreshQueued = false;
+      setTimeout(() => loadRealtimeData({ notifySupport }), 120);
+    }
+  }
 }
 
-async function refreshLive() {
-  if (qs("#appView").classList.contains("hidden")) return;
-  const previousCustomerMessageAt = lastSupportCustomerMessageAt;
-  const [dashboard, support] = await Promise.all([
-    api("/api/dashboard"),
-    api("/api/support")
-  ]);
-  state.dashboard = dashboard;
-  state.support = support;
-  lastSupportCustomerMessageAt = newestCustomerMessageAt(support);
-  notifySupportChange(previousCustomerMessageAt, lastSupportCustomerMessageAt);
+function renderAll() {
   renderDashboard();
+  renderSeo();
+  renderLicenses();
   renderSupport();
+  renderTraining();
   renderDevices();
+  renderBlockedIps();
+  renderDownloads();
+  renderRealtimeBadge();
 }
 
 function startLiveRefresh() {
@@ -149,10 +211,11 @@ function startLiveRefresh() {
     Notification.requestPermission().catch(() => {});
   }
   startRealtime();
-  if (liveTimer) return;
-  liveTimer = setInterval(() => {
-    refreshLive().catch((error) => console.warn("live refresh failed", error));
-  }, supportPollMs);
+  if (!liveTimer) {
+    liveTimer = setInterval(() => {
+      loadRealtimeData({ notifySupport: true }).catch((error) => console.warn("live refresh failed", error));
+    }, livePollMs);
+  }
 }
 
 function stopLiveRefresh() {
@@ -179,7 +242,7 @@ function startRealtime() {
   });
   source.addEventListener("admin.changed", (event) => {
     updateRealtimeStatus("online", parseRealtimeEvent(event));
-    queueRefreshAll();
+    queueRealtimeRefresh();
   });
   source.onopen = () => updateRealtimeStatus("online", state.realtimeSnapshot);
   source.onerror = () => {
@@ -192,7 +255,7 @@ function startRealtime() {
 function startRealtimeFallback() {
   updateRealtimeStatus("fallback");
   if (realtimeFallbackTimer) return;
-  realtimeFallbackTimer = setInterval(() => queueRefreshAll(), realtimeFallbackPollMs);
+  realtimeFallbackTimer = setInterval(() => queueRealtimeRefresh(), realtimeFallbackPollMs);
 }
 
 function stopRealtime() {
@@ -221,42 +284,77 @@ function parseRealtimeEvent(event) {
 
 function updateRealtimeStatus(status, snapshot = null) {
   state.realtimeStatus = status;
-  if (snapshot) {
-    state.realtimeSnapshot = snapshot;
-  }
+  if (snapshot) state.realtimeSnapshot = snapshot;
   window.__balcaoAdminRealtimeStatus = {
     status,
     snapshot: state.realtimeSnapshot,
     updatedAt: new Date().toISOString()
   };
   renderRealtimeBadge();
-  if (state.dashboard && state.health) {
-    renderDashboard();
+}
+
+function queueRealtimeRefresh() {
+  if (refreshAllQueued || qs("#appView").classList.contains("hidden")) return;
+  refreshAllQueued = setTimeout(() => {
+    refreshAllQueued = null;
+    loadRealtimeData({ notifySupport: true }).catch((error) => console.warn("realtime refresh failed", error));
+  }, 120);
+}
+
+function renderSyncState(mode, message = "") {
+  const lastSync = qs("#lastSync");
+  const sidebarSync = qs("#sidebarSync");
+  if (!lastSync || !sidebarSync) return;
+
+  if (mode === "loading") {
+    lastSync.textContent = state.lastSyncAt ? `Sincronizando... ${timeOnly(state.lastSyncAt)}` : "Sincronizando...";
+    lastSync.className = "status-pill pending";
+    sidebarSync.textContent = "Sincronizando dados";
+    return;
   }
+
+  if (mode === "error") {
+    lastSync.textContent = message ? `Falha: ${message}` : "Falha no sync";
+    lastSync.className = "status-pill error";
+    sidebarSync.textContent = "Sync com falha";
+    return;
+  }
+
+  lastSync.textContent = state.lastSyncAt ? `Atualizado ${timeOnly(state.lastSyncAt)}` : "Sem sync";
+  lastSync.className = "status-pill online";
+  sidebarSync.textContent = state.lastSyncAt ? `Atualizado ${timeOnly(state.lastSyncAt)}` : "Aguardando sync";
 }
 
 function renderRealtimeBadge() {
   const badge = qs("#realtimeMode");
-  if (!badge) return;
+  const storage = qs("#storageMode");
+  if (!badge || !storage) return;
+
   const labels = {
     online: "Tempo real ligado",
+    booting: "Tempo real iniciando",
     connecting: "Tempo real conectando",
     reconnecting: "Tempo real reconectando",
     fallback: "Atualizacao automatica",
     offline: "Tempo real desligado"
   };
-  badge.textContent = labels[state.realtimeStatus] || labels.offline;
-  badge.classList.toggle("online", state.realtimeStatus === "online" || state.realtimeStatus === "fallback");
-  badge.classList.toggle("pending", state.realtimeStatus === "connecting" || state.realtimeStatus === "reconnecting");
-  badge.classList.toggle("error", state.realtimeStatus === "offline");
-}
+  badge.textContent = labels[state.realtimeStatus] || labels.booting;
+  badge.className = "status-pill";
+  badge.classList.add(state.realtimeStatus === "online" || state.realtimeStatus === "fallback" ? "online" : state.realtimeStatus === "offline" ? "neutral" : "pending");
 
-function queueRefreshAll() {
-  if (refreshAllQueued || qs("#appView").classList.contains("hidden")) return;
-  refreshAllQueued = setTimeout(() => {
-    refreshAllQueued = null;
-    refreshAll().catch((error) => console.warn("realtime refresh failed", error));
-  }, 250);
+  const storageMode = state.health?.storage || "checking";
+  const storageText = storageMode === "supabase"
+    ? "Supabase ativo"
+    : storageMode === "supabase-pendente"
+      ? "Supabase pendente"
+      : storageMode === "supabase-nao-configurado"
+        ? "Supabase nao configurado"
+        : storageMode === "checking"
+          ? "Checando Supabase"
+          : "Local JSON";
+  storage.textContent = storageText;
+  storage.className = "status-pill";
+  storage.classList.add(storageMode === "supabase" ? "online" : storageMode === "local-json" ? "neutral" : storageMode === "supabase-pendente" || storageMode === "checking" ? "pending" : "error");
 }
 
 function newestCustomerMessageAt(tickets) {
@@ -277,47 +375,251 @@ function notifySupportChange(previous, current) {
 }
 
 function renderDashboard() {
-  const metrics = state.dashboard.metrics;
-  qs("#mActive").textContent = metrics.activeLicenses;
-  qs("#mAvailable").textContent = metrics.availableLicenses;
-  qs("#mOnline").textContent = metrics.online24h;
-  qs("#mUsers").textContent = metrics.registeredUsers;
-  qs("#mDevices").textContent = metrics.devices;
-  qs("#mSupport").textContent = metrics.openSupport || 0;
-  const storageMode = state.health?.storage || "supabase-nao-configurado";
-  const realtimeLabel = state.realtimeStatus === "online"
-    ? "tempo real ligado"
-    : state.realtimeStatus === "reconnecting"
-      ? "tempo real reconectando"
-      : state.realtimeStatus === "connecting"
-        ? "tempo real conectando"
-        : state.realtimeStatus === "fallback"
-          ? "atualizacao automatica"
-          : "tempo real desligado";
-  const storageText = storageMode === "supabase"
-    ? "Supabase ativo"
-    : storageMode === "supabase-pendente"
-      ? "Supabase pendente"
-      : storageMode === "supabase-nao-configurado"
-        ? "Supabase nao configurado"
-        : "Local JSON";
-  qs("#storageMode").textContent = storageMode === "supabase" ? `${storageText} - ${realtimeLabel}` : storageText;
-  qs("#storageMode").title = `${storageText} - ${realtimeLabel}`;
-  qs("#storageMode").classList.toggle("online", storageMode === "supabase" && state.realtimeStatus === "online");
-  qs("#storageMode").classList.toggle("pending", storageMode === "supabase-pendente" || state.realtimeStatus === "reconnecting" || state.realtimeStatus === "connecting");
-  qs("#storageMode").classList.toggle("error", storageMode === "supabase-nao-configurado");
-  renderRealtimeBadge();
-  qs("#expiringList").innerHTML = state.dashboard.expiringSoon.length
+  if (!state.dashboard) return;
+  const metrics = state.dashboard.metrics || {};
+  const siteAnalytics = state.dashboard.siteAnalytics || {};
+  const stripe = state.dashboard.stripe || {};
+
+  qs("#mActive").textContent = number(metrics.activeLicenses);
+  qs("#mAvailable").textContent = number(metrics.availableLicenses);
+  qs("#mOnline").textContent = number(metrics.online24h);
+  qs("#mUsers").textContent = number(metrics.registeredUsers);
+  qs("#mDevices").textContent = number(metrics.devices);
+  qs("#mSupport").textContent = number(metrics.openSupport);
+  qs("#mSiteVisitors").textContent = `${number(metrics.siteVisitors24h)} / ${number(metrics.siteVisitorsTotal)}`;
+  qs("#mSiteViews").textContent = `${number(metrics.siteViews24h)} / ${number(metrics.siteViewsTotal)}`;
+  qs("#mCheckoutStarted").textContent = `${number(metrics.checkoutStarted24h)} / ${number(metrics.checkoutStartedTotal)}`;
+  qs("#mStripePurchases").textContent = `${number(metrics.stripePurchases24h)} / ${number(metrics.stripePurchasesTotal)}`;
+  qs("#mStripeRevenue").textContent = moneyFromCents(metrics.stripeRevenueCents || 0, stripe.currency || "BRL");
+  qs("#mConversion").textContent = `${Number(metrics.stripeConversionRate || 0).toLocaleString("pt-BR")}%`;
+
+  const topPages = siteAnalytics.topPages || [];
+  qs("#analyticsBadge").textContent = `${number(siteAnalytics.views24h)} views 24h`;
+  qs("#analyticsList").innerHTML = topPages.length
+    ? topPages.map((item) => `
+      <div class="list-row">
+        <strong>${escapeHtml(item.path || "/")}</strong>
+        <small>${number(item.views)} visualizacoes - ${number(item.visitors)} visitante(s)</small>
+      </div>`).join("")
+    : `<div class="empty-row">Nenhuma visita registrada pelo site ainda.</div>`;
+
+  const recentPurchases = stripe.recentPurchases || [];
+  qs("#stripeBadge").textContent = stripe.ok ? `${number(metrics.stripePurchasesTotal)} compra(s)` : "indisponivel";
+  qs("#stripeList").innerHTML = !stripe.ok
+    ? `<div class="empty-row">Stripe/Supabase indisponivel: ${escapeHtml(stripe.error || "sem detalhes")}</div>`
+    : recentPurchases.length
+      ? recentPurchases.map((item) => `
+        <div class="list-row">
+          <strong>${escapeHtml(item.plan || item.type || "Compra Stripe")}</strong>
+          <small>${moneyFromCents(item.amountCents || 0, item.currency || stripe.currency || "BRL")} - ${dateTime(item.when)} - ${escapeHtml(item.licenseKey || item.checkoutSessionId || "")}</small>
+        </div>`).join("")
+      : `<div class="empty-row">Nenhuma compra Stripe confirmada ainda.</div>`;
+
+  qs("#expiringList").innerHTML = (state.dashboard.expiringSoon || []).length
     ? state.dashboard.expiringSoon.map((item) => `
-      <div><strong>${escapeHtml(item.customerName || item.businessName || "Cliente")}</strong>
-      <small>${item.key} - expira ${dateTime(item.expiresAt)}</small></div>`).join("")
-    : `<div>Nenhuma licenca vencendo nos proximos 15 dias.</div>`;
-  qs("#versionsList").innerHTML = state.dashboard.versionDistribution.length
-    ? state.dashboard.versionDistribution.map((item) => `<div><strong>${escapeHtml(item.version)}</strong><small>${item.count} maquina(s)</small></div>`).join("")
-    : `<div>Nenhuma maquina sincronizada ainda.</div>`;
-  qs("#eventsList").innerHTML = state.dashboard.events.length
-    ? state.dashboard.events.map((item) => `<div><strong>${escapeHtml(item.message)}</strong><small>${escapeHtml(item.type)} - ${dateTime(item.when)}</small></div>`).join("")
-    : `<div>Sem eventos ainda.</div>`;
+      <div class="list-row">
+        <strong>${escapeHtml(item.customerName || item.businessName || "Cliente")}</strong>
+        <small>${escapeHtml(item.key)} - expira ${dateTime(item.expiresAt)}</small>
+      </div>`).join("")
+    : `<div class="empty-row">Nenhuma licenca vencendo nos proximos 15 dias.</div>`;
+
+  qs("#versionsList").innerHTML = (state.dashboard.versionDistribution || []).length
+    ? state.dashboard.versionDistribution.map((item) => `
+      <div class="list-row split">
+        <strong>${escapeHtml(item.version)}</strong>
+        <small>${number(item.count)} maquina(s)</small>
+      </div>`).join("")
+    : `<div class="empty-row">Nenhuma maquina sincronizada ainda.</div>`;
+
+  qs("#eventsBadge").textContent = `${number((state.dashboard.events || []).length)} evento(s)`;
+  qs("#eventsList").innerHTML = (state.dashboard.events || []).length
+    ? state.dashboard.events.map((item) => `
+      <div class="event-row">
+        <strong>${escapeHtml(item.message)}</strong>
+        <small>${escapeHtml(item.type)} - ${dateTime(item.when)}</small>
+      </div>`).join("")
+    : `<div class="empty-row">Sem eventos ainda.</div>`;
+}
+
+function renderSeo() {
+  const seoStats = qs("#seoStats");
+  if (!seoStats) return;
+
+  const dashboard = state.dashboard || {};
+  const metrics = dashboard.metrics || {};
+  const siteAnalytics = dashboard.siteAnalytics || {};
+  const topPages = siteAnalytics.topPages || [];
+  const seoPagePaths = new Set(seoLandingPages.map((page) => `/${page.slug}`));
+  const seoTraffic = topPages.filter((item) => seoPagePaths.has(normalizePath(item.path)));
+  const totalSeoViews = seoTraffic.reduce((sum, item) => sum + Number(item.views || 0), 0);
+  const totalSeoVisitors = seoTraffic.reduce((sum, item) => sum + Number(item.visitors || 0), 0);
+  const untouchedPages = seoLandingPages.filter((page) => !seoTraffic.some((item) => normalizePath(item.path) === `/${page.slug}`));
+  const checkoutTotal = Number(metrics.checkoutStartedTotal || 0);
+  const whatsappPotential = Number(metrics.siteVisitorsTotal || 0) - checkoutTotal;
+
+  qs("#seoPagesBadge").textContent = `${number(seoLandingPages.length)} paginas ativas`;
+  seoStats.innerHTML = [
+    trainingStatCard("Paginas SEO", number(seoLandingPages.length), "Landings comerciais por intencao de busca"),
+    trainingStatCard("Views SEO", number(totalSeoViews), `${number(totalSeoVisitors)} visitante(s) nas paginas comerciais`),
+    trainingStatCard("Sem tracao ainda", number(untouchedPages.length), "Paginas que precisam de link interno, titulo ou chamada melhor"),
+    trainingStatCard("Checkout iniciado", number(checkoutTotal), "Sinal de compra vindo do site"),
+    trainingStatCard("Potencial WhatsApp", number(Math.max(whatsappPotential, 0)), "Visitantes que ainda podem virar conversa"),
+    trainingStatCard("Roteiro automatico", state.dashboard ? "Pronto" : "Aguardando", "Use o botao para copiar as proximas acoes")
+  ].join("");
+
+  qs("#seoTopPages").innerHTML = seoTraffic.length
+    ? seoTraffic.slice(0, 8).map((item) => `
+      <div class="list-row">
+        <strong>${escapeHtml(item.path || "/")}</strong>
+        <small>${number(item.views)} visualizacoes - ${number(item.visitors)} visitante(s)</small>
+      </div>`).join("")
+    : `<div class="empty-row">Nenhuma pagina SEO recebeu visita registrada ainda. Priorize links internos e Search Console.</div>`;
+
+  const opportunities = buildSeoOpportunities(topPages, untouchedPages, metrics);
+  qs("#seoOpportunityList").innerHTML = opportunities.map((item) => `
+    <div class="list-row">
+      <strong>${escapeHtml(item.title)}</strong>
+      <small>${escapeHtml(item.text)}</small>
+    </div>`).join("");
+
+  qs("#seoPageList").innerHTML = seoLandingPages.map((page) => {
+    const traffic = seoTraffic.find((item) => normalizePath(item.path) === `/${page.slug}`);
+    const views = Number(traffic?.views || 0);
+    return `
+      <a class="seo-admin-page ${views ? "active" : ""}" href="/${escapeHtml(page.slug)}/" target="_blank" rel="noreferrer">
+        <span>${escapeHtml(page.intent)}</span>
+        <strong>${escapeHtml(page.title)}</strong>
+        <small>${views ? `${number(views)} view(s)` : "sem visita registrada"}</small>
+      </a>`;
+  }).join("");
+}
+
+function normalizePath(value) {
+  const clean = String(value || "/").split("?")[0].replace(/\/$/, "");
+  return clean || "/";
+}
+
+function buildSeoOpportunities(topPages, untouchedPages, metrics) {
+  const opportunities = [];
+  const topHome = topPages.find((item) => normalizePath(item.path) === "/");
+  const checkoutTotal = Number(metrics.checkoutStartedTotal || 0);
+  const siteViews = Number(metrics.siteViewsTotal || 0);
+
+  if (untouchedPages.length) {
+    opportunities.push({
+      title: "Distribuir links internos",
+      text: `${untouchedPages.slice(0, 3).map((page) => page.title).join(", ")} ainda precisam receber tracao.`
+    });
+  }
+
+  if (topHome && Number(topHome.views || 0) > checkoutTotal * 8) {
+    opportunities.push({
+      title: "Home com trafego maior que compra",
+      text: "Reforce CTA de teste gratis, WhatsApp e comparacao R$17 vs R$139 acima dos planos."
+    });
+  }
+
+  if (siteViews && checkoutTotal === 0) {
+    opportunities.push({
+      title: "Muito conteudo, pouco checkout",
+      text: "Testar titulo mais direto e botao principal de teste gratis nas paginas com mais visitas."
+    });
+  }
+
+  opportunities.push({
+    title: "Criar pagina por concorrente e dor",
+    text: "Alternativa Anota AI, alternativa Consumer, comandas, estoque e pizzaria delivery devem ficar no sitemap."
+  });
+
+  opportunities.push({
+    title: "Medir palavra ate venda",
+    text: "Search Console + eventos do site devem alimentar o script seo_auto_improve_pages.py para ajustar meta e H1."
+  });
+
+  return opportunities.slice(0, 6);
+}
+
+function copySeoPlan() {
+  const dashboard = state.dashboard || {};
+  const siteAnalytics = dashboard.siteAnalytics || {};
+  const topPages = (siteAnalytics.topPages || []).slice(0, 8);
+  const lines = [
+    "Roteiro SEO Balcao Livre PDV",
+    "",
+    "Prioridades:",
+    "1. Reforcar paginas de teste gratis, delivery, WhatsApp, NFC-e e comparativos.",
+    "2. Melhorar titulo/H1/descricao das paginas com visita e pouca acao.",
+    "3. Linkar paginas sem tracao dentro da home e FAQ.",
+    "4. Enviar visitante para teste gratis ou WhatsApp com mensagem pronta.",
+    "",
+    "Paginas com movimento:",
+    ...topPages.map((item) => `- ${item.path || "/"}: ${number(item.views)} views, ${number(item.visitors)} visitantes`)
+  ];
+  navigator.clipboard?.writeText(lines.join("\n")).catch(() => {});
+  const button = qs("#copySeoPlanButton");
+  if (button) {
+    button.textContent = "Roteiro copiado";
+    setTimeout(() => { button.textContent = "Copiar roteiro SEO"; }, 1800);
+  }
+}
+
+function renderDownloads() {
+  const container = qs("#downloadCards");
+  if (!container) return;
+
+  qs("#releaseVersion").textContent = releaseDownloads.version;
+  qs("#releasePublishedAt").textContent = `Publicado em ${dateTime(releaseDownloads.publishedAt)}`;
+  qs("#releaseManifestUrl").textContent = releaseDownloads.manifestUrl;
+
+  const cards = [
+    {
+      key: "trial",
+      title: "Testadores",
+      badge: "7 dias",
+      text: "Gera teste Online e baixa o instalador atual.",
+      primary: "Abrir teste",
+      url: releaseDownloads.trialUrl,
+    },
+    {
+      key: "checkoutMonthly",
+      title: "Pagamento mensal",
+      badge: "Stripe",
+      text: "Abre checkout do Restaurante Profissional mensal.",
+      primary: "Abrir pagamento",
+      url: releaseDownloads.checkoutMonthlyUrl,
+    },
+    {
+      key: "installer",
+      title: "Clientes ativos",
+      badge: "Auto-update",
+      text: "Instalador usado pelo manifesto de atualizacao.",
+      primary: "Baixar instalador",
+      url: releaseDownloads.installerUrl,
+    },
+    {
+      key: "checkoutAnnual",
+      title: "Pagamento anual",
+      badge: "Stripe",
+      text: "Abre checkout do Restaurante Profissional anual.",
+      primary: "Abrir anual",
+      url: releaseDownloads.checkoutAnnualUrl,
+    },
+  ];
+
+  container.innerHTML = cards.map((item) => `
+    <article class="download-card">
+      <div class="download-card-top">
+        <span class="download-icon">${escapeHtml(item.title.slice(0, 2).toUpperCase())}</span>
+        <span class="mini-badge">${escapeHtml(item.badge)}</span>
+      </div>
+      <h3>${escapeHtml(item.title)}</h3>
+      <p>${escapeHtml(item.text)}</p>
+      <div class="download-actions">
+        <a class="button-link" href="${escapeHtml(item.url)}" target="_blank" rel="noopener">${escapeHtml(item.primary)}</a>
+        <button class="download-copy" type="button" onclick="copyDownloadUrl('${escapeHtml(item.key)}')">Copiar</button>
+      </div>
+    </article>
+  `).join("");
 }
 
 function renderSupport() {
@@ -328,10 +630,254 @@ function renderSupport() {
     const haystack = `${item.shortId} ${item.licenseKey} ${item.customerName} ${item.businessName} ${item.ownerName} ${item.phone} ${item.machineCode} ${item.message}`.toLowerCase();
     return !query || haystack.includes(query);
   });
-  qs("#supportLiveBadge").textContent = `${rows.length} chamado(s) - tempo real ligado`;
+  qs("#supportLiveBadge").textContent = `${number(rows.length)} chamado(s)`;
   target.innerHTML = rows.length
     ? rows.map((item) => supportCard(item)).join("")
-    : `<div class="device-card">Nenhum suporte aberto.</div>`;
+    : `<div class="empty-row padded">Nenhum suporte aberto.</div>`;
+}
+
+function renderTraining() {
+  const target = qs("#trainingList");
+  if (!target) return;
+  const rows = [...(state.training || [])].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+  const activeRows = rows.filter((item) => item.enabled !== false);
+  const intentCounts = trainingIntentCounts(activeRows);
+  const sectorCounts = trainingSectorCounts(activeRows);
+  const coveredIntents = trainingIntentOrder().filter((intent) => (intentCounts[intent] || 0) > 0);
+  const coveredSectors = trainingSectorOrder().filter((sector) => (sectorCounts[sector] || 0) > 0);
+  const openSupport = (state.support || []).filter((item) => String(item.status || "ABERTO").toUpperCase() !== "RESOLVIDO").length;
+  const lastUpdated = rows[0]?.updatedAt || "";
+  const badge = qs("#trainingLiveBadge");
+  if (badge) badge.textContent = `${number(activeRows.length)} ativa(s)`;
+  renderTrainingStats(rows, activeRows, coveredIntents, coveredSectors, openSupport, lastUpdated);
+  renderTrainingCoverage(intentCounts);
+  renderTrainingChart(intentCounts, activeRows.length);
+  renderTrainingSectorChart(sectorCounts, activeRows.length);
+  renderTrainingTimeline(rows);
+
+  const engineBadge = qs("#trainingEngineBadge");
+  if (engineBadge) {
+    engineBadge.textContent = state.health?.storage === "supabase" ? "ML ativo" : "Checar Supabase";
+    engineBadge.className = `status-pill ${state.health?.storage === "supabase" ? "ok" : "pending"}`;
+  }
+  const coverageBadge = qs("#trainingCoverageBadge");
+  if (coverageBadge) {
+    coverageBadge.textContent = `${number(coveredIntents.length)}/${number(trainingIntentOrder().length)} áreas treinadas`;
+    coverageBadge.className = `status-pill ${coveredIntents.length >= 4 ? "ok" : "pending"}`;
+  }
+
+  target.innerHTML = rows.length
+    ? rows.map((item) => `
+      <article class="training-rule ${item.enabled === false ? "disabled" : ""}">
+        <div>
+          <div class="training-rule-tags">
+            <span class="training-intent">${escapeHtml(trainingIntentLabel(item.intent))}</span>
+            <span class="training-segment">${escapeHtml(trainingSectorLabel(item.segment))}</span>
+            <span class="training-source">${escapeHtml(trainingSourceLabel(item.source))}</span>
+          </div>
+          <strong>${escapeHtml(item.phrase || "Sem frase")}</strong>
+          ${item.reply ? `<p>${escapeHtml(item.reply)}</p>` : `<p class="muted">Usa o fluxo padrão desta intenção.</p>`}
+          <small>Atualizado ${dateTime(item.updatedAt)} - confiança ${trainingConfidence(item.confidence)}</small>
+        </div>
+        <button class="secondary" type="button" onclick="deleteTrainingRule('${escapeHtml(item.id)}')">Remover</button>
+      </article>
+    `).join("")
+    : `<div class="empty-row padded">Nenhum treinamento global cadastrado ainda.</div>`;
+}
+
+function renderTrainingStats(rows, activeRows, coveredIntents, coveredSectors, openSupport, lastUpdated) {
+  const target = qs("#trainingStats");
+  if (!target) return;
+  const publicRules = activeRows.filter((item) => item.phrase || item.reply).length;
+  const responseRules = activeRows.filter((item) => String(item.intent || "").toUpperCase() === "RESPOSTA").length;
+  const autoRules = activeRows.filter((item) => String(item.source || "").toUpperCase() !== "MANUAL").length;
+  target.innerHTML = [
+    trainingStatCard("Regras em produção", number(activeRows.length), `${number(rows.length - activeRows.length)} pausada(s)`),
+    trainingStatCard("Áreas treinadas", `${number(coveredIntents.length)}/${number(trainingIntentOrder().length)}`, "Pedido, cardápio, agenda, horário, status e atendente"),
+    trainingStatCard("Setores cobertos", `${number(coveredSectors.length)}/${number(trainingSectorOrder().length)}`, "Restaurante, Agenda Livre e serviços"),
+    trainingStatCard("Resposta pronta", number(responseRules), "Mensagens com texto controlado pelo admin"),
+    trainingStatCard("Auto treinadas", number(autoRules), "Base Balcão + aprendizado importado"),
+    trainingStatCard("Evolution API", state.health?.storage === "supabase" ? "Online" : "Atenção", `${number(publicRules)} regra(s) públicas para o bot`)
+  ].join("");
+}
+
+function trainingStatCard(label, value, hint) {
+  return `
+    <article class="training-stat">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(String(value))}</strong>
+      <small>${escapeHtml(hint || "")}</small>
+    </article>
+  `;
+}
+
+function renderTrainingCoverage(counts) {
+  const target = qs("#trainingCoverage");
+  if (!target) return;
+  target.innerHTML = trainingIntentOrder().map((intent) => {
+    const count = counts[intent] || 0;
+    const meta = trainingIntentMeta(intent);
+    return `
+      <article class="coverage-item ${count > 0 ? "ready" : "missing"}">
+        <div>
+          <strong>${escapeHtml(meta.label)}</strong>
+          <span>${escapeHtml(meta.description)}</span>
+        </div>
+        <em>${count > 0 ? `${number(count)} regra(s)` : "faltando"}</em>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderTrainingChart(counts, total) {
+  const target = qs("#trainingChart");
+  if (!target) return;
+  const rows = trainingIntentOrder().map((intent) => {
+    const count = counts[intent] || 0;
+    const percent = Math.round((count / Math.max(total, 1)) * 100);
+    const meta = trainingIntentMeta(intent);
+    return `
+      <div class="training-bar-row">
+        <div class="training-bar-label">
+          <strong>${escapeHtml(meta.label)}</strong>
+          <span>${number(count)} regra(s)</span>
+        </div>
+        <div class="training-bar-track"><span style="width:${percent}%"></span></div>
+        <em>${percent}%</em>
+      </div>
+    `;
+  }).join("");
+  target.innerHTML = rows + (!total
+    ? `<div class="training-chart-note">Sem regra treinada ainda. O primeiro cadastro já aparece neste gráfico e fica disponível para a Evolution API.</div>`
+    : "");
+}
+
+function renderTrainingSectorChart(counts, total) {
+  const target = qs("#trainingSectorChart");
+  if (!target) return;
+  const rows = trainingSectorOrder().map((sector) => {
+    const count = counts[sector] || 0;
+    const percent = Math.round((count / Math.max(total, 1)) * 100);
+    return `
+      <div class="training-bar-row">
+        <div class="training-bar-label">
+          <strong>${escapeHtml(trainingSectorLabel(sector))}</strong>
+          <span>${number(count)} regra(s)</span>
+        </div>
+        <div class="training-bar-track sector"><span style="width:${percent}%"></span></div>
+        <em>${percent}%</em>
+      </div>
+    `;
+  }).join("");
+  target.innerHTML = rows + (!total
+    ? `<div class="training-chart-note">A base pronta separa restaurante, barbearia, beleza, mecânica, clínica, petshop e agenda.</div>`
+    : "");
+}
+
+function renderTrainingTimeline(rows) {
+  const target = qs("#trainingTimeline");
+  if (!target) return;
+  const recent = rows.slice(0, 8);
+  target.innerHTML = recent.length
+    ? recent.map((item) => `
+      <article class="timeline-item">
+        <span>${timeOnly(item.updatedAt)}</span>
+        <div>
+          <strong>${escapeHtml(trainingIntentLabel(item.intent))}</strong>
+          <p>${escapeHtml(item.phrase || item.reply || "Regra sem texto")}</p>
+        </div>
+      </article>
+    `).join("")
+    : `<div class="empty-row padded">Ainda não existe histórico de treinamento.</div>`;
+}
+
+function trainingIntentCounts(rows) {
+  return rows.reduce((acc, item) => {
+    const intent = String(item.intent || "RESPOSTA").toUpperCase();
+    acc[intent] = (acc[intent] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function trainingIntentOrder() {
+  return ["PEDIDO", "CARDAPIO", "AGENDAMENTO", "REMARCAR", "CANCELAR", "HORARIO", "STATUS", "ATENDENTE", "RESPOSTA"];
+}
+
+function trainingIntentMeta(intent) {
+  const map = {
+    PEDIDO: ["Pedido", "Entende códigos, quantidades e itens digitados."],
+    CARDAPIO: ["Cardápio", "Envia cardápio por mensagem ou link conforme a loja."],
+    AGENDAMENTO: ["Agendamento", "Entende pedidos de horário em clínica, beleza, petshop e oficina."],
+    REMARCAR: ["Remarcar", "Reagenda horário quando o cliente quer mudar."],
+    CANCELAR: ["Cancelar", "Cancela ou chama a equipe para liberar a agenda."],
+    HORARIO: ["Horário", "Responde abertura, fechamento e tempo médio."],
+    STATUS: ["Status", "Ajuda cliente a acompanhar pedido e entrega."],
+    ATENDENTE: ["Atendente", "Chama a equipe quando precisa de humano."],
+    RESPOSTA: ["Resposta pronta", "Usa uma resposta escrita pelo admin."]
+  };
+  const [label, description] = map[String(intent || "").toUpperCase()] || map.RESPOSTA;
+  return { label, description };
+}
+
+function trainingIntentLabel(value) {
+  const map = {
+    PEDIDO: "Pedido",
+    CARDAPIO: "Cardápio",
+    AGENDAMENTO: "Agendamento",
+    REMARCAR: "Remarcar",
+    CANCELAR: "Cancelar",
+    HORARIO: "Horário",
+    STATUS: "Status",
+    ATENDENTE: "Atendente",
+    RESPOSTA: "Resposta pronta"
+  };
+  return map[String(value || "").toUpperCase()] || "Resposta pronta";
+}
+
+function trainingSectorCounts(rows) {
+  return rows.reduce((acc, item) => {
+    const sector = normalizeTrainingSector(item.segment);
+    acc[sector] = (acc[sector] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function trainingSectorOrder() {
+  return ["GLOBAL", "RESTAURANTE", "BARBEARIA", "BELEZA", "MECANICA", "CLINICA", "PETSHOP", "AGENDA"];
+}
+
+function normalizeTrainingSector(value) {
+  const clean = String(value || "GLOBAL").toUpperCase();
+  if (["TODOS", "GERAL"].includes(clean)) return "GLOBAL";
+  if (["SALAO", "UNHA", "UNHAS", "MANICURE"].includes(clean)) return "BELEZA";
+  return trainingSectorOrder().includes(clean) ? clean : "GLOBAL";
+}
+
+function trainingSectorLabel(value) {
+  const map = {
+    GLOBAL: "Todos",
+    RESTAURANTE: "Restaurante",
+    BARBEARIA: "Barbearia",
+    BELEZA: "Salão / beleza",
+    MECANICA: "Mecânica",
+    CLINICA: "Clínica",
+    PETSHOP: "Petshop",
+    AGENDA: "Agenda Livre"
+  };
+  return map[normalizeTrainingSector(value)] || "Todos";
+}
+
+function trainingSourceLabel(value) {
+  const clean = String(value || "MANUAL").toUpperCase();
+  if (clean === "BASE_BALCAO") return "Base pronta";
+  if (clean === "AUTO") return "Automático";
+  return "Manual";
+}
+
+function trainingConfidence(value) {
+  const numberValue = Number(value || 0);
+  if (!Number.isFinite(numberValue) || numberValue <= 0) return "82%";
+  return `${Math.round(Math.min(numberValue, 1) * 100)}%`;
 }
 
 function supportCard(item) {
@@ -374,52 +920,171 @@ function supportCard(item) {
 }
 
 function renderLicenses() {
+  const target = qs("#licensesTable");
+  if (!target) return;
   const query = qs("#licenseSearch").value.trim().toLowerCase();
   const rows = state.licenses.filter((item) => {
-    const haystack = `${item.key} ${item.customerName} ${item.businessName} ${item.cnpj} ${item.machineCode}`.toLowerCase();
+    const profile = item.profile || {};
+    const env = item.environmentSnapshot || item.environment || {};
+    const haystack = `${item.key} ${item.customerName} ${item.businessName} ${item.cnpj} ${item.phone} ${item.email} ${item.address} ${item.city} ${item.state} ${profile.address} ${env.publicIp} ${env.primaryLocalIp} ${(env.localIpAddresses || []).join(" ")} ${env.machineName} ${env.windowsUser} ${env.clientProduct} ${item.machineCode} ${item.appVersion} ${item.clientKind}`.toLowerCase();
     return !query || haystack.includes(query);
   });
-  qs("#licensesTable").innerHTML = rows.map((item) => `
-    <tr>
-      <td><span class="status ${item.status}">${item.status}</span></td>
-      <td><strong>${escapeHtml(item.customerName || item.businessName || "-")}</strong><small>${escapeHtml(item.cnpj || item.phone || "")}</small></td>
-      <td class="key-cell">${item.key}</td>
-      <td>${escapeHtml(item.machineCode || "-")}<small>${escapeHtml(item.appVersion || "")}</small></td>
-      <td>${dateTime(item.expiresAt)}</td>
-      <td>${dateTime(item.lastSeenAt)}</td>
-      <td><div class="row-actions">
-        <button class="secondary" onclick="copyKey('${item.key}')">Copiar</button>
-        ${item.status === "BLOQUEADA"
-          ? `<button onclick="unblockLicense('${item.id}')">Liberar</button>`
-          : `<button class="danger" onclick="blockLicense('${item.id}')">Bloquear</button>`}
-      </div></td>
-    </tr>
-  `).join("");
+  qs("#licenseLiveBadge").textContent = `${number(rows.length)} licenca(s)`;
+  target.innerHTML = rows.length
+    ? rows.map((item) => {
+      const env = item.environmentSnapshot || item.environment || {};
+      const profile = item.profile || {};
+      const address = item.address || profile.address || "";
+      const cityState = [item.city || profile.city, item.state || profile.state].filter(Boolean).join(" / ");
+      const publicIp = normalizedIp(env.publicIp) || "-";
+      const localIps = Array.isArray(env.localIpAddresses) ? env.localIpAddresses : [];
+      const localIp = env.primaryLocalIp || localIps[0] || "-";
+      const product = env.clientProduct || clientKindLabel(item.clientKind || "windows");
+      const os = compactOs(env.operatingSystem || "");
+      const publicIpBlocked = isIpBlocked(publicIp);
+      return `
+      <tr>
+        <td><span class="status ${item.status}">${escapeHtml(item.status || "-")}</span></td>
+        <td>
+          <strong>${escapeHtml(item.customerName || item.businessName || "-")}</strong>
+          <small>${escapeHtml([item.cnpj, item.phone, item.email].filter(Boolean).join(" | ") || "-")}</small>
+          <small>${escapeHtml(cityState || address || "-")}</small>
+          ${address && address !== cityState ? `<small>${escapeHtml(address)}</small>` : ""}
+        </td>
+        <td class="key-cell">${escapeHtml(item.key || "-")}</td>
+        <td>
+          <strong>${escapeHtml(product)}</strong>
+          <small>PC ${escapeHtml(item.machineCode || "-")} ${env.machineName ? `| ${escapeHtml(env.machineName)}` : ""}</small>
+          <small>${escapeHtml([item.appVersion, os, env.windowsUser].filter(Boolean).join(" | ") || "-")}</small>
+        </td>
+        <td class="network-cell">
+          <span class="info-chip ${publicIpBlocked ? "blocked-ip" : ""}">IP ${escapeHtml(publicIp)}</span>
+          <small>Local ${escapeHtml(localIp)}</small>
+          ${env.timeZone ? `<small>${escapeHtml(env.timeZone)} ${escapeHtml(env.utcOffset || "")}</small>` : ""}
+        </td>
+        <td>${dateTime(item.expiresAt)}</td>
+        <td>${dateTime(item.lastSeenAt)}</td>
+        <td><div class="row-actions">
+          <button class="secondary" onclick="copyKey('${item.key}')">Copiar</button>
+          ${item.status === "BLOQUEADA"
+            ? `<button onclick="unblockLicense('${item.id}')">Liberar</button>`
+            : `<button class="danger" onclick="blockLicense('${item.id}')">Bloquear</button>`}
+          ${ipActionButton(publicIp, item.customerName || item.businessName || item.key || "licenca")}
+        </div></td>
+      </tr>
+    `;
+    }).join("")
+    : `<tr><td colspan="8" class="empty-cell">Nenhuma licenca encontrada.</td></tr>`;
 }
 
 function renderDevices() {
-  const devices = state.dashboard.recentDevices || [];
-  qs("#devicesList").innerHTML = devices.length
+  const target = qs("#devicesList");
+  if (!target) return;
+  const devices = state.dashboard?.recentDevices || [];
+  qs("#devicesLiveBadge").textContent = `${number(devices.length)} cliente(s) recentes`;
+  target.innerHTML = devices.length
     ? devices.map((item) => {
       const profile = item.profile || {};
       const metrics = item.metrics || {};
+      const env = item.environment || {};
       const name = profile.businessName || profile.legalName || profile.ownerName || "Cliente";
       const addressParts = [profile.address, profile.city, profile.state].filter(Boolean);
+      const localIps = Array.isArray(env.localIpAddresses) ? env.localIpAddresses : [];
+      const publicIp = normalizedIp(env.publicIp);
       return `
         <article class="device-card client-card">
-          <strong>${escapeHtml(name)}</strong>
-          <span>Maquina: ${escapeHtml(item.machineCode || "-")}</span>
-          <span>Usuarios do app: ${Number(metrics.usersCount || 0)}</span>
-          <span>CNPJ: ${escapeHtml(profile.cnpj || "-")}</span>
-          <span>Telefone: ${escapeHtml(profile.phone || "-")}</span>
-          <span>Endereco: ${escapeHtml(addressParts.join(" - ") || "-")}</span>
-          <span>Responsavel: ${escapeHtml(profile.ownerName || "-")}</span>
-          <span>Versao: ${escapeHtml(item.appVersion || "-")}</span>
-          <small>Ultima vez mexido: ${dateTime(item.lastSeenAt)}</small>
+          <div class="client-card-head">
+            <strong>${escapeHtml(name)}</strong>
+            <span>${escapeHtml(clientKindLabel(item.clientKind || "windows"))}</span>
+          </div>
+          <dl>
+            <div><dt>Maquina</dt><dd>${escapeHtml(item.machineCode || "-")}</dd></div>
+            <div><dt>PC</dt><dd>${escapeHtml(env.machineName || "-")}</dd></div>
+            <div><dt>Usuario</dt><dd>${escapeHtml(env.windowsUser || "-")}</dd></div>
+            <div><dt>IP publico</dt><dd>${escapeHtml(publicIp || "-")}</dd></div>
+            <div><dt>IP local</dt><dd>${escapeHtml(env.primaryLocalIp || localIps[0] || "-")}</dd></div>
+            <div><dt>Usuarios</dt><dd>${number(metrics.usersCount)}</dd></div>
+            <div><dt>CNPJ</dt><dd>${escapeHtml(profile.cnpj || "-")}</dd></div>
+            <div><dt>Telefone</dt><dd>${escapeHtml(profile.phone || "-")}</dd></div>
+            <div><dt>Endereco</dt><dd>${escapeHtml(addressParts.join(" - ") || "-")}</dd></div>
+            <div><dt>Responsavel</dt><dd>${escapeHtml(profile.ownerName || "-")}</dd></div>
+            <div><dt>Versao</dt><dd>${escapeHtml(item.appVersion || "-")}</dd></div>
+            <div><dt>Windows</dt><dd>${escapeHtml(compactOs(env.operatingSystem || "-"))}</dd></div>
+            <div><dt>Ultimo uso</dt><dd>${dateTime(item.lastSeenAt)}</dd></div>
+          </dl>
+          <div class="client-card-actions">
+            ${ipActionButton(publicIp, name)}
+          </div>
         </article>
       `;
     }).join("")
-    : `<div class="device-card">Nenhum app sincronizou ainda.</div>`;
+    : `<div class="empty-row padded">Nenhum app sincronizou ainda.</div>`;
+}
+
+function renderBlockedIps() {
+  const target = qs("#blockedIpList");
+  if (!target) return;
+  const blockedIps = state.blockedIps || [];
+  const badge = qs("#blockedIpLiveBadge");
+  if (badge) badge.textContent = `${number(blockedIps.length)} bloqueado(s)`;
+  target.innerHTML = blockedIps.length
+    ? blockedIps.map((item) => `
+      <div class="blocked-ip-row">
+        <div>
+          <strong>${escapeHtml(item.ip || "-")}</strong>
+          <small>${escapeHtml(item.reason || "Bloqueado pelo admin")}</small>
+          <small>${number(item.hits)} tentativa(s) barrada(s) ${item.lastBlockedAt ? `- ultima ${dateTime(item.lastBlockedAt)}` : ""}</small>
+        </div>
+        <button onclick='unblockIp(${jsArg(item.ip || "")})'>Liberar IP</button>
+      </div>
+    `).join("")
+    : `<div class="empty-row padded">Nenhum IP bloqueado.</div>`;
+}
+
+function normalizedIp(value) {
+  const clean = String(value || "").trim().replace(/^::ffff:/i, "");
+  return clean && clean !== "-" ? clean : "";
+}
+
+function isIpBlocked(ip) {
+  const clean = normalizedIp(ip).toLowerCase();
+  if (!clean) return false;
+  return (state.blockedIps || []).some((item) => normalizedIp(item.ip).toLowerCase() === clean);
+}
+
+function ipActionButton(ip, source) {
+  const clean = normalizedIp(ip);
+  if (!clean) {
+    return "";
+  }
+
+  return isIpBlocked(clean)
+    ? `<button onclick='unblockIp(${jsArg(clean)})'>Liberar IP</button>`
+    : `<button class="danger" onclick='blockIp(${jsArg(clean)}, ${jsArg(source || "cliente")})'>Bloquear IP</button>`;
+}
+
+function jsArg(value) {
+  return JSON.stringify(String(value || ""))
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e")
+    .replaceAll("&", "\\u0026")
+    .replaceAll("'", "\\u0027");
+}
+
+function clientKindLabel(value) {
+  const kind = String(value || "").toLowerCase();
+  if (kind.includes("online")) return "PDV Online";
+  if (kind.includes("offline")) return "PDV Offline";
+  if (kind.includes("android") || kind.includes("mobile")) return "Mobile";
+  if (kind.includes("web") || kind.includes("browser")) return "Web";
+  return "Windows";
+}
+
+function compactOs(value) {
+  return String(value || "")
+    .replace(/^Microsoft\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 async function createKey() {
@@ -436,22 +1101,50 @@ async function createKey() {
   qs("#createdKey").classList.remove("hidden");
   qs("#createdKey").innerHTML = `
     <strong>Chave criada</strong>
-    <code>${license.key}</code>
+    <code>${escapeHtml(license.key)}</code>
     <span>Expira em ${dateTime(license.expiresAt)}</span>
     <button class="secondary" onclick="copyKey('${license.key}')">Copiar chave</button>
   `;
-  await refreshAll();
+  await loadRealtimeData({ notifySupport: false, force: true });
   setView("licenses");
 }
 
 async function blockLicense(id) {
   await api(`/api/licenses/${id}/block`, { method: "POST" });
-  await refreshAll();
+  await loadRealtimeData({ notifySupport: false, force: true });
 }
 
 async function unblockLicense(id) {
   await api(`/api/licenses/${id}/unblock`, { method: "POST" });
-  await refreshAll();
+  await loadRealtimeData({ notifySupport: false, force: true });
+}
+
+async function blockIp(ip, source) {
+  const clean = normalizedIp(ip);
+  if (!clean) return;
+  if (!confirm(`Bloquear o IP ${clean}? O app desse IP nao vai ativar, sincronizar, publicar cardapio ou abrir suporte.`)) {
+    return;
+  }
+
+  await api("/api/blocked-ips", {
+    method: "POST",
+    body: JSON.stringify({
+      ip: clean,
+      source: source || "admin",
+      reason: `Bloqueado em usuarios: ${source || clean}`
+    })
+  });
+  await loadRealtimeData({ notifySupport: false, force: true });
+}
+
+async function unblockIp(ip) {
+  const clean = normalizedIp(ip);
+  if (!clean) return;
+  await api("/api/blocked-ips/delete", {
+    method: "POST",
+    body: JSON.stringify({ ip: clean })
+  });
+  await loadRealtimeData({ notifySupport: false, force: true });
 }
 
 async function setSupportStatus(id, status) {
@@ -459,7 +1152,7 @@ async function setSupportStatus(id, status) {
     method: "POST",
     body: JSON.stringify({ status })
   });
-  await refreshAll();
+  await loadRealtimeData({ notifySupport: false, force: true });
   setView("support");
 }
 
@@ -472,12 +1165,61 @@ async function replySupport(id) {
     body: JSON.stringify({ message })
   });
   input.value = "";
-  await refreshAll();
+  await loadRealtimeData({ notifySupport: false, force: true });
   setView("support");
+}
+
+async function saveTrainingRule() {
+  const phrase = qs("#trainingPhrase").value.trim();
+  const reply = qs("#trainingReply").value.trim();
+  if (!phrase && !reply) return;
+
+  await api("/api/whatsapp-training", {
+    method: "POST",
+    body: JSON.stringify({
+      phrase,
+      reply,
+      segment: qs("#trainingSegment").value,
+      intent: qs("#trainingIntent").value,
+      source: "MANUAL",
+      confidence: 0.82,
+      enabled: true
+    })
+  });
+
+  qs("#trainingPhrase").value = "";
+  qs("#trainingReply").value = "";
+  await loadRealtimeData({ notifySupport: false, force: true });
+  setView("training");
+}
+
+async function seedTrainingRules() {
+  await api("/api/whatsapp-training/seed", { method: "POST" });
+  await loadRealtimeData({ notifySupport: false, force: true });
+  setView("training");
+}
+
+async function deleteTrainingRule(id) {
+  if (!id) return;
+  await api(`/api/whatsapp-training/${id}/delete`, { method: "POST" });
+  await loadRealtimeData({ notifySupport: false, force: true });
+  setView("training");
 }
 
 function copyKey(key) {
   navigator.clipboard.writeText(key).catch(() => {});
+}
+
+function copyDownloadUrl(key) {
+  const map = {
+    trial: releaseDownloads.trialUrl,
+    checkoutMonthly: releaseDownloads.checkoutMonthlyUrl,
+    checkoutAnnual: releaseDownloads.checkoutAnnualUrl,
+    installer: releaseDownloads.installerUrl,
+    manifest: releaseDownloads.manifestUrl,
+  };
+  const value = map[key] || "";
+  if (value) navigator.clipboard.writeText(value).catch(() => {});
 }
 
 function escapeHtml(value) {
@@ -494,21 +1236,32 @@ qs("#loginPassword").addEventListener("keydown", (event) => {
   if (event.key === "Enter") login();
 });
 qs("#logoutButton").addEventListener("click", logout);
-qs("#refreshButton").addEventListener("click", refreshAll);
 qs("#createKeyButton").addEventListener("click", createKey);
+qs("#saveTrainingButton").addEventListener("click", saveTrainingRule);
+qs("#seedTrainingButton").addEventListener("click", seedTrainingRules);
+qs("#copySeoPlanButton")?.addEventListener("click", copySeoPlan);
 qs("#licenseSearch").addEventListener("input", renderLicenses);
 qs("#supportSearch").addEventListener("input", renderSupport);
 document.querySelectorAll(".nav[data-view]").forEach((button) => {
   button.addEventListener("click", () => setView(button.dataset.view));
 });
 
+api("/api/health")
+  .then((health) => {
+    state.health = health;
+    renderRealtimeBadge();
+  })
+  .catch(() => {});
+
 api("/api/session")
   .then((session) => {
     if (session.authenticated) {
       showApp();
       startLiveRefresh();
-      return refreshAll();
+      return loadRealtimeData({ notifySupport: false, force: true });
     }
     showLogin();
   })
   .catch(showLogin);
+
+renderDownloads();

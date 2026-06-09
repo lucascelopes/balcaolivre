@@ -1,6 +1,7 @@
 import { cp, mkdir, rm, writeFile, copyFile, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { injectHomeSalesBoost, loadStaticSeoPages, seoPageSitemapEntries, staticSeoPageHtml } from "./seo-static-pages.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputDir = process.argv[2]
@@ -23,6 +24,7 @@ const publicMenuSupabaseUrl = process.env.BALCAO_SUPABASE_URL || "https://hzvplp
 const publicMenuPublishableKey =
   process.env.BALCAO_SUPABASE_PUBLISHABLE_KEY ||
   "sb_publishable_qNl5_EGAeuhN6PqTzRIeyQ_YQV2MdV6";
+let staticSeoPages = [];
 
 const fromRoot = (...parts) => path.join(root, ...parts);
 const toOutput = (...parts) => path.join(outputDir, ...parts);
@@ -37,13 +39,15 @@ async function copyLandingHtml(source, target, options = {}) {
 }
 
 async function copyLanding() {
+  staticSeoPages = await loadStaticSeoPages(root);
+
   await copyLandingHtml(
     fromRoot("BalcaoLivreLadingPage", "preview.html"),
     toOutput("index.html"),
     {
       canonicalPath: "/",
       title: "Balcao Livre PDV | Sistema Windows para restaurantes",
-      description: "PDV Windows online e offline para restaurantes, bares, lanchonetes e delivery. Caixa, mesas, estoque, comandas, cardapio digital, garcom web, iFood, WhatsApp e Mercado Pago.",
+      description: "PDV Windows para restaurantes com teste de 7 dias, WhatsApp, cardapio digital, garcom no celular, NFC-e configuravel, equipe, entregadores, Mercado Pago e iFood no plano de R$139.",
       mainPage: true
     }
   );
@@ -69,6 +73,14 @@ async function copyLanding() {
       description: "Manual para instalar, configurar e operar o Balcao Livre PDV no Windows: caixa, produtos, mesas, delivery, pagamentos, impressao, estoque e fechamento."
     }
   );
+
+  for (const page of staticSeoPages) {
+    await mkdir(toOutput(page.slug), { recursive: true });
+    await writeFile(toOutput(page.slug, "index.html"), staticSeoPageHtml(page, publicSiteUrl), "utf8");
+  }
+
+  await mkdir(toOutput("mercado-pago"), { recursive: true });
+  await writeFile(toOutput("mercado-pago", "index.html"), mercadoPagoCallbackHtml(), "utf8");
 
   await mkdir(toOutput("app"), { recursive: true });
   await copyFile(
@@ -159,8 +171,11 @@ function enhanceLandingHtml(html, options = {}) {
   const canonicalUrl = `${publicSiteUrl}${canonicalPath}`;
   const description =
     options.description ||
-    "PDV Windows online e offline para restaurantes, bares, lanchonetes e delivery. Caixa, mesas, estoque, comandas, cardapio digital, garcom web, iFood, WhatsApp e Mercado Pago.";
+    "PDV Windows para restaurantes com teste de 7 dias, WhatsApp, cardapio digital, garcom no celular, NFC-e configuravel, equipe, entregadores, Mercado Pago e iFood no plano de R$139.";
   let nextHtml = html;
+  if (options.mainPage) {
+    nextHtml = injectHomeSalesBoost(nextHtml, staticSeoPages);
+  }
 
   if (options.title) {
     nextHtml = nextHtml.replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeHtml(options.title)}</title>`);
@@ -178,7 +193,7 @@ function enhanceLandingHtml(html, options = {}) {
 
   const headTags = [
     `<meta name="description" content="${escapeHtml(description)}" />`,
-    `<meta name="keywords" content="PDV para restaurante, sistema para restaurante, PDV Windows, sistema de caixa, comandas, cardapio digital, garcom web, delivery, Balcao Livre PDV" />`,
+    `<meta name="keywords" content="PDV para restaurante, sistema para restaurante, PDV Windows, sistema de caixa, comandas, cardapio digital, garcom no celular, PDV com NFC-e, gestao de equipe restaurante, sistema para entregadores delivery, delivery, Balcao Livre PDV" />`,
     `<link rel="canonical" href="${escapeHtml(canonicalUrl)}" />`,
     `<meta name="robots" content="index, follow, max-image-preview:large" />`,
     googleSiteVerification
@@ -298,12 +313,88 @@ function googleTagScript() {
     </script>`;
 }
 
+function mercadoPagoCallbackHtml() {
+  return `<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Mercado Pago conectado | Balc&atilde;o Livre PDV</title>
+    <style>
+      :root{color-scheme:light;--ink:#071a2c;--muted:#526579;--line:#d7e4ee;--teal:#09a99b;--navy:#061a28;--soft:#eef6f9}
+      *{box-sizing:border-box}
+      body{margin:0;min-height:100vh;font-family:Segoe UI,Arial,sans-serif;background:linear-gradient(135deg,#f6fbfd,#e8f3f7);color:var(--ink);display:grid;place-items:center;padding:24px}
+      main{width:min(680px,100%);background:#fff;border:1px solid var(--line);border-radius:22px;box-shadow:0 24px 70px rgba(7,26,44,.14);overflow:hidden}
+      .top{background:var(--navy);color:#fff;padding:26px 30px;display:flex;gap:16px;align-items:center}
+      .logo{width:52px;height:52px;border-radius:14px;background:#fff;color:var(--navy);display:grid;place-items:center;font-weight:900;letter-spacing:.03em;flex:0 0 auto}
+      .top h1{font-size:27px;line-height:1.1;margin:0}
+      .top p{margin:7px 0 0;color:#bfd0db;font-size:15px}
+      .content{padding:30px}
+      .badge{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:8px 14px;font-weight:900;font-size:13px;text-transform:uppercase;background:#e6fbf8;color:#0a6f67;border:1px solid #9be8df}
+      .badge.error{background:#fff0ef;color:#a11d1d;border-color:#ffc2bd}
+      h2{font-size:32px;line-height:1.1;margin:18px 0 10px}
+      p{font-size:17px;line-height:1.55;color:var(--muted);margin:0 0 18px}
+      .steps{display:grid;gap:10px;margin:22px 0;background:var(--soft);border:1px solid var(--line);border-radius:16px;padding:16px}
+      .step{display:flex;gap:12px;align-items:flex-start;color:#254052;font-weight:700}
+      .step span{width:26px;height:26px;border-radius:999px;background:var(--teal);color:#fff;display:grid;place-items:center;font-size:13px;flex:0 0 auto}
+      .actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}
+      a,button{border:0;border-radius:12px;padding:14px 18px;font-size:15px;font-weight:900;text-decoration:none;cursor:pointer}
+      .primary{background:var(--teal);color:#fff;box-shadow:0 14px 28px rgba(9,169,155,.22)}
+      .secondary{background:#edf4f8;color:#0b3a52;border:1px solid #c9d9e5}
+      small{display:block;color:#738697;line-height:1.45;margin-top:18px}
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="top">
+        <div class="logo">BL</div>
+        <div>
+          <h1>Balc&atilde;o Livre PDV</h1>
+          <p>Integra&ccedil;&atilde;o Mercado Pago</p>
+        </div>
+      </section>
+      <section class="content">
+        <div id="statusBadge" class="badge">Conectado</div>
+        <h2 id="title">Mercado Pago conectado</h2>
+        <p id="message">A conta foi vinculada ao PDV. Volte ao Balc&atilde;o Livre e confira se a Point aparece como pronta para vender.</p>
+        <div class="steps">
+          <div class="step"><span>1</span><div>Volte ao Balc&atilde;o Livre PDV no Windows.</div></div>
+          <div class="step"><span>2</span><div>Abra Configura&ccedil;&otilde;es &gt; Pagamentos e confira a Point selecionada.</div></div>
+          <div class="step"><span>3</span><div>Fa&ccedil;a um teste com valor baixo antes de usar em venda real.</div></div>
+        </div>
+        <div class="actions">
+          <button class="primary" type="button" onclick="window.close()">Fechar esta aba</button>
+          <a class="secondary" href="/">Ir para o site</a>
+        </div>
+        <small>Se a aba n&atilde;o fechar sozinha, pode fechar manualmente. O PDV consulta a conex&atilde;o pelo servidor.</small>
+      </section>
+    </main>
+    <script>
+      (function(){
+        var params=new URLSearchParams(window.location.search);
+        var status=params.get("mercadopago")||params.get("pagbank")||"connected";
+        var title=params.get("title")||"Mercado Pago conectado";
+        var message=params.get("message")||"A conta foi vinculada ao PDV. Volte ao Balcao Livre e confira se a Point aparece como pronta para vender.";
+        var failed=status==="error";
+        var badge=document.getElementById("statusBadge");
+        document.getElementById("title").textContent=failed?"Precisa revisar a conexao":title;
+        document.getElementById("message").textContent=message;
+        badge.textContent=failed?"Atencao":"Conectado";
+        if(failed) badge.classList.add("error");
+      })();
+    </script>
+  </body>
+</html>`;
+}
+
 function sitemapXml() {
   const today = new Date().toISOString().slice(0, 10);
   const urls = [
     { loc: `${publicSiteUrl}/`, priority: "1.0", changefreq: "weekly" },
     { loc: `${publicSiteUrl}/como-usar/`, priority: "0.85", changefreq: "monthly" },
-    { loc: `${publicSiteUrl}/termos/`, priority: "0.65", changefreq: "yearly" }
+    { loc: `${publicSiteUrl}/termos/`, priority: "0.65", changefreq: "yearly" },
+    ...seoPageSitemapEntries(staticSeoPages, publicSiteUrl)
   ];
 
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((url) => `  <url>\n    <loc>${xmlEscape(url.loc)}</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>${url.changefreq}</changefreq>\n    <priority>${url.priority}</priority>\n  </url>`).join("\n")}\n</urlset>\n`;
