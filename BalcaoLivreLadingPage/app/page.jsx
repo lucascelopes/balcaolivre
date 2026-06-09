@@ -5,6 +5,8 @@ import { checkoutFunctionUrl, downloadUrl, onlineDownloadUrl, sellers } from "./
 import { absoluteUrl, defaultDescription, defaultTitle, siteName, siteUrl } from "./seo";
 import { featuredSeoPages } from "./seoPages";
 
+const homepageSeoPages = featuredSeoPages.slice(0, 6);
+
 const modules = [
   ["01", "Caixa e pagamentos", "Venda no Windows com dinheiro, Pix, cartão, troco, comprovante e Point/Mercado Pago quando configurado."],
   ["02", "Mesas e comandas", "Controle mesa, comanda e balcão com consumo aberto, adicionais, observações e conta certa."],
@@ -544,23 +546,6 @@ export default function Page({ searchParams }) {
         {trustItems.map((item) => <span key={item}>{item}</span>)}
       </section>
 
-      <section className="lpSection lpSeoLinksSection" id="encontre-o-pdv-certo">
-        <div className="lpSectionHead">
-          <p className="lpKicker">Encontre o PDV certo</p>
-          <h2>Páginas diretas para cada tipo de restaurante.</h2>
-          <p>Escolha o cenário mais parecido com sua loja e vá direto para o teste, WhatsApp ou plano indicado.</p>
-        </div>
-        <div className="lpSeoLinksGrid">
-          {featuredSeoPages.map((page) => (
-            <a key={page.slug} href={`/${page.slug}/`}>
-              <span>{page.segment}</span>
-              <strong>{page.title}</strong>
-              <small>{page.description}</small>
-            </a>
-          ))}
-        </div>
-      </section>
-
       <section className="lpSection lpPlanChoiceSection" id="qual-plano">
         <div className="lpSectionHead">
           <p className="lpKicker">Oferta direta</p>
@@ -707,6 +692,23 @@ export default function Page({ searchParams }) {
               <h3>{title}</h3>
               <p>{text}</p>
             </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="lpSection lpSeoLinksSection" id="encontre-o-pdv-certo">
+        <div className="lpSectionHead">
+          <p className="lpKicker">Links úteis</p>
+          <h2>Outros cenários para comparar.</h2>
+          <p>Algumas rotinas parecidas para quem quer ver o plano mais próximo da loja antes de testar.</p>
+        </div>
+        <div className="lpSeoLinksGrid">
+          {homepageSeoPages.map((page) => (
+            <a key={page.slug} href={`/${page.slug}/`}>
+              <span>{page.segment}</span>
+              <strong>{page.title}</strong>
+              <small>{page.description}</small>
+            </a>
           ))}
         </div>
       </section>

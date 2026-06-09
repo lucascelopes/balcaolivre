@@ -7590,19 +7590,41 @@ body,
   gap: 10px;
 }
 
+.lpSeoLinksSection {
+  padding-top: 64px;
+  padding-bottom: 72px;
+  background: #ffffff;
+}
+
+.lpSeoLinksSection .lpSectionHead {
+  max-width: 920px;
+  margin-bottom: 26px;
+}
+
+.lpSeoLinksSection .lpSectionHead h2 {
+  font-size: clamp(2rem, 3.2vw, 3.2rem);
+}
+
+.lpSeoLinksSection .lpSectionHead p:not(.lpKicker) {
+  max-width: 620px;
+  font-size: 1.05rem;
+}
+
 .lpSeoLinksGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  gap: 12px;
+  width: min(1180px, 100%);
 }
 
 .lpSeoLinksGrid a {
   display: grid;
-  gap: 10px;
-  min-height: 190px;
-  padding: 24px;
+  align-content: start;
+  gap: 8px;
+  min-height: 142px;
+  padding: 18px;
   border: 1px solid #c9dceb;
-  border-radius: 14px;
+  border-radius: 12px;
   background: #fff;
   color: #081b2e;
   text-decoration: none;
@@ -7624,14 +7646,18 @@ body,
 }
 
 .lpSeoLinksGrid strong {
-  font-size: 1.3rem;
-  line-height: 1.15;
+  font-size: 1.05rem;
+  line-height: 1.2;
 }
 
 .lpSeoLinksGrid small {
   color: #51637a;
-  font-size: 0.95rem;
-  line-height: 1.45;
+  display: -webkit-box;
+  font-size: 0.88rem;
+  line-height: 1.42;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .lpStorySection,
