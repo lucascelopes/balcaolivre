@@ -1668,7 +1668,6 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="14" Padding="16" Margin="0,0,0,10">
@@ -1690,69 +1689,73 @@
                         </Grid>
                     </Border>
 
-                    <Grid Grid.Row="1" Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="1.15*"/>
-                            <ColumnDefinition Width="0.9*"/>
-                            <ColumnDefinition Width="0.9*"/>
-                            <ColumnDefinition Width="1.05*"/>
-                        </Grid.ColumnDefinitions>
+                    <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#DDE7F4" BorderThickness="1" CornerRadius="12" Padding="0" Margin="0,0,0,10">
+                        <Grid MinHeight="108">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1.2*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="1.15*"/>
+                            </Grid.ColumnDefinitions>
 
-                        <Border Background="#172033" BorderBrush="#172033" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,0,8,0" MinHeight="104">
                             <Grid>
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="4"/>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="Resultado do mes" Foreground="#DDE7F4" FontSize="11" FontWeight="SemiBold"/>
-                                    <TextBlock x:Name="FinanceBalanceText" Text="R$ 0" Foreground="#FFFFFF" FontSize="26" FontWeight="Bold" Margin="0,5,0,0"/>
-                                    <TextBlock x:Name="FinanceBalanceHintText" Text="Entradas menos despesas" Foreground="#B6C4D8" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                <Border x:Name="FinanceBalanceAccentBorder" Background="#DC2626" CornerRadius="12,0,0,12"/>
+                                <StackPanel Grid.Column="1" Margin="14,13,12,13">
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Resultado do mes" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
+                                        <Border x:Name="FinanceBalanceBadgeBorder" Grid.Column="1" Background="#FEE2E2" CornerRadius="11" Padding="8,3" Margin="8,0,0,0">
+                                            <TextBlock x:Name="FinanceBalanceBadgeText" Text="negativo" Foreground="#991B1B" FontSize="10" FontWeight="Bold"/>
+                                        </Border>
+                                    </Grid>
+                                    <TextBlock x:Name="FinanceBalanceText" Text="R$ 0" Foreground="{StaticResource Ink}" FontSize="25" FontWeight="Bold"/>
+                                    <TextBlock x:Name="FinanceBalanceHintText" Text="Entradas menos despesas" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
                                 </StackPanel>
-                                <Border x:Name="FinanceBalanceBadgeBorder" Grid.Column="1" Background="#DCFCE7" CornerRadius="12" Padding="8,4" VerticalAlignment="Top" Margin="8,0,0,0">
-                                    <TextBlock x:Name="FinanceBalanceBadgeText" Text="positivo" Foreground="#166534" FontSize="10" FontWeight="Bold"/>
-                                </Border>
                             </Grid>
-                        </Border>
 
-                        <Border Grid.Column="1" Background="#FFFFFF" BorderBrush="#DDE7F4" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,0,8,0" MinHeight="104">
-                            <StackPanel>
-                                <TextBlock Text="Entrou no mes" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="FinanceReceivedMonthText" Text="R$ 0" Foreground="{StaticResource Ink}" FontSize="22" FontWeight="Bold" Margin="0,5,0,0"/>
-                                <TextBlock Text="Recebido de verdade" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,2,0,0"/>
-                            </StackPanel>
-                        </Border>
+                            <Border Grid.Column="1" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="14,13">
+                                <StackPanel>
+                                    <TextBlock Text="Entrou" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="FinanceReceivedMonthText" Text="R$ 0" Foreground="{StaticResource Ink}" FontSize="22" FontWeight="Bold" Margin="0,6,0,0"/>
+                                    <TextBlock Text="recebido no mes" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Border>
 
-                        <Border Grid.Column="2" Background="#FFF8DC" BorderBrush="#F8E2A5" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,0,8,0" MinHeight="104">
-                            <StackPanel>
-                                <TextBlock Text="Falta cobrar" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="FinancePendingTotalText" Text="R$ 0" Foreground="{StaticResource Ink}" FontSize="22" FontWeight="Bold" Margin="0,5,0,0"/>
-                                <TextBlock x:Name="FinancePendingHintText" Text="0 atendimentos em aberto" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
-                            </StackPanel>
-                        </Border>
+                            <Border Grid.Column="2" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="14,13">
+                                <StackPanel>
+                                    <TextBlock Text="A cobrar" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="FinancePendingTotalText" Text="R$ 0" Foreground="#B45309" FontSize="22" FontWeight="Bold" Margin="0,6,0,0"/>
+                                    <TextBlock x:Name="FinancePendingHintText" Text="0 atendimentos em aberto" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Border>
 
-                        <Border Grid.Column="3" Background="#ECFDF5" BorderBrush="#BBF7D0" BorderThickness="1" CornerRadius="12" Padding="14" MinHeight="104">
-                            <StackPanel>
-                                <TextBlock Text="Mercado Pago Point" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="FinanceMercadoPagoText" Text="Desativado" Foreground="#166534" FontSize="17" FontWeight="Bold" TextWrapping="Wrap" Margin="0,5,0,0"/>
-                                <TextBlock x:Name="FinanceMercadoPagoHintText" Text="Cartao na maquininha" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
-                                <TextBlock x:Name="FinanceExpensesMonthText" Text="R$ 0" Visibility="Collapsed"/>
-                            </StackPanel>
-                        </Border>
-                    </Grid>
+                            <Border Grid.Column="3" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="14,13">
+                                <StackPanel>
+                                    <TextBlock Text="Gastos" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="FinanceExpensesMonthText" Text="R$ 0" Foreground="#991B1B" FontSize="22" FontWeight="Bold" Margin="0,6,0,0"/>
+                                    <TextBlock Text="lancados no mes" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Border>
 
-                    <ItemsControl Grid.Row="2"
-                                  x:Name="FinanceMetricsItemsControl"
-                                  ItemTemplate="{StaticResource EstablishmentMetricTemplate}"
-                                  Margin="0,0,0,10">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <UniformGrid Rows="1" Columns="4"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                    </ItemsControl>
+                            <Border Grid.Column="4" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="14,13">
+                                <StackPanel>
+                                    <TextBlock Text="Mercado Pago" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="FinanceMercadoPagoText" Text="Desativado" Foreground="#166534" FontSize="17" FontWeight="Bold" TextWrapping="Wrap" Margin="0,7,0,0"/>
+                                    <TextBlock x:Name="FinanceMercadoPagoHintText" Text="Cartao na maquininha" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </Border>
 
-                    <Grid Grid.Row="3" Margin="0">
+                    <Grid Grid.Row="2" Margin="0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="0.95*"/>
                             <ColumnDefinition Width="1.25*"/>
