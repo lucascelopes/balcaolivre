@@ -2367,6 +2367,7 @@
                     <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
@@ -2399,7 +2400,36 @@
                         </Grid>
                     </Border>
 
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <Border x:Name="AppointmentRuleAlert"
+                            Grid.Row="1"
+                            Background="#FEF2F2"
+                            BorderBrush="#FCA5A5"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="12"
+                            Margin="0,0,0,14"
+                            Visibility="Collapsed">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="28"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <materialDesign:PackIcon Kind="AlertCircle"
+                                                     Foreground="#DC2626"
+                                                     Width="18"
+                                                     Height="18"
+                                                     VerticalAlignment="Top"
+                                                     Margin="0,2,0,0"/>
+                            <TextBlock x:Name="AppointmentRuleText"
+                                       Grid.Column="1"
+                                       Foreground="{StaticResource Ink}"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       TextWrapping="Wrap"/>
+                        </Grid>
+                    </Border>
+
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Width="900"
                                     KeyboardNavigation.TabNavigation="Cycle"
                                     PreviewKeyDown="AppointmentEditorForm_PreviewKeyDown">

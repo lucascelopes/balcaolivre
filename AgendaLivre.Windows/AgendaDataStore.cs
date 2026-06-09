@@ -92,7 +92,14 @@ public sealed class AgendaDataStore
         data.Settings.AddressNumber ??= "";
         data.Settings.AddressComplement ??= "";
         data.Settings.AccountPasswordHash ??= "";
+        data.Settings.Resources ??= [];
+        foreach (var professional in data.Professionals)
+        {
+            professional.Segments ??= [];
+        }
+
         RepairPersistedText(data);
+        NormalizeBusinessRules(data);
 
         if (data.Settings.Resources.Count == 0)
         {
@@ -171,6 +178,89 @@ public sealed class AgendaDataStore
         foreach (var message in data.WhatsAppMessages.Where(message => string.IsNullOrWhiteSpace(message.Id)))
         {
             message.Id = Guid.NewGuid().ToString("N");
+        }
+    }
+
+    private static void NormalizeBusinessRules(AgendaData data)
+    {
+        data.Settings.WorkdayStartHour = Math.Clamp(data.Settings.WorkdayStartHour, 0, 23);
+        data.Settings.WorkdayEndHour = Math.Clamp(data.Settings.WorkdayEndHour, 1, 24);
+        if (data.Settings.WorkdayEndHour <= data.Settings.WorkdayStartHour)
+        {
+            data.Settings.WorkdayStartHour = 8;
+            data.Settings.WorkdayEndHour = 20;
+        }
+
+        data.Settings.Resources = data.Settings.Resources
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(item => item)
+            .ToList();
+
+        foreach (var service in data.Services)
+        {
+            service.Name = string.IsNullOrWhiteSpace(service.Name) ? "Atendimento" : service.Name.Trim();
+            service.DurationMinutes = Math.Clamp(service.DurationMinutes, 5, 480);
+            service.PreparationMinutes = Math.Clamp(service.PreparationMinutes, 0, 240);
+            service.BufferMinutes = Math.Clamp(service.BufferMinutes, 0, 240);
+            service.Price = Math.Max(0, service.Price);
+            service.CommissionPercent = Math.Clamp(service.CommissionPercent, 0, 100);
+            service.DefaultResource = (service.DefaultResource ?? "").Trim();
+        }
+
+        foreach (var professional in data.Professionals)
+        {
+            professional.Name = string.IsNullOrWhiteSpace(professional.Name) ? "Profissional" : professional.Name.Trim();
+            professional.CommissionPercent = Math.Clamp(professional.CommissionPercent, 0, 100);
+            professional.Segments = professional.Segments
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        foreach (var customer in data.Customers)
+        {
+            customer.Name = (customer.Name ?? "").Trim();
+            customer.Phone = (customer.Phone ?? "").Trim();
+            customer.LastSeenAt = customer.LastSeenAt == DateTime.MinValue ? DateTime.Now : customer.LastSeenAt;
+        }
+
+        foreach (var appointment in data.Appointments)
+        {
+            appointment.CustomerName = string.IsNullOrWhiteSpace(appointment.CustomerName) ? "Cliente" : appointment.CustomerName.Trim();
+            appointment.DurationMinutes = Math.Clamp(appointment.DurationMinutes, 5, 480);
+            appointment.Price = Math.Max(0, appointment.Price);
+            appointment.ResourceName = (appointment.ResourceName ?? "").Trim();
+            appointment.CreatedAt = appointment.CreatedAt == DateTime.MinValue ? DateTime.Now : appointment.CreatedAt;
+            appointment.UpdatedAt = appointment.UpdatedAt == DateTime.MinValue ? appointment.CreatedAt : appointment.UpdatedAt;
+        }
+
+        foreach (var product in data.Products)
+        {
+            product.Name = string.IsNullOrWhiteSpace(product.Name) ? "Produto" : product.Name.Trim();
+            product.Price = Math.Max(0, product.Price);
+            product.CostPrice = Math.Max(0, product.CostPrice);
+            product.StockQuantity = Math.Max(0, product.StockQuantity);
+            product.MinimumStock = Math.Max(0, product.MinimumStock);
+        }
+
+        foreach (var sale in data.ProductSales)
+        {
+            sale.Quantity = Math.Max(1, sale.Quantity);
+            sale.UnitPrice = Math.Max(0, sale.UnitPrice);
+            sale.Discount = Math.Max(0, sale.Discount);
+        }
+
+        foreach (var payment in data.ManualPayments)
+        {
+            payment.Value = Math.Max(0, payment.Value);
+        }
+
+        foreach (var expense in data.Expenses)
+        {
+            expense.Value = Math.Max(0, expense.Value);
         }
     }
 

@@ -4670,8 +4670,8 @@ public partial class MainWindow : Window
     {
         var segment = CurrentSegmentFilter();
         return segment == AllSegments
-            ? _data.Professionals
-            : _data.Professionals.Where(item => item.Segments.Contains(segment));
+            ? _data.Professionals.Where(item => item.IsActive)
+            : _data.Professionals.Where(item => item.IsActive && item.Segments.Contains(segment));
     }
 
     private string CurrentSegmentFilter() => _selectedSegmentFilter;
@@ -4681,13 +4681,13 @@ public partial class MainWindow : Window
         segment = string.IsNullOrWhiteSpace(segment) ? GetAvailableSegments()[0] : segment;
 
         _filteredServices.Clear();
-        foreach (var serviceItem in _data.Services.Where(item => item.Segment == segment).OrderBy(item => item.Name))
+        foreach (var serviceItem in _data.Services.Where(item => item.Segment == segment && item.IsActive).OrderBy(item => item.Name))
         {
             _filteredServices.Add(serviceItem);
         }
 
         _filteredProfessionals.Clear();
-        foreach (var professional in _data.Professionals.Where(item => item.Segments.Contains(segment)).OrderBy(item => item.Name))
+        foreach (var professional in _data.Professionals.Where(item => item.IsActive && item.Segments.Contains(segment)).OrderBy(item => item.Name))
         {
             _filteredProfessionals.Add(professional);
         }
@@ -4777,6 +4777,7 @@ public partial class MainWindow : Window
 
         EditorTitleText.Text = "Novo agendamento";
         EditorStatusText.Text = "Pronto para agendar";
+        ClearAppointmentEditorAlert();
         SelectedAppointmentCard.Visibility = Visibility.Collapsed;
         ExistingAppointmentActionsPanel.Visibility = Visibility.Collapsed;
         _loadingEditor = false;
@@ -4815,6 +4816,7 @@ public partial class MainWindow : Window
 
         EditorTitleText.Text = appointment.Status == AppointmentStatus.Blocked ? "Bloqueio de horário" : "Editar agendamento";
         EditorStatusText.Text = $"{StatusLabel(appointment.Status)} | criado em {appointment.CreatedAt:dd/MM HH:mm}";
+        ClearAppointmentEditorAlert();
         ExistingAppointmentActionsPanel.Visibility = Visibility.Visible;
         ShowSelectedAppointment(appointment);
         _loadingEditor = false;
@@ -4836,6 +4838,28 @@ public partial class MainWindow : Window
     private void CloseAppointmentModalButton_Click(object sender, RoutedEventArgs e)
     {
         CloseAppointmentEditorModal();
+    }
+
+    private bool FailAppointmentEditor(string message, Control? focusTarget = null)
+    {
+        ShowAppointmentEditorAlert(message, error: true);
+        ShowStatus(message);
+        focusTarget?.Focus();
+        return false;
+    }
+
+    private void ShowAppointmentEditorAlert(string message, bool error)
+    {
+        AppointmentRuleAlert.Visibility = Visibility.Visible;
+        AppointmentRuleAlert.Background = error ? Solid("#FEF2F2") : Solid("#F8FAFC");
+        AppointmentRuleAlert.BorderBrush = error ? Solid("#FCA5A5") : LineBrush;
+        AppointmentRuleText.Text = message;
+    }
+
+    private void ClearAppointmentEditorAlert()
+    {
+        AppointmentRuleAlert.Visibility = Visibility.Collapsed;
+        AppointmentRuleText.Text = "";
     }
 
     private void AppointmentEditorForm_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -7946,12 +7970,58 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!CanApplyStatus(_selectedAppointment, status, out var statusError))
+        {
+            ShowAppointmentEditorAlert(statusError, error: true);
+            ShowStatus(statusError);
+            return;
+        }
+
+        ClearAppointmentEditorAlert();
         _selectedAppointment.Status = status;
         _selectedAppointment.UpdatedAt = DateTime.Now;
         _store.Save(_data);
         RefreshAll(_selectedAppointment.Id);
         LoadEditor(_selectedAppointment);
         ShowStatus($"{_selectedAppointment.CustomerName}: status alterado para {StatusLabel(status)}.");
+    }
+
+    private static bool CanApplyStatus(Appointment appointment, AppointmentStatus target, out string error)
+    {
+        error = "";
+        if (appointment.Status == target)
+        {
+            return true;
+        }
+
+        if (appointment.Status is AppointmentStatus.Cancelled or AppointmentStatus.NoShow or AppointmentStatus.Done)
+        {
+            error = "Esse atendimento já foi encerrado. Edite o agendamento se precisar corrigir.";
+            return false;
+        }
+
+        if (target == AppointmentStatus.InService &&
+            appointment.Status is not AppointmentStatus.Confirmed and not AppointmentStatus.Waiting)
+        {
+            error = "Confirme ou marque que o cliente chegou antes de iniciar o atendimento.";
+            return false;
+        }
+
+        if (target == AppointmentStatus.Done &&
+            appointment.Status is not AppointmentStatus.Waiting and not AppointmentStatus.InService)
+        {
+            error = "Marque chegada ou inicie o atendimento antes de finalizar.";
+            return false;
+        }
+
+        if (target == AppointmentStatus.Confirmed &&
+            appointment.Status is not AppointmentStatus.Scheduled)
+        {
+            error = "A confirmação só entra antes da chegada do cliente.";
+            return false;
+        }
+
+        return true;
     }
 
     private void ApplyDraft(Appointment appointment, AppointmentDraft draft, AppointmentStatus status)
@@ -7989,51 +8059,55 @@ public partial class MainWindow : Window
     private bool TryReadEditor(bool block, out AppointmentDraft draft)
     {
         draft = default!;
+        ClearAppointmentEditorAlert();
 
         if (AppointmentDatePicker.SelectedDate is not DateTime date)
         {
-            ShowStatus("Informe a data do agendamento.");
-            return false;
+            return FailAppointmentEditor("Informe a data do agendamento.", AppointmentDatePicker);
         }
 
         if (!TryParseTime(TimeCombo.Text, out var time))
         {
-            ShowStatus("Informe a hora no formato 08:30.");
-            return false;
+            return FailAppointmentEditor("Informe a hora no formato 08:30.", TimeCombo);
         }
 
         if (!TryReadDuration(out var duration))
         {
-            ShowStatus("Informe uma duração válida entre 5 e 480 minutos.");
-            return false;
+            return FailAppointmentEditor("Informe uma duração válida entre 5 e 480 minutos.", DurationCombo);
         }
 
         var segment = AppointmentSegmentCombo.SelectedItem?.ToString() ?? "";
         if (string.IsNullOrWhiteSpace(segment))
         {
-            ShowStatus("Escolha o segmento do atendimento.");
-            return false;
+            return FailAppointmentEditor("Escolha o tipo de atendimento.", AppointmentSegmentCombo);
         }
 
         var service = ServiceCombo.SelectedItem as ServiceItem;
         if (!block && service is null)
         {
-            ShowStatus("Escolha um serviço.");
-            return false;
+            return FailAppointmentEditor("Escolha um serviço ativo.", ServiceCombo);
+        }
+
+        if (!block && service is { IsActive: false })
+        {
+            return FailAppointmentEditor("Esse serviço está desativado. Escolha outro serviço ativo.", ServiceCombo);
         }
 
         var professional = ProfessionalCombo.SelectedItem as Professional;
         if (professional is null)
         {
-            ShowStatus("Escolha um profissional.");
-            return false;
+            return FailAppointmentEditor("Escolha um profissional ativo.", ProfessionalCombo);
+        }
+
+        if (!professional.IsActive)
+        {
+            return FailAppointmentEditor("Esse profissional está desativado. Escolha outro profissional ativo.", ProfessionalCombo);
         }
 
         var customerName = block ? "Horário bloqueado" : CustomerNameTextBox.Text.Trim();
         if (!block && string.IsNullOrWhiteSpace(customerName))
         {
-            ShowStatus("Informe o cliente, paciente, tutor ou veículo.");
-            return false;
+            return FailAppointmentEditor("Informe o cliente, paciente, tutor ou veículo.", CustomerNameTextBox);
         }
 
         var price = 0m;
@@ -8045,28 +8119,101 @@ public partial class MainWindow : Window
             }
             else if (!TryParseMoney(PriceTextBox.Text, out price))
             {
-                ShowStatus("Informe um valor válido.");
-                return false;
+                return FailAppointmentEditor("Informe um valor válido.", PriceTextBox);
+            }
+
+            if (price < 0)
+            {
+                return FailAppointmentEditor("O valor do atendimento não pode ser negativo.", PriceTextBox);
             }
         }
 
         var start = date.Date.Add(time);
+        var end = start.AddMinutes(duration);
+        var workdayStart = date.Date.AddHours(_data.Settings.WorkdayStartHour);
+        var workdayEnd = date.Date.AddHours(_data.Settings.WorkdayEndHour);
+        if (start < workdayStart || end > workdayEnd)
+        {
+            return FailAppointmentEditor(
+                $"O atendimento precisa ficar dentro do expediente: {workdayStart:HH:mm} até {workdayEnd:HH:mm}.",
+                TimeCombo);
+        }
+
+        var resourceName = ResourceCombo.Text.Trim();
+        if (string.IsNullOrWhiteSpace(resourceName) && !string.IsNullOrWhiteSpace(service?.DefaultResource))
+        {
+            resourceName = service.DefaultResource.Trim();
+            ResourceCombo.Text = resourceName;
+        }
+
+        if (string.IsNullOrWhiteSpace(resourceName))
+        {
+            return FailAppointmentEditor("Informe a sala, cadeira, box ou recurso usado nesse horário.", ResourceCombo);
+        }
+
+        if (!TryNormalizeCustomerPhone(PhoneTextBox.Text, out var phone, out var phoneError))
+        {
+            return FailAppointmentEditor(phoneError, PhoneTextBox);
+        }
+
+        if (!string.IsNullOrWhiteSpace(phone))
+        {
+            PhoneTextBox.Text = phone;
+        }
+
+        if (start < DateTime.Now.AddMinutes(-5) && !block && _selectedAppointment is null)
+        {
+            return FailAppointmentEditor("Esse horário já passou. Escolha um horário atual ou futuro.", TimeCombo);
+        }
+
         draft = new AppointmentDraft(
             segment,
             customerName,
-            PhoneTextBox.Text.Trim(),
+            phone,
             CustomerProfileTextBox.Text.Trim(),
             service?.Id ?? "",
             block ? "Bloqueio interno" : service?.Name ?? "Atendimento",
             professional.Id,
             professional.Name,
-            ResourceCombo.Text.Trim(),
+            resourceName,
             start,
             duration,
             price,
             NotesTextBox.Text.Trim());
 
         return true;
+    }
+
+    private static bool TryNormalizeCustomerPhone(string? text, out string formatted, out string error)
+    {
+        formatted = "";
+        error = "";
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return true;
+        }
+
+        var digits = OnlyDigits(text);
+        if (digits.StartsWith("55", StringComparison.Ordinal) && digits.Length is 12 or 13)
+        {
+            digits = digits[2..];
+        }
+
+        if (digits.Length == 10)
+        {
+            formatted = $"({digits[..2]}) {digits.Substring(2, 4)}-{digits[6..]}";
+            return true;
+        }
+
+        if (digits.Length == 11)
+        {
+            formatted = $"({digits[..2]}) {digits.Substring(2, 5)}-{digits[7..]}";
+            return true;
+        }
+
+        error = "Informe telefone com DDD e 10 ou 11 dígitos, ou deixe em branco.";
+        return false;
     }
 
     private bool TryReadDuration(out int duration)
@@ -8120,6 +8267,11 @@ public partial class MainWindow : Window
     private void ShowConflict(IReadOnlyCollection<Appointment> conflicts)
     {
         var conflict = conflicts.OrderBy(item => item.Start).First();
+        var message =
+            $"Horário ocupado: {conflict.Start:dd/MM HH:mm} - {conflict.End:HH:mm}. " +
+            $"{conflict.CustomerName} com {conflict.ProfessionalName}" +
+            (string.IsNullOrWhiteSpace(conflict.ResourceName) ? "." : $" em {conflict.ResourceName}.");
+        ShowAppointmentEditorAlert(message, error: true);
         MessageBox.Show(
             $"Horário ocupado: {conflict.Start:dd/MM HH:mm} - {conflict.End:HH:mm}\n{conflict.CustomerName}\n{conflict.ProfessionalName} / {conflict.ResourceName}",
             "Conflito de agenda",
