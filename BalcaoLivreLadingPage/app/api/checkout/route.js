@@ -1,4 +1,4 @@
-import { getPlan } from "./licensing";
+import { billingFromPlanId, getPlan, trackAdminAnalytics } from "./licensing";
 
 const STRIPE_CHECKOUT_URL = "https://api.stripe.com/v1/checkout/sessions";
 
@@ -48,7 +48,7 @@ async function createCheckout(request, formData) {
     cancel_url: `${origin}/#planos`
   });
 
-  if (price) {
+  if (price && !dynamicPlan) {
     params.set("line_items[0][price]", price);
   } else {
     params.set("line_items[0][price_data][currency]", "brl");
@@ -74,6 +74,16 @@ async function createCheckout(request, formData) {
       { status: stripeResponse.status || 500 }
     );
   }
+
+  await trackAdminAnalytics("checkout.started", {
+    plan,
+    billing: billingFromPlanId(plan),
+    amountCents: dynamicPlan?.amount || 0,
+    currency: "BRL",
+    source: "next-checkout",
+    path: new URL(request.url).pathname,
+    url: request.url
+  }).catch(() => null);
 
   return Response.redirect(data.url, 303);
 }

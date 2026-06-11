@@ -4,12 +4,15 @@ const LICENSE_SECRET = "BalcaoLivrePDV-local-license-v1";
 const OFFLINE_INSTALLER_URL =
   "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.2.2026.1.exe";
 const ONLINE_INSTALLER_URL =
-  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.5.exe";
+  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.19.exe";
+const DEFAULT_ADMIN_ANALYTICS_URL = "https://balcaolivrepdv.onrender.com/api/public/analytics";
+const ONLINE_FEATURES = ["pdv", "whatsapp", "cardapio", "garcom", "mercado-pago", "nfce", "equipe", "entregadores", "ifood"];
+const OFFLINE_FEATURES = ["pdv", "caixa", "estoque", "nfce"];
 
 export const checkoutPlans = {
   "offline-mensal": {
     name: "Balcao Livre PDV Para Restaurantes Offline",
-    amount: 1700,
+    amount: 2990,
     interval: "month",
     periodAmount: 1,
     periodUnit: "months",
@@ -17,7 +20,7 @@ export const checkoutPlans = {
   },
   "offline-anual": {
     name: "Balcao Livre PDV Para Restaurantes Offline",
-    amount: 20000,
+    amount: 22990,
     interval: "year",
     periodAmount: 1,
     periodUnit: "years",
@@ -25,7 +28,7 @@ export const checkoutPlans = {
   },
   "online-mensal": {
     name: "Balcao Livre PDV Restaurante Profissional",
-    amount: 13900,
+    amount: 14900,
     interval: "month",
     periodAmount: 1,
     periodUnit: "months",
@@ -33,7 +36,7 @@ export const checkoutPlans = {
   },
   "online-anual": {
     name: "Balcao Livre PDV Restaurante Profissional",
-    amount: 139000,
+    amount: 139900,
     interval: "year",
     periodAmount: 1,
     periodUnit: "years",
@@ -43,6 +46,29 @@ export const checkoutPlans = {
 
 export function getPlan(planId) {
   return checkoutPlans[String(planId || "").toLowerCase()] || null;
+}
+export function billingFromPlanId(planId) {
+  return String(planId || "").split("-")[1] || "";
+}
+
+export function featuresForPlanId(planId) {
+  return String(planId || "").toLowerCase().includes("online") ? ONLINE_FEATURES : OFFLINE_FEATURES;
+}
+
+export async function trackAdminAnalytics(type, data = {}) {
+  const endpoint =
+    process.env.BALCAO_ADMIN_ANALYTICS_URL ||
+    process.env.ADMIN_ANALYTICS_URL ||
+    DEFAULT_ADMIN_ANALYTICS_URL;
+
+  if (!endpoint || !type) return;
+
+  await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, ...data }),
+    cache: "no-store"
+  });
 }
 
 export function addPlanPeriod(date, plan) {
@@ -120,6 +146,9 @@ export async function ensurePaidLicenseFromSession(session) {
     subscription_id: String(session.subscription || ""),
     payment_status: String(session.payment_status || ""),
     plan_id: planId,
+    features: featuresForPlanId(planId),
+    ifood_enabled: featuresForPlanId(planId).includes("ifood"),
+    whatsapp_enabled: featuresForPlanId(planId).includes("whatsapp"),
     amount_total: Number(session.amount_total || plan.amount),
     currency: String(session.currency || "brl"),
     paid_at: now.toISOString()
@@ -151,6 +180,17 @@ export async function ensurePaidLicenseFromSession(session) {
       message: "Licenca paga gerada automaticamente pela landing.",
       payload: profile
     })
+  }).catch(() => null);
+
+  await trackAdminAnalytics("checkout.completed", {
+    plan: planId,
+    billing: billingFromPlanId(planId),
+    amountCents: Number(session.amount_total || plan.amount),
+    currency: String(session.currency || "BRL").toUpperCase(),
+    checkoutSessionId: sessionId,
+    stripeCustomerId: String(session.customer || ""),
+    subscriptionId: String(session.subscription || ""),
+    source: "stripe-checkout"
   }).catch(() => null);
 
   return { paid: true, license: normalizeLicense(saved?.[0]) };

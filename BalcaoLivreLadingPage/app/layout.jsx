@@ -16,6 +16,9 @@ const metaPixelId =
   "1609814976758625";
 const gaMeasurementId = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || "G-CPJ89TNX9Q";
 const clarityProjectId = process.env.NEXT_PUBLIC_CLARITY_PROJECT_ID || "";
+const adminAnalyticsUrl =
+  process.env.NEXT_PUBLIC_BALCAO_ADMIN_ANALYTICS_URL ||
+  "https://balcaolivrepdv.onrender.com/api/public/analytics";
 const googleSiteVerification =
   process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || "";
 const bingSiteVerification =
@@ -98,7 +101,7 @@ export const metadata = {
         url: openGraphImage,
         width: 1200,
         height: 630,
-        alt: "Tela do Balcao Livre PDV para restaurantes"
+        alt: "Tela do Balcão Livre PDV para restaurantes"
       }
     ]
   },
@@ -179,11 +182,28 @@ export default function RootLayout({ children }) {
           {`
             (function() {
               var planPrices = {
-                "offline-mensal": 17,
-                "offline-anual": 200,
-                "online-mensal": 139,
-                "online-anual": 1390
+                "offline-mensal": 29.9,
+                "offline-anual": 229.9,
+                "online-mensal": 149,
+                "online-anual": 1399
               };
+              var adminAnalyticsUrl = ${JSON.stringify(adminAnalyticsUrl)};
+              var urlParams = new URLSearchParams(window.location.search);
+
+              function storedId(storage, key, prefix) {
+                try {
+                  var existing = storage.getItem(key);
+                  if (existing) return existing;
+                  var next = prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12);
+                  storage.setItem(key, next);
+                  return next;
+                } catch {
+                  return prefix + "-volatile-" + Math.random().toString(36).slice(2, 12);
+                }
+              }
+
+              var visitorId = storedId(window.localStorage, "bl_site_visitor_id", "visitor");
+              var sessionId = storedId(window.sessionStorage, "bl_site_session_id", "session");
 
               function safeUrl(href) {
                 try {
@@ -203,7 +223,46 @@ export default function RootLayout({ children }) {
                 return {
                   plan: parts[0] || "unknown",
                   billing: parts[1] || "unknown"
-                };
+                  };
+              }
+
+              function adminEventType(eventName) {
+                if (eventName === "plan_checkout_click") return "checkout.started";
+                if (eventName === "trial_download_click") return "trial.download";
+                if (eventName === "whatsapp_click") return "whatsapp.click";
+                if (eventName === "plans_view_click") return "plan.view";
+                return "";
+              }
+
+              function sendAdminAnalytics(type, params) {
+                if (!adminAnalyticsUrl || !type) return;
+                var payload = Object.assign({
+                  type: type,
+                  visitorId: visitorId,
+                  sessionId: sessionId,
+                  path: window.location.pathname + window.location.search,
+                  url: window.location.href,
+                  referrer: document.referrer || "",
+                  source: urlParams.get("utm_source") || "site",
+                  campaign: urlParams.get("utm_campaign") || ""
+                }, params || {});
+                var contentId = Array.isArray(payload.content_ids) ? payload.content_ids[0] : "";
+                if (!payload.plan && contentId) payload.plan = contentId;
+                payload.amountCents = Math.round(Number(payload.value || 0) * 100);
+
+                try {
+                  var body = JSON.stringify(payload);
+                  if (navigator.sendBeacon) {
+                    navigator.sendBeacon(adminAnalyticsUrl, new Blob([body], { type: "application/json" }));
+                    return;
+                  }
+                  fetch(adminAnalyticsUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: body,
+                    keepalive: true
+                  }).catch(function() {});
+                } catch {}
               }
 
               function publish(eventName, params, metaStandardEvent) {
@@ -225,7 +284,11 @@ export default function RootLayout({ children }) {
                   }
                   window.fbq("trackCustom", eventName, payload);
                 }
+
+                sendAdminAnalytics(adminEventType(eventName), payload);
               }
+
+              sendAdminAnalytics("site.visit", {});
 
               document.addEventListener("submit", function(event) {
                 var form = event.target;
@@ -233,7 +296,7 @@ export default function RootLayout({ children }) {
                 var checkoutPlan = planFromForm(form);
                 var split = splitPlan(checkoutPlan);
                 publish("plan_checkout_click", {
-                  content_name: "Balcao Livre PDV " + split.plan,
+                  content_name: "Balcão Livre PDV " + split.plan,
                   content_category: "planos",
                   content_ids: [checkoutPlan],
                   plan: split.plan,
@@ -281,7 +344,7 @@ export default function RootLayout({ children }) {
 
                 if (action === "plans_view_click" || href.indexOf("#planos") !== -1) {
                   publish("plans_view_click", {
-                    content_name: "Planos Balcao Livre PDV",
+                    content_name: "Planos Balcão Livre PDV",
                     content_category: "planos",
                     location: target.dataset ? target.dataset.analyticsLocation || "" : ""
                   }, "ViewContent");

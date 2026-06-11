@@ -22,9 +22,9 @@ let lastSupportCustomerMessageAt = "";
 const livePollMs = 3000;
 const realtimeFallbackPollMs = 5000;
 const releaseDownloads = {
-  version: "1.8.2026.18",
-  publishedAt: "2026-06-06T10:02:10-03:00",
-  installerUrl: "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.18.exe",
+  version: "1.8.2026.19",
+  publishedAt: "2026-06-09T15:28:19-03:00",
+  installerUrl: "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.19.exe",
   trialUrl: "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/trial-download?plan=online",
   checkoutMonthlyUrl: "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=online-mensal",
   checkoutAnnualUrl: "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=online-anual",
@@ -515,7 +515,7 @@ function buildSeoOpportunities(topPages, untouchedPages, metrics) {
   if (topHome && Number(topHome.views || 0) > checkoutTotal * 8) {
     opportunities.push({
       title: "Home com trafego maior que compra",
-      text: "Reforce CTA de teste gratis, WhatsApp e comparacao R$17 vs R$139 acima dos planos."
+      text: "Reforce CTA de teste gratis, WhatsApp e comparacao R$29,90 vs R$149 acima dos planos."
     });
   }
 

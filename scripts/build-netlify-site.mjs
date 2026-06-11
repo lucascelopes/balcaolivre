@@ -46,7 +46,7 @@ async function copyLanding() {
     {
       canonicalPath: "/",
       title: "Balcao Livre PDV | Sistema Windows para restaurantes",
-      description: "PDV para restaurante com teste de 7 dias, WhatsApp, cardapio online, garcom no celular, NFC-e configuravel, equipe, entregadores, Mercado Pago e iFood no plano de R$139/mes.",
+      description: "PDV para restaurante com teste de 7 dias, WhatsApp, cardapio online, garcom no celular, NFC-e configuravel, equipe, entregadores, Mercado Pago e iFood no plano de R$149/mes.",
       mainPage: true
     }
   );
@@ -181,7 +181,7 @@ function enhanceLandingHtml(html, options = {}) {
   const canonicalUrl = `${publicSiteUrl}${canonicalPath}`;
   const description =
     options.description ||
-    "PDV para restaurante com teste de 7 dias, WhatsApp, cardapio online, garcom no celular, NFC-e configuravel, equipe, entregadores, Mercado Pago e iFood no plano de R$139/mes.";
+    "PDV para restaurante com teste de 7 dias, WhatsApp, cardapio online, garcom no celular, NFC-e configuravel, equipe, entregadores, Mercado Pago e iFood no plano de R$149/mes.";
   let nextHtml = html;
   if (options.mainPage) {
     nextHtml = injectHomeSalesBoost(nextHtml, staticSeoPages);
@@ -270,10 +270,10 @@ function structuredData(canonicalUrl, description, mainPage) {
       image: `${publicSiteUrl}/public/brand/pdv-online-screen.png`,
       description,
       offers: [
-        offer("Balcao Livre PDV Offline mensal", 17),
-        offer("Balcao Livre PDV Offline anual", 200),
-        offer("Balcao Livre PDV Restaurante Profissional mensal", 139),
-        offer("Balcao Livre PDV Restaurante Profissional anual", 1390)
+        offer("Balcao Livre PDV Offline mensal", 29.9),
+        offer("Balcao Livre PDV Offline anual", 229.9),
+        offer("Balcao Livre PDV Restaurante Profissional mensal", 149),
+        offer("Balcao Livre PDV Restaurante Profissional anual", 1399)
       ]
     });
   }
@@ -295,7 +295,7 @@ function offer(name, price) {
 function staticConversionScript() {
   return `<script>
       (function(){
-        var planPrices={"offline-mensal":17,"offline-anual":200,"online-mensal":139,"online-anual":1390};
+        var planPrices={"offline-mensal":29.9,"offline-anual":229.9,"online-mensal":149,"online-anual":1399};
         function safeUrl(href){try{return new URL(href,window.location.href)}catch{return null}}
         function splitPlan(plan){var parts=String(plan||"").split("-");return{plan:parts[0]||"unknown",billing:parts[1]||"unknown"}}
         function publish(eventName,params,metaEvent){var payload=Object.assign({event_category:"landing",page_location:window.location.href},params||{});window.dataLayer=window.dataLayer||[];window.dataLayer.push(Object.assign({event:eventName},payload));if(window.gtag)window.gtag("event",eventName,payload);if(window.fbq){if(metaEvent)window.fbq("track",metaEvent,payload);window.fbq("trackCustom",eventName,payload)}}

@@ -5,7 +5,10 @@ const STRIPE_CHECKOUT_URL = "https://api.stripe.com/v1/checkout/sessions";
 const STRIPE_API_URL = "https://api.stripe.com/v1";
 const DEFAULT_SITE_URL = "https://www.balcaolivrepdv.com.br";
 const OFFLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.2.2026.1.exe";
-const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.5.exe";
+const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.19.exe";
+const DEFAULT_ADMIN_ANALYTICS_URL = "https://balcaolivrepdv.onrender.com/api/public/analytics";
+const ONLINE_FEATURES = ["pdv", "whatsapp", "cardapio", "garcom", "mercado-pago", "nfce", "equipe", "entregadores", "ifood"];
+const OFFLINE_FEATURES = ["pdv", "caixa", "estoque", "nfce"];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,7 +28,7 @@ type CheckoutPlan = {
 const checkoutPlans: Record<string, CheckoutPlan> = {
   "offline-mensal": {
     name: "Balcao Livre PDV Para Restaurantes Offline",
-    amount: 1700,
+    amount: 2990,
     interval: "month",
     periodAmount: 1,
     periodUnit: "months",
@@ -33,7 +36,7 @@ const checkoutPlans: Record<string, CheckoutPlan> = {
   },
   "offline-anual": {
     name: "Balcao Livre PDV Para Restaurantes Offline",
-    amount: 20000,
+    amount: 22990,
     interval: "year",
     periodAmount: 1,
     periodUnit: "years",
@@ -41,7 +44,7 @@ const checkoutPlans: Record<string, CheckoutPlan> = {
   },
   "online-mensal": {
     name: "Balcao Livre PDV Restaurante Profissional",
-    amount: 13900,
+    amount: 14900,
     interval: "month",
     periodAmount: 1,
     periodUnit: "months",
@@ -49,7 +52,7 @@ const checkoutPlans: Record<string, CheckoutPlan> = {
   },
   "online-anual": {
     name: "Balcao Livre PDV Restaurante Profissional",
-    amount: 139000,
+    amount: 139900,
     interval: "year",
     periodAmount: 1,
     periodUnit: "years",
@@ -128,6 +131,16 @@ async function handleCheckout(req: Request, url: URL) {
   if (!response.ok || !data.url) {
     return json({ ok: false, message: data.error?.message || "Nao foi possivel abrir a compra." }, response.status || 500);
   }
+
+  await trackAdminAnalytics("checkout.started", {
+    plan: planId,
+    billing: billingFromPlanId(planId),
+    amountCents: plan.amount,
+    currency: "BRL",
+    source: "supabase-checkout",
+    path: url.pathname,
+    url: url.toString(),
+  }).catch(() => null);
 
   return new Response(null, {
     status: 303,
@@ -309,6 +322,9 @@ async function ensurePaidLicenseFromSession(session: Record<string, unknown>) {
     stripe_customer_id: stringValue(session.customer),
     payment_status: stringValue(session.payment_status),
     plan_id: planId,
+    features: featuresForPlanId(planId),
+    ifood_enabled: featuresForPlanId(planId).includes("ifood"),
+    whatsapp_enabled: featuresForPlanId(planId).includes("whatsapp"),
     amount_total: Number(session.amount_total || plan.amount),
     currency: stringValue(session.currency || "brl"),
     paid_at: now.toISOString(),
@@ -355,6 +371,17 @@ async function ensurePaidLicenseFromSession(session: Record<string, unknown>) {
     });
   });
 
+  await trackAdminAnalytics("checkout.completed", {
+    plan: planId,
+    billing: billingFromPlanId(planId),
+    amountCents: Number(session.amount_total || plan.amount),
+    currency: stringValue(session.currency || "BRL").toUpperCase(),
+    checkoutSessionId: sessionId,
+    stripeCustomerId: stringValue(session.customer),
+    subscriptionId: stringValue(session.subscription),
+    source: "stripe-checkout",
+  }).catch(() => null);
+
   return { paid: true, license: normalizeLicense(data) };
 }
 
@@ -393,6 +420,9 @@ async function renewLicenseKeyFromSession(
     stripe_customer_id: stringValue(session.customer) || stringValue(currentProfile.stripe_customer_id),
     payment_status: stringValue(session.payment_status),
     plan_id: planId,
+    features: featuresForPlanId(planId),
+    ifood_enabled: featuresForPlanId(planId).includes("ifood"),
+    whatsapp_enabled: featuresForPlanId(planId).includes("whatsapp"),
     amount_total: Number(session.amount_total || plan.amount),
     currency: stringValue(session.currency || "brl"),
     renewed_at: now.toISOString(),
@@ -437,6 +467,17 @@ async function renewLicenseKeyFromSession(
       },
     });
   });
+
+  await trackAdminAnalytics("checkout.completed", {
+    plan: planId,
+    billing: billingFromPlanId(planId),
+    amountCents: Number(session.amount_total || plan.amount),
+    currency: stringValue(session.currency || "BRL").toUpperCase(),
+    checkoutSessionId: sessionId,
+    stripeCustomerId: stringValue(session.customer),
+    subscriptionId: stringValue(session.subscription),
+    source: "stripe-renewal",
+  }).catch(() => null);
 
   return { paid: true, license: normalizeLicense(data) };
 }
@@ -727,6 +768,29 @@ function resolveRenewalPlanId(requestedPlan: string, license: Record<string, unk
   }
 
   return annual ? "offline-anual" : "offline-mensal";
+}
+function billingFromPlanId(planId: string) {
+  const parts = stringValue(planId).split("-");
+  return parts[1] || "";
+}
+
+function featuresForPlanId(planId: string) {
+  return stringValue(planId).toLowerCase().includes("online") ? ONLINE_FEATURES : OFFLINE_FEATURES;
+}
+
+async function trackAdminAnalytics(type: string, data: Record<string, unknown>) {
+  const endpoint = stringValue(Deno.env.get("BALCAO_ADMIN_ANALYTICS_URL"))
+    || stringValue(Deno.env.get("ADMIN_ANALYTICS_URL"))
+    || DEFAULT_ADMIN_ANALYTICS_URL;
+  if (!endpoint) {
+    return;
+  }
+
+  await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, ...data }),
+  });
 }
 
 async function resolveStripeCustomerId(license: Record<string, unknown> | null) {
