@@ -62,8 +62,8 @@ const plans = [
     label: "Entrada",
     title: "PDV Caixa Local",
     description: "Para loja que quer vender no Windows, imprimir comprovante, controlar estoque e fechar caixa sem depender da internet.",
-    monthly: "R$ 17,00",
-    annual: "R$ 200,00",
+    monthly: "R$ 29,90",
+    annual: "R$ 229,90",
     features: [
       "Caixa local no Windows",
       "Venda rápida, mesas, comandas e balcão",
@@ -80,8 +80,8 @@ const plans = [
     label: "Recomendado",
     title: "Restaurante Profissional",
     description: "Para restaurante operar caixa, cardápio online, garçom no celular, delivery, equipe, NFC-e configurável e WhatsApp no mesmo fluxo.",
-    monthly: "R$ 139,00",
-    annual: "R$ 1.390,00",
+    monthly: "R$ 149,00",
+    annual: "R$ 1.399,00",
     note: "WhatsApp conectado incluso para atendimento e pedidos. NFC-e depende de certificado, credenciais fiscais, UF e configuração do cliente.",
     features: [
       "PDV Windows com sincronização em nuvem",
@@ -140,7 +140,7 @@ const whatsappAiAddOn = {
 };
 
 const faqs = [
-  ["Qual plano eu escolho?", "Se você quer só caixa local no Windows, use o Offline de R$17. Se quer restaurante conectado com cardápio online, garçom no celular, equipe, entregadores, NFC-e configurável, Mercado Pago, iFood e WhatsApp, use o Restaurante Profissional de R$139."],
+  ["Qual plano eu escolho?", "Se você quer só caixa local no Windows, use o Offline de R$29,90. Se quer restaurante conectado com cardápio online, garçom no celular, equipe, entregadores, NFC-e configurável, Mercado Pago, iFood e WhatsApp, use o Restaurante Profissional de R$149."],
   ["Funciona sem internet?", "No Offline, sim: o caixa continua vendendo localmente. Recursos online, nuvem e integrações precisam de internet."],
   ["O sistema emite nota fiscal?", "O plano profissional tem NFC-e configurável quando o cliente fornece certificado, credenciais fiscais e dados exigidos pela UF. Validação fiscal, homologação e parametrização dependem da empresa e da regra do estado."],
   ["Dá para personalizar?", "Sim. Fluxo, cardápio, entregas, impressão, usuários, permissões, entregadores, fiscal e relatórios podem ser ajustados. Personalizações têm valores sob consulta."],
@@ -148,7 +148,7 @@ const faqs = [
   ["O WhatsApp é ilimitado?", "O plano inclui atendimento por WhatsApp dentro da política de uso. Para campanhas, alto volume ou automações mais avançadas, use o adicional WhatsApp IA Pro."],
   ["Posso usar em mais de um computador?", "Offline é licença por computador. Online pode conectar equipe, web e dispositivos conforme plano e configuração combinada."],
   ["Como funciona instalação e suporte?", "Orientamos instalação Windows, ativação, primeiros cadastros, impressora, pagamentos e uso do caixa. Migrações e integrações especiais são combinadas."],
-  ["Posso testar antes de contratar?", "Sim. O teste de 7 dias libera PDV, cardápio online, garçom no celular, Mercado Pago e WhatsApp. iFood fica desabilitado no teste e entra no plano Restaurante Profissional de R$139, conforme credenciais e homologação."]
+  ["Posso testar antes de contratar?", "Sim. O teste de 7 dias libera PDV, cardápio online, garçom no celular, Mercado Pago e WhatsApp. iFood fica desabilitado no teste e entra no plano Restaurante Profissional de R$149, conforme credenciais e homologação."]
 ];
 
 const landingJsonLd = [
@@ -246,7 +246,7 @@ export default function Page({ searchParams }) {
             Venda no caixa Windows, controle mesas, delivery, estoque, cardápio online, garçom no celular e WhatsApp com IA em uma rotina só.
           </p>
           <p className="lpHeroPriceLine">
-            Comece com caixa local por R$17/mês ou use o plano restaurante conectado por R$139/mês.
+            Comece com caixa local por R$29,90/mês ou use o plano restaurante conectado por R$149/mês.
           </p>
           <div className="lpHeroActions">
             <a
@@ -269,8 +269,8 @@ export default function Page({ searchParams }) {
             </a>
           </div>
           <dl className="lpHeroStats" aria-label="Resumo do produto">
-            <div><dt>R$17 local</dt><dd>caixa Windows para vender, imprimir e fechar o dia</dd></div>
-            <div><dt>R$139 profissional</dt><dd>online, NFC-e, equipe, entregadores, iFood, Mercado Pago e WhatsApp IA</dd></div>
+            <div><dt>R$29,90 local</dt><dd>caixa Windows para vender, imprimir e fechar o dia</dd></div>
+            <div><dt>R$149 profissional</dt><dd>online, NFC-e, equipe, entregadores, iFood, Mercado Pago e WhatsApp IA</dd></div>
             <div><dt>Teste 7 dias</dt><dd>conheça o fluxo antes de contratar a operação conectada</dd></div>
           </dl>
         </div>
@@ -475,8 +475,8 @@ export default function Page({ searchParams }) {
       <section className="lpSection lpPlansSection" id="planos">
         <div className="lpSectionHead">
           <p className="lpKicker">Planos</p>
-          <h2>R$17 para caixa local. R$139 para restaurante conectado.</h2>
-          <p>O R$139 é o plano principal para operar com cardápio online, garçom no celular, equipe, entregadores, NFC-e configurável, Mercado Pago, iFood e WhatsApp. Automações de alto volume entram no adicional IA Pro.</p>
+          <h2>R$29,90 para caixa local. R$149 para restaurante conectado.</h2>
+          <p>O R$149 é o plano principal para operar com cardápio online, garçom no celular, equipe, entregadores, NFC-e configurável, Mercado Pago, iFood e WhatsApp. Automações de alto volume entram no adicional IA Pro.</p>
         </div>
 
         <div className="lpPlanCompare">

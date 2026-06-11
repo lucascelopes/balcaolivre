@@ -20,14 +20,14 @@ const connectedFeatures = [
 const planCopy = {
   offline: {
     label: "PDV Caixa Local",
-    price: "R$17/mês",
+    price: "R$29,90/mês",
     cta: "Testar PDV local",
     href: downloadUrl,
     analyticsPlan: "offline"
   },
   online: {
     label: "Restaurante Profissional",
-    price: "R$139/mês",
+    price: "R$149/mês",
     cta: "Testar PDV online",
     href: onlineDownloadUrl,
     analyticsPlan: "online"
@@ -75,7 +75,7 @@ const rawSeoPages = [
     outcomes: ["Receber pedidos sem perder informação", "Organizar entrega, retirada e balcão", "Testar por 7 dias antes de pagar"],
     features: [...baseFeatures, ...connectedFeatures],
     faq: [
-      ["O PDV delivery é gratuito?", "O teste é grátis por 7 dias. Depois, o caixa local começa em R$17/mês e o plano restaurante conectado fica em R$139/mês."],
+      ["O PDV delivery é gratuito?", "O teste é grátis por 7 dias. Depois, o caixa local começa em R$29,90/mês e o plano restaurante conectado fica em R$149/mês."],
       ["Serve para delivery pequeno?", "Sim. Dá para começar com balcão e entrega simples e depois ativar cardápio online, WhatsApp, equipe e integrações."],
       ["O iFood entra no teste?", "O iFood depende de credenciais e homologação. Ele entra no plano profissional quando a loja já tem as liberações necessárias."]
     ]
@@ -210,7 +210,7 @@ const rawSeoPages = [
     faq: [
       ["Serve para espetinho com mesas?", "Sim. O PDV trabalha com mesa, comanda e balcão."],
       ["Dá para controlar bebidas?", "Sim. Você cadastra produtos e acompanha estoque."],
-      ["Qual plano começar?", "Para caixa local, o plano de R$17/mês costuma resolver. Para online e WhatsApp, use o profissional."]
+      ["Qual plano começar?", "Para caixa local, o plano de R$29,90/mês costuma resolver. Para online e WhatsApp, use o profissional."]
     ]
   },
   {
@@ -398,7 +398,7 @@ const rawSeoPages = [
     outcomes: ["Venda rápida no Windows", "Troco e pagamento registrados", "Fechamento do caixa mais claro"],
     features: [...baseFeatures, "Dinheiro, Pix manual e cartão", "Resumo do caixa", "Impressão"],
     faq: [
-      ["Qual plano serve para caixa?", "O plano PDV Caixa Local de R$17/mês já atende o caixa Windows."],
+      ["Qual plano serve para caixa?", "O plano PDV Caixa Local de R$29,90/mês já atende o caixa Windows."],
       ["Tem comprovante?", "Sim. Imprime comprovante em impressora configurada no Windows."],
       ["Tem mesas?", "Sim. O fluxo inclui mesas e comandas."]
     ]
@@ -474,7 +474,7 @@ const rawSeoPages = [
     outcomes: ["Baixo custo para começar", "Fluxo simples no caixa", "Crescimento para online sem trocar de sistema"],
     features: [...baseFeatures, "Plano local acessível", "Plano profissional opcional", "Suporte na implantação"],
     faq: [
-      ["Qual o menor plano?", "O caixa local começa em R$17/mês."],
+      ["Qual o menor plano?", "O caixa local começa em R$29,90/mês."],
       ["Dá para testar?", "Sim. O teste é grátis por 7 dias."],
       ["Preciso contratar tudo de uma vez?", "Não. Você pode começar local e depois ir para o profissional."]
     ]
@@ -532,7 +532,7 @@ const commercialSeoPages = [
     plan: "offline",
     keywords: ["pdv gratis para restaurante", "sistema gratis para restaurante", "teste gratis pdv restaurante"],
     outcomes: ["Testar antes de assinar", "Comecar com baixo custo", "Validar caixa e impressao no Windows"],
-    features: [...baseFeatures, "Teste gratis por 7 dias", "Plano local a partir de R$17", "Upgrade para restaurante conectado"],
+    features: [...baseFeatures, "Teste gratis por 7 dias", "Plano local a partir de R$29,90", "Upgrade para restaurante conectado"],
     faq: [
       ["O PDV e gratis?", "O teste e gratis por 7 dias. Depois, a loja escolhe entre caixa local ou plano restaurante conectado."],
       ["Precisa de cartao para testar?", "O teste foi pensado para a loja conhecer o fluxo antes de contratar."],
@@ -646,7 +646,7 @@ const commercialSeoPages = [
     plan: "online",
     keywords: ["alternativa consumer", "sistema parecido com consumer", "pdv restaurante windows"],
     outcomes: ["Plano local de entrada", "Upgrade para online", "Fluxo de restaurante sem trocar de sistema"],
-    features: [...baseFeatures, ...connectedFeatures, "Plano de R$17 para comecar", "Plano profissional para conectar a loja"],
+    features: [...baseFeatures, ...connectedFeatures, "Plano de R$29,90 para comecar", "Plano profissional para conectar a loja"],
     faq: [
       ["E uma copia do Consumer?", "Nao. E uma alternativa para quem quer fluxo de PDV Windows com opcao online no Balcao Livre."],
       ["Da para testar?", "Sim. O teste dura 7 dias."],

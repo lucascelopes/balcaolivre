@@ -2,13 +2,13 @@ export const siteUrl = (
   process.env.NEXT_PUBLIC_SITE_URL || "https://balcaolivrepdv.com.br"
 ).replace(/\/$/, "");
 
-export const siteName = "Balcao Livre PDV";
+export const siteName = "Balcão Livre PDV";
 
 export const defaultTitle =
-  "Balcao Livre PDV | Sistema Windows para restaurantes";
+  "Balcão Livre PDV | Sistema Windows para restaurantes";
 
 export const defaultDescription =
-  "PDV para restaurante com caixa offline, cardapio online, garcom no celular, iFood, Mercado Pago e WhatsApp com IA basica por R$139/mes.";
+  "PDV para restaurante com teste de 7 dias, WhatsApp, cardápio online, garçom no celular, NFC-e configurável, equipe, entregadores, Mercado Pago e iFood no plano de R$149/mês.";
 
 export const seoKeywords = [
   "PDV para restaurante",
@@ -18,14 +18,18 @@ export const seoKeywords = [
   "PDV para lanchonete",
   "PDV para pizzaria",
   "sistema de comandas",
-  "cardapio digital",
-  "garcom no celular",
+  "cardápio digital",
+  "garçom no celular",
   "PDV delivery",
   "PDV com WhatsApp",
   "WhatsApp com IA para restaurante",
   "PDV com Mercado Pago",
   "PDV com iFood",
-  "Balcao Livre PDV"
+  "PDV com NFC-e",
+  "sistema para restaurante com NFC-e",
+  "gestão de equipe restaurante",
+  "sistema para entregadores delivery",
+  "Balcão Livre PDV"
 ];
 
 export const openGraphImage = "/brand/pdv-online-screen.png";
