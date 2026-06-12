@@ -1,5 +1,5 @@
-#define MyAppName "Balcao Livre PDV Online"
-#define MyAppVersion "1.8.2026.5"
+﻿#define MyAppName "Balcao Livre PDV Online"
+#define MyAppVersion "1.8.2026.21"
 #define MyAppPublisher "Balcao Livre"
 #define MyAppExeName "BalcaoLivrePDVOnline.exe"
 #define ProjectRoot AddBackslash(SourcePath) + ".."
@@ -15,7 +15,7 @@ DefaultDirName={localappdata}\Programs\Balcao Livre PDV Online
 DefaultGroupName={#MyAppName}
 OutputDir={#OutputRoot}
 OutputBaseFilename=BalcaoLivrePDVOnline-Setup-{#MyAppVersion}
-Compression=lzma
+Compression=lzma/ultra64
 SolidCompression=yes
 WizardStyle=modern
 SetupIconFile={#ProjectRoot}\BalcaoLivre.Online.Windows\Assets\app.ico
@@ -33,7 +33,7 @@ Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortugue
 Name: "desktopicon"; Description: "Criar atalho na area de trabalho"; GroupDescription: "Atalhos:"
 
 [Files]
-Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,BalcaoLivrePDVOnline.exe.WebView2\*,cs\*,de\*,es\*,fr\*,it\*,ja\*,ko\*,pl\*,ru\*,tr\*,zh-Hans\*,zh-Hant\*,createdump.exe,mscordaccore*.dll,mscordbi.dll,Microsoft.DiaSymReader.Native*.dll,System.Windows.Forms.Design*.dll"
+Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.xml,*.bak,commandas-store*.json,app-settings*.json,restaurant-profile*.json,Assets\ifood-order-alert.mp3,BalcaoLivrePDVOnline.exe.WebView2\*,BalcaoLivre.WhatsAppExtension\*,evolution-local-windows\*,cs\*,de\*,es\*,fr\*,it\*,ja\*,ko\*,pl\*,ru\*,tr\*,zh-Hans\*,zh-Hant\*,createdump.exe,mscordaccore*.dll,mscordbi.dll,Microsoft.DiaSymReader.Native*.dll,System.Windows.Forms.Design*.dll,Microsoft.VisualBasic*.dll,Microsoft.Web.WebView2.WinForms*,PdfSharp.BarCodes.dll,PdfSharp.Charting.dll,PdfSharp.Quality.dll,PdfSharp.Snippets.dll,PdfSharp.WPFonts.dll"
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

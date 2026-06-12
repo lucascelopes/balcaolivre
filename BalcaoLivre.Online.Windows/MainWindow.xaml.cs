@@ -3,7 +3,9 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -24,6 +26,9 @@ using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using PdfSharp;
+using PdfSharp.Drawing;
+using PdfSharp.Pdf;
 using QRCoder;
 using Application = System.Windows.Application;
 using Brush = System.Windows.Media.Brush;
@@ -53,6 +58,7 @@ public partial class MainWindow : Window
 {
     private const string AppDisplayName = "Balcao Livre PDV Online";
     private const string AppReceiptName = "BALCAO LIVRE PDV ONLINE";
+    private static bool _pdfFontsConfigured;
     private const string DefaultUpdateManifestUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/version.json";
     private const string DefaultAdminApiUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/license";
     private const string DefaultPaymentsApiUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/payments";
@@ -64,10 +70,14 @@ public partial class MainWindow : Window
     private const string PublicMenuApexHost = "balcaolivrepdv.com.br";
     private const string PublicMenuHost = "cardapio.balcaolivrepdv.com.br";
     private const string DefaultPublicMenuBaseUrl = "https://cardapio.balcaolivrepdv.com.br";
+    private const string OnlineStoreModeAuto = "AUTO";
+    private const string OnlineStoreModeOpen = "OPEN";
+    private const string OnlineStoreModeClosed = "CLOSED";
     private const string DefaultIFoodAlertSoundFile = "Assets\\ifood-order-alert.mp3";
     private const string PasswordHashPrefix = "PBKDF2";
     private static readonly CultureInfo Brazil = CultureInfo.GetCultureInfo("pt-BR");
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
+    private static readonly RoutedCommand ReceivePaymentShortcutCommand = new("ReceivePaymentShortcut", typeof(MainWindow));
     private static readonly Brush FreeTile = Solid("#8FDB7A");
     private static readonly Brush NewTile = Solid("#0B3A52");
     private static readonly Brush OccupiedTile = Solid("#F49A93");
@@ -94,6 +104,31 @@ public partial class MainWindow : Window
     private const string ServiceCode = "900002";
     private const double RibbonScrollStep = 260;
     private static readonly int[] ActivationWarningDays = [1, 3, 7, 15, 30];
+    private const string LicenseFeatureIFood = "ifood";
+    private const string LicenseFeatureWhatsApp = "whatsapp";
+    private static readonly string[] TrialOnlineLicenseFeatures =
+    [
+        "pdv",
+        LicenseFeatureWhatsApp,
+        "cardapio",
+        "garcom",
+        "mercado-pago",
+        "nfce",
+        "equipe",
+        "entregadores"
+    ];
+    private static readonly string[] PaidOnlineLicenseFeatures =
+    [
+        .. TrialOnlineLicenseFeatures,
+        LicenseFeatureIFood
+    ];
+    private static readonly string[] OfflineLicenseFeatures =
+    [
+        "pdv",
+        "caixa",
+        "estoque",
+        "nfce"
+    ];
     private sealed record ActivationCheckoutPlan(
         string Name,
         string Description,
@@ -111,23 +146,15 @@ public partial class MainWindow : Window
             "R$ 200,00",
             "offline-mensal",
             "offline-anual",
-            "Venda local, mesas, balcao, delivery, estoque, fechamento e comprovante."),
+            "Venda local, mesas, balcão, delivery, estoque, fechamento e comprovante."),
         new(
             "Balcao Livre PDV Hibrido Online",
-            "PDV local com web, cardapio digital, garcom e nuvem.",
+            "PDV local com web, cardápio digital, WhatsApp, iFood, Mercado Pago, garçom e nuvem.",
             "R$ 139,00",
             "R$ 1.390,00",
             "online-mensal",
             "online-anual",
-            "Inclui PDV web, cardapio, garcom, taxas por zona e sincronizacao."),
-        new(
-            "Completo com Integracoes",
-            "Tudo do Hibrido Online com atendimento e pedidos pelo WhatsApp.",
-            "R$ 179,00",
-            "R$ 1.790,00",
-            "complete-mensal",
-            "complete-anual",
-            "Inclui WhatsApp, iFood, Mercado Pago conforme escopo e fluxo completo.")
+            "Inclui WhatsApp, iFood, Mercado Pago, cardápio, garçom, taxas por zona e sincronização.")
     ];
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
@@ -176,12 +203,19 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _ifoodSyncTimer = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly DispatcherTimer _deliveryCountdownTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly DispatcherTimer _supportPollTimer = new() { Interval = TimeSpan.FromSeconds(10) };
-    private readonly DispatcherTimer _publicMenuPublishTimer = new() { Interval = TimeSpan.FromSeconds(7) };
+    private readonly DispatcherTimer _publicMenuPublishTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _publicMenuOrderPollTimer = new() { Interval = TimeSpan.FromSeconds(8) };
+    private readonly DispatcherTimer _onlineStoreScheduleTimer = new() { Interval = TimeSpan.FromSeconds(30) };
+    private readonly DispatcherTimer _whatsAppEvolutionPollTimer = new() { Interval = TimeSpan.FromSeconds(3) };
+    private readonly DispatcherTimer _whatsAppSendQueueTimer = new() { Interval = TimeSpan.FromSeconds(10) };
+    private readonly DispatcherTimer _customerCampaignTimer = new() { Interval = TimeSpan.FromMinutes(10) };
     private readonly DispatcherTimer _localBackupTimer = new() { Interval = TimeSpan.FromMinutes(30) };
     private readonly Dictionary<TableTile, HashSet<TicketLine>> _pendingKitchenPrintLines = [];
     private readonly IFoodCloudClient _ifoodClient = new();
     private const int MaxAutomaticLocalBackupFiles = 336;
+    private const int CustomerReactivationDays = 45;
+    private static readonly TimeSpan CustomerCampaignCooldown = TimeSpan.FromDays(14);
+    private static readonly string[] ClosedCashDashboardPeriods = ["Hoje", "7 dias", "14 dias", "30 dias", "90 dias", "Total"];
 
     private readonly string _dataRoot = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -198,6 +232,7 @@ public partial class MainWindow : Window
     private bool _ifoodPresenceLoopStarted;
     private readonly object _settingsFileLock = new();
     private decimal _cashTotal;
+    private string _closedCashDashboardPeriod = "Hoje";
     private string _currentUser = "";
     private LocalHubSettings _settings = new();
     private RestaurantIdentityProfile _profile = new();
@@ -209,9 +244,13 @@ public partial class MainWindow : Window
     private bool _whatsAppInjectionRunning;
     private bool _exitRequested;
     private bool _activationPromptOpen;
+    private bool _licenseUpgradeDialogOpen;
     private bool _ifoodSyncRunning;
     private bool _publicMenuPublishRunning;
     private bool _publicMenuOrderPollRunning;
+    private bool _whatsAppEvolutionPollRunning;
+    private bool _whatsAppSendQueueRunning;
+    private bool _customerCampaignRunning;
     private bool _suppressPublicMenuQueue;
     private string _pendingPublicMenuSignature = "";
     private string _lastPublishedPublicMenuSignature = "";
@@ -219,7 +258,10 @@ public partial class MainWindow : Window
     private MediaPlayer? _ifoodAlertPlayer;
     private DateTime _lastIFoodSyncErrorAt = DateTime.MinValue;
     private DateTime _lastIFoodCatalogSyncUtc = DateTime.MinValue;
+    private DateTime _lastIFoodLocalCatalogPushUtc = DateTime.MinValue;
     private DateTime _lastPublicMenuOrderSyncErrorAt = DateTime.MinValue;
+    private readonly HashSet<string> _whatsAppEvolutionSeenMessages = [];
+    private int _floatingServiceUnreadCount;
 
     public ObservableCollection<RibbonAction> RibbonActions { get; } = [];
     public ObservableCollection<string> Modes { get; } = [];
@@ -236,6 +278,10 @@ public partial class MainWindow : Window
     public ObservableCollection<CustomerRecord> Customers { get; } = [];
     public ObservableCollection<DeliveryDriver> Drivers { get; } = [];
     public ObservableCollection<CashMovement> CashMovements { get; } = [];
+    public ObservableCollection<FinanceEntry> FinanceEntries { get; } = [];
+    public ObservableCollection<SupplierQuote> SupplierQuotes { get; } = [];
+    public ObservableCollection<GoodsReceipt> GoodsReceipts { get; } = [];
+    public ObservableCollection<StaffShiftRecord> StaffShifts { get; } = [];
     public ObservableCollection<WhatsAppMessageLog> WhatsAppHistory { get; } = [];
     public ObservableCollection<WhatsAppPendingOrder> WhatsAppPendingOrders { get; } = [];
 
@@ -265,13 +311,23 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        EnsurePdfFontsConfigured();
         InitializeComponent();
+        RegisterGlobalKeyboardShortcuts();
         _toastTimer.Tick += (_, _) => HideToast();
         _licenseTimer.Tick += (_, _) => CheckActivationExpiry();
         _ifoodSyncTimer.Tick += async (_, _) => await AutoImportIFoodOrdersAsync();
         _deliveryCountdownTimer.Tick += (_, _) => RefreshDeliveryCountdownTiles();
         _supportPollTimer.Tick += async (_, _) => await PollSupportNotificationsAsync();
         _publicMenuOrderPollTimer.Tick += async (_, _) => await PollPublicMenuOrdersAsync();
+        _onlineStoreScheduleTimer.Tick += (_, _) =>
+        {
+            ApplyOnlineStoreScheduleState("horario automatico");
+            RefreshOnlineStoreButton();
+        };
+        _whatsAppEvolutionPollTimer.Tick += async (_, _) => await PollEvolutionLocalMessagesAsync();
+        _whatsAppSendQueueTimer.Tick += async (_, _) => await ProcessWhatsAppSendQueueAsync();
+        _customerCampaignTimer.Tick += (_, _) => RunCustomerReactivationCampaigns(automatic: true, maxToSend: 5);
         _localBackupTimer.Tick += (_, _) => CreateLocalStoreBackup("auto-30min", force: false);
         _publicMenuPublishTimer.Tick += async (_, _) =>
         {
@@ -284,7 +340,9 @@ public partial class MainWindow : Window
         ApplyRestaurantIdentity();
         SeedStaticUi();
         LoadStore();
+        EnsureCashClosedOnStartup();
         CreateLocalStoreBackup("inicializacao", force: false);
+        ApplyOnlineStoreScheduleState("inicializacao", persist: false);
         RefreshOnlineStoreButton();
         _ = SyncIFoodPresenceOnceAsync();
         StartIFoodPresenceLoop();
@@ -304,11 +362,17 @@ public partial class MainWindow : Window
         _ = StartWaiterServerAsync();
         Loaded += (_, _) =>
         {
-            if (_appSettings.IFood?.HasCloudConnection == true)
+            if (CanReceiveOnlineOrdersNow() && _appSettings.IFood?.HasCloudConnection == true)
             {
                 _ifoodSyncTimer.Start();
+                QueueIFoodLocalCatalogSync("Inicializacao iFood", force: true);
                 _ = AutoImportIFoodOrdersAsync(force: true);
                 StartIFoodPresenceLoop();
+            }
+
+            if (ShouldPreviewInstallSetupDialog())
+            {
+                ShowInstallSetupDialog();
             }
 
             if (!RequireStartupLogin())
@@ -322,17 +386,43 @@ public partial class MainWindow : Window
             SelectArea(KeyboardArea.Ticket);
             SetStatus("Digite a mesa e pressione Enter. Modo online pronto; caixa local continua funcionando.");
             _licenseTimer.Start();
-            if (!_ifoodSyncTimer.IsEnabled)
+            _onlineStoreScheduleTimer.Start();
+            ApplyOnlineStoreScheduleState("inicializacao");
+            RefreshOnlineStoreButton();
+            if (CanReceiveOnlineOrdersNow() && !_ifoodSyncTimer.IsEnabled)
             {
                 _ifoodSyncTimer.Start();
             }
             _deliveryCountdownTimer.Start();
             _supportPollTimer.Start();
             _publicMenuOrderPollTimer.Start();
+            StartWhatsAppSendQueueIfNeeded();
+            _customerCampaignTimer.Start();
+            _ = Dispatcher.BeginInvoke(() => { RunCustomerReactivationCampaigns(automatic: true, maxToSend: 5); }, DispatcherPriority.Background);
             _ = Dispatcher.BeginInvoke(async () =>
                 await CheckForUpdatesAsync(showIfCurrent: false, autoInstall: _appSettings.AutoCheckUpdates, startupCheck: true));
             QueueAdminCheckIn("startup");
         };
+    }
+
+    private void RegisterGlobalKeyboardShortcuts()
+    {
+        CommandBindings.Add(new CommandBinding(
+            ReceivePaymentShortcutCommand,
+            (_, e) =>
+            {
+                TriggerReceiveShortcut("F9");
+                e.Handled = true;
+            },
+            (_, e) => e.CanExecute = true));
+        InputBindings.Add(new KeyBinding(ReceivePaymentShortcutCommand, new KeyGesture(Key.F9)));
+    }
+
+    private static bool ShouldPreviewInstallSetupDialog()
+    {
+        return Environment.GetCommandLineArgs().Any(arg =>
+            string.Equals(arg, "--show-onboarding", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(arg, "--preview-onboarding", StringComparison.OrdinalIgnoreCase));
     }
 
     private UserAccount? CurrentUser => Users.FirstOrDefault(user =>
@@ -426,6 +516,109 @@ public partial class MainWindow : Window
             && (!_appSettings.ActivationExpiresAt.HasValue || _appSettings.ActivationExpiresAt.Value >= DateTime.Now);
     }
 
+    private bool RequireActiveLicense(string operation)
+    {
+        if (HasValidActivation())
+        {
+            return true;
+        }
+
+        ShowLicenseUpgradeDialog(operation);
+        return false;
+    }
+
+    private bool HasLicenseFeature(string feature)
+    {
+        var wanted = NormalizeLicenseFeature(feature);
+        if (string.IsNullOrWhiteSpace(wanted))
+        {
+            return false;
+        }
+
+        var features = NormalizeLicenseFeatures(_appSettings.ActivationFeatures, _appSettings.ActivationPlan);
+        return features.Any(item => string.Equals(item, wanted, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool HasIFoodLicenseFeature() => HasLicenseFeature(LicenseFeatureIFood);
+
+    private bool RequireLicenseFeature(string feature, string title, string details)
+    {
+        if (!RequireActiveLicense(title))
+        {
+            return false;
+        }
+
+        if (HasLicenseFeature(feature))
+        {
+            return true;
+        }
+
+        ShowFeatureUpgradeDialog(title, details);
+        return false;
+    }
+
+    private static List<string> NormalizeLicenseFeatures(IEnumerable<string>? features, string plan)
+    {
+        var normalized = (features ?? [])
+            .Select(NormalizeLicenseFeature)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var defaultFeatures = DefaultLicenseFeaturesForPlan(plan)
+            .Select(NormalizeLicenseFeature)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .ToList();
+
+        if (normalized.Count == 0)
+        {
+            normalized.AddRange(defaultFeatures);
+        }
+        else if (IsPaidOnlinePlan(plan))
+        {
+            normalized.AddRange(defaultFeatures);
+        }
+
+        return normalized
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string NormalizeLicenseFeature(string value)
+    {
+        return (value ?? "").Trim().ToLowerInvariant().Replace("_", "-", StringComparison.Ordinal);
+    }
+
+    private static bool IsPaidOnlinePlan(string plan)
+    {
+        var clean = RemoveDiacritics(plan ?? "").ToLowerInvariant();
+        return !clean.Contains("teste", StringComparison.Ordinal)
+            && !clean.Contains("trial", StringComparison.Ordinal)
+            && (clean.Contains("online", StringComparison.Ordinal)
+                || clean.Contains("profissional", StringComparison.Ordinal)
+                || clean.Contains("comercial", StringComparison.Ordinal)
+                || clean.Contains("hibrido", StringComparison.Ordinal)
+                || clean.Contains("completo", StringComparison.Ordinal)
+                || clean.Contains("integracoes", StringComparison.Ordinal)
+                || clean.Contains("139", StringComparison.Ordinal));
+    }
+
+    private static IEnumerable<string> DefaultLicenseFeaturesForPlan(string plan)
+    {
+        var clean = RemoveDiacritics(plan ?? "").ToLowerInvariant();
+        if (clean.Contains("teste", StringComparison.Ordinal) || clean.Contains("trial", StringComparison.Ordinal))
+        {
+            return TrialOnlineLicenseFeatures;
+        }
+
+        if (IsPaidOnlinePlan(plan ?? ""))
+        {
+            return PaidOnlineLicenseFeatures;
+        }
+
+        return OfflineLicenseFeatures;
+    }
+
     private void CheckActivationExpiry()
     {
         if (_activationPromptOpen
@@ -442,20 +635,11 @@ public partial class MainWindow : Window
         }
 
         _licenseTimer.Stop();
-        var expiredKey = _appSettings.ActivationKey;
-        var expiredPlan = _appSettings.ActivationPlan;
         _appSettings.ActivationCompleted = false;
         SaveAppSettings();
-        ShowToast("Ativacao expirada", "A licenca venceu. Pague a assinatura para renovar esta mesma chave.", "BL", "#A11D1D", "#FFE2DF");
+        ShowToast("Ativacao expirada", "A licenca venceu. Renove o plano para liberar esta mesma chave.", "BL", "#A11D1D", "#FFE2DF");
         SetStatus("Ativacao expirada. Escolha um plano mensal ou anual para renovar.");
-
-        if (!ShowInstallSetupDialog())
-        {
-            _exitRequested = true;
-            Application.Current.Shutdown();
-            return;
-        }
-
+        ShowLicenseUpgradeDialog("licenca expirada");
         _licenseTimer.Start();
     }
 
@@ -515,7 +699,7 @@ public partial class MainWindow : Window
             Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
             if (showMessage)
             {
-                SetStatus("Pagamento da assinatura aberto no Stripe.");
+                SetStatus("Pagamento da assinatura aberto.");
             }
 
             return true;
@@ -529,6 +713,159 @@ public partial class MainWindow : Window
 
             return false;
         }
+    }
+
+    private bool OpenPlanCheckoutPage(string planId, string licenseKey = "", bool showMessage = true)
+    {
+        var key = NormalizeActivationKey(licenseKey);
+        var url = string.IsNullOrWhiteSpace(key)
+            ? BuildPlanCheckoutUrl(planId)
+            : BuildLicenseRenewalUrl(key, planId);
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            if (showMessage)
+            {
+                SetStatus("Nao consegui abrir este plano.");
+            }
+
+            return false;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            if (showMessage)
+            {
+                SetStatus("Plano aberto para pagamento.");
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+        {
+            if (showMessage)
+            {
+                SetStatus($"Nao consegui abrir o plano: {ex.Message}");
+            }
+
+            return false;
+        }
+    }
+
+    private void ShowLicenseUpgradeDialog(string operation)
+    {
+        if (_licenseUpgradeDialogOpen)
+        {
+            return;
+        }
+
+        _licenseUpgradeDialogOpen = true;
+        try
+        {
+            var expired = _appSettings.ActivationExpiresAt.HasValue && _appSettings.ActivationExpiresAt.Value < DateTime.Now;
+            var dialog = CreateDialog(expired ? "Licenca expirada" : "Ative sua licenca", 620, 430);
+            var title = new TextBlock
+            {
+                Text = expired ? "Sua licenca venceu" : "Licenca obrigatoria",
+                FontSize = 28,
+                FontWeight = FontWeights.Bold,
+                Foreground = Solid("#071A2C"),
+                TextWrapping = TextWrapping.Wrap
+            };
+            var message = new TextBlock
+            {
+                Text = expired
+                    ? "Para continuar usando o PDV, renove ou faca upgrade para o plano Restaurante Profissional de R$139/mes."
+                    : "Para operar comandas, balcao, delivery, caixa e integracoes, ative uma licenca valida.",
+                Foreground = Solid("#496071"),
+                FontSize = 15,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 8, 0, 0)
+            };
+            var details = DialogHint(string.IsNullOrWhiteSpace(operation)
+                ? "O app fica bloqueado para venda enquanto a licenca nao estiver ativa."
+                : $"Acao bloqueada: {operation}. O app fica bloqueado para venda enquanto a licenca nao estiver ativa.");
+            var upgrade = DialogButton("Upgrade R$139/mes", "#08A99B");
+            var activate = DialogButton("Inserir chave", "#0B3A52");
+            var close = DialogButton("Fechar", "#5B6B7A");
+            foreach (var button in new[] { upgrade, activate, close })
+            {
+                button.MinWidth = 150;
+            }
+
+            upgrade.Click += (_, _) =>
+            {
+                OpenLicenseRenewalPage(_appSettings.ActivationKey, "online-mensal", showMessage: true);
+            };
+            activate.Click += (_, _) =>
+            {
+                dialog.Close();
+                ShowInstallSetupDialog();
+            };
+            close.Click += (_, _) => dialog.Close();
+
+            var panel = DialogPanel();
+            panel.Children.Add(new Border
+            {
+                Background = Solid("#F6FAFD"),
+                BorderBrush = Solid("#D5E2ED"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(14),
+                Padding = new Thickness(22),
+                Child = new StackPanel { Children = { title, message, details } }
+            });
+            panel.Children.Add(new UniformGrid
+            {
+                Columns = 3,
+                Margin = new Thickness(0, 16, 0, 0),
+                Children = { upgrade, activate, close }
+            });
+            dialog.Content = panel;
+            dialog.ShowDialog();
+        }
+        finally
+        {
+            _licenseUpgradeDialogOpen = false;
+        }
+    }
+
+    private void ShowFeatureUpgradeDialog(string title, string details)
+    {
+        var dialog = CreateDialog(title, 680, 410);
+        var support = DialogButton("Falar com suporte", "#08A99B");
+        var close = DialogButton("Entendi", "#5B6B7A");
+        support.MinWidth = 170;
+        close.MinWidth = 130;
+        support.Click += (_, _) => ShowSupportDialog();
+        close.Click += (_, _) => dialog.Close();
+
+        var panel = DialogPanel();
+        panel.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontSize = 26,
+            FontWeight = FontWeights.Bold,
+            Foreground = Solid("#071A2C"),
+            TextWrapping = TextWrapping.Wrap
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = details,
+            Foreground = Solid("#496071"),
+            FontSize = 15,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 0)
+        });
+        panel.Children.Add(DialogHint("O iFood sera liberado no sistema assim que a aprovacao/homologacao do iFood estiver concluida. WhatsApp, cardapio online, Garcom Web e PDV continuam funcionando normalmente."));
+        panel.Children.Add(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 16, 0, 0),
+            Children = { support, close }
+        });
+        dialog.Content = panel;
+        dialog.ShowDialog();
     }
 
     private string BuildLicenseRenewalUrl(string licenseKey, string plan)
@@ -558,13 +895,34 @@ public partial class MainWindow : Window
         return $"{DefaultCheckoutFunctionUrl.TrimEnd('/')}/renew?{string.Join("&", query)}";
     }
 
+    private string BuildPlanCheckoutUrl(string plan)
+    {
+        var planText = (plan ?? "").Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(planText))
+        {
+            return "";
+        }
+
+        var query = new List<string>
+        {
+            $"plan={Uri.EscapeDataString(planText)}"
+        };
+
+        if (!string.IsNullOrWhiteSpace(_profile.Email))
+        {
+            query.Add($"email={Uri.EscapeDataString(_profile.Email.Trim().ToLowerInvariant())}");
+        }
+
+        return $"{DefaultCheckoutFunctionUrl.TrimEnd('/')}?{string.Join("&", query)}";
+    }
+
     private async Task<AdminActivationResult> TryValidateAdminActivationAsync(string normalizedKey, DateTime? expiresAt, string plan, bool requireAdminConfirmation = false)
     {
         if (!_appSettings.AdminSyncEnabled)
         {
             if (requireAdminConfirmation)
             {
-                return AdminActivationResult.Deny("A chave venceu. Conecte a internet e confirme a renovacao no Supabase depois de pagar pelo Stripe.");
+                return AdminActivationResult.Deny("A chave venceu. Conecte a internet e confirme a renovacao do plano.");
             }
 
             return AdminActivationResult.Allow(plan, expiresAt, "Sincronizacao admin desligada.");
@@ -684,11 +1042,33 @@ public partial class MainWindow : Window
         var payload = CreateAdminClientPayload(eventName, _appSettings.ActivationKey, _appSettings.ActivationExpiresAt, _appSettings.ActivationPlan);
         _ = Task.Run(async () =>
         {
-            if (await SendAdminCheckInAsync(payload))
+            var result = await SendAdminCheckInAsync(payload);
+            if (result is not null)
             {
                 _ = Dispatcher.BeginInvoke(() =>
                 {
-                    _appSettings.LastAdminSyncAt = DateTime.Now;
+                    if (result.Ok)
+                    {
+                        if (!string.IsNullOrWhiteSpace(result.Plan))
+                        {
+                            _appSettings.ActivationPlan = result.Plan;
+                        }
+
+                        if (result.ExpiresAt.HasValue)
+                        {
+                            _appSettings.ActivationExpiresAt = result.ExpiresAt.Value;
+                        }
+
+                        _appSettings.ActivationFeatures = NormalizeLicenseFeatures(result.Features, _appSettings.ActivationPlan);
+                        _appSettings.LastAdminSyncAt = DateTime.Now;
+                    }
+                    else if (IsLicenseServerBlockMessage(result.Message))
+                    {
+                        _appSettings.ActivationCompleted = false;
+                        SetStatus(result.Message);
+                        ShowLicenseUpgradeDialog(result.Message);
+                    }
+
                     SaveAppSettings();
                     ApplyRestaurantIdentity();
                 });
@@ -696,12 +1076,12 @@ public partial class MainWindow : Window
         });
     }
 
-    private async Task<bool> SendAdminCheckInAsync(AdminClientPayload payload)
+    private async Task<AdminActivationResult?> SendAdminCheckInAsync(AdminClientPayload payload)
     {
         var endpoint = BuildAdminApiUri("/api/app/checkin");
         if (endpoint is null)
         {
-            return false;
+            return null;
         }
 
         try
@@ -709,13 +1089,23 @@ public partial class MainWindow : Window
             using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(5) };
             using var content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
             using var response = await client.PostAsync(endpoint, content);
-            return response.IsSuccessStatusCode;
+            var json = await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<AdminActivationResult>(json, JsonOptions)
+                   ?? new AdminActivationResult { Ok = response.IsSuccessStatusCode };
         }
-        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or IOException or InvalidOperationException)
+        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or IOException or InvalidOperationException or JsonException)
         {
             Debug.WriteLine($"Admin check-in failed: {ex.Message}");
-            return false;
+            return null;
         }
+    }
+
+    private static bool IsLicenseServerBlockMessage(string message)
+    {
+        var text = RemoveDiacritics(message ?? "").ToLowerInvariant();
+        return text.Contains("expirad", StringComparison.Ordinal)
+               || text.Contains("bloquead", StringComparison.Ordinal)
+               || text.Contains("outro computador", StringComparison.Ordinal);
     }
 
     private async Task<T> PostPaymentsOperationAsync<T>(string path, AdminClientPayload payload, TimeSpan timeout)
@@ -1590,6 +1980,12 @@ public partial class MainWindow : Window
 
     private static string CompactDeliveryTileSubtitle(TableTile tile)
     {
+        var detail = CompactSingleLine(tile.Detail);
+        if (detail.Contains("WHATSAPP_ATIVO", StringComparison.OrdinalIgnoreCase))
+        {
+            return "WhatsApp ativo";
+        }
+
         if (string.Equals(tile.ExternalSource, "IFOOD", StringComparison.OrdinalIgnoreCase))
         {
             if (IsIFoodTakeout(tile))
@@ -1616,10 +2012,22 @@ public partial class MainWindow : Window
             };
         }
 
-        var detail = CompactSingleLine(tile.Detail);
         if (detail.Contains("WHATSAPP", StringComparison.OrdinalIgnoreCase))
         {
             return "WhatsApp";
+        }
+
+        if (!string.IsNullOrWhiteSpace(tile.Driver))
+        {
+            var driver = CompactTileText(tile.Driver, 12);
+            if (string.IsNullOrWhiteSpace(detail))
+            {
+                return string.IsNullOrWhiteSpace(tile.CustomerName)
+                    ? $"Entregador {driver}"
+                    : CompactTileText($"{tile.CustomerName} | {driver}", 15);
+            }
+
+            return CompactTileText($"{detail} | {driver}", 15);
         }
 
         if (string.IsNullOrWhiteSpace(detail))
@@ -2461,8 +2869,8 @@ public partial class MainWindow : Window
 
             var latest = importedTiles.Last();
             var message = imported == 1
-                ? $"Pedido do cardapio recebido: {latest.Number} - {Money(latest.Total)}."
-                : $"{imported} pedidos do cardapio recebidos. Ultimo: {latest.Number} - {Money(latest.Total)}.";
+                ? $"Pedido de {PublicMenuOrderChannelLabel(latest)} recebido: {latest.Number} - {Money(latest.Total)}."
+                : $"{imported} pedidos online recebidos. Ultimo: {latest.Number} - {Money(latest.Total)}.";
             NotifyPublicMenuOrdersReceived(importedTiles);
             SetStatus(message);
         }
@@ -2488,11 +2896,12 @@ public partial class MainWindow : Window
         }
 
         var latest = orders[^1];
+        var isWhatsApp = IsWhatsAppPublicMenuOrder(latest);
         var message = orders.Count == 1
             ? $"{latest.Number} - {latest.CustomerName} - {Money(latest.Total)}"
-            : $"{orders.Count} pedidos do cardapio. Ultimo: {latest.Number} - {Money(latest.Total)}";
+            : $"{orders.Count} pedidos online. Ultimo: {latest.Number} - {Money(latest.Total)}";
         _suppressNextToastSound = true;
-        ShowToast("Novo pedido do cardapio", message, "QR", "#08A99B", "#E6FBF8");
+        ShowToast(isWhatsApp ? "Novo pedido do WhatsApp" : "Novo pedido do cardapio", message, isWhatsApp ? "WA" : "QR", "#08A99B", "#E6FBF8");
         PlayIFoodOrderSound();
         VibrateInApp();
         Dispatcher.BeginInvoke(() => ShowPublicMenuOrderAlertDialog(latest, orders.Count), DispatcherPriority.Background);
@@ -2502,11 +2911,13 @@ public partial class MainWindow : Window
     {
         if (!IsPublicMenuDeliveryBoard(order))
         {
-            SetStatus("Pedido do cardapio invalido para abrir alerta.");
+            SetStatus("Pedido online invalido para abrir alerta.");
             return;
         }
 
-        var dialog = CreateDialog("Novo pedido do cardapio", 900, 720);
+        var isWhatsApp = IsWhatsAppPublicMenuOrder(order);
+        var channelLabel = PublicMenuOrderChannelLabel(order);
+        var dialog = CreateDialog(isWhatsApp ? "Novo pedido do WhatsApp" : "Novo pedido do cardapio", 900, 720);
         dialog.ResizeMode = ResizeMode.NoResize;
         dialog.Topmost = true;
         dialog.Loaded += (_, _) =>
@@ -2560,8 +2971,8 @@ public partial class MainWindow : Window
             OpenPublicMenuDeliveryOrder(order);
             dialog.Close();
         };
-        prepare.Click += (_, _) => SetOrderStatus("PREPARO", $"Pedido do cardapio {order.Number} em preparo.");
-        ready.Click += (_, _) => SetOrderStatus("PRONTO", $"Pedido do cardapio {order.Number} marcado como pronto.");
+        prepare.Click += (_, _) => SetOrderStatus("PREPARO", $"Pedido de {channelLabel} {order.Number} em preparo.");
+        ready.Click += (_, _) => SetOrderStatus("PRONTO", $"Pedido de {channelLabel} {order.Number} marcado como pronto.");
         close.Click += (_, _) =>
         {
             StopIFoodOrderSound();
@@ -2577,13 +2988,15 @@ public partial class MainWindow : Window
         }
 
         var header = OrderAlertHero(
-            "Cardapio online",
+            isWhatsApp ? "WhatsApp" : "Cardapio online",
             batchCount > 1 ? $"{batchCount} pedidos recebidos" : "Novo pedido",
             EmptyDash(order.ExternalDisplayId),
             order.CustomerName,
             Money(order.Total),
             "#08A99B",
-            "Pedido caiu direto no Delivery. Avance o status para o cliente acompanhar no cardapio.",
+            isWhatsApp
+                ? "Pedido digitado por comando no WhatsApp. Ele entrou direto no Delivery."
+                : "Pedido caiu direto no Delivery. Avance o status para o cliente acompanhar no cardapio.",
             statusText);
 
         var itemLines = order.Lines
@@ -2603,11 +3016,11 @@ public partial class MainWindow : Window
             {
                 SectionTitle("Dados do pedido"),
                 OrderInfoGrid(
-                    ("Pedido online", $"{EmptyDash(order.ExternalDisplayId)} | ID {EmptyDash(order.ExternalOrderId)}", "#0B3A52", "#F8FBFD"),
+                    (isWhatsApp ? "Pedido WhatsApp" : "Pedido online", $"{EmptyDash(order.ExternalDisplayId)} | ID {EmptyDash(order.ExternalOrderId)}", "#0B3A52", "#F8FBFD"),
                     ("Cliente", order.CustomerName, "#071A2C", "#F8FBFD"),
                     ("Contato", order.Phone, "#0B3A52", "#FFFFFF"),
-                    ("Tipo", PublicMenuOrderTypeLabel(order.ExternalOrderType), "#08A99B", "#FFFFFF"),
-                    ("Endereco", order.Address, "#071A2C", "#F8FBFD"),
+                    ("Origem / tipo", $"{(isWhatsApp ? "WhatsApp" : "Cardapio")} | {PublicMenuOrderTypeLabel(order.ExternalOrderType)}", "#08A99B", "#FFFFFF"),
+                    ("Endereço", order.Address, "#071A2C", "#F8FBFD"),
                     ("Bairro / referencia", order.District, "#071A2C", "#F8FBFD"),
                     ("Observacao", order.Notes, "#5B6B7A", "#FFFFFF"),
                     ("Status", order.Status, "#08A99B", "#FFFFFF"))
@@ -2768,12 +3181,14 @@ public partial class MainWindow : Window
         {
             Debug.WriteLine($"Public menu order status sync failed: {order.ExternalOrderId} -> {order.Status}");
         }
+
+        QueuePublicMenuOrderWhatsAppStatusNotification(order);
     }
 
     private TableTile? FindPublicMenuOrder(string orderId)
     {
         return DeliveryTiles.FirstOrDefault(tile =>
-            string.Equals(tile.ExternalSource, "CARDAPIO_ONLINE", StringComparison.OrdinalIgnoreCase)
+            IsPublicMenuDeliveryBoard(tile)
             && string.Equals(tile.ExternalOrderId, orderId, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -2792,9 +3207,9 @@ public partial class MainWindow : Window
             Phone = order.CustomerPhone.Trim(),
             Address = order.Address.Trim(),
             District = string.IsNullOrWhiteSpace(order.District) ? order.Reference.Trim() : order.District.Trim(),
-            Detail = $"CARDAPIO {typeLabel}".Trim(),
+            Detail = $"{PublicMenuOrderSourceLabel(order.Source)} {typeLabel}".Trim(),
             Notes = BuildPublicMenuOrderNotes(order),
-            ExternalSource = "CARDAPIO_ONLINE",
+            ExternalSource = NormalizePublicMenuOrderSource(order.Source),
             ExternalOrderId = order.Id,
             ExternalDisplayId = ShortPublicMenuOrderId(order.Id),
             ExternalOrderType = order.OrderType,
@@ -2826,17 +3241,19 @@ public partial class MainWindow : Window
 
             if (product is not null)
             {
+                var stockReason = $"Pedido {PublicMenuOrderChannelLabel(tile)} {number}";
                 product.StockQuantity -= quantity;
                 product.SoldQuantity += quantity;
                 product.StockHistory.Add(new StockMovement
                 {
                     ProductCode = product.Code,
-                    Type = "CARDAPIO",
+                    Type = IsWhatsAppPublicMenuOrder(tile) ? "WHATSAPP" : "CARDAPIO",
                     Quantity = -quantity,
-                    Reason = $"Pedido cardapio {number}",
+                    Reason = stockReason,
                     When = DateTime.Now
                 });
-                QueueIFoodStockSync(product, $"Pedido cardapio {number}");
+                QueueIFoodStockSync(product, stockReason);
+                QueuePublicMenuPublish();
             }
         }
 
@@ -2876,7 +3293,7 @@ public partial class MainWindow : Window
 
         if (_appSettings.AutoPrintDelivery)
         {
-            _ = TryPrintTextToDefaultPrinter(BuildDeliveryPrintText(tile, tile.District, _appSettings.PrintLayout), $"Cardapio {tile.Number}", _appSettings.PrintLayout == "PEQUENO");
+            _ = TryPrintTextToDefaultPrinter(BuildDeliveryPrintText(tile, tile.District, _appSettings.PrintLayout), $"{PublicMenuOrderSourceLabel(tile.ExternalSource)} {tile.Number}", _appSettings.PrintLayout == "PEQUENO");
         }
 
         return tile;
@@ -2917,7 +3334,7 @@ public partial class MainWindow : Window
     {
         var lines = new List<string>
         {
-            $"Pedido cardapio online {ShortPublicMenuOrderId(order.Id)}",
+            $"{PublicMenuOrderSourceLabel(order.Source)} {ShortPublicMenuOrderId(order.Id)}",
             $"Tipo: {PublicMenuOrderTypeLabel(order.OrderType)}"
         };
 
@@ -2962,8 +3379,34 @@ public partial class MainWindow : Window
     private static bool IsPublicMenuDeliveryBoard(TableTile? order)
     {
         return order is not null
-            && string.Equals(order.ExternalSource, "CARDAPIO_ONLINE", StringComparison.OrdinalIgnoreCase)
+            && (string.Equals(order.ExternalSource, "CARDAPIO_ONLINE", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(order.ExternalSource, "WHATSAPP", StringComparison.OrdinalIgnoreCase))
             && !string.IsNullOrWhiteSpace(order.ExternalOrderId);
+    }
+
+    private static bool IsWhatsAppPublicMenuOrder(TableTile? order)
+    {
+        return order is not null
+            && string.Equals(order.ExternalSource, "WHATSAPP", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizePublicMenuOrderSource(string value)
+    {
+        return string.Equals(value, "WHATSAPP", StringComparison.OrdinalIgnoreCase)
+            ? "WHATSAPP"
+            : "CARDAPIO_ONLINE";
+    }
+
+    private static string PublicMenuOrderSourceLabel(string value)
+    {
+        return string.Equals(value, "WHATSAPP", StringComparison.OrdinalIgnoreCase)
+            ? "WHATSAPP"
+            : "CARDAPIO";
+    }
+
+    private static string PublicMenuOrderChannelLabel(TableTile? order)
+    {
+        return IsWhatsAppPublicMenuOrder(order) ? "WhatsApp" : "cardapio";
     }
 
     private Uri? BuildAdminApiUri(string path)
@@ -3045,9 +3488,11 @@ public partial class MainWindow : Window
             LicenseKey = NormalizeActivationKey(licenseKey),
             MachineHash = GetMachineFingerprint(),
             MachineCode = GetMachineCode(),
+            ClientKind = "windows-online",
             AppVersion = GetAppVersion(),
             LocalExpiresAt = expiresAt,
             LocalPlan = plan,
+            Environment = CreateAdminEnvironmentSnapshot("Balcao Livre PDV Online"),
             Profile = new AdminProfileSnapshot
             {
                 Email = _profile.Email,
@@ -3075,6 +3520,8 @@ public partial class MainWindow : Window
                 ReceiptQrContentPreview = MaskConfigValue(_appSettings.ReceiptQrContent),
                 AutoCheckUpdates = _appSettings.AutoCheckUpdates,
                 AdminSyncEnabled = _appSettings.AdminSyncEnabled,
+                WaiterBridgeLocalUrl = _waiterServer?.LocalUrl.Replace("/garcom", "", StringComparison.OrdinalIgnoreCase) ?? "",
+                WaiterBridgeNetworkUrl = _waiterServer?.NetworkUrl.Replace("/garcom", "", StringComparison.OrdinalIgnoreCase) ?? "",
                 SupabaseAuthEnabled = !string.IsNullOrWhiteSpace(_profile.Email),
                 SupabaseUrlConfigured = false,
                 SupabaseUserEmail = _profile.Email
@@ -3101,6 +3548,44 @@ public partial class MainWindow : Window
         }
 
         return $"{clean[..3]}***{clean[^3..]}";
+    }
+
+    private static AdminEnvironmentSnapshot CreateAdminEnvironmentSnapshot(string clientProduct)
+    {
+        var localIps = GetLocalIpAddresses();
+        var offset = TimeZoneInfo.Local.GetUtcOffset(DateTimeOffset.Now);
+        return new AdminEnvironmentSnapshot
+        {
+            ClientProduct = clientProduct,
+            MachineName = Environment.MachineName,
+            WindowsUser = Environment.UserName,
+            DomainName = Environment.UserDomainName,
+            OperatingSystem = RuntimeInformation.OSDescription,
+            OSArchitecture = RuntimeInformation.OSArchitecture.ToString(),
+            ProcessArchitecture = RuntimeInformation.ProcessArchitecture.ToString(),
+            PrimaryLocalIp = localIps.FirstOrDefault() ?? "",
+            LocalIpAddresses = localIps,
+            TimeZone = TimeZoneInfo.Local.Id,
+            UtcOffset = offset.ToString()
+        };
+    }
+
+    private static List<string> GetLocalIpAddresses()
+    {
+        try
+        {
+            return Dns.GetHostAddresses(Dns.GetHostName())
+                .Where(address => address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(address))
+                .Select(address => address.ToString())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(8)
+                .ToList();
+        }
+        catch (Exception ex) when (ex is SocketException or ArgumentException)
+        {
+            Debug.WriteLine($"Local IP capture failed: {ex.Message}");
+            return [];
+        }
     }
 
     private static bool IsReasonableEmail(string value)
@@ -3150,6 +3635,21 @@ public partial class MainWindow : Window
     {
         var clean = (value ?? "").Trim();
         return string.IsNullOrWhiteSpace(clean) ? fallback : clean;
+    }
+
+    private static string RemoveDiacritics(string value)
+    {
+        var normalized = (value ?? "").Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(normalized.Length);
+        foreach (var ch in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark)
+            {
+                builder.Append(ch);
+            }
+        }
+
+        return builder.ToString().Normalize(NormalizationForm.FormC);
     }
 
     private void ApplyRestaurantIdentity()
@@ -3293,6 +3793,7 @@ public partial class MainWindow : Window
         _ifoodSyncTimer.Stop();
         _licenseTimer.Stop();
         _toastTimer.Stop();
+        _customerCampaignTimer.Stop();
         _localBackupTimer.Stop();
 
         if (_waiterServer is not null)
@@ -3354,10 +3855,17 @@ public partial class MainWindow : Window
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (!_activationPromptOpen && !HasValidActivation())
+        {
+            e.Handled = true;
+            ShowLicenseUpgradeDialog("operar o PDV");
+            return;
+        }
+
+        var key = GetShortcutKey(e);
         if (key == Key.F9)
         {
-            ReceiveTicket();
+            TriggerReceiveShortcut("F9");
             e.Handled = true;
             return;
         }
@@ -3382,6 +3890,12 @@ public partial class MainWindow : Window
 
         if (TryDigit(e, out var digit))
         {
+            if (!RequireCashOpenForFront("digitar codigo de produto"))
+            {
+                e.Handled = true;
+                return;
+            }
+
             if (BlockIFoodDeliveryEdit("incluir produto"))
             {
                 e.Handled = true;
@@ -3428,7 +3942,10 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.F5:
-                CloseTicket();
+                if (RequireCashOpenForFront("fechar conta"))
+                {
+                    CloseTicket();
+                }
                 e.Handled = true;
                 break;
             case Key.F6:
@@ -3444,11 +3961,14 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.F8:
-                AddPrepayment();
+                if (RequireCashOpenForFront("receber antecipado"))
+                {
+                    AddPrepayment();
+                }
                 e.Handled = true;
                 break;
             case Key.F9:
-                ReceiveTicket();
+                TriggerReceiveShortcut("F9");
                 e.Handled = true;
                 break;
             case Key.Enter:
@@ -3517,6 +4037,28 @@ public partial class MainWindow : Window
         }
     }
 
+    private static Key GetShortcutKey(KeyEventArgs e)
+    {
+        return e.Key switch
+        {
+            Key.System => e.SystemKey,
+            Key.ImeProcessed => e.ImeProcessedKey,
+            Key.DeadCharProcessed => e.DeadCharProcessedKey,
+            _ => e.Key
+        };
+    }
+
+    private void TriggerReceiveShortcut(string source)
+    {
+        if (!RequireActiveLicense("receber pagamento"))
+        {
+            return;
+        }
+
+        SetStatus($"{source}: abrindo recebimento.");
+        ReceiveTicket();
+    }
+
     private bool TryHandleModeShortcut(Key key, bool focusedTextField)
     {
         var modifiers = Keyboard.Modifiers;
@@ -3540,6 +4082,11 @@ public partial class MainWindow : Window
             return false;
         }
 
+        if (!RequireCashOpenForFront($"trocar para {mode}"))
+        {
+            return true;
+        }
+
         ModeList.SelectedItem = mode;
         ModeList.ScrollIntoView(mode);
         SelectArea(KeyboardArea.Tables);
@@ -3561,6 +4108,13 @@ public partial class MainWindow : Window
 
     private void Window_PreviewTextInput(object sender, TextCompositionEventArgs e)
     {
+        if (!_activationPromptOpen && !HasValidActivation())
+        {
+            e.Handled = true;
+            ShowLicenseUpgradeDialog("digitar no PDV");
+            return;
+        }
+
         if (Keyboard.FocusedElement is TextBox || string.IsNullOrWhiteSpace(e.Text))
         {
             return;
@@ -3775,6 +4329,13 @@ public partial class MainWindow : Window
     {
         if (ModeList.SelectedItem is string mode)
         {
+            if (!IsCashOpen())
+            {
+                SetStatus("Caixa fechado. Comanda, balcao e delivery ficam pausados; use F10 para abrir ou BI para analisar o restaurante.");
+                RefreshCashClosedOperationalUi();
+                return;
+            }
+
             var previousBoard = CurrentBoard;
             SaveActiveTicketToCurrentBoard();
             FlushPendingKitchenPrintsForBoard(previousBoard);
@@ -3791,21 +4352,30 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!RequireActiveLicense($"abrir {action}"))
+        {
+            return;
+        }
+
         switch (action)
         {
             case "SearchProducts":
+                if (!RequireCashOpenForFront("buscar produtos")) return;
                 ShowProductSearchDialog();
                 break;
             case "TransferProducts":
+                if (!RequireCashOpenForFront("transferir comanda")) return;
                 ShowTransferDialog();
                 break;
             case "Discount":
+                if (!RequireCashOpenForFront("dar desconto")) return;
                 ShowDiscountDialog();
                 break;
             case "ChangeClient":
                 ShowClientDialog();
                 break;
             case "ReopenCommand":
+                if (!RequireCashOpenForFront("reabrir comanda")) return;
                 ReopenCurrentCommand(requireManagerApproval: true);
                 break;
             case "PeopleCount":
@@ -3820,10 +4390,17 @@ public partial class MainWindow : Window
             case "Cash":
                 ShowCashDialog();
                 break;
+            case "ReceivePayment":
+                TriggerReceiveShortcut("F9");
+                break;
+            case "Management":
+                ShowReportsDialog();
+                break;
             case "CloseCash":
                 ToggleCashRegister();
                 break;
             case "DeliveryNew":
+                if (!RequireCashOpenForFront("abrir delivery")) return;
                 ShowDeliveryOrderDialog();
                 break;
             case "DeliveryZones":
@@ -3860,11 +4437,26 @@ public partial class MainWindow : Window
 
     private void WhatsAppButton_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireActiveLicense("abrir WhatsApp"))
+        {
+            return;
+        }
+
         ShowWhatsAppDialog();
     }
 
     private async void OnlineStoreButton_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireActiveLicense("abrir loja online"))
+        {
+            return;
+        }
+
+        if (!RequireLicenseFeature(LicenseFeatureIFood, "iFood temporariamente indisponivel", "Estamos aguardando a aprovacao/homologacao do iFood para liberar a integracao nesta loja. Enquanto isso, use WhatsApp, cardapio online, Garcom Web e PDV normalmente."))
+        {
+            return;
+        }
+
         var ifood = _appSettings.IFood ??= new IFoodIntegrationSettings();
         if (!HasIFoodConnectionConfigured(ifood))
         {
@@ -3873,35 +4465,196 @@ public partial class MainWindow : Window
             return;
         }
 
-        var open = !_appSettings.PublicMenuStoreOpen;
-        _appSettings.PublicMenuStoreOpen = open;
-        ifood.Enabled = open;
-        SaveAppSettings();
-        SaveStore();
-        RefreshOnlineStoreButton();
-
-        if (open)
-        {
-            _ifoodSyncTimer.Start();
-            _ = AutoImportIFoodOrdersAsync(force: true);
-            _ = SyncIFoodPresenceOnceAsync();
-        }
-        else
-        {
-            _ifoodSyncTimer.Stop();
-        }
-
+        ApplyOnlineStoreScheduleState("abrir painel online");
+        ShowIFoodDialog();
         var result = await PublishGeneratedPublicMenuAsync(silent: true);
         RefreshOnlineStoreButton();
         if (!result.Ok)
         {
-            SetStatus($"Loja online {(open ? "ligada" : "desligada")} no PDV. Cardapio pendente: {result.Message}");
+            SetStatus($"Horario salvo no PDV. Cardapio pendente: {result.Message}");
             return;
         }
 
-        SetStatus(open
-            ? "Loja online ligada para iFood e cardapio."
-            : "Loja online desligada para iFood e cardapio.");
+        SetStatus(BuildOnlineStoreStatusText());
+    }
+
+    private bool CanReceiveOnlineOrdersNow()
+    {
+        return NormalizeOnlineStoreManualMode(_appSettings.OnlineStoreManualMode) switch
+        {
+            OnlineStoreModeOpen => true,
+            OnlineStoreModeClosed => false,
+            _ => !_appSettings.OnlineStoreScheduleEnabled || IsOnlineStoreOpenBySchedule(DateTime.Now)
+        };
+    }
+
+    private bool ApplyOnlineStoreScheduleState(string reason, bool forcePublish = false, bool persist = true)
+    {
+        NormalizeOnlineStoreScheduleSettings();
+        var shouldOpen = CanReceiveOnlineOrdersNow();
+        var changed = _appSettings.PublicMenuStoreOpen != shouldOpen;
+        _appSettings.PublicMenuStoreOpen = shouldOpen;
+
+        var ifood = _appSettings.IFood ??= new IFoodIntegrationSettings();
+        if (HasIFoodLicenseFeature() && HasIFoodConnectionConfigured(ifood))
+        {
+            ifood.Enabled = shouldOpen;
+        }
+
+        if (persist && (changed || forcePublish))
+        {
+            SaveAppSettings();
+            SaveStore();
+        }
+
+        if (shouldOpen && HasIFoodLicenseFeature() && HasIFoodConnectionConfigured(ifood))
+        {
+            _ifoodSyncTimer.Start();
+            if (changed || forcePublish)
+            {
+                QueueIFoodLocalCatalogSync(reason, force: true);
+                _ = AutoImportIFoodOrdersAsync(force: true);
+                _ = SyncIFoodPresenceOnceAsync();
+            }
+        }
+        else if (!shouldOpen)
+        {
+            _ifoodSyncTimer.Stop();
+        }
+
+        if (changed || forcePublish)
+        {
+            QueuePublicMenuPublish();
+        }
+
+        return shouldOpen;
+    }
+
+    private bool IsOnlineStoreOpenBySchedule(DateTime now)
+    {
+        var open = ParseOnlineStoreClock(_appSettings.OnlineStoreOpenTime, "00:00");
+        var close = ParseOnlineStoreClock(_appSettings.OnlineStoreCloseTime, "00:00");
+        if (open == close)
+        {
+            return true;
+        }
+
+        var current = now.TimeOfDay;
+        return open < close
+            ? current >= open && current < close
+            : current >= open || current < close;
+    }
+
+    private string BuildOnlineStoreStatusText()
+    {
+        var open = _appSettings.PublicMenuStoreOpen;
+        return NormalizeOnlineStoreManualMode(_appSettings.OnlineStoreManualMode) switch
+        {
+            OnlineStoreModeOpen => $"Loja online aberta manualmente. {BuildOnlineStoreScheduleText()}",
+            OnlineStoreModeClosed => $"Loja online fechada agora manualmente. {BuildOnlineStoreScheduleText()}",
+            _ => open
+                ? $"Loja online aberta para iFood e cardapio. {BuildOnlineStoreScheduleText()}"
+                : $"Loja online fechada pelo horario. {BuildOnlineStoreScheduleText()}"
+        };
+    }
+
+    private string BuildOnlineStoreScheduleText()
+    {
+        NormalizeOnlineStoreScheduleSettings();
+        if (!_appSettings.OnlineStoreScheduleEnabled)
+        {
+            return "Horario automatico desligado.";
+        }
+
+        var open = NormalizeClockText(_appSettings.OnlineStoreOpenTime, "00:00");
+        var close = NormalizeClockText(_appSettings.OnlineStoreCloseTime, "00:00");
+        return open == close
+            ? "Horario: 24 horas."
+            : $"Horario: {open} as {close}.";
+    }
+
+    private void NormalizeOnlineStoreScheduleSettings()
+    {
+        _appSettings.OnlineStoreManualMode = NormalizeOnlineStoreManualMode(_appSettings.OnlineStoreManualMode);
+        _appSettings.OnlineStoreOpenTime = NormalizeClockText(_appSettings.OnlineStoreOpenTime, "00:00");
+        _appSettings.OnlineStoreCloseTime = NormalizeClockText(_appSettings.OnlineStoreCloseTime, "00:00");
+    }
+
+    private static string NormalizeOnlineStoreManualMode(string? value)
+    {
+        var mode = (value ?? "").Trim().ToUpperInvariant();
+        return mode switch
+        {
+            OnlineStoreModeOpen => OnlineStoreModeOpen,
+            OnlineStoreModeClosed => OnlineStoreModeClosed,
+            _ => OnlineStoreModeAuto
+        };
+    }
+
+    private static string NormalizeClockText(string? value, string fallback)
+    {
+        var source = string.IsNullOrWhiteSpace(value) ? fallback : value;
+        var clock = ParseOnlineStoreClock(source, fallback);
+        return $"{(int)clock.TotalHours:00}:{clock.Minutes:00}";
+    }
+
+    private static TimeSpan ParseOnlineStoreClock(string? value, string fallback)
+    {
+        if (TryParseOnlineStoreClock(value, out var clock))
+        {
+            return clock;
+        }
+
+        return TryParseOnlineStoreClock(fallback, out clock) ? clock : TimeSpan.Zero;
+    }
+
+    private static bool TryParseOnlineStoreClock(string? value, out TimeSpan clock)
+    {
+        clock = TimeSpan.Zero;
+        var text = (value ?? "").Trim()
+            .Replace('h', ':')
+            .Replace('H', ':')
+            .Replace('.', ':')
+            .Replace(',', ':');
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        int hour;
+        int minute;
+        if (text.Contains(':', StringComparison.Ordinal))
+        {
+            var parts = text.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length != 2
+                || !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out hour)
+                || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out minute))
+            {
+                return false;
+            }
+        }
+        else if (text.Length is 3 or 4 && text.All(char.IsDigit))
+        {
+            var padded = text.PadLeft(4, '0');
+            hour = int.Parse(padded[..2], CultureInfo.InvariantCulture);
+            minute = int.Parse(padded[2..], CultureInfo.InvariantCulture);
+        }
+        else if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out hour))
+        {
+            return false;
+        }
+        else
+        {
+            minute = 0;
+        }
+
+        if (hour is < 0 or > 23 || minute is < 0 or > 59)
+        {
+            return false;
+        }
+
+        clock = new TimeSpan(hour, minute, 0);
+        return true;
     }
 
     private static bool HasIFoodConnectionConfigured(IFoodIntegrationSettings? settings)
@@ -3936,7 +4689,7 @@ public partial class MainWindow : Window
         }
 
         var open = _appSettings.PublicMenuStoreOpen;
-        OnlineStoreButtonText.Text = open ? "Loja online" : "Loja offline";
+        OnlineStoreButtonText.Text = open ? "Loja aberta" : "Loja fechada";
         OnlineStoreBadgeText.Text = open ? "ON" : "OFF";
         OnlineStoreButton.Background = Solid(open ? "#0B3A52" : "#A11D1D");
         OnlineStoreButton.BorderBrush = Solid(open ? "#0B3A52" : "#A11D1D");
@@ -3944,8 +4697,8 @@ public partial class MainWindow : Window
         OnlineStoreBadge.Background = Solid(open ? "#DFFBF8" : "#FFE2DF");
         OnlineStoreBadgeText.Foreground = Solid(open ? "#0B3A52" : "#A11D1D");
         OnlineStoreButton.ToolTip = open
-            ? "Clique para deixar iFood e cardapio offline"
-            : "Clique para deixar iFood e cardapio online";
+            ? $"Aberta agora. {BuildOnlineStoreScheduleText()} Clique para ajustar."
+            : $"Fechada agora. {BuildOnlineStoreScheduleText()} Clique para ajustar.";
     }
 
     private void SupportButton_Click(object sender, RoutedEventArgs e)
@@ -3953,9 +4706,951 @@ public partial class MainWindow : Window
         ShowSupportDialog();
     }
 
+    private void FloatingServiceButton_Click(object sender, RoutedEventArgs e)
+    {
+        ToggleFloatingServicePanel();
+    }
+
+    private void ToggleFloatingServicePanel()
+    {
+        if (FloatingServicePanel.Visibility == Visibility.Visible)
+        {
+            FloatingServicePanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        RenderFloatingServicePanel();
+        FloatingServicePanel.Visibility = Visibility.Visible;
+        ClearFloatingServiceNotifications();
+    }
+
+    private void HideFloatingServicePanel()
+    {
+        FloatingServicePanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void RegisterFloatingServiceNotification(string title, string detail)
+    {
+        _floatingServiceUnreadCount = Math.Min(99, _floatingServiceUnreadCount + 1);
+        RefreshFloatingServiceBadge();
+        PulseFloatingServiceButton();
+        ShowToast("Atendimento", string.IsNullOrWhiteSpace(detail) ? title : detail, "AT", "#08A99B", "#E6FBF8");
+    }
+
+    private void ClearFloatingServiceNotifications()
+    {
+        if (_floatingServiceUnreadCount == 0)
+        {
+            return;
+        }
+
+        _floatingServiceUnreadCount = 0;
+        RefreshFloatingServiceBadge();
+    }
+
+    private void RefreshFloatingServiceBadge()
+    {
+        if (FloatingServiceBadge is null || FloatingServiceBadgeText is null)
+        {
+            return;
+        }
+
+        FloatingServiceBadge.Visibility = _floatingServiceUnreadCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        FloatingServiceBadgeText.Text = _floatingServiceUnreadCount > 9 ? "9+" : _floatingServiceUnreadCount.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private void PulseFloatingServiceButton()
+    {
+        try
+        {
+            SystemSounds.Exclamation.Play();
+            if (FloatingServiceButton is null)
+            {
+                return;
+            }
+
+            var margin = FloatingServiceButton.Margin;
+            var animation = new ThicknessAnimation
+            {
+                From = new Thickness(margin.Left, margin.Top, margin.Right + 7, margin.Bottom),
+                To = margin,
+                Duration = TimeSpan.FromMilliseconds(90),
+                AutoReverse = true,
+                RepeatBehavior = new RepeatBehavior(3)
+            };
+            FloatingServiceButton.BeginAnimation(MarginProperty, animation);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private sealed class FloatingServiceActivity
+    {
+        public string Key { get; set; } = "";
+        public string Badge { get; set; } = "";
+        public string Source { get; set; } = "";
+        public string Title { get; set; } = "";
+        public string Subtitle { get; set; } = "";
+        public string Detail { get; set; } = "";
+        public string Accent { get; set; } = "#0B3A52";
+        public DateTime When { get; set; } = DateTime.Now;
+        public Action Open { get; set; } = () => { };
+    }
+
+    private void RenderFloatingServicePanel()
+    {
+        Button IconButton(string text, string tooltip, Action action)
+        {
+            var button = new Button
+            {
+                Content = text,
+                Width = 34,
+                Height = 34,
+                Background = Solid("#0B3A52"),
+                Foreground = Brushes.White,
+                BorderBrush = Solid("#255665"),
+                FontWeight = FontWeights.Bold,
+                Cursor = Cursors.Hand,
+                FocusVisualStyle = null,
+                ToolTip = tooltip,
+                Template = RoundedButtonTemplate()
+            };
+            button.Click += (_, _) => action();
+            return button;
+        }
+
+        Button ActionButton(string title, string detail, string badge, string accent, Action action)
+        {
+            var button = new Button
+            {
+                Background = Solid(accent),
+                BorderBrush = Solid(accent),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(12, 10, 12, 10),
+                Margin = new Thickness(0, 0, 0, 10),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Cursor = Cursors.Hand,
+                FocusVisualStyle = null,
+                Template = RoundedButtonTemplate()
+            };
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.Children.Add(new Border
+            {
+                Width = 34,
+                Height = 34,
+                CornerRadius = new CornerRadius(17),
+                Background = Solid("#FFFFFF"),
+                Opacity = 0.95,
+                Margin = new Thickness(0, 0, 10, 0),
+                Child = new TextBlock
+                {
+                    Text = badge,
+                    Foreground = Solid(accent),
+                    FontWeight = FontWeights.Black,
+                    FontSize = 11,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            });
+            var text = new StackPanel();
+            text.Children.Add(new TextBlock
+            {
+                Text = title,
+                Foreground = Brushes.White,
+                FontSize = 14,
+                FontWeight = FontWeights.Bold
+            });
+            text.Children.Add(new TextBlock
+            {
+                Text = detail,
+                Foreground = Solid("#D9F2F4"),
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 11,
+                Margin = new Thickness(0, 2, 0, 0)
+            });
+            Grid.SetColumn(text, 1);
+            grid.Children.Add(text);
+            button.Content = grid;
+            button.Click += (_, _) =>
+            {
+                HideFloatingServicePanel();
+                Dispatcher.BeginInvoke(action, DispatcherPriority.Background);
+            };
+            return button;
+        }
+
+        Button ActivityRow(FloatingServiceActivity activity)
+        {
+            var button = new Button
+            {
+                Background = Solid("#FFFFFF"),
+                BorderBrush = Solid("#D6E4F1"),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(11),
+                Margin = new Thickness(0, 0, 0, 8),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Cursor = Cursors.Hand,
+                FocusVisualStyle = null,
+                Template = RoundedButtonTemplate()
+            };
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var avatar = new Border
+            {
+                Width = 40,
+                Height = 40,
+                CornerRadius = new CornerRadius(20),
+                Background = Solid(activity.Accent),
+                Margin = new Thickness(0, 0, 10, 0),
+                Child = new TextBlock
+                {
+                    Text = activity.Badge,
+                    Foreground = Brushes.White,
+                    FontWeight = FontWeights.Black,
+                    FontSize = 11,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            };
+            grid.Children.Add(avatar);
+
+            var text = new StackPanel();
+            var titleLine = new Grid();
+            titleLine.ColumnDefinitions.Add(new ColumnDefinition());
+            titleLine.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            titleLine.Children.Add(new TextBlock
+            {
+                Text = activity.Title,
+                Foreground = Solid("#071A2C"),
+                FontSize = 14,
+                FontWeight = FontWeights.Bold,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            var time = new TextBlock
+            {
+                Text = activity.When.ToString("HH:mm", Brazil),
+                Foreground = Solid("#6A7A89"),
+                FontSize = 11,
+                Margin = new Thickness(8, 1, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(time, 1);
+            titleLine.Children.Add(time);
+            text.Children.Add(titleLine);
+            text.Children.Add(new TextBlock
+            {
+                Text = activity.Subtitle,
+                Foreground = Solid("#5B6B7A"),
+                TextWrapping = TextWrapping.Wrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxHeight = 36,
+                FontSize = 12,
+                Margin = new Thickness(0, 3, 0, 0)
+            });
+            text.Children.Add(new TextBlock
+            {
+                Text = activity.Detail,
+                Foreground = Solid(activity.Accent),
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 4, 0, 0)
+            });
+            Grid.SetColumn(text, 1);
+            grid.Children.Add(text);
+
+            var source = new Border
+            {
+                Background = Solid("#F1F7FA"),
+                CornerRadius = new CornerRadius(999),
+                Padding = new Thickness(7, 4, 7, 4),
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(8, 0, 0, 0),
+                Child = new TextBlock
+                {
+                    Text = activity.Source,
+                    Foreground = Solid("#0B3A52"),
+                    FontSize = 10,
+                    FontWeight = FontWeights.Bold
+                }
+            };
+            Grid.SetColumn(source, 2);
+            grid.Children.Add(source);
+
+            button.Content = grid;
+            button.Click += (_, _) => Dispatcher.BeginInvoke(activity.Open, DispatcherPriority.Background);
+            return button;
+        }
+
+        static string ShortText(string value, string fallback = "")
+        {
+            var clean = CompactSingleLine(value);
+            if (string.IsNullOrWhiteSpace(clean))
+            {
+                clean = fallback;
+            }
+
+            return clean.Length > 96 ? $"{clean[..93]}..." : clean;
+        }
+
+        string TimeDetail(DateTime when, string source)
+        {
+            return $"{when:dd/MM HH:mm} - {source}";
+        }
+
+        List<FloatingServiceActivity> BuildActivities(IReadOnlyList<EvolutionChatConversation>? liveChats = null)
+        {
+            var settings = GetWhatsAppSettings();
+            var map = new Dictionary<string, FloatingServiceActivity>(StringComparer.OrdinalIgnoreCase);
+
+            void Add(FloatingServiceActivity activity)
+            {
+                if (string.IsNullOrWhiteSpace(activity.Key))
+                {
+                    activity.Key = $"{activity.Source}:{activity.Title}:{activity.When:O}";
+                }
+
+                if (!map.TryGetValue(activity.Key, out var current) || activity.When >= current.When)
+                {
+                    map[activity.Key] = activity;
+                }
+            }
+
+            if (liveChats is not null)
+            {
+                foreach (var chat in liveChats.OrderByDescending(item => item.UpdatedAt).Take(20))
+                {
+                    var normalizedPhone = NormalizeWhatsAppPhone(chat.Phone, settings.DefaultCountryCode);
+                    if (string.IsNullOrWhiteSpace(normalizedPhone))
+                    {
+                        continue;
+                    }
+
+                    var name = string.IsNullOrWhiteSpace(chat.Name)
+                        ? FormatWhatsAppDisplayPhone(normalizedPhone)
+                        : chat.Name.Trim();
+                    var phone = normalizedPhone;
+                    Add(new FloatingServiceActivity
+                    {
+                        Key = $"WA:{phone}",
+                        Badge = BuildInitials(name),
+                        Source = "WA",
+                        Title = name,
+                        Subtitle = ShortText(chat.LastMessage, FormatWhatsAppDisplayPhone(phone)),
+                        Detail = TimeDetail(chat.UpdatedAt, "WhatsApp"),
+                        Accent = "#08A99B",
+                        When = chat.UpdatedAt,
+                        Open = () => RenderFloatingWhatsAppChatPanel(phone)
+                    });
+                }
+            }
+
+            foreach (var log in WhatsAppHistory
+                .Where(item => !string.IsNullOrWhiteSpace(item.Phone))
+                .GroupBy(item => NormalizeWhatsAppPhone(item.Phone, settings.DefaultCountryCode))
+                .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+                .Select(group => group.OrderByDescending(item => item.SentAt ?? item.OpenedAt ?? item.When).First())
+                .Take(20))
+            {
+                var phone = NormalizeWhatsAppPhone(log.Phone, settings.DefaultCountryCode);
+                var when = log.SentAt ?? log.OpenedAt ?? log.When;
+                var name = string.IsNullOrWhiteSpace(log.CustomerName)
+                    ? FormatWhatsAppDisplayPhone(phone)
+                    : log.CustomerName.Trim();
+                var incoming = string.Equals(log.Status, "RECEBIDA", StringComparison.OrdinalIgnoreCase);
+                Add(new FloatingServiceActivity
+                {
+                    Key = $"WA:{phone}",
+                    Badge = BuildInitials(name),
+                    Source = "WA",
+                    Title = name,
+                    Subtitle = incoming
+                        ? ShortText(log.Message, "Cliente mandou mensagem")
+                        : ShortText(log.Message, "Mensagem enviada pelo PDV"),
+                    Detail = TimeDetail(when, incoming ? "WhatsApp recebido" : "WhatsApp"),
+                    Accent = "#08A99B",
+                    When = when,
+                    Open = () => RenderFloatingWhatsAppChatPanel(phone)
+                });
+            }
+
+            foreach (var order in DeliveryTiles
+                .Where(IsIFoodOrder)
+                .OrderByDescending(DeliveryBoardTimeSort)
+                .Take(12))
+            {
+                var when = DeliveryBoardTimeSort(order);
+                var title = string.IsNullOrWhiteSpace(order.CustomerName)
+                    ? $"Pedido {EmptyDash(order.ExternalDisplayId)}"
+                    : order.CustomerName.Trim();
+                var status = NormalizeIFoodBoardStatus(order.Status);
+                var total = order.Total > 0 ? $" - {Money(order.Total)}" : "";
+                Add(new FloatingServiceActivity
+                {
+                    Key = $"IF:{order.ExternalOrderId}",
+                    Badge = "IF",
+                    Source = "IF",
+                    Title = title,
+                    Subtitle = ShortText($"{EmptyDash(order.ExternalDisplayId)} | {status}{total}"),
+                    Detail = TimeDetail(when, "iFood"),
+                    Accent = "#A86505",
+                    When = when,
+                    Open = () =>
+                    {
+                        HideFloatingServicePanel();
+                        OpenIFoodAttendance(order);
+                    }
+                });
+            }
+
+            return map.Values
+                .OrderByDescending(item => item.When)
+                .ThenBy(item => item.Source)
+                .Take(14)
+                .ToList();
+        }
+
+        var root = new DockPanel { LastChildFill = true };
+        var header = new Border
+        {
+            Background = Solid("#03151F"),
+            CornerRadius = new CornerRadius(18, 18, 0, 0),
+            Padding = new Thickness(16, 14, 12, 12)
+        };
+        var headerGrid = new Grid();
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.Children.Add(new Border
+        {
+            Width = 38,
+            Height = 38,
+            CornerRadius = new CornerRadius(19),
+            Background = Solid("#08A99B"),
+            Margin = new Thickness(0, 0, 10, 0),
+            Child = new TextBlock
+            {
+                Text = "AT",
+                Foreground = Solid("#03151F"),
+                FontWeight = FontWeights.Black,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+        var headerText = new StackPanel();
+        headerText.Children.Add(new TextBlock
+        {
+            Text = "Inbox de atendimento",
+            Foreground = Brushes.White,
+            FontSize = 17,
+            FontWeight = FontWeights.Bold
+        });
+        headerText.Children.Add(new TextBlock
+        {
+            Text = "Mais recentes primeiro",
+            Foreground = Solid("#BFD0DF"),
+            FontSize = 12,
+            Margin = new Thickness(0, 2, 0, 0)
+        });
+        Grid.SetColumn(headerText, 1);
+        headerGrid.Children.Add(headerText);
+        var close = IconButton("X", "Fechar atendimento", HideFloatingServicePanel);
+        Grid.SetColumn(close, 2);
+        headerGrid.Children.Add(close);
+        header.Child = headerGrid;
+        DockPanel.SetDock(header, Dock.Top);
+        root.Children.Add(header);
+
+        var body = new DockPanel { Margin = new Thickness(12, 12, 12, 10), LastChildFill = true };
+        var supportStatus = _lastSupportAdminMessageAt.HasValue
+            ? $"ultima resposta { _lastSupportAdminMessageAt.Value.ToLocalTime():dd/MM HH:mm}"
+            : "abrir chamado ou continuar conversa";
+        var supportButton = ActionButton("Suporte Balcao Livre", supportStatus, "SP", "#0B3A52", ShowSupportDialog);
+        DockPanel.SetDock(supportButton, Dock.Top);
+        body.Children.Add(supportButton);
+
+        var statusText = new TextBlock
+        {
+            Text = "Ordenado pelo horario da ultima mensagem.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 11,
+            Margin = new Thickness(2, 0, 2, 8),
+            TextWrapping = TextWrapping.Wrap
+        };
+        DockPanel.SetDock(statusText, Dock.Top);
+        body.Children.Add(statusText);
+
+        var activityStack = new StackPanel();
+        var scroll = new ScrollViewer
+        {
+            Content = activityStack,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            MaxHeight = 332
+        };
+        body.Children.Add(scroll);
+
+        void RenderActivities(IReadOnlyList<FloatingServiceActivity> activities, string statusMessage)
+        {
+            activityStack.Children.Clear();
+            statusText.Text = statusMessage;
+            if (activities.Count == 0)
+            {
+                activityStack.Children.Add(new Border
+                {
+                    Background = Solid("#F6FAFD"),
+                    BorderBrush = Solid("#D7E3EF"),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(12),
+                    Padding = new Thickness(16),
+                    Child = new TextBlock
+                    {
+                        Text = "Nenhuma mensagem recente. WhatsApp e iFood aparecem aqui assim que chegarem.",
+                        Foreground = Solid("#5B6B7A"),
+                        TextWrapping = TextWrapping.Wrap,
+                        TextAlignment = TextAlignment.Center
+                    }
+                });
+                return;
+            }
+
+            foreach (var activity in activities)
+            {
+                activityStack.Children.Add(ActivityRow(activity));
+            }
+        }
+
+        RenderActivities(BuildActivities(), "Mensagens recentes do PDV.");
+        root.Children.Add(body);
+        FloatingServicePanel.Child = root;
+
+        _ = Dispatcher.BeginInvoke(async () =>
+        {
+            var settings = GetWhatsAppSettings();
+            if (!IsEvolutionLocalWhatsApp(settings) || !TryValidateEvolutionLocalSettings(settings, out _))
+            {
+                return;
+            }
+
+            statusText.Text = "Atualizando conversas do WhatsApp...";
+            var chats = await FetchEvolutionLocalChatsAsync(settings);
+            if (FloatingServicePanel.Visibility == Visibility.Visible)
+            {
+                RenderActivities(BuildActivities(chats), "Atualizado em tempo real. Mais novo primeiro.");
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    private void RenderFloatingWhatsAppChatPanel(string phone)
+    {
+        var settings = GetWhatsAppSettings();
+        var normalizedPhone = NormalizeWhatsAppPhone(phone, settings.DefaultCountryCode);
+        if (string.IsNullOrWhiteSpace(normalizedPhone))
+        {
+            RenderFloatingServicePanel();
+            return;
+        }
+
+        EvolutionChatConversation selectedChat = new()
+        {
+            Phone = normalizedPhone,
+            Name = FormatWhatsAppDisplayPhone(normalizedPhone),
+            UpdatedAt = DateTime.Now
+        };
+        var lines = new List<EvolutionChatLine>();
+        var loadingMessages = false;
+
+        Button HeaderButton(string text, string tooltip, Action action)
+        {
+            var button = new Button
+            {
+                Content = text,
+                Width = 34,
+                Height = 34,
+                Background = Solid("#0B3A52"),
+                Foreground = Brushes.White,
+                BorderBrush = Solid("#255665"),
+                FontWeight = FontWeights.Bold,
+                Cursor = Cursors.Hand,
+                FocusVisualStyle = null,
+                ToolTip = tooltip,
+                Template = RoundedButtonTemplate()
+            };
+            button.Click += (_, _) => action();
+            return button;
+        }
+
+        var root = new DockPanel { LastChildFill = true };
+        var header = new Border
+        {
+            Background = Solid("#03151F"),
+            CornerRadius = new CornerRadius(18, 18, 0, 0),
+            Padding = new Thickness(12, 12, 12, 11)
+        };
+        var headerGrid = new Grid();
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var back = HeaderButton("<", "Voltar para inbox", () =>
+        {
+            SetWhatsAppManualChat(normalizedPhone, false);
+            RenderFloatingServicePanel();
+        });
+        headerGrid.Children.Add(back);
+
+        var titleStack = new StackPanel { Margin = new Thickness(10, 0, 8, 0) };
+        var title = new TextBlock
+        {
+            Text = selectedChat.Name,
+            Foreground = Brushes.White,
+            FontSize = 15,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        var subtitle = new TextBlock
+        {
+            Text = FormatWhatsAppDisplayPhone(normalizedPhone),
+            Foreground = Solid("#BFD0DF"),
+            FontSize = 11,
+            Margin = new Thickness(0, 2, 0, 0)
+        };
+        titleStack.Children.Add(title);
+        titleStack.Children.Add(subtitle);
+        Grid.SetColumn(titleStack, 1);
+        headerGrid.Children.Add(titleStack);
+
+        var close = HeaderButton("X", "Fechar atendimento", () =>
+        {
+            SetWhatsAppManualChat(normalizedPhone, false);
+            HideFloatingServicePanel();
+        });
+        Grid.SetColumn(close, 2);
+        headerGrid.Children.Add(close);
+        header.Child = headerGrid;
+        DockPanel.SetDock(header, Dock.Top);
+        root.Children.Add(header);
+
+        var status = new TextBlock
+        {
+            Text = "Carregando conversa...",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(14, 10, 14, 8)
+        };
+        DockPanel.SetDock(status, Dock.Top);
+        root.Children.Add(status);
+
+        var messageStack = new StackPanel { Margin = new Thickness(12, 8, 12, 8) };
+        var messageScroll = new ScrollViewer
+        {
+            Content = messageStack,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Background = Solid("#F6FAFD"),
+            MaxHeight = 330
+        };
+
+        var input = new TextBox
+        {
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            MinHeight = 42,
+            MaxHeight = 78,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(2),
+            FontSize = 14,
+            Foreground = Solid("#071A2C")
+        };
+        var send = DialogButton("Enviar", "#08A99B");
+        send.MinWidth = 78;
+        send.Height = 50;
+
+        var composer = new Grid { Margin = new Thickness(12, 8, 12, 12) };
+        composer.ColumnDefinitions.Add(new ColumnDefinition());
+        composer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var inputShell = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#BFD0DF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 0, 8, 0),
+            Child = input
+        };
+        composer.Children.Add(inputShell);
+        Grid.SetColumn(send, 1);
+        composer.Children.Add(send);
+        DockPanel.SetDock(composer, Dock.Bottom);
+        root.Children.Add(composer);
+        root.Children.Add(messageScroll);
+
+        void RenderFallbackFromHistory()
+        {
+            lines.Clear();
+            var historyLines = WhatsAppHistory
+                .Where(item => PhoneMatchesBot(NormalizeWhatsAppPhone(item.Phone, settings.DefaultCountryCode), normalizedPhone))
+                .OrderBy(item => item.SentAt ?? item.OpenedAt ?? item.When)
+                .TakeLast(80)
+                .Select(item => new EvolutionChatLine
+                {
+                    Id = $"history:{item.Id}",
+                    Text = item.Message,
+                    When = item.SentAt ?? item.OpenedAt ?? item.When,
+                    FromMe = !string.Equals(item.Status, "RECEBIDA", StringComparison.OrdinalIgnoreCase)
+                })
+                .ToList();
+            lines.AddRange(historyLines);
+        }
+
+        void RenderMessages()
+        {
+            messageStack.Children.Clear();
+            if (lines.Count == 0)
+            {
+                messageStack.Children.Add(new TextBlock
+                {
+                    Text = "Nenhuma mensagem carregada ainda.",
+                    Foreground = Solid("#5B6B7A"),
+                    TextAlignment = TextAlignment.Center,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(20, 110, 20, 0)
+                });
+                return;
+            }
+
+            foreach (var line in lines.OrderBy(item => item.When))
+            {
+                var bubble = new Border
+                {
+                    Background = Solid(line.FromMe ? "#DCFCE7" : "#FFFFFF"),
+                    BorderBrush = Solid(line.FromMe ? "#A7E6BE" : "#D7E3EF"),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(14),
+                    Padding = new Thickness(11, 8, 11, 7),
+                    Margin = new Thickness(line.FromMe ? 42 : 0, 0, line.FromMe ? 0 : 42, 8),
+                    HorizontalAlignment = line.FromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+                    MaxWidth = 330,
+                    Child = new StackPanel
+                    {
+                        Children =
+                        {
+                            new TextBlock
+                            {
+                                Text = line.Text,
+                                Foreground = Solid("#071A2C"),
+                                FontSize = 13,
+                                TextWrapping = TextWrapping.Wrap
+                            },
+                            new TextBlock
+                            {
+                                Text = $"{(line.FromMe ? "Voce" : "Cliente")} {line.When:HH:mm}",
+                                Foreground = Solid("#6A7A89"),
+                                FontSize = 10,
+                                HorizontalAlignment = HorizontalAlignment.Right,
+                                Margin = new Thickness(0, 4, 0, 0)
+                            }
+                        }
+                    }
+                };
+                messageStack.Children.Add(bubble);
+            }
+        }
+
+        async Task LoadChatAsync(bool silent = false)
+        {
+            if (loadingMessages)
+            {
+                return;
+            }
+
+            loadingMessages = true;
+            if (!silent)
+            {
+                status.Text = "Carregando conversa...";
+                status.Foreground = Solid("#5B6B7A");
+            }
+
+            try
+            {
+                SetWhatsAppManualChat(normalizedPhone, true);
+                var chats = await FetchEvolutionLocalChatsAsync(settings);
+                var freshChat = chats.FirstOrDefault(item => PhoneMatchesBot(item.Phone, normalizedPhone));
+                if (freshChat is not null)
+                {
+                    selectedChat = freshChat;
+                    title.Text = string.IsNullOrWhiteSpace(freshChat.Name) ? FormatWhatsAppDisplayPhone(normalizedPhone) : freshChat.Name.Trim();
+                    subtitle.Text = FormatWhatsAppDisplayPhone(freshChat.Phone);
+                }
+
+                var messages = await FetchEvolutionLocalChatMessagesAsync(settings, selectedChat);
+                if (messages.Count > 0)
+                {
+                    var localPending = lines
+                        .Where(item => item.Id.StartsWith("local:", StringComparison.Ordinal))
+                        .ToList();
+                    lines.Clear();
+                    lines.AddRange(messages
+                        .OrderBy(item => item.When)
+                        .TakeLast(100)
+                        .Select(item => new EvolutionChatLine
+                        {
+                            Id = item.Id,
+                            Text = item.Text,
+                            When = item.When,
+                            FromMe = item.FromMe
+                        }));
+                    foreach (var pending in localPending)
+                    {
+                        if (!lines.Any(item => item.FromMe
+                                               && string.Equals(item.Text, pending.Text, StringComparison.Ordinal)
+                                               && Math.Abs((item.When - pending.When).TotalMinutes) <= 3))
+                        {
+                            lines.Add(pending);
+                        }
+                    }
+                }
+                else if (lines.Count == 0)
+                {
+                    RenderFallbackFromHistory();
+                }
+
+                status.Text = "Modo manual ativo nesta conversa. Enter envia.";
+                status.Foreground = GreenText;
+                RenderMessages();
+                await Dispatcher.InvokeAsync(() => messageScroll.ScrollToEnd(), DispatcherPriority.Background);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+            {
+                if (lines.Count == 0)
+                {
+                    RenderFallbackFromHistory();
+                    RenderMessages();
+                }
+
+                status.Text = $"Nao consegui atualizar agora: {ex.Message}";
+                status.Foreground = RedText;
+            }
+            finally
+            {
+                loadingMessages = false;
+            }
+        }
+
+        async Task SendAsync()
+        {
+            var text = input.Text.Trim();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                input.Focus();
+                return;
+            }
+
+            send.IsEnabled = false;
+            status.Text = "Enviando...";
+            status.Foreground = Solid("#5B6B7A");
+            var result = await SendEvolutionLocalTextAsync(settings, normalizedPhone, text);
+            send.IsEnabled = true;
+            if (!result.Ok)
+            {
+                status.Text = result.Message;
+                status.Foreground = RedText;
+                return;
+            }
+
+            input.Clear();
+            lines.Add(new EvolutionChatLine
+            {
+                Id = $"local:{Guid.NewGuid():N}",
+                Text = text,
+                When = DateTime.Now,
+                FromMe = true
+            });
+            RenderMessages();
+            await Dispatcher.InvokeAsync(() => messageScroll.ScrollToEnd(), DispatcherPriority.Background);
+            status.Text = "Mensagem enviada.";
+            status.Foreground = GreenText;
+        }
+
+        input.PreviewKeyDown += async (_, e) =>
+        {
+            if (e.Key != System.Windows.Input.Key.Enter || System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Shift)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            await SendAsync();
+        };
+        send.Click += async (_, _) => await SendAsync();
+
+        RenderFallbackFromHistory();
+        RenderMessages();
+        FloatingServicePanel.Child = root;
+        FloatingServicePanel.Visibility = Visibility.Visible;
+        _ = Dispatcher.BeginInvoke(async () => await LoadChatAsync(), DispatcherPriority.Background);
+
+        var refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        refreshTimer.Tick += async (_, _) =>
+        {
+            if (FloatingServicePanel.Visibility != Visibility.Visible || !ReferenceEquals(FloatingServicePanel.Child, root))
+            {
+                refreshTimer.Stop();
+                SetWhatsAppManualChat(normalizedPhone, false);
+                return;
+            }
+
+            await LoadChatAsync(silent: true);
+        };
+        refreshTimer.Start();
+    }
+
+    private void OpenIFoodAttendance(TableTile? preferredOrder = null)
+    {
+        var order = preferredOrder is not null && IsIFoodOrder(preferredOrder)
+            ? preferredOrder
+            : CurrentBoard is not null && IsIFoodOrder(CurrentBoard)
+            ? CurrentBoard
+            : DeliveryTiles
+                .Where(item => IsIFoodOrder(item) && !IsFinalIFoodStatus(item.Status))
+                .OrderByDescending(item => item.ExternalCreatedAt ?? item.CreatedAt)
+                .FirstOrDefault()
+              ?? DeliveryTiles
+                .Where(IsIFoodOrder)
+                .OrderByDescending(item => item.ExternalCreatedAt ?? item.CreatedAt)
+                .FirstOrDefault();
+
+        if (order is null)
+        {
+            ShowIFoodDialog();
+            return;
+        }
+
+        ModeList.SelectedItem = "Delivery";
+        RefreshBoardForMode();
+        var index = BoardTiles.IndexOf(order);
+        if (index >= 0)
+        {
+            SelectTable(index, saveCurrent: false);
+        }
+
+        ShowIFoodOrderActionDialog(order, isNewOrder: false);
+    }
+
     private void ShowSupportDialog()
     {
-        var dialog = CreateDialog("Suporte online", 680, 600);
+        var dialog = CreateDialog("Suporte online", 900, 680);
         var categoryBox = new ComboBox
         {
             ItemsSource = new[]
@@ -3976,29 +5671,34 @@ public partial class MainWindow : Window
         };
         var messageBox = new TextBox
         {
-            MinHeight = 74,
+            Height = double.NaN,
+            MinHeight = 54,
+            MaxHeight = 112,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(2),
+            FontSize = 15
         };
         var messagesPanel = new StackPanel();
         var messagesScroll = new ScrollViewer
         {
             Content = messagesPanel,
-            Height = 220,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Background = Brushes.Transparent,
-            Padding = new Thickness(0, 0, 4, 0)
+            Background = Solid("#F7FBFD"),
+            Padding = new Thickness(4, 4, 8, 4)
         };
         var chatFrame = new Border
         {
-            Background = Brushes.White,
-            BorderBrush = Solid("#CAD6E2"),
+            Background = Solid("#F7FBFD"),
+            BorderBrush = Solid("#D6E4F1"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(12),
-            Margin = new Thickness(0, 10, 0, 10),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(10),
+            Margin = new Thickness(18, 0, 18, 12),
             Child = messagesScroll
         };
         var status = new TextBlock
@@ -4036,23 +5736,25 @@ public partial class MainWindow : Window
         Border Bubble(string sender, string message, DateTimeOffset when)
         {
             var isAdmin = string.Equals(sender, "admin", StringComparison.OrdinalIgnoreCase);
+            var name = isAdmin ? "Suporte Balcao Livre" : "Voce";
             return new Border
             {
-                Background = Solid(isAdmin ? "#EAF8FA" : "#E6FBF8"),
-                BorderBrush = Solid(isAdmin ? "#C9D8E7" : "#BDE5DD"),
+                Background = Solid(isAdmin ? "#FFFFFF" : "#E6FBF8"),
+                BorderBrush = Solid(isAdmin ? "#D6E4F1" : "#BDE5DD"),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(10),
-                Padding = new Thickness(12, 9, 12, 9),
-                Margin = new Thickness(isAdmin ? 0 : 78, 0, isAdmin ? 78 : 0, 9),
-                HorizontalAlignment = HorizontalAlignment.Stretch,
+                CornerRadius = new CornerRadius(14),
+                Padding = new Thickness(13, 10, 13, 9),
+                Margin = new Thickness(isAdmin ? 0 : 110, 0, isAdmin ? 110 : 0, 10),
+                HorizontalAlignment = isAdmin ? HorizontalAlignment.Left : HorizontalAlignment.Right,
+                MaxWidth = 610,
                 Child = new StackPanel
                 {
                     Children =
                     {
                         new TextBlock
                         {
-                            Text = isAdmin ? "Suporte" : "Voce",
-                            Foreground = Solid(isAdmin ? "#0B3A52" : "#08A99B"),
+                            Text = name,
+                            Foreground = Solid(isAdmin ? "#0B3A52" : "#067E76"),
                             FontWeight = FontWeights.Bold,
                             FontSize = 12
                         },
@@ -4068,7 +5770,8 @@ public partial class MainWindow : Window
                             Text = when.ToLocalTime().ToString("dd/MM HH:mm", Brazil),
                             Foreground = Solid("#5B6B7A"),
                             FontSize = 11,
-                            Margin = new Thickness(0, 5, 0, 0)
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            Margin = new Thickness(0, 6, 0, 0)
                         }
                     }
                 }
@@ -4084,40 +5787,44 @@ public partial class MainWindow : Window
                 newTicketFields.Visibility = Visibility.Visible;
                 messagesPanel.Children.Add(new Border
                 {
-                    Background = Solid("#F8FBFD"),
-                    BorderBrush = Solid("#E3EBF2"),
+                    Background = Brushes.White,
+                    BorderBrush = Solid("#D6E4F1"),
                     BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(10),
-                    Padding = new Thickness(16),
+                    CornerRadius = new CornerRadius(16),
+                    Padding = new Thickness(28),
                     HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(40, 70, 40, 0),
                     Child = new StackPanel
                     {
                         Children =
                         {
                             new TextBlock
                             {
-                                Text = "Nenhuma conversa aberta",
+                                Text = "Abra uma conversa com o suporte",
                                 Foreground = Solid("#071A2C"),
                                 FontWeight = FontWeights.Bold,
-                                FontSize = 14
+                                FontSize = 22,
+                                TextAlignment = TextAlignment.Center
                             },
                             new TextBlock
                             {
-                                Text = "Digite sua mensagem para iniciar o atendimento.",
+                                Text = "Escreva a mensagem abaixo. O admin recebe em tempo real e a resposta aparece aqui automaticamente.",
                                 Foreground = Solid("#5B6B7A"),
                                 TextWrapping = TextWrapping.Wrap,
-                                Margin = new Thickness(0, 4, 0, 0)
+                                TextAlignment = TextAlignment.Center,
+                                Margin = new Thickness(0, 8, 0, 0)
                             }
                         }
                     }
                 });
-                status.Text = "Digite a mensagem. A conversa aparece para o admin responder em tempo real.";
+                status.Text = "Pronto para abrir atendimento.";
                 status.Foreground = Solid("#5B6B7A");
                 return;
             }
 
             activeTicketId = string.IsNullOrWhiteSpace(ticket.ShortId) ? ticket.Id : ticket.ShortId;
-            newTicketFields.Visibility = ticket.Status == "RESOLVIDO" ? Visibility.Visible : Visibility.Collapsed;
+            newTicketFields.Visibility = Visibility.Visible;
             IEnumerable<AdminSupportMessageSnapshot> messages = ticket.Messages.Count > 0
                 ? ticket.Messages
                 : new[] { new AdminSupportMessageSnapshot { Sender = "cliente", Message = ticket.Message, When = ticket.CreatedAt } };
@@ -4217,25 +5924,107 @@ public partial class MainWindow : Window
             SetStatus(status.Text);
         };
 
-        var panel = DialogPanel();
-        panel.Margin = new Thickness(18, 14, 18, 14);
         newTicketFields.Children.Add(SupportTwoColumns(DialogField("Assunto", categoryBox), DialogField("Prioridade", priorityBox)));
-        panel.Children.Add(newTicketFields);
-        panel.Children.Add(chatFrame);
-        panel.Children.Add(DialogField("Mensagem", messageBox));
-        var footer = new Grid { Margin = new Thickness(0, 2, 0, 0) };
+        var root = new Grid { Background = Solid("#EEF6FA") };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var header = new Border
+        {
+            Background = Solid("#03151F"),
+            BorderBrush = Solid("#0B3A52"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(18),
+            Margin = new Thickness(18, 18, 18, 12)
+        };
+        var headerGrid = new Grid();
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(315) });
+        headerGrid.Children.Add(new StackPanel
+        {
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Suporte Balcao Livre",
+                    Foreground = Brushes.White,
+                    FontSize = 24,
+                    FontWeight = FontWeights.Bold
+                },
+                new TextBlock
+                {
+                    Text = "Conversa em tempo real com o admin. Responda por aqui sem sair do PDV.",
+                    Foreground = Solid("#DDEBFA"),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 5, 18, 0)
+                }
+            }
+        });
+        var ticketBox = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#D6E4F1"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12, 8, 12, 0),
+            Child = newTicketFields
+        };
+        Grid.SetColumn(ticketBox, 1);
+        headerGrid.Children.Add(ticketBox);
+        header.Child = headerGrid;
+        root.Children.Add(header);
+
+        Grid.SetRow(chatFrame, 1);
+        root.Children.Add(chatFrame);
+
+        var footer = new Grid { Margin = new Thickness(18, 0, 18, 18) };
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var inputShell = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#BFD1E2"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(12, 10, 12, 10),
+            Margin = new Thickness(0, 0, 12, 0),
+            Child = messageBox
+        };
+        footer.Children.Add(inputShell);
+        send.Content = "Enviar";
+        send.Height = 76;
+        send.MinWidth = 148;
+        send.Margin = new Thickness(0);
         status.VerticalAlignment = VerticalAlignment.Center;
-        status.Margin = new Thickness(0, 12, 12, 0);
-        footer.Children.Add(status);
         Grid.SetColumn(send, 1);
         footer.Children.Add(send);
-        panel.Children.Add(footer);
+
+        var bottom = new DockPanel { LastChildFill = true };
+        status.Margin = new Thickness(18, 0, 18, 10);
+        DockPanel.SetDock(status, Dock.Top);
+        bottom.Children.Add(status);
+        bottom.Children.Add(footer);
+        Grid.SetRow(bottom, 2);
+        root.Children.Add(bottom);
+
+        messageBox.PreviewKeyDown += async (_, e) =>
+        {
+            if (e.Key != System.Windows.Input.Key.Enter || System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Shift)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            send.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Task.CompletedTask;
+        };
+
         var supportDialogTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
         supportDialogTimer.Tick += async (_, _) => await RefreshSupport(true);
         dialog.Closed += (_, _) => supportDialogTimer.Stop();
-        dialog.Content = panel;
+        dialog.Content = root;
         _ = Dispatcher.BeginInvoke(async () =>
         {
             await RefreshSupport(false);
@@ -4300,6 +6089,16 @@ public partial class MainWindow : Window
         var waitMaxBox = new TextBox
         {
             Text = Math.Max(_appSettings.PublicMenuWaitMinMinutes, _appSettings.PublicMenuWaitMaxMinutes).ToString(Brazil),
+            MinHeight = 38
+        };
+        var storeOpenTimeBox = new TextBox
+        {
+            Text = NormalizeClockText(_appSettings.OnlineStoreOpenTime, "00:00"),
+            MinHeight = 38
+        };
+        var storeCloseTimeBox = new TextBox
+        {
+            Text = NormalizeClockText(_appSettings.OnlineStoreCloseTime, "00:00"),
             MinHeight = 38
         };
         var ifoodSoundPath = _appSettings.IFoodAlertSoundPath;
@@ -4369,7 +6168,7 @@ public partial class MainWindow : Window
         };
         var qrHint = new TextBlock
         {
-            Text = "Pix aceita chave normal da loja (CPF/CNPJ, email, telefone ou chave aleatoria) ou Pix copia-e-cola do banco. Se for telefone, pode digitar com DDD que o PDV monta no formato do Pix. Se ficar vazio, imprime um QR simples com dados da loja e total.",
+            Text = "Pix aceita chave normal da loja (CPF/CNPJ, email, telefone ou chave aleatoria) ou Pix copia-e-cola do banco. Se for telefone, pode digitar com DDD que o PDV monta no formato do Pix. Se o Pix ficar vazio, o comprovante sai sem QR.",
             Foreground = Solid("#5B6B7A"),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
@@ -4652,6 +6451,7 @@ public partial class MainWindow : Window
                         .GroupBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
                         .Select(group => group.First())
                         .ToList();
+                    var keepTerminalStatus = false;
                     if (!string.IsNullOrWhiteSpace(mp.DefaultTerminalId)
                         && list.All(item => !string.Equals(item.Id, mp.DefaultTerminalId, StringComparison.OrdinalIgnoreCase)))
                     {
@@ -4662,6 +6462,47 @@ public partial class MainWindow : Window
                                 ? mp.DefaultTerminalId
                                 : mp.DefaultTerminalLabel
                         });
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(terminals.SelectedTerminalId))
+                    {
+                        mp.DefaultTerminalId = terminals.SelectedTerminalId.Trim();
+                        mp.DefaultTerminalLabel = string.IsNullOrWhiteSpace(terminals.SelectedTerminalLabel)
+                            ? terminals.SelectedTerminalId.Trim()
+                            : terminals.SelectedTerminalLabel.Trim();
+                        mp.LastError = "";
+                        mp.LastSyncAt = DateTime.Now;
+                        if (list.All(item => !string.Equals(item.Id, mp.DefaultTerminalId, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            list.Insert(0, new AdminMercadoPagoTerminalDto
+                            {
+                                Id = mp.DefaultTerminalId,
+                                Label = mp.DefaultTerminalLabel
+                            });
+                        }
+                    }
+                    else if (string.IsNullOrWhiteSpace(mp.DefaultTerminalId) && list.Count == 1)
+                    {
+                        var onlyTerminal = list[0];
+                        var selected = await SelectMercadoPagoTerminalAsync(onlyTerminal.Id, onlyTerminal.Display);
+                        if (selected.Ok)
+                        {
+                            mp.DefaultTerminalId = onlyTerminal.Id;
+                            mp.DefaultTerminalLabel = onlyTerminal.Display.Contains("(PDV)", StringComparison.OrdinalIgnoreCase)
+                                ? onlyTerminal.Display
+                                : $"{onlyTerminal.Display} (PDV)";
+                            mp.LastError = "";
+                            mp.LastSyncAt = DateTime.Now;
+                            status.Foreground = GreenText;
+                            status.Text = $"Point selecionada automaticamente: {mp.DefaultTerminalLabel}.";
+                        }
+                        else
+                        {
+                            mp.LastError = TextOrDefault(selected.Message, "Nao consegui selecionar a Point automaticamente.");
+                            status.Foreground = Solid("#99620D");
+                            status.Text = mp.LastError;
+                            keepTerminalStatus = true;
+                        }
                     }
 
                     mpTerminalBox.ItemsSource = null;
@@ -4678,9 +6519,14 @@ public partial class MainWindow : Window
                     }
                     else
                     {
-                        mp.LastError = "";
-                        status.Foreground = GreenText;
-                        status.Text = "Maquininhas Mercado Pago atualizadas. No F9, cartao vai direto para a Point; Pix usa QR/link.";
+                        if (!keepTerminalStatus)
+                        {
+                            mp.LastError = "";
+                            status.Foreground = GreenText;
+                            status.Text = string.IsNullOrWhiteSpace(mp.DefaultTerminalId)
+                                ? "Escolha a Point da loja e clique em Salvar Point para cobrar cartao no F9."
+                                : "Maquininha Mercado Pago pronta. No F9, cartao vai direto para a Point; Pix usa QR/link.";
+                        }
                     }
                 }
                 else
@@ -5768,14 +7614,34 @@ public partial class MainWindow : Window
             syncAccount.IsEnabled = false;
             try
             {
-                if (await SendAdminCheckInAsync(payload))
+                var result = await SendAdminCheckInAsync(payload);
+                if (result?.Ok == true)
                 {
+                    if (!string.IsNullOrWhiteSpace(result.Plan))
+                    {
+                        _appSettings.ActivationPlan = result.Plan;
+                    }
+
+                    if (result.ExpiresAt.HasValue)
+                    {
+                        _appSettings.ActivationExpiresAt = result.ExpiresAt.Value;
+                    }
+
+                    _appSettings.ActivationFeatures = NormalizeLicenseFeatures(result.Features, _appSettings.ActivationPlan);
                     _appSettings.LastAdminSyncAt = DateTime.Now;
                     SaveAppSettings();
                     ApplyRestaurantIdentity();
                     licenseText.Text = BuildActivationSummary();
                     status.Foreground = GreenText;
                     status.Text = "Conta sincronizada. Seus acessos usam estes dados da loja.";
+                }
+                else if (result is not null && IsLicenseServerBlockMessage(result.Message))
+                {
+                    _appSettings.ActivationCompleted = false;
+                    SaveAppSettings();
+                    status.Foreground = RedText;
+                    status.Text = result.Message;
+                    ShowLicenseUpgradeDialog(result.Message);
                 }
                 else
                 {
@@ -5858,6 +7724,10 @@ public partial class MainWindow : Window
             var waitMax = Math.Max(waitMin, ParseInt(waitMaxBox.Text, _appSettings.PublicMenuWaitMaxMinutes <= 0 ? 60 : _appSettings.PublicMenuWaitMaxMinutes));
             _appSettings.PublicMenuWaitMinMinutes = waitMin;
             _appSettings.PublicMenuWaitMaxMinutes = waitMax;
+            _appSettings.OnlineStoreScheduleEnabled = true;
+            _appSettings.OnlineStoreOpenTime = NormalizeClockText(storeOpenTimeBox.Text, _appSettings.OnlineStoreOpenTime);
+            _appSettings.OnlineStoreCloseTime = NormalizeClockText(storeCloseTimeBox.Text, _appSettings.OnlineStoreCloseTime);
+            ApplyOnlineStoreScheduleState("horario salvo", forcePublish: true, persist: false);
             _appSettings.NotificationSoundEnabled = false;
             _appSettings.NotificationSound = "NENHUM";
             _appSettings.IFoodAlertSoundPath = ifoodSoundPath;
@@ -6119,17 +7989,18 @@ public partial class MainWindow : Window
             "Empresa",
             "Dados usados em recibos, cardapio online, impressao e integracoes.",
             TwoColumnFields(("Email da conta", emailBox), ("Responsavel", ownerBox)),
-            TwoColumnFields(("Nome fantasia", businessBox), ("Razao social", legalBox)),
+            TwoColumnFields(("Nome fantasia", businessBox), ("Razão social", legalBox)),
             TwoColumnFields(("CPF/CNPJ", cnpjBox), ("Telefone", phoneBox)),
             TwoColumnFields(("Cidade", cityBox), ("UF", stateBox)),
-            DialogField("Endereco", addressBox));
+            DialogField("Endereço", addressBox));
 
         var mediaCard = SettingsCard(
             "Marca e cardapio",
             "Visual da loja, tempo exibido no cardapio e alerta sonoro de pedido.",
             ActionRow("Foto/logo", logoText, chooseLogo),
             ActionRow("Imagem de capa do cardapio", coverText, chooseCover),
-            MutedText("O botao Loja online no topo liga/desliga o cardapio e o recebimento iFood. O tempo abaixo aparece no topo do cardapio.", 11),
+            MutedText("O horario abaixo abre/fecha o cardapio online e o recebimento iFood no PDV. Use 00:00 e 00:00 para deixar 24 horas.", 11),
+            TwoColumnFields(("Abre", storeOpenTimeBox), ("Fecha", storeCloseTimeBox)),
             TwoColumnFields(("Tempo minimo (min)", waitMinBox), ("Tempo maximo (min)", waitMaxBox)),
             ActionRow("Toque de pedido iFood", ifoodSoundText, chooseIFoodSound),
             ButtonStrip(clearIFoodSound, testIFoodSound));
@@ -6173,25 +8044,150 @@ public partial class MainWindow : Window
             ToggleCard("Atualizar automaticamente ao abrir", "Consulta o servidor ao entrar no PDV. Se houver versao nova, baixa, instala e reabre o sistema.", () => _appSettings.AutoCheckUpdates, value => _appSettings.AutoCheckUpdates = value),
             checkUpdate);
 
-        var contentGrid = new Grid { Margin = new Thickness(0, 14, 0, 0) };
-        contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.08, GridUnitType.Star) });
-        contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.92, GridUnitType.Star) });
-        var leftColumn = new StackPanel { Margin = new Thickness(0, 0, 7, 0) };
-        var rightColumn = new StackPanel { Margin = new Thickness(7, 0, 0, 0) };
-        AddCard(leftColumn, companyCard);
-        AddCard(leftColumn, mediaCard);
-        AddCard(leftColumn, mpCard);
-        AddCard(leftColumn, pgCard);
-        AddCard(rightColumn, accountCard);
-        AddCard(rightColumn, alertsCard);
-        AddCard(rightColumn, printCard);
-        AddCard(rightColumn, productionCard);
-        AddCard(rightColumn, aboutCard);
-        AddCard(rightColumn, updateCard);
-        contentGrid.Children.Add(leftColumn);
-        Grid.SetColumn(rightColumn, 1);
-        contentGrid.Children.Add(rightColumn);
-        root.Children.Add(contentGrid);
+        var fiscalSettings = DialogButton("Abrir NFC-e restaurante", "#0B3A52");
+        fiscalSettings.HorizontalAlignment = HorizontalAlignment.Stretch;
+        fiscalSettings.Width = double.NaN;
+        fiscalSettings.Click += (_, _) => ShowFiscalComplianceDialog();
+        var fiscalCard = SettingsCard(
+            "NFC-e restaurante",
+            "Opcional. Ative somente quando a loja tiver certificado, CSC e dados fiscais conferidos.",
+            MutedText("A venda continua funcionando sem NFC-e. Quando ativada, o PDV pode emitir NFC-e apos o pagamento e imprimir o DANFE com a marca Balcao Livre PDV abaixo do QR.", 12),
+            fiscalSettings);
+
+        var openSetupGuide = DialogButton("Implantacao guiada", "#08A99B");
+        var openFiscalCompliance = DialogButton("Fiscal seguro", "#0B3A52");
+        var openPrivacy = DialogButton("LGPD clientes", "#5B6B7A");
+        openSetupGuide.Click += (_, _) => ShowImplementationGuideDialog();
+        openFiscalCompliance.Click += (_, _) => ShowFiscalComplianceDialog();
+        openPrivacy.Click += (_, _) => ShowPrivacyLgpdDialog();
+        var complianceCard = SettingsCard(
+            "Implantacao e conformidade",
+            "Checklist para colocar cliente real em operacao sem deixar fiscal, dados pessoais ou configuracao basica soltos.",
+            MutedText("Use antes de entregar a loja: cadastro, produtos, mesas, pagamento, WhatsApp, NFC-e e LGPD ficam visiveis em um unico fluxo.", 12),
+            ButtonStrip(openSetupGuide, openFiscalCompliance, openPrivacy));
+
+        StackPanel SettingsPane(params UIElement[] elements)
+        {
+            var pane = new StackPanel { Margin = new Thickness(0, 0, 0, 0) };
+            foreach (var element in elements)
+            {
+                AddCard(pane, element);
+            }
+
+            return pane;
+        }
+
+        var navItems = new List<(Button Button, TextBlock Title, TextBlock Subtitle)>();
+        Button SettingsNavButton(string title, string subtitle)
+        {
+            var titleText = new TextBlock
+            {
+                Text = title,
+                Foreground = Solid("#071A2C"),
+                FontWeight = FontWeights.Bold,
+                FontSize = 14
+            };
+            var subtitleText = new TextBlock
+            {
+                Text = subtitle,
+                Foreground = Solid("#5B6B7A"),
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 3, 0, 0)
+            };
+            var button = new Button
+            {
+                Content = new StackPanel { Children = { titleText, subtitleText } },
+                Background = Brushes.White,
+                BorderBrush = Solid("#D6E2EA"),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(12, 10, 12, 10),
+                Margin = new Thickness(0, 0, 0, 8),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Cursor = Cursors.Hand,
+                FocusVisualStyle = null,
+                Template = RoundedButtonTemplate()
+            };
+            navItems.Add((button, titleText, subtitleText));
+            return button;
+        }
+
+        var contentHost = new ContentControl();
+        void SelectSettingsPane(Button selected, UIElement content)
+        {
+            foreach (var item in navItems)
+            {
+                var active = ReferenceEquals(item.Button, selected);
+                item.Button.Background = active ? Solid("#03151F") : Brushes.White;
+                item.Button.BorderBrush = active ? Solid("#0B3A52") : Solid("#D6E2EA");
+                item.Title.Foreground = active ? Brushes.White : Solid("#071A2C");
+                item.Subtitle.Foreground = active ? Solid("#B9D6E3") : Solid("#5B6B7A");
+            }
+
+            contentHost.Content = content;
+        }
+
+        var storePane = SettingsPane(companyCard, mediaCard);
+        var paymentsPane = SettingsPane(mpCard, fiscalCard);
+        if (PagBankIntegrationAvailable)
+        {
+            AddCard(paymentsPane, pgCard);
+        }
+        var printPane = SettingsPane(printCard, productionCard);
+        var systemPane = SettingsPane(alertsCard, updateCard, aboutCard);
+        var compliancePane = SettingsPane(complianceCard);
+        var accountPane = SettingsPane(accountCard);
+
+        var storeNav = SettingsNavButton("Loja", "Empresa, marca e cardapio");
+        var paymentNav = SettingsNavButton("Pagamentos e NF", "Mercado Pago e NFC-e");
+        var printNav = SettingsNavButton("Impressao", "Cupom, QR e producao");
+        var systemNav = SettingsNavButton("Sistema", "Avisos, versao e updates");
+        var complianceNav = SettingsNavButton("Implantacao", "Checklist, fiscal e LGPD");
+        var accountNav = SettingsNavButton("Conta", "Licenca e sincronizacao");
+        storeNav.Click += (_, _) => SelectSettingsPane(storeNav, storePane);
+        paymentNav.Click += (_, _) => SelectSettingsPane(paymentNav, paymentsPane);
+        printNav.Click += (_, _) => SelectSettingsPane(printNav, printPane);
+        systemNav.Click += (_, _) => SelectSettingsPane(systemNav, systemPane);
+        complianceNav.Click += (_, _) => SelectSettingsPane(complianceNav, compliancePane);
+        accountNav.Click += (_, _) => SelectSettingsPane(accountNav, accountPane);
+
+        var navigation = new StackPanel();
+        navigation.Children.Add(storeNav);
+        navigation.Children.Add(paymentNav);
+        navigation.Children.Add(printNav);
+        navigation.Children.Add(systemNav);
+        navigation.Children.Add(complianceNav);
+        navigation.Children.Add(accountNav);
+
+        var settingsGrid = new Grid { Margin = new Thickness(0, 14, 0, 0) };
+        settingsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(230) });
+        settingsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var navBox = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#D6E2EA"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12),
+            Margin = new Thickness(0, 0, 12, 0),
+            VerticalAlignment = VerticalAlignment.Top,
+            Child = navigation
+        };
+        var contentBox = new Border
+        {
+            Background = Solid("#F8FBFD"),
+            BorderBrush = Solid("#D6E2EA"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(14),
+            Child = contentHost
+        };
+        settingsGrid.Children.Add(navBox);
+        Grid.SetColumn(contentBox, 1);
+        settingsGrid.Children.Add(contentBox);
+        root.Children.Add(settingsGrid);
+        SelectSettingsPane(storeNav, storePane);
 
         var outer = new Grid();
         outer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -6256,6 +8252,12 @@ public partial class MainWindow : Window
 
     private void TablesList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
+        if (!RequireCashOpenForFront("operar mesas, fichas ou delivery"))
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (TablesList.SelectedIndex < 0)
         {
             return;
@@ -6298,6 +8300,301 @@ public partial class MainWindow : Window
             SelectArea(KeyboardArea.Products);
         }
         e.Handled = true;
+    }
+
+    private bool SelectBoardForContextAction(TableTile board)
+    {
+        var index = BoardTiles.IndexOf(board);
+        if (index < 0)
+        {
+            ModeList.SelectedItem = board.Kind switch
+            {
+                "BALCAO" => "Balcao",
+                "DELIVERY" => "Delivery",
+                _ => "Comandas"
+            };
+            RefreshBoardForMode();
+            index = BoardTiles.IndexOf(board);
+        }
+
+        if (index < 0)
+        {
+            SetStatus("Nao consegui localizar esta comanda na lista atual.");
+            return false;
+        }
+
+        SelectTable(index);
+        return true;
+    }
+
+    private static TableTile? BoardFromContextSender(object sender)
+    {
+        if (sender is ContextMenu { DataContext: TableTile contextBoard })
+        {
+            return contextBoard;
+        }
+
+        if (sender is MenuItem menuItem)
+        {
+            if (menuItem.DataContext is TableTile itemBoard)
+            {
+                return itemBoard;
+            }
+
+            if (menuItem.Parent is ContextMenu { DataContext: TableTile parentBoard })
+            {
+                return parentBoard;
+            }
+        }
+
+        return sender is FrameworkElement { DataContext: TableTile elementBoard } ? elementBoard : null;
+    }
+
+    private void BoardContextMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        if (BoardFromContextSender(sender) is not { } board)
+        {
+            return;
+        }
+
+        if (sender is not ContextMenu menu)
+        {
+            return;
+        }
+
+        foreach (var item in menu.Items.OfType<MenuItem>())
+        {
+            item.Visibility = Visibility.Visible;
+            var tag = item.Tag?.ToString();
+            switch (tag)
+            {
+                case "Open":
+                    item.Header = board.Kind == "DELIVERY"
+                        ? (IsIFoodOrder(board) ? "Acoes do iFood" : "Avancar status")
+                        : (board.Status == "LIVRE" ? "Abrir comanda" : "Reabrir / liberar");
+                    break;
+                case "Driver":
+                    item.Visibility = board.Kind == "DELIVERY" ? Visibility.Visible : Visibility.Collapsed;
+                    break;
+                case "Delivered":
+                    item.Visibility = board.Kind == "DELIVERY" ? Visibility.Visible : Visibility.Collapsed;
+                    break;
+                case "Delete":
+                    item.Header = board.Kind == "DELIVERY" ? "Cancelar / apagar pedido" : "Apagar / limpar comanda";
+                    break;
+                default:
+                    item.Visibility = Visibility.Visible;
+                    break;
+            }
+        }
+
+        foreach (var separator in menu.Items.OfType<Separator>())
+        {
+            if (string.Equals(separator.Tag?.ToString(), "DeliverySeparator", StringComparison.Ordinal))
+            {
+                separator.Visibility = board.Kind == "DELIVERY" ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+    }
+
+    private void BoardContextSelect_Click(object sender, RoutedEventArgs e)
+    {
+        if (BoardFromContextSender(sender) is { } board)
+        {
+            SelectBoardForContextAction(board);
+            SelectArea(KeyboardArea.Tables);
+        }
+    }
+
+    private void BoardContextOpen_Click(object sender, RoutedEventArgs e)
+    {
+        if (BoardFromContextSender(sender) is not { } board || !SelectBoardForContextAction(board))
+        {
+            return;
+        }
+
+        if (board.Kind == "DELIVERY" || board.Status == "LIVRE")
+        {
+            OpenOrSwitchTable();
+            return;
+        }
+
+        ReopenCurrentCommand(requireManagerApproval: true);
+    }
+
+    private void BoardContextClose_Click(object sender, RoutedEventArgs e)
+    {
+        if (BoardFromContextSender(sender) is { } board && SelectBoardForContextAction(board))
+        {
+            CloseTicket();
+        }
+    }
+
+    private void BoardContextReceive_Click(object sender, RoutedEventArgs e)
+    {
+        if (BoardFromContextSender(sender) is { } board && SelectBoardForContextAction(board))
+        {
+            TriggerReceiveShortcut("menu");
+        }
+    }
+
+    private void BoardContextDriver_Click(object sender, RoutedEventArgs e)
+    {
+        if (BoardFromContextSender(sender) is { } board && SelectBoardForContextAction(board))
+        {
+            ShowAssignDeliveryDriverDialog(board);
+        }
+    }
+
+    private void BoardContextDelivered_Click(object sender, RoutedEventArgs e)
+    {
+        if (BoardFromContextSender(sender) is { } board && SelectBoardForContextAction(board))
+        {
+            MarkDeliveryBoardDelivered(board);
+        }
+    }
+
+    private void BoardContextDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if (BoardFromContextSender(sender) is { } board && SelectBoardForContextAction(board))
+        {
+            DeleteSelectedBoardWithConfirmation(board);
+        }
+    }
+
+    private void DeleteSelectedBoardWithConfirmation(TableTile board)
+    {
+        var label = $"{BoardKindLabel(board)} {board.Number}";
+        var message = board.Kind == "DELIVERY"
+            ? $"Cancelar/apagar o pedido {board.Number}? Ele sai da lista operacional, mas o historico local continua salvo nos backups."
+            : $"Apagar o movimento da {label}? A mesa continua cadastrada para nao sumir quando o app fechar.";
+        var result = System.Windows.MessageBox.Show(
+            this,
+            $"{message}\n\nEsta acao nao deve ser usada para recebimento normal de conta.",
+            "Confirmar exclusao",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (result != MessageBoxResult.Yes)
+        {
+            SetStatus("Exclusao cancelada.");
+            return;
+        }
+
+        DeleteCurrentCommand();
+        RefreshBoardForMode();
+        if (BoardTiles.Count > 0)
+        {
+            SelectTable(Math.Min(_selectedTableIndex, BoardTiles.Count - 1), saveCurrent: false);
+        }
+    }
+
+    private void ShowAssignDeliveryDriverDialog(TableTile board)
+    {
+        if (board.Kind != "DELIVERY")
+        {
+            SetStatus("Entregador so pode ser fixado em pedido delivery.");
+            return;
+        }
+
+        var dialog = CreateDialog($"Entregador - {board.Number}", 430, 285);
+        dialog.ResizeMode = ResizeMode.NoResize;
+
+        var names = Drivers
+            .Where(driver => driver.Active && !string.IsNullOrWhiteSpace(driver.Name))
+            .Select(driver => driver.Name.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        names.Insert(0, "Sem entregador");
+
+        var driverBox = new ComboBox
+        {
+            ItemsSource = names,
+            IsEditable = true,
+            Text = string.IsNullOrWhiteSpace(board.Driver) ? "Sem entregador" : board.Driver,
+            MinHeight = 38,
+            Margin = new Thickness(0, 5, 0, 10)
+        };
+        var hint = new TextBlock
+        {
+            Text = "Escolha um entregador cadastrado ou digite o nome. O nome fica salvo no pedido e sai na impressao.",
+            Foreground = Solid("#5B6B7A"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 14)
+        };
+        var save = DialogButton("Fixar entregador", "#08A99B");
+        save.HorizontalAlignment = HorizontalAlignment.Stretch;
+        save.Width = double.NaN;
+        save.Click += (_, _) =>
+        {
+            var selected = CompactSingleLine(driverBox.Text);
+            board.Driver = string.Equals(selected, "Sem entregador", StringComparison.OrdinalIgnoreCase) ? "" : selected;
+            board.RefreshVisualState();
+            SaveActiveTicketToCurrentBoard();
+            SaveStore();
+            QueuePublicMenuOrderStatusSync(board);
+            RefreshBoardForMode();
+            SelectBoardForContextAction(board);
+            SetStatus(string.IsNullOrWhiteSpace(board.Driver)
+                ? $"Entregador removido do delivery {board.Number}."
+                : $"Entregador fixado no delivery {board.Number}: {board.Driver}.");
+            dialog.Close();
+        };
+
+        dialog.Content = new StackPanel
+        {
+            Margin = new Thickness(20),
+            Children =
+            {
+                new TextBlock { Text = $"Pedido {board.Number}", Foreground = Solid("#071A2C"), FontSize = 22, FontWeight = FontWeights.Bold },
+                new TextBlock { Text = string.IsNullOrWhiteSpace(board.CustomerName) ? "Delivery" : board.CustomerName, Foreground = Solid("#5B6B7A"), Margin = new Thickness(0, 4, 0, 12) },
+                DialogLabel("Entregador"),
+                driverBox,
+                hint,
+                save
+            }
+        };
+        dialog.ShowDialog();
+    }
+
+    private void MarkDeliveryBoardDelivered(TableTile board)
+    {
+        if (board.Kind != "DELIVERY")
+        {
+            return;
+        }
+
+        if (IsIFoodOrder(board))
+        {
+            ShowIFoodOrderActionDialog(board, isNewOrder: false);
+            return;
+        }
+
+        board.Status = "ENTREGUE";
+        board.ExternalDeliveredAt ??= DateTime.Now;
+        board.RefreshVisualState();
+        QueuePublicMenuOrderStatusSync(board);
+        SaveActiveTicketToCurrentBoard();
+        SaveStore();
+        RefreshBoardForMode();
+        SelectBoardForContextAction(board);
+        SetStatus($"Delivery {board.Number} marcado como entregue.");
+    }
+
+    private static T? FindVisualAncestor<T>(DependencyObject? source) where T : DependencyObject
+    {
+        while (source is not null)
+        {
+            if (source is T match)
+            {
+                return match;
+            }
+
+            source = VisualTreeHelper.GetParent(source);
+        }
+
+        return null;
     }
 
     private void CreateTables_Click(object sender, RoutedEventArgs e)
@@ -6489,6 +8786,12 @@ public partial class MainWindow : Window
 
     private void ProductsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
+        if (!RequireCashOpenForFront("incluir produto"))
+        {
+            e.Handled = true;
+            return;
+        }
+
         IncludeSelectedProduct(requireCode: false);
     }
 
@@ -6504,6 +8807,13 @@ public partial class MainWindow : Window
 
     private void SearchButton_Click(object sender, RoutedEventArgs e)
     {
+        if (!IsCashOpen())
+        {
+            ShowReportsDialog();
+            SelectArea(KeyboardArea.Ticket);
+            return;
+        }
+
         if (IsCurrentIFoodDeliveryLocked())
         {
             OpenIFoodActionsForCurrentOrder();
@@ -6517,6 +8827,13 @@ public partial class MainWindow : Window
 
     private void DeleteTicketLineButton_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireCashOpenForFront("excluir item"))
+        {
+            e.Handled = true;
+            SelectArea(KeyboardArea.Ticket);
+            return;
+        }
+
         if (BlockIFoodDeliveryEdit("excluir item"))
         {
             e.Handled = true;
@@ -6535,6 +8852,11 @@ public partial class MainWindow : Window
 
     private void ConfirmInclude_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireCashOpenForFront("aplicar taxas"))
+        {
+            return;
+        }
+
         if (BlockIFoodDeliveryEdit("aplicar taxas"))
         {
             return;
@@ -6689,6 +9011,7 @@ public partial class MainWindow : Window
         {
             "Balcao" => Tables.Where(table => table.Kind == "BALCAO"),
             "Delivery" => DeliveryTiles
+                .Where(tile => !IsIgnoredDeliveryOperationalTile(tile))
                 .OrderBy(DeliveryBoardSortGroup)
                 .ThenBy(DeliveryBoardTimeSort)
                 .ThenBy(tile => tile.CreatedAt)
@@ -6795,6 +9118,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (CurrentMode == "Delivery")
+        {
+            LocateDeliveryFromInput(raw);
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(raw))
         {
             SetStatus("Digite o numero da mesa.");
@@ -6819,7 +9148,11 @@ public partial class MainWindow : Window
         {
             if (!int.TryParse(raw, NumberStyles.Integer, Brazil, out _))
             {
-                SetCustomerForCurrentBoard(raw);
+                EnsureComandaForCustomerInput();
+                if (SetCustomerForCurrentBoard(raw))
+                {
+                    FocusOperatorForCurrentBoard($"Cliente {raw} pronto. Informe operador/garcom e pressione Enter.");
+                }
                 return;
             }
 
@@ -6828,10 +9161,7 @@ public partial class MainWindow : Window
 
         SelectTable(index);
         OpenOrSwitchTable();
-        WaiterBox.Focus();
-        WaiterBox.SelectAll();
-        SelectArea(KeyboardArea.Ticket);
-        SetStatus($"Mesa {BoardTiles[index].Number} pronta. Informe operador/garcom e pressione Enter.");
+        FocusOperatorForCurrentBoard($"Mesa {BoardTiles[index].Number} pronta. Informe operador/garcom e pressione Enter.");
     }
 
     private void LocateCounterFichaFromInput(string raw)
@@ -6840,19 +9170,17 @@ public partial class MainWindow : Window
         {
             var newIndex = CreateNextCounterFicha();
             SelectTable(newIndex);
-            CodeBox.Focus();
-            CodeBox.SelectAll();
-            SelectArea(KeyboardArea.Products);
-            SetStatus($"Ficha {BoardTiles[newIndex].Number} criada. Informe o codigo do produto.");
+            FocusOperatorForCurrentBoard($"Ficha {BoardTiles[newIndex].Number} criada. Informe operador/garcom e pressione Enter.");
             return;
         }
 
         if (!LooksLikeFichaNumber(raw))
         {
-            SetCustomerForCurrentBoard(raw);
-            CodeBox.Focus();
-            CodeBox.SelectAll();
-            SelectArea(KeyboardArea.Products);
+            EnsureCounterFichaForCustomerInput();
+            if (SetCustomerForCurrentBoard(raw))
+            {
+                FocusOperatorForCurrentBoard($"Cliente {raw} na ficha. Informe operador/garcom e pressione Enter.");
+            }
             return;
         }
 
@@ -6865,19 +9193,139 @@ public partial class MainWindow : Window
 
         SelectTable(index);
         OpenOrSwitchTable();
-        CodeBox.Focus();
-        CodeBox.SelectAll();
-        SelectArea(KeyboardArea.Products);
-        SetStatus($"Ficha {BoardTiles[index].Number} pronta para venda de balcao.");
+        FocusOperatorForCurrentBoard($"Ficha {BoardTiles[index].Number} pronta. Informe operador/garcom e pressione Enter.");
     }
 
-    private void SetCustomerForCurrentBoard(string name)
+    private void LocateDeliveryFromInput(string raw)
+    {
+        if (!RequirePermission(CanOperateDelivery, "Delivery"))
+        {
+            return;
+        }
+
+        var index = -1;
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            if (CurrentBoard is { Kind: "DELIVERY" })
+            {
+                FocusOperatorForCurrentBoard("Pedido delivery selecionado. Informe operador/garcom e pressione Enter.");
+                return;
+            }
+
+            index = CreateQuickDelivery(NextDeliveryNumber(), "");
+        }
+        else if (LooksLikeDeliveryNumber(raw))
+        {
+            var normalized = NormalizeDeliveryNumber(raw);
+            index = FindBoardTileIndex(normalized, raw);
+            if (index < 0)
+            {
+                index = CreateQuickDelivery(normalized, "");
+            }
+        }
+        else
+        {
+            index = CreateQuickDelivery(NextDeliveryNumber(), raw);
+        }
+
+        SelectTable(index);
+        FocusOperatorForCurrentBoard($"Delivery {BoardTiles[index].Number} pronto. Informe operador/garcom e pressione Enter.");
+    }
+
+    private void FocusOperatorForCurrentBoard(string status)
+    {
+        WaiterBox.Focus();
+        WaiterBox.SelectAll();
+        SelectArea(KeyboardArea.Ticket);
+        SetStatus(status);
+    }
+
+    private void EnsureComandaForCustomerInput()
+    {
+        if (CurrentBoard is { Kind: "MESA" })
+        {
+            return;
+        }
+
+        var number = GetNextTableNumber().ToString("000000", Brazil);
+        var index = CreateTableFromInput(number);
+        SelectTable(index);
+        OpenOrSwitchTable();
+    }
+
+    private void EnsureCounterFichaForCustomerInput()
+    {
+        if (CurrentBoard is { Kind: "BALCAO" })
+        {
+            return;
+        }
+
+        var index = CreateNextCounterFicha();
+        SelectTable(index);
+    }
+
+    private int CreateQuickDelivery(string number, string customerName)
+    {
+        var name = customerName.Trim();
+        var tile = new TableTile
+        {
+            Number = NormalizeDeliveryNumber(number),
+            Kind = "DELIVERY",
+            Status = "NOVO",
+            CustomerName = string.IsNullOrWhiteSpace(name) ? "CLIENTE BALCAO" : name.ToUpperInvariant(),
+            Detail = "ENTREGA",
+            Waiter = Math.Max(0, ParseInt(GetDefaultStaffNumberForKind("DELIVERY"), 0)),
+            CreatedAt = DateTime.Now
+        };
+
+        DeliveryTiles.Add(tile);
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            UpsertCustomerRecord("", tile.CustomerName, "", "", "", "");
+        }
+
+        RefreshBoardForMode();
+        SaveStore();
+        SetStatus($"Delivery criado: {tile.Number}");
+        return BoardTiles.IndexOf(tile);
+    }
+
+    private static bool LooksLikeDeliveryNumber(string raw)
+    {
+        raw = raw.Trim().ToUpperInvariant();
+        if (int.TryParse(raw, NumberStyles.Integer, Brazil, out _))
+        {
+            return true;
+        }
+
+        return raw.Length > 1
+               && raw[0] == 'D'
+               && int.TryParse(raw[1..], NumberStyles.Integer, Brazil, out _);
+    }
+
+    private static string NormalizeDeliveryNumber(string raw)
+    {
+        raw = raw.Trim().ToUpperInvariant();
+        if (int.TryParse(raw, NumberStyles.Integer, Brazil, out var number))
+        {
+            return $"D{number:00000}";
+        }
+
+        if (raw.Length > 1 && raw[0] == 'D' && int.TryParse(raw[1..], NumberStyles.Integer, Brazil, out number))
+        {
+            return $"D{number:00000}";
+        }
+
+        return raw;
+    }
+
+    private bool SetCustomerForCurrentBoard(string name)
     {
         var board = CurrentBoard;
         if (board is null || string.IsNullOrWhiteSpace(name))
         {
             SetStatus("Selecione uma mesa ou ficha antes de informar o cliente.");
-            return;
+            return false;
         }
 
         board.CustomerName = name.Trim().ToUpperInvariant();
@@ -6895,6 +9343,7 @@ public partial class MainWindow : Window
         RefreshTotals();
         SaveStore();
         SetStatus($"{BoardKindLabel(board)} {board.Number}: cliente {board.CustomerName}");
+        return true;
     }
 
     private int CreateTableFromInput(string number)
@@ -7308,6 +9757,11 @@ public partial class MainWindow : Window
 
     private void IncludeSelectedProduct(bool requireCode = true)
     {
+        if (!RequireCashOpenForFront("incluir produto"))
+        {
+            return;
+        }
+
         var board = CurrentBoard;
         if (board is null)
         {
@@ -7368,6 +9822,13 @@ public partial class MainWindow : Window
         }
 
         var qty = Math.Max(1, ParseInt(QuantityBox.Text, 1));
+        var productRule = PdvOperationalCore.ValidateProductAdd(board, product, qty, IsCashOpen());
+        if (!productRule.Ok)
+        {
+            SetStatus(productRule.Message);
+            return;
+        }
+
         var note = "";
         var chargesWereActive = HasAppliedTableCharges();
         if (product.IsPizza || product.Category == "PIZZAS")
@@ -7425,12 +9886,8 @@ public partial class MainWindow : Window
             _ => "OCUPADA"
         };
         board.Waiter = ParseInt(WaiterBox.Text, board.Waiter);
-        var stockChanged = false;
-        if (product.StockQuantity > 0)
-        {
-            product.StockQuantity = Math.Max(0, product.StockQuantity - qty);
-            stockChanged = true;
-        }
+        var stockChangedProducts = ApplyProductStockSale(product, qty, $"Venda PDV {board.Kind} {board.Number}");
+        var stockChanged = stockChangedProducts.Count > 0;
 
         product.SoldQuantity += qty;
 
@@ -7449,14 +9906,85 @@ public partial class MainWindow : Window
             SaveStore();
         }
 
-        SetStatus(existingLine is null
+        var includeStatus = existingLine is null
             ? $"Incluido: {qty}x {line.Name}"
-            : $"Agrupado: {line.Quantity}x {line.Name}");
+            : $"Agrupado: {line.Quantity}x {line.Name}";
+        SetStatus(string.IsNullOrWhiteSpace(productRule.Warning)
+            ? includeStatus
+            : $"{includeStatus}. {productRule.Warning}");
         ScheduleKitchenPrint(board, [line]);
         if (stockChanged)
         {
-            QueueIFoodStockSync(product, $"Venda PDV {board.Kind} {board.Number}");
+            foreach (var changedProduct in stockChangedProducts)
+            {
+                QueueIFoodStockSync(changedProduct, $"Venda PDV {board.Kind} {board.Number}");
+            }
+            QueuePublicMenuPublish();
         }
+    }
+
+    private List<ProductTile> ApplyProductStockSale(ProductTile product, decimal quantity, string reason)
+    {
+        return ApplyProductStockMovement(product, quantity, reason, restore: false);
+    }
+
+    private List<ProductTile> RestoreProductStockSale(ProductTile product, decimal quantity, string reason)
+    {
+        return ApplyProductStockMovement(product, quantity, reason, restore: true);
+    }
+
+    private List<ProductTile> ApplyProductStockMovement(ProductTile product, decimal quantity, string reason, bool restore)
+    {
+        var changed = new List<ProductTile>();
+        var recipeItems = product.RecipeItems
+            .Where(item => item.Quantity > 0 && !string.IsNullOrWhiteSpace(item.ProductCode))
+            .ToList();
+
+        if (recipeItems.Count > 0)
+        {
+            foreach (var recipe in recipeItems)
+            {
+                var component = Products.FirstOrDefault(item =>
+                    string.Equals(item.Code, NormalizeProductCode(recipe.ProductCode), StringComparison.OrdinalIgnoreCase));
+                if (component is null || string.Equals(component.Code, product.Code, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var delta = recipe.Quantity * quantity;
+                component.StockQuantity += restore ? delta : -delta;
+                component.StockHistory.Add(new StockMovement
+                {
+                    ProductCode = component.Code,
+                    Type = restore ? "ENTRADA" : "SAIDA",
+                    Quantity = restore ? delta : -delta,
+                    Reason = $"{reason} - ficha tecnica {product.Name}",
+                    When = DateTime.Now
+                });
+                changed.Add(component);
+            }
+
+            return changed;
+        }
+
+        if (product.StockQuantity > 0 || restore)
+        {
+            var delta = quantity;
+            product.StockQuantity = restore
+                ? product.StockQuantity + delta
+                : Math.Max(0, product.StockQuantity - delta);
+            product.StockHistory.Add(new StockMovement
+            {
+                ProductCode = product.Code,
+                Type = restore ? "ENTRADA" : "SAIDA",
+                Quantity = restore ? delta : -delta,
+                Reason = reason,
+                When = DateTime.Now
+            });
+            changed.Add(product);
+        }
+
+        return changed;
     }
 
     private void FocusAfterProductInclude(TableTile board)
@@ -7636,6 +10164,11 @@ public partial class MainWindow : Window
 
     private void OpenOrSwitchTable()
     {
+        if (!RequireCashOpenForFront("operar comanda, balcao ou delivery"))
+        {
+            return;
+        }
+
         var board = CurrentBoard;
         if (board is null)
         {
@@ -7751,10 +10284,9 @@ public partial class MainWindow : Window
         }
 
         var restoredProduct = Products.FirstOrDefault(product => string.Equals(product.Code, line.Code, StringComparison.OrdinalIgnoreCase));
-        if (restoredProduct is not null)
-        {
-            restoredProduct.StockQuantity += removedQuantity;
-        }
+        List<ProductTile> restoredProducts = restoredProduct is null
+            ? []
+            : RestoreProductStockSale(restoredProduct, removedQuantity, "Item removido da venda");
 
         if (chargesWereActive)
         {
@@ -7770,7 +10302,11 @@ public partial class MainWindow : Window
         SetStatus(removedWholeLine ? $"Removido: {line.Name}" : $"Removida 1 unidade: {line.Name}");
         if (restoredProduct is not null)
         {
-            QueueIFoodStockSync(restoredProduct, "Item removido da venda");
+            foreach (var changedProduct in restoredProducts)
+            {
+                QueueIFoodStockSync(changedProduct, "Item removido da venda");
+            }
+            QueuePublicMenuPublish();
         }
     }
 
@@ -7826,9 +10362,8 @@ public partial class MainWindow : Window
 
     private void AddPrepayment()
     {
-        if (!IsCashOpen())
+        if (!RequireCashOpenForFront("receber pagamento antecipado"))
         {
-            SetStatus("Caixa fechado. Pressione F10 para abrir antes de receber pagamento.");
             return;
         }
 
@@ -7942,6 +10477,11 @@ public partial class MainWindow : Window
 
     private void ChangeQuantity(int delta)
     {
+        if (!RequireCashOpenForFront("alterar quantidade"))
+        {
+            return;
+        }
+
         if (BlockIFoodDeliveryEdit("alterar quantidade"))
         {
             return;
@@ -7953,6 +10493,11 @@ public partial class MainWindow : Window
 
     private void ShowProductSearchDialog()
     {
+        if (!RequireCashOpenForFront("pesquisar produtos"))
+        {
+            return;
+        }
+
         if (IsCurrentIFoodDeliveryLocked())
         {
             OpenIFoodActionsForCurrentOrder();
@@ -8083,9 +10628,11 @@ public partial class MainWindow : Window
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="*"/>
         <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
       </Grid.ColumnDefinitions>
       <TextBlock Text="{Binding Name}" Foreground="#071A2C" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis"/>
       <TextBlock Grid.Column="1" Text="{Binding PriceText}" Foreground="#08A99B" FontWeight="Bold" Margin="12,0,0,0"/>
+      <Button Grid.Column="2" Grid.RowSpan="3" Width="28" Height="28" Margin="10,-2,0,0" Padding="0" HorizontalAlignment="Right" VerticalAlignment="Top" Tag="DeleteProduct" CommandParameter="{Binding}" ToolTip="Apagar produto" Background="#FFF4F4" BorderBrush="#F2B8B8" Foreground="#A11D1D" FontWeight="Bold" Content="X"/>
       <TextBlock Grid.Row="1" Text="{Binding Code}" Foreground="#5B6B7A" FontSize="11" Margin="0,3,0,0"/>
       <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Category}" Foreground="#5B6B7A" FontSize="11" HorizontalAlignment="Right" Margin="12,3,0,0"/>
       <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding ProfitMarginText}" Foreground="#5B6B7A" FontSize="11" Margin="0,3,0,0"/>
@@ -8197,10 +10744,6 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 10)
         };
-        var ifoodApplyButton = DialogButton("Aplicar no iFood", "#0B3A52");
-        ifoodApplyButton.HorizontalAlignment = HorizontalAlignment.Stretch;
-        ifoodApplyButton.Width = double.NaN;
-        ifoodApplyButton.Margin = new Thickness(0);
         var modifiersBox = new TextBox
         {
             Height = 92,
@@ -8211,11 +10754,10 @@ public partial class MainWindow : Window
         };
         var recipeBox = new TextBox
         {
-            Height = 92,
+            Height = 118,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            Visibility = Visibility.Collapsed
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
         var chooseImageButton = DialogButton("Escolher foto", "#0B3A52");
         var clearImageButton = DialogButton("Remover foto", "#5B6B7A");
@@ -8297,7 +10839,7 @@ public partial class MainWindow : Window
             clearImageButton.Width = double.NaN;
             actions.Children.Add(chooseImageButton);
             actions.Children.Add(clearImageButton);
-            actions.Children.Add(DialogHint("A foto aparece no cardapio digital e tambem vai para o iFood ao clicar em Aplicar no iFood."));
+            actions.Children.Add(DialogHint("A foto aparece no cardapio digital e vai para o iFood automaticamente ao salvar."));
             Grid.SetColumn(actions, 1);
             grid.Children.Add(actions);
             return grid;
@@ -8315,19 +10857,89 @@ public partial class MainWindow : Window
                 $"{item.ProductCode};{item.Name};{item.Quantity.ToString("N2", Brazil)};{item.Unit}"));
         }
 
+        ProductTile? FindRecipeProduct(string code)
+        {
+            var normalized = NormalizeProductCode(code);
+            return Products.FirstOrDefault(item =>
+                string.Equals(item.Code, normalized, StringComparison.OrdinalIgnoreCase));
+        }
+
+        List<ProductRecipeItem> ParseRecipeItems(string currentProductCode, out string error)
+        {
+            error = "";
+            var result = new List<ProductRecipeItem>();
+            var lines = (recipeBox.Text ?? "")
+                .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => line.Trim())
+                .Where(line => !string.IsNullOrWhiteSpace(line))
+                .ToList();
+
+            foreach (var line in lines)
+            {
+                var parts = line
+                    .Split(new[] { ';', '|' }, StringSplitOptions.None)
+                    .Select(part => part.Trim())
+                    .ToArray();
+                if (parts.Length < 2)
+                {
+                    error = $"Ficha tecnica invalida: {line}";
+                    return [];
+                }
+
+                var code = NormalizeProductCode(parts[0]);
+                if (string.Equals(code, NormalizeProductCode(currentProductCode), StringComparison.OrdinalIgnoreCase))
+                {
+                    error = "Um produto nao pode usar ele mesmo como ingrediente.";
+                    return [];
+                }
+
+                var component = FindRecipeProduct(code);
+                var hasNameColumn = parts.Length >= 4 || (parts.Length >= 3 && ParseMoney(parts[1], -1) < 0);
+                var quantityText = hasNameColumn ? parts.ElementAtOrDefault(2) ?? "" : parts.ElementAtOrDefault(1) ?? "";
+                var quantity = ParseMoney(quantityText, -1);
+                if (quantity <= 0)
+                {
+                    error = $"Quantidade invalida na ficha tecnica: {line}";
+                    return [];
+                }
+
+                result.Add(new ProductRecipeItem
+                {
+                    ProductCode = code,
+                    Name = hasNameColumn
+                        ? (string.IsNullOrWhiteSpace(parts.ElementAtOrDefault(1)) ? component?.Name ?? code : parts[1])
+                        : component?.Name ?? code,
+                    Quantity = quantity,
+                    Unit = (hasNameColumn ? parts.ElementAtOrDefault(3) : parts.ElementAtOrDefault(2))?.Trim().ToUpperInvariant()
+                        ?? component?.FiscalUnit
+                        ?? "UN"
+                });
+            }
+
+            return result;
+        }
+
+        decimal CalculateRecipeCost(IEnumerable<ProductRecipeItem> recipeItems)
+        {
+            return recipeItems.Sum(item =>
+            {
+                var component = FindRecipeProduct(item.ProductCode);
+                return (component?.CostPrice ?? 0m) * item.Quantity;
+            });
+        }
+
         void RefreshIFoodCompositionState()
         {
             var product = productsList.SelectedItem as ProductTile;
             var hasConnection = HasIFoodConnectionConfigured(_appSettings.IFood);
             var hasLink = product is not null && HasIFoodCatalogLink(product);
-            ifoodApplyButton.IsEnabled = hasConnection && hasLink;
             ifoodInfoText.Text = !hasConnection
-                ? "Conecte o iFood para aplicar estoque, disponibilidade e foto."
+                ? "iFood nao conectado. Quando conectar, os produtos ficam prontos para sincronizar pelo codigo do PDV."
                 : product is null
-                    ? "Selecione um produto para aplicar no iFood."
+                    ? "Ao salvar, o PDV cria ou atualiza o produto no iFood automaticamente."
                     : hasLink
-                        ? "Aplica estoque, disponibilidade e foto deste produto no iFood."
-                        : "Produto sem vinculo de catalogo iFood. Importe/sincronize produtos do iFood primeiro.";
+                        ? "Produto vinculado. Ao salvar, preco, disponibilidade, estoque e foto sincronizam no iFood."
+                        : "Produto novo no iFood. Ao salvar, o PDV cria o item pelo codigo e sincroniza em segundo plano.";
         }
 
         void RefreshProductList(ProductTile? selected = null)
@@ -8357,11 +10969,19 @@ public partial class MainWindow : Window
 
         void RefreshMarginPreview()
         {
-            var cost = ParseMoney(costBox.Text, 0);
+            var recipePreview = ParseRecipeItems(codeBox.Text, out _);
+            var recipeCost = CalculateRecipeCost(recipePreview);
+            var cost = recipePreview.Count > 0 && recipeCost > 0
+                ? recipeCost
+                : ParseMoney(costBox.Text, 0);
             var sale = ParseMoney(priceBox.Text, 0);
             var profit = sale - cost;
             var margin = sale > 0 ? profit / sale * 100m : 0m;
-            marginText.Text = $"Lucro un.: {Money(profit)}  |  Margem: {margin:N2}%";
+            var cmv = sale > 0 ? cost / sale * 100m : 0m;
+            var source = recipePreview.Count > 0
+                ? $"Custo ficha: {Money(recipeCost)}"
+                : $"Custo manual: {Money(cost)}";
+            marginText.Text = $"{source}  |  CMV: {cmv:N2}%  |  Lucro un.: {Money(profit)}  |  Margem: {margin:N2}%";
             marginText.Foreground = profit < 0 ? RedText : profit == 0 ? Solid("#5B6B7A") : GreenText;
         }
 
@@ -8512,6 +11132,18 @@ public partial class MainWindow : Window
                 return false;
             }
 
+            var recipeItems = ParseRecipeItems(code, out var recipeError);
+            if (!string.IsNullOrWhiteSpace(recipeError))
+            {
+                statusText.Foreground = RedText;
+                statusText.Text = recipeError;
+                FocusAndSelect(recipeBox);
+                return false;
+            }
+
+            var recipeCost = CalculateRecipeCost(recipeItems);
+            var finalCost = recipeItems.Count > 0 && recipeCost > 0 ? recipeCost : cost;
+
             if (Categories.All(item => !string.Equals(item.Name, category, StringComparison.OrdinalIgnoreCase)))
             {
                 Categories.Add(new CategoryTile(category));
@@ -8538,7 +11170,7 @@ public partial class MainWindow : Window
             product.Code = code;
             product.Name = name;
             product.Category = category;
-            product.CostPrice = cost;
+            product.CostPrice = finalCost;
             product.Price = price;
             product.StockQuantity = ParseMoney(stockBox.Text, 0);
             product.MinimumStock = ParseMoney(minBox.Text, 0);
@@ -8549,25 +11181,27 @@ public partial class MainWindow : Window
             product.ImagePath = (imagePath ?? "").Trim();
             product.WhatsAppCode = "";
             product.WhatsAppAliases = "";
-            if (ifoodCompositionVisible)
-            {
-                product.IFoodCompositionEnabled = false;
-                product.Modifiers = [];
-                product.RecipeItems = [];
-            }
+            product.RecipeItems = recipeItems;
+            product.IFoodCompositionEnabled = recipeItems.Count > 0 || product.Modifiers.Count > 0;
             ProductsList.Items.Refresh();
             RefreshProductList(product);
             FilterProducts();
             SaveStore();
             statusText.Foreground = GreenText;
-            statusText.Text = $"Produto salvo: {product.Name}";
+            var ifoodConnected = HasIFoodConnectionConfigured(_appSettings.IFood);
+            statusText.Text = ifoodConnected
+                ? $"Produto salvo. Sincronizando no iFood em segundo plano: {product.Name}"
+                : $"Produto salvo: {product.Name}";
             formTitle.Text = product.Name;
             var ifoodSummary = ifoodCompositionVisible ? $"  |  {product.IFoodCompositionText}" : "";
             formSubtitle.Text = $"{product.Code}  |  {product.Category}  |  venda {product.PriceText}  |  {product.ProfitMarginText}  |  {product.ImageStatusText}{ifoodSummary}";
             RefreshMarginPreview();
             RefreshIFoodCompositionState();
-            SetStatus($"Produto salvo: {product.Code} {product.Name}");
+            SetStatus(ifoodConnected
+                ? $"Produto salvo e enviado para sincronizacao iFood: {product.Code} {product.Name}"
+                : $"Produto salvo: {product.Code} {product.Name}");
             QueueIFoodStockSync(product, "Cadastro de produto");
+            QueuePublicMenuPublish();
             return true;
         }
 
@@ -8589,105 +11223,142 @@ public partial class MainWindow : Window
             return count;
         }
 
-        void RefreshDeleteProductButtonState()
+        ProductTile? FindLoadedProduct()
         {
-            deleteProductButton.IsEnabled = productsList.SelectedItem is ProductTile;
+            var code = NormalizeProductCode(codeBox.Text);
+            if (!string.IsNullOrWhiteSpace(code))
+            {
+                var byCode = Products.FirstOrDefault(item =>
+                    string.Equals(NormalizeProductCode(item.Code), code, StringComparison.OrdinalIgnoreCase));
+                if (byCode is not null)
+                {
+                    return byCode;
+                }
+            }
+
+            return productsList.SelectedItem as ProductTile;
         }
 
-        deleteProductButton.Click += (_, _) =>
+        void RefreshDeleteProductButtonState()
         {
-            var selectedProduct = productsList.SelectedItem as ProductTile;
-            var product = selectedProduct ?? Products.FirstOrDefault(item =>
-                string.Equals(item.Code, NormalizeProductCode(codeBox.Text), StringComparison.OrdinalIgnoreCase));
+            deleteProductButton.IsEnabled = FindLoadedProduct() is not null;
+        }
+
+        Button? FindClickedButton(DependencyObject? source)
+        {
+            while (source is not null)
+            {
+                if (source is Button button)
+                {
+                    return button;
+                }
+
+                source = VisualTreeHelper.GetParent(source);
+            }
+
+            return null;
+        }
+
+        void DeleteProduct(ProductTile? requestedProduct)
+        {
+            ProductTile? product;
+            try
+            {
+                product = requestedProduct ?? FindLoadedProduct();
+            }
+            catch (Exception ex)
+            {
+                statusText.Foreground = RedText;
+                statusText.Text = $"Nao consegui localizar o produto para apagar: {ex.Message}";
+                SetStatus(statusText.Text);
+                return;
+            }
+
             if (product is null)
             {
                 statusText.Foreground = RedText;
                 statusText.Text = "Selecione um produto cadastrado para apagar.";
+                SetStatus(statusText.Text);
                 return;
             }
 
-            var openUsage = CountOpenProductUsage(product);
-            var message = $"Apagar definitivamente este produto?\n\n{product.Code} - {product.Name}\n\nEle sai do cadastro, estoque, cardapio digital, WhatsApp e busca do PDV.";
-            if (openUsage > 0)
+            try
             {
-                message += $"\n\nExistem {openUsage:N0} item(ns) ja lancados em comanda/pedido aberto. Essas linhas continuam na conta para nao quebrar o recebimento.";
-            }
+                var openUsage = CountOpenProductUsage(product);
+                var message = $"Apagar definitivamente este produto?\n\n{product.Code} - {product.Name}\n\nEle sai do cadastro, estoque, cardapio digital, WhatsApp e busca do PDV.";
+                if (openUsage > 0)
+                {
+                    message += $"\n\nExistem {openUsage:N0} item(ns) ja lancados em comanda/pedido aberto. Essas linhas continuam na conta para nao quebrar o recebimento.";
+                }
 
-            message += "\n\nEsta acao nao tem desfazer.";
-            var confirmDelete = System.Windows.MessageBox.Show(
-                dialog,
-                message,
-                "Apagar produto",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning,
-                MessageBoxResult.No);
-            if (confirmDelete != MessageBoxResult.Yes)
-            {
-                return;
-            }
+                message += "\n\nEsta acao nao tem desfazer.";
+                var confirmDelete = System.Windows.MessageBox.Show(
+                    dialog,
+                    message,
+                    "Apagar produto",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning,
+                    MessageBoxResult.No);
+                if (confirmDelete != MessageBoxResult.Yes)
+                {
+                    return;
+                }
 
-            var removedCode = product.Code;
-            var removedName = product.Name;
-            Products.Remove(product);
-            foreach (var item in Products)
-            {
-                item.RecipeItems.RemoveAll(recipe =>
-                    string.Equals(recipe.ProductCode, removedCode, StringComparison.OrdinalIgnoreCase));
-            }
+                var removedCode = product.Code;
+                var removedName = product.Name;
+                QueueDeletedProductSync(product, "Produto apagado");
+                var removed = RemoveProductFromCatalog(product);
+                if (removed <= 0)
+                {
+                    statusText.Foreground = RedText;
+                    statusText.Text = "Nao consegui localizar este produto no cadastro para apagar.";
+                    SetStatus(statusText.Text);
+                    return;
+                }
 
-            ProductsList.Items.Refresh();
-            FilterProducts();
-            SaveStore();
-            RefreshProductList();
-            if (productsList.Items.Count > 0)
-            {
-                productsList.SelectedIndex = 0;
-            }
-            else
-            {
-                StartNewProduct();
-            }
+                ProductsList.Items.Refresh();
+                FilterProducts();
+                SaveStore();
+                QueuePublicMenuPublish();
+                RefreshProductList();
+                if (productsList.Items.Count > 0)
+                {
+                    productsList.SelectedIndex = 0;
+                }
+                else
+                {
+                    StartNewProduct();
+                }
 
-            statusText.Foreground = RedText;
-            statusText.Text = $"Produto apagado: {removedCode} - {removedName}";
-            SetStatus($"Produto apagado: {removedCode} - {removedName}");
-            RefreshDeleteProductButtonState();
-        };
-        ifoodApplyButton.Click += (_, _) =>
+                statusText.Foreground = RedText;
+                statusText.Text = $"Produto apagado: {removedCode} - {removedName}";
+                SetStatus($"Produto apagado: {removedCode} - {removedName}");
+                RefreshDeleteProductButtonState();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Product delete failed: {ex}");
+                statusText.Foreground = RedText;
+                statusText.Text = $"Nao foi possivel apagar o produto: {ex.Message}";
+                SetStatus(statusText.Text);
+            }
+        }
+
+        productsList.AddHandler(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, new RoutedEventHandler((_, e) =>
         {
-            var product = productsList.SelectedItem as ProductTile;
-            if (product is null)
-            {
-                statusText.Foreground = RedText;
-                statusText.Text = "Selecione um produto para aplicar no iFood.";
-                return;
-            }
-
-            if (!SaveProduct())
+            if (FindClickedButton(e.OriginalSource as DependencyObject) is not { Tag: string tag } button
+                || !string.Equals(tag, "DeleteProduct", StringComparison.Ordinal)
+                || (button.CommandParameter as ProductTile ?? button.DataContext as ProductTile) is not { } product)
             {
                 return;
             }
 
-            product = productsList.SelectedItem as ProductTile ?? Products.FirstOrDefault(item => item.Code == codeBox.Text.Trim().PadLeft(6, '0'));
-            if (product is null)
-            {
-                return;
-            }
+            e.Handled = true;
+            productsList.SelectedItem = product;
+            DeleteProduct(product);
+        }));
 
-            if (!HasIFoodCatalogLink(product))
-            {
-                statusText.Foreground = RedText;
-                statusText.Text = "Produto sem vinculo iFood. Sincronize produtos do iFood antes de aplicar.";
-                RefreshIFoodCompositionState();
-                return;
-            }
-
-            statusText.Foreground = Solid("#0B3A52");
-            statusText.Text = "Aplicando estoque, disponibilidade e foto no iFood...";
-            QueueIFoodStockSync(product, "Aplicado no cadastro de produto");
-            RefreshIFoodCompositionState();
-        };
-
+        deleteProductButton.Click += (_, _) => DeleteProduct(null);
         chooseImageButton.Click += (_, _) =>
         {
             var fileDialog = new OpenFileDialog
@@ -8710,7 +11381,7 @@ public partial class MainWindow : Window
             imagePath = CopyImageToAppIdentityFolder(fileDialog.FileName, $"product-{SafeFileName(codeForFile)}");
             RefreshProductImagePreview();
             statusText.Foreground = GreenText;
-            statusText.Text = "Foto aplicada. Salve o produto e use Aplicar no iFood para enviar.";
+            statusText.Text = "Foto aplicada. Salve o produto para sincronizar automaticamente.";
         };
 
         clearImageButton.Click += (_, _) =>
@@ -8756,8 +11427,10 @@ public partial class MainWindow : Window
             }
         });
         OnEnter(saveButton, () => SaveProduct());
+        codeBox.TextChanged += (_, _) => RefreshDeleteProductButtonState();
         costBox.TextChanged += (_, _) => RefreshMarginPreview();
         priceBox.TextChanged += (_, _) => RefreshMarginPreview();
+        recipeBox.TextChanged += (_, _) => RefreshMarginPreview();
 
         var root = new Grid { Margin = new Thickness(18) };
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(330) });
@@ -8826,9 +11499,11 @@ public partial class MainWindow : Window
 
         var stockSection = FormSection("Estoque",
             TwoColumns(DialogField("Quantidade atual", stockBox), DialogField("Estoque minimo", minBox)));
+        var recipeSection = FormSection("Ficha tecnica",
+            DialogHint("Cada linha baixa um ingrediente quando o prato e vendido. Use codigo;nome;qtd;unidade. Exemplo: 000010;QUEIJO;0,05;KG"),
+            recipeBox);
         var ifoodSection = FormSection("iFood",
-            ifoodInfoText,
-            ifoodApplyButton);
+            ifoodInfoText);
 
         var form = new StackPanel();
         form.Children.Add(formHeader);
@@ -8836,6 +11511,7 @@ public partial class MainWindow : Window
         form.Children.Add(photoSection);
         form.Children.Add(saleSection);
         form.Children.Add(stockSection);
+        form.Children.Add(recipeSection);
         form.Children.Add(ifoodSection);
         form.Children.Add(saveButton);
         form.Children.Add(deleteProductButton);
@@ -9005,6 +11681,11 @@ public partial class MainWindow : Window
 
     private void ShowDeliveryOrderDialog()
     {
+        if (!RequireCashOpenForFront("abrir delivery"))
+        {
+            return;
+        }
+
         if (!RequirePermission(CanOperateDelivery, "Delivery"))
         {
             return;
@@ -9029,7 +11710,14 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 4, 0, 8)
         };
-        var driverBox = new ComboBox { ItemsSource = Drivers.Select(driver => driver.Name).ToList(), MinHeight = 34 };
+        var driverBox = new ComboBox
+        {
+            ItemsSource = Drivers
+                .Where(driver => driver.Active)
+                .Select(driver => driver.Name)
+                .ToList(),
+            MinHeight = 34
+        };
         var notesBox = new TextBox { Height = 62, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
         var typeButtons = new List<Button>();
         var sizeButtons = new List<Button>();
@@ -9188,7 +11876,7 @@ public partial class MainWindow : Window
         createButton.Width = double.NaN;
         createButton.Click += (_, _) =>
         {
-            var number = $"D{DeliveryTiles.Count + 1:00000}";
+            var number = NextDeliveryNumber();
             var fee = ParseMoney(feeBox.Text, 0);
             var cpf = cpfBox.Text.Trim();
             var district = districtBox.Text.Trim();
@@ -9277,7 +11965,7 @@ public partial class MainWindow : Window
         var cpfBlock = DialogField("CPF/CNPJ", cpfBox);
         var phoneBlock = DialogField("Telefone", phoneBox);
         var nameBlock = DialogField("Cliente", nameBox);
-        var addressBlock = DialogField("Endereco", addressBox);
+        var addressBlock = DialogField("Endereço", addressBox);
         var districtBlock = DialogField("Bairro / referencia", districtBox);
         var notesBlock = DialogField("Observacao", notesBox);
         Grid.SetColumn(phoneBlock, 1);
@@ -9342,7 +12030,8 @@ public partial class MainWindow : Window
                 request => RunOnUiAsync(() => SaveWaiterBoardNote(request)),
                 request => RunOnUiAsync(() => RemoveWaiterLine(request)),
                 request => RunOnUiAsync(() => RequestWaiterBill(request)),
-                request => RunOnUiAsync(() => PrintMobileBridge(request)));
+                request => RunOnUiAsync(() => PrintMobileBridge(request)),
+                BuildMobileBridgeSession);
 
             try
             {
@@ -9383,6 +12072,27 @@ public partial class MainWindow : Window
             : WaiterActionResult.Fail("Windows bridge nao encontrou impressora disponivel.", BuildWaiterState());
     }
 
+    private MobileBridgeSessionDto BuildMobileBridgeSession()
+    {
+        return new MobileBridgeSessionDto
+        {
+            LicenseKey = NormalizeActivationKey(_appSettings.ActivationKey),
+            LoginEmail = _appSettings.PrivacyContact,
+            OperatorName = FirstNonEmpty(_profile.OwnerName, _profile.BusinessName, "Operador"),
+            BusinessName = FirstNonEmpty(_profile.BusinessName, _profile.LegalName, AppDisplayName),
+            LegalName = _profile.LegalName,
+            Responsible = _profile.OwnerName,
+            Document = _profile.Cnpj,
+            Phone = _profile.Phone,
+            City = _profile.City,
+            Uf = _profile.State,
+            Address = _profile.Address,
+            AdminApiUrl = _appSettings.AdminApiUrl,
+            CashOpen = IsCashOpen(),
+            OnlineStoreOpen = true
+        };
+    }
+
     private Task<T> RunOnUiAsync<T>(Func<T> action)
     {
         return Dispatcher.InvokeAsync(action).Task;
@@ -9390,40 +12100,146 @@ public partial class MainWindow : Window
 
     private void ShowWaiterWebDialog()
     {
-        var dialog = CreateDialog("Garcom Web local", 760, 620);
+        var dialog = CreateDialog("Garcom Web local", 900, 650);
         var networkUrl = _waiterServer?.NetworkUrl ?? "iniciando...";
         var localUrl = _waiterServer?.LocalUrl ?? "iniciando...";
         var urlBox = new TextBox { Text = networkUrl, IsReadOnly = true };
         var localBox = new TextBox { Text = localUrl, IsReadOnly = true };
         var waiterPhoneBox = new TextBox();
+        var waiterReady = _waiterServer is not null
+            && Uri.TryCreate(networkUrl, UriKind.Absolute, out _)
+            && networkUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase);
+
+        void StyleAccessBox(TextBox box)
+        {
+            box.Height = 42;
+            box.FontSize = 14;
+            box.Padding = new Thickness(12, 8, 12, 8);
+            box.Background = Brushes.White;
+            box.Foreground = Solid("#071A2C");
+            box.BorderBrush = Solid("#CAD6E2");
+            box.BorderThickness = new Thickness(1);
+            box.VerticalContentAlignment = VerticalAlignment.Center;
+        }
+
+        TextBlock TextLine(string text, string color = "#5B6B7A", double size = 13, FontWeight? weight = null)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = Solid(color),
+                FontSize = size,
+                FontWeight = weight ?? FontWeights.Normal,
+                LineHeight = Math.Max(size + 5, 18)
+            };
+        }
+
+        Border StepCard(string number, string title, string detail)
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var index = new Border
+            {
+                Width = 34,
+                Height = 34,
+                Background = Solid("#E6FBF8"),
+                BorderBrush = Solid("#B9EEE8"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Child = new TextBlock
+                {
+                    Text = number,
+                    Foreground = Solid("#02796E"),
+                    FontWeight = FontWeights.Black,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            };
+
+            var text = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
+            text.Children.Add(TextLine(title, "#071A2C", 14, FontWeights.Bold));
+            text.Children.Add(TextLine(detail, "#5B6B7A", 12.5));
+            Grid.SetColumn(text, 1);
+            grid.Children.Add(index);
+            grid.Children.Add(text);
+
+            return new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = Solid("#D6E4F1"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(12),
+                Padding = new Thickness(12),
+                Margin = new Thickness(0, 0, 0, 10),
+                Child = grid
+            };
+        }
+
+        Border AccessCard(UIElement child, string background = "#FFFFFF", string border = "#D6E4F1")
+        {
+            return new Border
+            {
+                Background = Solid(background),
+                BorderBrush = Solid(border),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(14),
+                Padding = new Thickness(16),
+                Child = child
+            };
+        }
+
+        StyleAccessBox(urlBox);
+        StyleAccessBox(localBox);
+        StyleAccessBox(waiterPhoneBox);
+        waiterPhoneBox.ToolTip = "Opcional. Use DDD + numero para abrir a conversa do WhatsApp.";
+
+        var statusText = _waiterServer is null
+            ? "Servidor iniciando. Feche e abra esta tela em alguns segundos se o QR ainda nao aparecer."
+            : "Pronto para usar na rede local. O celular ou tablet precisa estar no mesmo Wi-Fi do computador do caixa.";
+
         var status = new TextBlock
         {
-            Text = _waiterServer is null
-                ? "Servidor do garcom ainda nao iniciou. Feche e abra esta tela em alguns segundos."
-                : "No celular do garcom, escaneie o QR Code ou envie o link pelo WhatsApp. O aparelho precisa estar no mesmo Wi-Fi do caixa Windows.",
+            Text = statusText,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#5B6B7A"),
+            Foreground = waiterReady ? GreenText : AmberText,
+            FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 8, 0, 0)
         };
 
         var copy = DialogButton("Copiar link manualmente", "#5B6B7A");
         var open = DialogButton("Abrir neste PC", "#0B3A52");
         var sendWhatsApp = DialogButton("Enviar pelo WhatsApp", "#08A99B");
+        copy.IsEnabled = waiterReady;
+        open.IsEnabled = waiterReady;
+        sendWhatsApp.IsEnabled = waiterReady;
         copy.Click += (_, _) =>
         {
+            if (!waiterReady)
+            {
+                SetStatus("Garcom Web ainda nao iniciou.");
+                return;
+            }
+
             System.Windows.Clipboard.SetText(networkUrl);
             SetStatus("Link do Garcom Web copiado.");
         };
         open.Click += (_, _) =>
         {
-            if (_waiterServer is not null)
+            if (waiterReady)
             {
                 Process.Start(new ProcessStartInfo(localUrl) { UseShellExecute = true });
+            }
+            else
+            {
+                SetStatus("Garcom Web ainda nao iniciou.");
             }
         };
         sendWhatsApp.Click += (_, _) =>
         {
-            if (_waiterServer is null)
+            if (!waiterReady)
             {
                 SetStatus("Garcom Web ainda nao iniciou.");
                 return;
@@ -9444,71 +12260,187 @@ public partial class MainWindow : Window
         var qrCard = new Border
         {
             Background = Solid("#FFFFFF"),
-            BorderBrush = Solid("#CAD6E2"),
+            BorderBrush = Solid(waiterReady ? "#B9EEE8" : "#F2D18A"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(14),
-            Margin = new Thickness(0, 10, 0, 12),
+            CornerRadius = new CornerRadius(16),
+            Padding = new Thickness(18),
+            Margin = new Thickness(0, 12, 0, 12),
             HorizontalAlignment = HorizontalAlignment.Center,
             Child = qrSource is null
-                ? new TextBlock
+                ? new StackPanel
                 {
-                    Text = "QR Code indisponivel. Use o botao Enviar pelo WhatsApp.",
-                    TextWrapping = TextWrapping.Wrap,
-                    Foreground = Solid("#5B6B7A"),
-                    Width = 220
+                    Width = 238,
+                    Height = 238,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Children =
+                    {
+                        new Border
+                        {
+                            Width = 62,
+                            Height = 62,
+                            Background = Solid("#FFF2CB"),
+                            CornerRadius = new CornerRadius(18),
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                            Margin = new Thickness(0, 50, 0, 12),
+                            Child = new TextBlock
+                            {
+                                Text = "QR",
+                                Foreground = AmberText,
+                                FontWeight = FontWeights.Black,
+                                HorizontalAlignment = HorizontalAlignment.Center,
+                                VerticalAlignment = VerticalAlignment.Center
+                            }
+                        },
+                        TextLine("QR ainda iniciando.", "#5B6B7A", 14, FontWeights.Bold),
+                        TextLine("Aguarde alguns segundos e reabra este acesso.", "#5B6B7A", 12.5)
+                    }
                 }
                 : new System.Windows.Controls.Image
                 {
                     Source = qrSource,
-                    Width = 220,
-                    Height = 220,
+                    Width = 238,
+                    Height = 238,
                     Stretch = Stretch.Uniform,
                     ToolTip = networkUrl
                 }
         };
 
-        var shareGrid = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+        var shareGrid = new Grid { Margin = new Thickness(0, 14, 0, 0) };
         shareGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        shareGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        shareGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        shareGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var phoneField = DialogField("Telefone do garcom (opcional)", waiterPhoneBox);
         shareGrid.Children.Add(phoneField);
-        sendWhatsApp.Margin = new Thickness(10, 22, 0, 0);
-        sendWhatsApp.MinWidth = 210;
-        Grid.SetColumn(sendWhatsApp, 1);
+        sendWhatsApp.Margin = new Thickness(0, 22, 0, 10);
+        sendWhatsApp.HorizontalAlignment = HorizontalAlignment.Stretch;
+        sendWhatsApp.Height = 42;
+        Grid.SetColumn(sendWhatsApp, 2);
         shareGrid.Children.Add(sendWhatsApp);
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        copy.Margin = new Thickness(8, 12, 0, 0);
-        open.Margin = new Thickness(8, 12, 0, 0);
-        buttons.Children.Add(open);
-        buttons.Children.Add(copy);
+        var actionGrid = new UniformGrid { Columns = 2, Margin = new Thickness(0, 8, 0, 0) };
+        open.Margin = new Thickness(0, 0, 8, 0);
+        open.HorizontalAlignment = HorizontalAlignment.Stretch;
+        open.Height = 42;
+        copy.Margin = new Thickness(8, 0, 0, 0);
+        copy.HorizontalAlignment = HorizontalAlignment.Stretch;
+        copy.Height = 42;
+        actionGrid.Children.Add(open);
+        actionGrid.Children.Add(copy);
 
-        var panel = DialogPanel();
-        panel.Children.Add(SectionTitle("Acesso do garcom"));
-        panel.Children.Add(new TextBlock
+        var headerGrid = new Grid();
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var headerIcon = new Border
         {
-            Text = "Use rede local. O celular/tablet precisa estar no mesmo Wi-Fi do computador do caixa.",
-            TextWrapping = TextWrapping.Wrap,
+            Width = 46,
+            Height = 46,
+            Background = Solid("#E6FBF8"),
+            BorderBrush = Solid("#B9EEE8"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Child = new TextBlock
+            {
+                Text = "GW",
+                Foreground = Solid("#02796E"),
+                FontWeight = FontWeights.Black,
+                FontSize = 14,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+        var headerText = new StackPanel { Margin = new Thickness(14, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        headerText.Children.Add(new TextBlock
+        {
+            Text = "Garcom Web",
             Foreground = Solid("#071A2C"),
-            FontWeight = FontWeights.SemiBold
+            FontSize = 21,
+            FontWeight = FontWeights.Black,
+            TextWrapping = TextWrapping.Wrap
         });
-        panel.Children.Add(new TextBlock
+        headerText.Children.Add(TextLine("Escaneie o QR no celular ou envie o link para o garcom. Funciona na mesma rede Wi-Fi do caixa.", "#496071", 13));
+
+        var statusPill = new Border
         {
-            Text = "Mais facil: abra a camera do celular e aponte para o QR Code abaixo. Nao precisa copiar nem digitar no navegador.",
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = Solid("#08A99B"),
+            Background = Solid(waiterReady ? "#E6FBF8" : "#FFF2CB"),
+            BorderBrush = Solid(waiterReady ? "#B9EEE8" : "#F2D18A"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(999),
+            Padding = new Thickness(12, 6, 12, 6),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = waiterReady ? "Online" : "Iniciando",
+                Foreground = Solid(waiterReady ? "#02796E" : "#99620D"),
+                FontSize = 12,
+                FontWeight = FontWeights.Bold
+            }
+        };
+
+        Grid.SetColumn(headerText, 1);
+        Grid.SetColumn(statusPill, 2);
+        headerGrid.Children.Add(headerIcon);
+        headerGrid.Children.Add(headerText);
+        headerGrid.Children.Add(statusPill);
+
+        var header = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#D6E4F1"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(16),
+            Child = headerGrid
+        };
+
+        var leftPanel = new StackPanel();
+        leftPanel.Children.Add(SectionTitle("Como liberar para a equipe"));
+        leftPanel.Children.Add(StepCard("1", "Conecte no Wi-Fi da loja", "O celular/tablet precisa estar na mesma rede do computador do caixa."));
+        leftPanel.Children.Add(StepCard("2", "Leia o QR com a camera", "Nao precisa digitar endereco. A camera abre o Garcom Web direto."));
+        leftPanel.Children.Add(StepCard("3", "Atenda pela mesa ou comanda", "Os pedidos entram no PDV para conferencia, cozinha e pagamento."));
+        leftPanel.Children.Add(shareGrid);
+        leftPanel.Children.Add(actionGrid);
+
+        var rightPanel = new StackPanel();
+        rightPanel.Children.Add(new TextBlock
+        {
+            Text = "Aponte a camera para o QR",
+            Foreground = Solid("#071A2C"),
+            FontSize = 17,
             FontWeight = FontWeights.Bold,
-            Margin = new Thickness(0, 10, 0, 0)
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap
         });
-        panel.Children.Add(qrCard);
-        panel.Children.Add(shareGrid);
-        panel.Children.Add(DialogField("Link para celular/tablet", urlBox));
-        panel.Children.Add(DialogField("Link neste computador", localBox));
-        panel.Children.Add(status);
-        panel.Children.Add(DialogHint("Se o celular nao abrir, libere o Balcao Livre PDV Online no Firewall do Windows e confira o IP do caixa."));
-        panel.Children.Add(buttons);
-        dialog.Content = panel;
+        rightPanel.Children.Add(TextLine("Este link e local da loja. Funciona dentro do Wi-Fi do caixa.", "#5B6B7A", 12.5));
+        rightPanel.Children.Add(qrCard);
+        rightPanel.Children.Add(DialogField("Link para celular/tablet", urlBox));
+        rightPanel.Children.Add(DialogField("Link neste computador", localBox));
+        rightPanel.Children.Add(status);
+
+        var contentGrid = new Grid { Margin = new Thickness(0, 16, 0, 0) };
+        contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.04, GridUnitType.Star) });
+        contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+        contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var leftCard = AccessCard(leftPanel);
+        var rightCard = AccessCard(rightPanel, "#F8FBFD", waiterReady ? "#B9EEE8" : "#F2D18A");
+        Grid.SetColumn(rightCard, 2);
+        contentGrid.Children.Add(leftCard);
+        contentGrid.Children.Add(rightCard);
+
+        var root = DialogPanel();
+        root.Margin = new Thickness(22, 20, 22, 18);
+        root.Children.Add(header);
+        root.Children.Add(contentGrid);
+        root.Children.Add(DialogHint("Se o celular nao abrir, libere o Balcao Livre PDV Online no Firewall do Windows e confira se o IP do caixa continua o mesmo."));
+
+        dialog.Content = new ScrollViewer
+        {
+            Content = root,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            PanningMode = PanningMode.VerticalOnly
+        };
         dialog.ShowDialog();
     }
 
@@ -9748,6 +12680,7 @@ public partial class MainWindow : Window
         if (stockChanged)
         {
             QueueIFoodStockSync(product, $"Venda garcom web {board.Number}");
+            QueuePublicMenuPublish();
         }
         PrintWaiterKitchenLine(board, kitchenLine);
         RefreshAfterWaiterMutation(board);
@@ -9835,6 +12768,7 @@ public partial class MainWindow : Window
         {
             restoredProduct.StockQuantity += Math.Max(0, line.Quantity);
             QueueIFoodStockSync(restoredProduct, $"Item removido garcom web {board.Number}");
+            QueuePublicMenuPublish();
         }
 
         board.Total = board.Lines.Sum(item => item.Total);
@@ -10197,6 +13131,11 @@ public partial class MainWindow : Window
 
     private void ShowIFoodDialog()
     {
+        if (!RequireLicenseFeature(LicenseFeatureIFood, "iFood temporariamente indisponivel", "Estamos aguardando a aprovacao/homologacao do iFood para liberar a integracao nesta loja. Enquanto isso, use WhatsApp, cardapio online, Garcom Web e PDV normalmente."))
+        {
+            return;
+        }
+
         if (!RequirePermission(CanManageIFood, "Integracao iFood"))
         {
             return;
@@ -10204,12 +13143,30 @@ public partial class MainWindow : Window
 
         var settings = _appSettings.IFood ??= new IFoodIntegrationSettings();
         EnsureIFoodCloudSettings(settings);
-        var dialog = CreateDialog("iFood Online", 820, 570);
+        var dialog = CreateDialog("iFood Online", 820, 640);
 
         var connectionValue = new TextBlock();
         var receivingValue = new TextBlock();
         var productsValue = new TextBlock();
         var lastSyncValue = new TextBlock();
+        var scheduleValue = new TextBlock();
+        var scheduleStatus = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = Solid("#52687A"),
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        var openTimeBox = new TextBox
+        {
+            Text = NormalizeClockText(_appSettings.OnlineStoreOpenTime, "00:00"),
+            MinHeight = 42
+        };
+        var closeTimeBox = new TextBox
+        {
+            Text = NormalizeClockText(_appSettings.OnlineStoreCloseTime, "00:00"),
+            MinHeight = 42
+        };
         var operationBox = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
@@ -10228,20 +13185,21 @@ public partial class MainWindow : Window
         void SaveFields()
         {
             settings.Enabled = true;
-            _appSettings.PublicMenuStoreOpen = true;
             EnsureIFoodCloudSettings(settings);
+            ApplyOnlineStoreScheduleState("conexao iFood", persist: false);
             SaveAppSettings();
             SaveStore();
             RefreshOnlineStoreButton();
         }
 
         var connect = DialogButton("Conectar iFood", "#08A99B");
-        var toggleReceiving = DialogButton("Pausar recebimento", "#0B3A52");
-        var syncProducts = DialogButton("Puxar produtos do iFood", "#08A99B");
+        var saveSchedule = DialogButton("Salvar horario", "#08A99B");
+        var toggleNow = DialogButton("Fechar agora", "#A11D1D");
+        var autoSchedule = DialogButton("Usar automatico", "#5B6B7A");
         var openDelivery = DialogButton("Abrir Delivery", "#0B3A52");
         var disconnect = DialogButton("Sair do iFood", "#A11D1D");
 
-        foreach (var button in new[] { connect, toggleReceiving, syncProducts, openDelivery, disconnect })
+        foreach (var button in new[] { connect, saveSchedule, toggleNow, autoSchedule, openDelivery, disconnect })
         {
             button.Width = 230;
             button.MinHeight = 48;
@@ -10251,34 +13209,46 @@ public partial class MainWindow : Window
 
         void RefreshIFoodUi(string? message = null)
         {
+            ApplyOnlineStoreScheduleState("atualizar iFood", persist: false);
             var linked = HasIFoodConnectionConfigured(settings);
-            var receiving = settings.HasCloudConnection;
+            var scheduleOpen = CanReceiveOnlineOrdersNow();
+            var receiving = linked && scheduleOpen;
             var linkedProducts = Products.Count(HasIFoodCatalogLink);
 
             connectionValue.Text = linked
                 ? string.IsNullOrWhiteSpace(settings.MerchantName) ? "Conta conectada" : settings.MerchantName.Trim()
                 : string.IsNullOrWhiteSpace(settings.ConnectionId) ? "Nao conectado" : "Aguardando autorizacao";
-            receivingValue.Text = receiving ? "Recebendo pedidos automaticamente" : linked ? "Recebimento pausado" : "Conecte para receber pedidos";
+            var manualMode = NormalizeOnlineStoreManualMode(_appSettings.OnlineStoreManualMode);
+            receivingValue.Text = receiving
+                ? manualMode == OnlineStoreModeOpen ? "Aberto manualmente" : "Aberto pelo horario"
+                : linked
+                    ? manualMode == OnlineStoreModeClosed ? "Fechado manualmente" : "Fechado pelo horario"
+                    : "Conecte para receber pedidos";
             productsValue.Text = linkedProducts == 1
                 ? "1 produto vinculado ao iFood"
                 : $"{linkedProducts} produtos vinculados ao iFood";
             lastSyncValue.Text = LastSyncText();
-
+            scheduleValue.Text = BuildOnlineStoreScheduleText();
+            scheduleStatus.Text = BuildOnlineStoreStatusText();
             connect.Visibility = linked ? Visibility.Collapsed : Visibility.Visible;
-            toggleReceiving.Visibility = linked ? Visibility.Visible : Visibility.Collapsed;
-            syncProducts.Visibility = linked ? Visibility.Visible : Visibility.Collapsed;
+            saveSchedule.Visibility = Visibility.Visible;
+            toggleNow.Visibility = Visibility.Visible;
+            autoSchedule.Visibility = manualMode == OnlineStoreModeAuto ? Visibility.Collapsed : Visibility.Visible;
             openDelivery.Visibility = linked ? Visibility.Visible : Visibility.Collapsed;
             disconnect.Visibility = linked ? Visibility.Visible : Visibility.Collapsed;
-
-            toggleReceiving.Content = receiving ? "Pausar recebimento" : "Ligar recebimento";
-            toggleReceiving.Background = receiving ? Solid("#5B6B7A") : Solid("#08A99B");
-            toggleReceiving.BorderBrush = receiving ? Solid("#5B6B7A") : Solid("#08A99B");
+            toggleNow.Content = _appSettings.PublicMenuStoreOpen ? "Fechar agora" : "Abrir agora";
+            toggleNow.Background = Solid(_appSettings.PublicMenuStoreOpen ? "#A11D1D" : "#08A99B");
+            toggleNow.BorderBrush = toggleNow.Background;
 
             operationBox.Text = message ?? (linked
                 ? receiving
-                    ? "iFood ligado. Novos pedidos aparecem no Delivery com alerta grande na tela."
-                    : "Conta iFood vinculada. Ligue o recebimento para voltar a entrar pedido no PDV."
-                : "Conecte a loja uma vez. Depois disso o PDV recebe pedidos e atualiza produtos automaticamente.");
+                    ? manualMode == OnlineStoreModeOpen
+                        ? "Loja aberta manualmente. Use Fechar agora para interromper por emergencia ou Usar automatico para voltar ao horario."
+                        : "iFood e cardapio online estao dentro do horario de atendimento. Produtos, estoque e pedidos sincronizam em segundo plano."
+                    : manualMode == OnlineStoreModeClosed
+                        ? "Loja fechada manualmente. Ela nao reabre pelo horario ate clicar em Abrir agora ou Usar automatico."
+                        : "Conta iFood vinculada. O PDV reabre sozinho no proximo horario de atendimento."
+                : "Conecte a loja uma vez. Depois disso o PDV usa o horario abaixo para abrir/fechar iFood e cardapio.");
             if (!string.IsNullOrWhiteSpace(message))
             {
                 SetStatus(message);
@@ -10306,10 +13276,11 @@ public partial class MainWindow : Window
                 SaveAppSettings();
                 if (string.Equals(settings.ConnectionStatus, "conectado", StringComparison.OrdinalIgnoreCase))
                 {
-                    _ifoodSyncTimer.Start();
+                    ApplyOnlineStoreScheduleState("iFood conectado", forcePublish: true);
                     RefreshOnlineStoreButton();
+                    QueueIFoodLocalCatalogSync("iFood conectado", force: true);
                     _ = AutoImportIFoodOrdersAsync(force: true);
-                    RefreshIFoodUi("iFood conectado. Pedidos entram no Delivery e produtos do iFood aparecem no estoque.");
+                    RefreshIFoodUi("iFood conectado. Pedidos entram no Delivery e produtos do PDV sincronizam automaticamente.");
                 }
                 else if (!string.IsNullOrWhiteSpace(settings.VerificationUrlComplete))
                 {
@@ -10333,56 +13304,65 @@ public partial class MainWindow : Window
             }
         };
 
-        toggleReceiving.Click += (_, _) =>
-        {
-            var enable = !settings.HasCloudConnection;
-            settings.Enabled = enable;
-            _appSettings.PublicMenuStoreOpen = enable;
-            SaveAppSettings();
-            SaveStore();
-            RefreshOnlineStoreButton();
-            if (enable)
-            {
-                _ifoodSyncTimer.Start();
-                _ = AutoImportIFoodOrdersAsync(force: true);
-                _ = SyncIFoodPresenceOnceAsync();
-                RefreshIFoodUi("Recebimento ligado. O PDV vai abrir alerta quando chegar pedido novo.");
-            }
-            else
-            {
-                _ifoodSyncTimer.Stop();
-                RefreshIFoodUi("Recebimento pausado. A conta continua vinculada e pode ser ligada de novo.");
-            }
-        };
-
-        syncProducts.Click += async (_, _) =>
+        async Task ApplyStoreModeAsync(string mode, string reason, Button button)
         {
             try
             {
-                settings.Enabled = true;
-                _appSettings.PublicMenuStoreOpen = true;
-                EnsureIFoodCloudSettings(settings);
+                button.IsEnabled = false;
+                _appSettings.OnlineStoreManualMode = NormalizeOnlineStoreManualMode(mode);
+                ApplyOnlineStoreScheduleState(reason, forcePublish: true);
                 SaveAppSettings();
+                SaveStore();
                 RefreshOnlineStoreButton();
-                _ifoodSyncTimer.Start();
-
-                syncProducts.IsEnabled = false;
-                RefreshIFoodUi("Puxando produtos do iFood para o estoque...");
-                var changed = await SyncIFoodCatalogProductsAsync(force: true, log: RefreshIFoodUi);
-                RefreshIFoodUi(changed <= 0
-                    ? "Produtos conferidos. Nada novo para atualizar agora."
-                    : changed == 1
-                        ? "1 produto do iFood entrou/atualizou no estoque."
-                        : $"{changed} produtos do iFood entraram/atualizaram no estoque.");
+                var publish = await PublishGeneratedPublicMenuAsync(silent: true);
+                RefreshIFoodUi(publish.Ok
+                    ? BuildOnlineStoreStatusText()
+                    : $"{BuildOnlineStoreStatusText()} Cardapio pendente: {publish.Message}");
             }
             catch (Exception ex)
             {
-                RefreshIFoodUi($"Falha ao puxar produtos do iFood: {ex.Message}");
+                RefreshIFoodUi($"Falha ao atualizar loja online: {ex.Message}");
             }
             finally
             {
-                syncProducts.IsEnabled = true;
+                button.IsEnabled = true;
             }
+        }
+
+        saveSchedule.Click += async (_, _) =>
+        {
+            if (!TryParseOnlineStoreClock(openTimeBox.Text, out _) || !TryParseOnlineStoreClock(closeTimeBox.Text, out _))
+            {
+                RefreshIFoodUi("Informe horarios validos, exemplo 10:00 e 23:30.");
+                return;
+            }
+
+            saveSchedule.IsEnabled = false;
+            _appSettings.OnlineStoreScheduleEnabled = true;
+            _appSettings.OnlineStoreOpenTime = NormalizeClockText(openTimeBox.Text, _appSettings.OnlineStoreOpenTime);
+            _appSettings.OnlineStoreCloseTime = NormalizeClockText(closeTimeBox.Text, _appSettings.OnlineStoreCloseTime);
+            openTimeBox.Text = _appSettings.OnlineStoreOpenTime;
+            closeTimeBox.Text = _appSettings.OnlineStoreCloseTime;
+            ApplyOnlineStoreScheduleState("horario iFood/cardapio salvo", forcePublish: true);
+            SaveAppSettings();
+            SaveStore();
+            RefreshOnlineStoreButton();
+            var publish = await PublishGeneratedPublicMenuAsync(silent: true);
+            saveSchedule.IsEnabled = true;
+            RefreshIFoodUi(publish.Ok
+                ? $"Horario salvo. {BuildOnlineStoreStatusText()}"
+                : $"Horario salvo no PDV. Cardapio pendente: {publish.Message}");
+        };
+
+        toggleNow.Click += async (_, _) =>
+        {
+            var mode = _appSettings.PublicMenuStoreOpen ? OnlineStoreModeClosed : OnlineStoreModeOpen;
+            await ApplyStoreModeAsync(mode, mode == OnlineStoreModeClosed ? "fechamento manual" : "abertura manual", toggleNow);
+        };
+
+        autoSchedule.Click += async (_, _) =>
+        {
+            await ApplyStoreModeAsync(OnlineStoreModeAuto, "voltar horario automatico", autoSchedule);
         };
 
         openDelivery.Click += (_, _) =>
@@ -10417,6 +13397,7 @@ public partial class MainWindow : Window
             settings.LastSyncUtc = null;
             settings.ImportedEventIds.Clear();
             _appSettings.PublicMenuStoreOpen = false;
+            _appSettings.OnlineStoreManualMode = OnlineStoreModeClosed;
             SaveAppSettings();
             SaveStore();
             RefreshOnlineStoreButton();
@@ -10483,26 +13464,30 @@ public partial class MainWindow : Window
         statusGrid.Children.Add(Metric("Recebimento", receivingValue, "#08A99B"));
         statusGrid.Children.Add(Metric("Produtos", productsValue, "#0B3A52"));
         statusGrid.Children.Add(Metric("Ultima atualizacao", lastSyncValue, "#5B6B7A"));
+        statusGrid.Children.Add(Metric("Horario", scheduleValue, "#99620D"));
 
         var flow = BorderCard();
         flow.Margin = new Thickness(0, 14, 0, 0);
         var actions = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
         actions.Children.Add(connect);
-        actions.Children.Add(syncProducts);
-        actions.Children.Add(toggleReceiving);
+        actions.Children.Add(saveSchedule);
+        actions.Children.Add(toggleNow);
+        actions.Children.Add(autoSchedule);
         actions.Children.Add(openDelivery);
         actions.Children.Add(disconnect);
         flow.Child = new StackPanel
         {
             Children =
             {
-                SectionTitle("Operacao da loja"),
+                SectionTitle("Horario de atendimento"),
                 new TextBlock
                 {
-                    Text = "Pedido novo abre alerta grande, entra no Delivery e pode ser confirmado/despachado sem editar os itens.",
+                    Text = "Esse horario controla o cardapio online e o recebimento iFood no PDV. Produtos e estoque continuam sincronizando automaticamente.",
                     Foreground = Solid("#5A6B7C"),
                     TextWrapping = TextWrapping.Wrap
                 },
+                TwoColumnFields(("Abre", openTimeBox), ("Fecha", closeTimeBox)),
+                scheduleStatus,
                 actions
             }
         };
@@ -10524,7 +13509,20 @@ public partial class MainWindow : Window
 
     private async Task<int> ImportIFoodOrdersAsync(Action<string>? log = null)
     {
+        if (!HasIFoodLicenseFeature())
+        {
+            log?.Invoke("iFood desabilitado nesta licenca.");
+            return 0;
+        }
+
         var settings = _appSettings.IFood ??= new IFoodIntegrationSettings();
+        ApplyOnlineStoreScheduleState("conferir horario", persist: false);
+        if (!CanReceiveOnlineOrdersNow())
+        {
+            log?.Invoke($"Loja fora do horario automatico. {BuildOnlineStoreScheduleText()}");
+            return 0;
+        }
+
         if (!settings.Enabled)
         {
             log?.Invoke("Conecte o iFood para receber pedidos automaticamente.");
@@ -10614,6 +13612,12 @@ public partial class MainWindow : Window
 
     private async Task<int> SyncIFoodCatalogProductsAsync(bool force = false, Action<string>? log = null)
     {
+        if (!HasIFoodLicenseFeature())
+        {
+            log?.Invoke("iFood desabilitado nesta licenca.");
+            return 0;
+        }
+
         var settings = _appSettings.IFood ??= new IFoodIntegrationSettings();
         if (!settings.Enabled || !settings.HasCloudConnection)
         {
@@ -10839,6 +13843,7 @@ public partial class MainWindow : Window
         try
         {
             var catalogChanged = await SyncIFoodCatalogProductsAsync(force);
+            QueueIFoodLocalCatalogSync(force ? "Sincronizacao inicial iFood" : "Sincronizacao automatica iFood", force);
             var imported = await ImportIFoodOrdersAsync();
             if (imported <= 0 && catalogChanged <= 0)
             {
@@ -11002,6 +14007,7 @@ public partial class MainWindow : Window
             ExternalCode = product.ExternalCode,
             ProductCode = product.Code,
             ProductName = product.Name,
+            ProductCategory = product.Category,
             Price = product.Price,
             Amount = product.Amount,
             Reason = product.Reason,
@@ -11015,6 +14021,7 @@ public partial class MainWindow : Window
         string Name,
         string ProductId,
         string ExternalCode,
+        string Category,
         decimal Price,
         int Amount,
         string Reason,
@@ -11027,6 +14034,11 @@ public partial class MainWindow : Window
 
     private void StartIFoodPresenceLoop()
     {
+        if (!HasIFoodLicenseFeature())
+        {
+            return;
+        }
+
         if (_ifoodPresenceLoopStarted)
         {
             return;
@@ -11072,8 +14084,13 @@ public partial class MainWindow : Window
 
     private IFoodPresenceSyncSnapshot? CreateIFoodPresenceSyncSnapshot()
     {
+        if (!HasIFoodLicenseFeature())
+        {
+            return null;
+        }
+
         var settings = _appSettings.IFood;
-        if (settings is null || !settings.HasCloudConnection || _ifoodSyncRunning)
+        if (settings is null || !CanReceiveOnlineOrdersNow() || !settings.HasCloudConnection || _ifoodSyncRunning)
         {
             return null;
         }
@@ -11096,6 +14113,11 @@ public partial class MainWindow : Window
 
     private void QueueIFoodStockSync(ProductTile? product, string reason)
     {
+        if (!HasIFoodLicenseFeature())
+        {
+            return;
+        }
+
         if (product is null)
         {
             return;
@@ -11109,13 +14131,13 @@ public partial class MainWindow : Window
 
         var productId = (product.IFoodProductId ?? "").Trim();
         var externalCode = (product.IFoodExternalCode ?? "").Trim();
-        if (!HasIFoodCatalogLink(product))
+        if (string.IsNullOrWhiteSpace(externalCode))
         {
-            if (string.Equals(product.Category, "IFOOD", StringComparison.OrdinalIgnoreCase))
-            {
-                SetStatus($"Produto iFood sem vinculo no catalogo: {product.Name}. Sincronize/importe o item para atualizar estoque no iFood.");
-            }
+            externalCode = NormalizeProductCode(product.Code);
+        }
 
+        if (string.IsNullOrWhiteSpace(productId) && string.IsNullOrWhiteSpace(externalCode))
+        {
             return;
         }
 
@@ -11127,12 +14149,96 @@ public partial class MainWindow : Window
             product.Name,
             productId,
             externalCode,
+            product.Category,
             product.Price,
             amount,
             syncReason,
             imagePayload.DataUrl,
             imagePayload.Url);
         _ = SyncIFoodStockSnapshotAsync(settings.BackendUrl, settings.ConnectionId, snapshot);
+    }
+
+    private int RemoveProductFromCatalog(ProductTile product)
+    {
+        var code = NormalizeProductCode(product.Code);
+        var removed = 0;
+
+        if (!string.IsNullOrWhiteSpace(code))
+        {
+            for (var i = Products.Count - 1; i >= 0; i--)
+            {
+                if (string.Equals(NormalizeProductCode(Products[i].Code), code, StringComparison.OrdinalIgnoreCase))
+                {
+                    Products.RemoveAt(i);
+                    removed++;
+                }
+            }
+
+            foreach (var item in Products)
+            {
+                item.RecipeItems.RemoveAll(recipe =>
+                    string.Equals(NormalizeProductCode(recipe.ProductCode), code, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+        else if (Products.Remove(product))
+        {
+            removed = 1;
+        }
+
+        return removed;
+    }
+
+    private void QueueDeletedProductSync(ProductTile product, string reason)
+    {
+        product.Active = false;
+        product.StockQuantity = 0;
+        QueueIFoodStockSync(product, reason);
+    }
+
+    private void QueueIFoodLocalCatalogSync(string reason, bool force = false)
+    {
+        if (!HasIFoodLicenseFeature())
+        {
+            return;
+        }
+
+        var settings = _appSettings.IFood ??= new IFoodIntegrationSettings();
+        if (!HasIFoodConnectionConfigured(settings))
+        {
+            return;
+        }
+
+        if (!force && DateTime.UtcNow - _lastIFoodLocalCatalogPushUtc < TimeSpan.FromMinutes(3))
+        {
+            return;
+        }
+
+        var products = Products
+            .Where(ShouldAutoSyncProductToIFood)
+            .OrderBy(product => product.Category)
+            .ThenBy(product => product.Name)
+            .ToList();
+        if (products.Count == 0)
+        {
+            return;
+        }
+
+        _lastIFoodLocalCatalogPushUtc = DateTime.UtcNow;
+        foreach (var product in products)
+        {
+            QueueIFoodStockSync(product, reason);
+        }
+
+        SetStatus(products.Count == 1
+            ? "1 produto enviado para sincronizacao automatica iFood."
+            : $"{products.Count:N0} produtos enviados para sincronizacao automatica iFood.");
+    }
+
+    private static bool ShouldAutoSyncProductToIFood(ProductTile product)
+    {
+        return !string.IsNullOrWhiteSpace(product.Code)
+               && !string.IsNullOrWhiteSpace(product.Name)
+               && (product.Price > 0m || HasIFoodCatalogLink(product));
     }
 
     private static int GetIFoodStockSyncAmount(ProductTile product)
@@ -11202,9 +14308,15 @@ public partial class MainWindow : Window
                 CreateIFoodStockSyncRequest(connectionId, product));
             RunOnUiThread(() =>
             {
+                ApplyIFoodStockSyncLink(product, response);
                 var message = string.IsNullOrWhiteSpace(response.Message)
                     ? $"Estoque iFood atualizado: {product.Name} = {product.Amount:N0}."
                     : $"{response.Message} {product.Name}.";
+                if (response.CatalogCreated)
+                {
+                    message = $"Produto criado no iFood. {message}";
+                }
+
                 if ((!string.IsNullOrWhiteSpace(product.ImageDataUrl) || !string.IsNullOrWhiteSpace(product.ImageUrl))
                     && response.ImageUpdated
                     && !message.Contains("foto", StringComparison.OrdinalIgnoreCase))
@@ -11431,6 +14543,7 @@ public partial class MainWindow : Window
             {
                 ApplyIFoodStockMovement(product, item.Quantity, display);
                 QueueIFoodStockSync(product, $"Pedido iFood {display}");
+                QueuePublicMenuPublish();
             }
         }
 
@@ -11982,7 +15095,7 @@ public partial class MainWindow : Window
                 "501 - Loja sem produto",
                 "502 - Loja sem capacidade",
                 "503 - Cliente solicitou cancelamento",
-                "504 - Endereco fora da area"
+                "504 - Endereço fora da área"
             },
             SelectedIndex = 0,
             Margin = new Thickness(0, 6, 0, 0)
@@ -12120,7 +15233,7 @@ public partial class MainWindow : Window
                     ("Voucher / cupom", BuildIFoodVoucherText(order), "#08A99B", "#FFFFFF"),
                     ("CPF/CNPJ", order.CustomerCpf, "#5B6B7A", "#FFFFFF"),
                     ("Telefone", order.Phone, "#5B6B7A", "#FFFFFF"),
-                    ("Endereco", order.Address, "#071A2C", "#F8FBFD"),
+                    ("Endereço", order.Address, "#071A2C", "#F8FBFD"),
                     ("Bairro", order.District, "#071A2C", "#F8FBFD"),
                     ("Observacao", order.Notes, "#5B6B7A", "#FFFFFF"),
                     ("Cancelamento", BuildIFoodCancellationText(order), "#A11D1D", "#FFF5F5"))
@@ -12234,7 +15347,7 @@ public partial class MainWindow : Window
         return normalized.Contains("already cancelled", StringComparison.Ordinal)
                || normalized.Contains("already canceled", StringComparison.Ordinal)
                || normalized.Contains("ja cancelado", StringComparison.Ordinal)
-               || normalized.Contains("já cancelado", StringComparison.Ordinal);
+               || normalized.Contains("jÃƒÂ¡ cancelado", StringComparison.Ordinal);
     }
 
     private void MarkIFoodOrderCancelled(TableTile order)
@@ -12545,7 +15658,7 @@ public partial class MainWindow : Window
             BuildIFoodCancellationText(order),
             $"Cliente: {order.CustomerName}",
             string.IsNullOrWhiteSpace(order.Phone) ? "" : $"Telefone: {order.Phone}",
-            string.IsNullOrWhiteSpace(order.Address) ? "" : $"Endereco: {order.Address}",
+            string.IsNullOrWhiteSpace(order.Address) ? "" : $"Endereço: {order.Address}",
             string.IsNullOrWhiteSpace(order.CustomerCpf) ? "" : $"CPF/CNPJ: {order.CustomerCpf}",
             string.IsNullOrWhiteSpace(BuildIFoodObservationEvidence(order)) ? "" : $"Obs: {BuildIFoodObservationEvidence(order)}"
         }.Where(line => !string.IsNullOrWhiteSpace(line));
@@ -13049,7 +16162,7 @@ public partial class MainWindow : Window
                 ? HasIFoodCatalogLink(product)
                     ? "  |  iFood sync ativo"
                     : string.Equals(product.Category, "IFOOD", StringComparison.OrdinalIgnoreCase)
-                        ? "  |  iFood sem vinculo de catalogo"
+                        ? "  |  iFood sync automatico"
                         : ""
                 : "";
             selectedMeta.Text = $"{product.Code}  |  {product.Category}  |  {product.PriceText}{ifoodMeta}";
@@ -13324,17 +16437,21 @@ public partial class MainWindow : Window
 
             var code = product.Code;
             var selectedIndex = Math.Max(0, sortedProducts.IndexOf(product));
-            Products.Remove(product);
-            sortedProducts.Remove(product);
-            foreach (var item in Products)
+            QueueDeletedProductSync(product, "Produto apagado");
+            var removed = RemoveProductFromCatalog(product);
+            if (removed <= 0)
             {
-                item.RecipeItems.RemoveAll(recipe =>
-                    string.Equals(recipe.ProductCode, code, StringComparison.OrdinalIgnoreCase));
+                SetStatus("Nao consegui localizar este produto no cadastro para apagar.");
+                return;
             }
+
+            sortedProducts.RemoveAll(item =>
+                string.Equals(NormalizeProductCode(item.Code), NormalizeProductCode(code), StringComparison.OrdinalIgnoreCase));
 
             FilterProducts();
             UpdateMetrics();
             SaveStore();
+            QueuePublicMenuPublish();
             var nextProduct = sortedProducts.Count == 0
                 ? null
                 : sortedProducts[Math.Clamp(selectedIndex, 0, sortedProducts.Count - 1)];
@@ -13390,6 +16507,7 @@ public partial class MainWindow : Window
             RefreshInventory(product);
             SetStatus($"{type}: {product.Name} {amount:N0}. Saldo {product.StockQuantity:N0}");
             QueueIFoodStockSync(product, $"Estoque {type}");
+            QueuePublicMenuPublish();
         }
 
         var setButton = DialogButton("Salvar saldo/minimo", "#0B3A52");
@@ -13410,6 +16528,7 @@ public partial class MainWindow : Window
                 RefreshInventory(product);
                 SetStatus($"Estoque atualizado: {product.Name} {product.StockQuantity:N0}");
                 QueueIFoodStockSync(product, "Ajuste manual de estoque");
+                QueuePublicMenuPublish();
             }
         };
         var inButton = DialogButton("Entrada no estoque", "#08A99B");
@@ -13560,6 +16679,878 @@ public partial class MainWindow : Window
         dialog.ShowDialog();
     }
 
+    private List<(CustomerRecord Customer, string Kind, string Reason)> GetCustomerCampaignCandidates(DateTime now, bool respectCooldown)
+    {
+        var settings = GetWhatsAppSettings();
+        return Customers
+            .Select(customer => (Customer: customer, Kind: GetCustomerCampaignKind(customer, now, respectCooldown), Reason: GetCustomerCampaignReason(customer, now)))
+            .Where(item => !string.IsNullOrWhiteSpace(item.Kind))
+            .Where(item => !string.IsNullOrWhiteSpace(NormalizeWhatsAppPhone(item.Customer.Phone, settings.DefaultCountryCode)))
+            .OrderBy(item => item.Customer.LastPromotionAt ?? DateTime.MinValue)
+            .ThenBy(item => item.Customer.LastPurchaseAt ?? DateTime.MinValue)
+            .ToList();
+    }
+
+    private string GetCustomerCampaignKind(CustomerRecord customer, DateTime now, bool respectCooldown)
+    {
+        if (respectCooldown
+            && customer.LastPromotionAt.HasValue
+            && now - customer.LastPromotionAt.Value < CustomerCampaignCooldown)
+        {
+            return "";
+        }
+
+        if (customer.Birthday.HasValue
+            && customer.Birthday.Value.Month == now.Month
+            && customer.Birthday.Value.Day == now.Day)
+        {
+            return "ANIVERSARIO";
+        }
+
+        if (customer.LastPurchaseAt.HasValue
+            && (now.Date - customer.LastPurchaseAt.Value.Date).TotalDays >= CustomerReactivationDays)
+        {
+            return "RETORNO";
+        }
+
+        return "";
+    }
+
+    private static string GetCustomerCampaignReason(CustomerRecord customer, DateTime now)
+    {
+        if (customer.Birthday.HasValue
+            && customer.Birthday.Value.Month == now.Month
+            && customer.Birthday.Value.Day == now.Day)
+        {
+            return "aniversario hoje";
+        }
+
+        if (customer.LastPurchaseAt.HasValue)
+        {
+            var days = Math.Max(0, (int)(now.Date - customer.LastPurchaseAt.Value.Date).TotalDays);
+            return days >= CustomerReactivationDays
+                ? $"{days:N0} dias sem compra"
+                : $"comprou ha {days:N0} dia(s)";
+        }
+
+        return "sem compra registrada";
+    }
+
+    private string BuildCustomerCampaignMessage(CustomerRecord customer, string kind, DateTime now)
+    {
+        var firstName = WhatsAppFirstName(customer.Name);
+        var storeName = FirstNonEmpty(_profile.BusinessName, _profile.LegalName, AppDisplayName);
+        if (string.Equals(kind, "ANIVERSARIO", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Parabens, {firstName}! Aqui e da {storeName}. Seu cupom de aniversario esta liberado hoje. Responda aqui para usar no pedido ou falar com a equipe.";
+        }
+
+        var days = customer.LastPurchaseAt.HasValue
+            ? Math.Max(CustomerReactivationDays, (int)(now.Date - customer.LastPurchaseAt.Value.Date).TotalDays)
+            : CustomerReactivationDays;
+        return $"Oi {firstName}, aqui e da {storeName}. Faz {days:N0} dias que voce nao pede com a gente. Responda PEDIR por aqui que a equipe continua seu atendimento pelo WhatsApp.";
+    }
+
+    private bool QueueCustomerCampaignWhatsApp(CustomerRecord customer, string kind, string reason, DateTime now)
+    {
+        var settings = GetWhatsAppSettings();
+        if (!settings.Enabled)
+        {
+            return false;
+        }
+
+        var phone = NormalizeWhatsAppPhone(customer.Phone, settings.DefaultCountryCode);
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            return false;
+        }
+
+        var message = BuildCustomerCampaignMessage(customer, kind, now);
+        var log = AddWhatsAppInteractionLog(customer.Name, phone, message, $"ENVIANDO_CRM_{kind}");
+        log.BoardKind = "CRM";
+        log.BoardNumber = reason;
+        customer.LastPromotionAt = now;
+        SaveStore();
+
+        if (IsEvolutionLocalWhatsApp(settings))
+        {
+            _ = SendWhatsAppLogViaEvolutionLocalAsync(log);
+            return true;
+        }
+
+        if (IsLocalDomWhatsApp(settings))
+        {
+            if (_whatsAppAutomationView?.CoreWebView2 is not null)
+            {
+                OpenWhatsAppConversation(log, autoPressEnter: false);
+            }
+            else
+            {
+                log.Status = "AGUARDANDO_ATENDIMENTO";
+                log.Error = "Abra Atendimento WhatsApp para o envio automatico local.";
+                SaveStore();
+            }
+
+            return true;
+        }
+
+        _ = SendWhatsAppLogViaSendPulseAsync(log);
+        return true;
+    }
+
+    private int RunCustomerReactivationCampaigns(bool automatic, int maxToSend)
+    {
+        if (_customerCampaignRunning)
+        {
+            return 0;
+        }
+
+        _customerCampaignRunning = true;
+        try
+        {
+            var now = DateTime.Now;
+            var sent = 0;
+            foreach (var item in GetCustomerCampaignCandidates(now, respectCooldown: true).Take(Math.Max(1, maxToSend)))
+            {
+                if (QueueCustomerCampaignWhatsApp(item.Customer, item.Kind, item.Reason, now))
+                {
+                    sent++;
+                }
+            }
+
+            if (sent > 0)
+            {
+                SetStatus($"WhatsApp CRM {(automatic ? "automatico" : "manual")}: {sent:N0} cliente(s) acionado(s).");
+            }
+            else if (!automatic)
+            {
+                SetStatus("Nenhum cliente elegivel agora: falta telefone, compra antiga/aniversario ou cooldown ativo.");
+            }
+
+            return sent;
+        }
+        finally
+        {
+            _customerCampaignRunning = false;
+        }
+    }
+
+    private void ShowManagementDialog()
+    {
+        if (!RequirePermission(user => IsManagerUser(user) || user.CanReports || user.CanCash, "Operacao da loja"))
+        {
+            return;
+        }
+
+        var dialog = CreateDialog("Operacao da loja", 1180, 760);
+        var views = new Dictionary<string, UIElement>(StringComparer.OrdinalIgnoreCase);
+        var navButtons = new Dictionary<string, Button>(StringComparer.OrdinalIgnoreCase);
+        var contentHost = new ContentControl();
+        var nav = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 18) };
+        var shell = new Grid
+        {
+            Margin = new Thickness(22),
+            Background = Solid("#EEF5F9")
+        };
+        shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        shell.RowDefinitions.Add(new RowDefinition());
+        shell.Children.Add(nav);
+        Grid.SetRow(contentHost, 1);
+        shell.Children.Add(contentHost);
+
+        Button NavButton(string id, string label)
+        {
+            var button = new Button
+            {
+                Content = label,
+                Height = 42,
+                MinWidth = 150,
+                Margin = new Thickness(0, 0, 10, 0),
+                Padding = new Thickness(18, 0, 18, 0),
+                Cursor = Cursors.Hand,
+                FontWeight = FontWeights.Bold,
+                FontSize = 13,
+                BorderThickness = new Thickness(1),
+                BorderBrush = Solid("#C8D9E6"),
+                Background = Brushes.White,
+                Foreground = Solid("#0B2034")
+            };
+            button.Click += (_, _) => SelectManagementView(id);
+            navButtons[id] = button;
+            nav.Children.Add(button);
+            return button;
+        }
+
+        void SelectManagementView(string id)
+        {
+            if (!views.TryGetValue(id, out var view))
+            {
+                return;
+            }
+
+            contentHost.Content = view;
+            foreach (var pair in navButtons)
+            {
+                var active = string.Equals(pair.Key, id, StringComparison.OrdinalIgnoreCase);
+                pair.Value.Background = active ? Solid("#071A2C") : Brushes.White;
+                pair.Value.Foreground = active ? Brushes.White : Solid("#0B2034");
+                pair.Value.BorderBrush = active ? Solid("#071A2C") : Solid("#C8D9E6");
+            }
+        }
+
+        NavButton("crm", "CRM e fidelidade");
+        NavButton("finance", "Financeiro");
+        NavButton("purchase", "Compras");
+        NavButton("team", "Equipe");
+
+        Border MetricCard(string title, string value, string subtitle, string color)
+        {
+            return new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = Solid("#CFE0EC"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(16, 13, 16, 13),
+                Margin = new Thickness(0, 0, 10, 10),
+                Effect = new DropShadowEffect { Color = Colors.Black, Opacity = 0.05, BlurRadius = 10, ShadowDepth = 1 },
+                Child = new Grid
+                {
+                    ColumnDefinitions =
+                    {
+                        new ColumnDefinition(),
+                        new ColumnDefinition { Width = GridLength.Auto }
+                    },
+                    Children =
+                    {
+                        new StackPanel
+                        {
+                            Children =
+                            {
+                                new TextBlock { Text = title, Foreground = Solid("#526579"), FontSize = 11, FontWeight = FontWeights.Bold },
+                                new TextBlock { Text = value, Foreground = Solid("#071A2C"), FontSize = 23, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 3, 0, 0) },
+                                new TextBlock { Text = subtitle, Foreground = Solid(color), FontSize = 12, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap }
+                            }
+                        },
+                        new Border
+                        {
+                            Width = 10,
+                            Height = 10,
+                            CornerRadius = new CornerRadius(99),
+                            Background = Solid(color),
+                            VerticalAlignment = VerticalAlignment.Top,
+                            Margin = new Thickness(12, 4, 0, 0)
+                        }
+                    }
+                }
+            };
+        }
+
+        Grid Metrics(params UIElement[] cards)
+        {
+            var grid = new Grid();
+            for (var i = 0; i < cards.Length; i++)
+            {
+                grid.ColumnDefinitions.Add(new ColumnDefinition());
+                grid.Children.Add(cards[i]);
+                Grid.SetColumn(cards[i], i);
+            }
+
+            return grid;
+        }
+
+        Border PanelCard(string title, string subtitle, UIElement content)
+        {
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock { Text = title, Foreground = Solid("#071A2C"), FontSize = 18, FontWeight = FontWeights.Bold });
+            stack.Children.Add(new TextBlock { Text = subtitle, Foreground = Solid("#5B6B7A"), FontSize = 12, Margin = new Thickness(0, 2, 0, 12), TextWrapping = TextWrapping.Wrap });
+            stack.Children.Add(content);
+            return new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = Solid("#CFE0EC"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(18),
+                Margin = new Thickness(0, 0, 0, 12),
+                Effect = new DropShadowEffect { Color = Colors.Black, Opacity = 0.04, BlurRadius = 12, ShadowDepth = 1 },
+                Child = stack
+            };
+        }
+
+        Grid Columns(UIElement left, UIElement right, double leftWidth = 0)
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(leftWidth > 0
+                ? new ColumnDefinition { Width = new GridLength(leftWidth) }
+                : new ColumnDefinition());
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            if (left is FrameworkElement leftElement) leftElement.Margin = new Thickness(0, 0, 10, 0);
+            if (right is FrameworkElement rightElement) rightElement.Margin = new Thickness(10, 0, 0, 0);
+            grid.Children.Add(left);
+            Grid.SetColumn(right, 1);
+            grid.Children.Add(right);
+            return grid;
+        }
+
+        Border Pill(string text, string foreground, string background)
+        {
+            return new Border
+            {
+                Background = Solid(background),
+                CornerRadius = new CornerRadius(999),
+                Padding = new Thickness(10, 4, 10, 4),
+                Margin = new Thickness(0, 0, 6, 6),
+                Child = new TextBlock
+                {
+                    Text = text,
+                    Foreground = Solid(foreground),
+                    FontSize = 11,
+                    FontWeight = FontWeights.Bold
+                }
+            };
+        }
+
+        Border RowCard(string title, string subtitle, string rightText, string accent)
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.Children.Add(new Border
+            {
+                Width = 10,
+                Height = 10,
+                CornerRadius = new CornerRadius(99),
+                Background = Solid(accent),
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 4, 12, 0)
+            });
+            var left = new StackPanel();
+            left.Children.Add(new TextBlock
+            {
+                Text = title,
+                Foreground = Solid("#071A2C"),
+                FontSize = 14,
+                FontWeight = FontWeights.Bold,
+                TextWrapping = TextWrapping.Wrap
+            });
+            left.Children.Add(new TextBlock
+            {
+                Text = subtitle,
+                Foreground = Solid("#526579"),
+                FontSize = 12,
+                Margin = new Thickness(0, 3, 10, 0),
+                TextWrapping = TextWrapping.Wrap
+            });
+            Grid.SetColumn(left, 1);
+            grid.Children.Add(left);
+            var right = new TextBlock
+            {
+                Text = rightText,
+                Foreground = Solid("#071A2C"),
+                FontSize = 14,
+                FontWeight = FontWeights.Bold,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Right
+            };
+            Grid.SetColumn(right, 2);
+            grid.Children.Add(right);
+            return new Border
+            {
+                Background = Solid("#FBFDFE"),
+                BorderBrush = Solid("#D6E5F0"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14, 12, 14, 12),
+                Margin = new Thickness(0, 0, 0, 8),
+                Child = grid
+            };
+        }
+
+        ScrollViewer CardScroller(UIElement content, double height = 310)
+        {
+            return new ScrollViewer
+            {
+                Content = content,
+                MaxHeight = height,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                CanContentScroll = false
+            };
+        }
+
+        var crmSummary = new StackPanel();
+        var now = DateTime.Now;
+        var birthdayThisMonth = Customers.Count(customer => customer.Birthday?.Month == DateTime.Today.Month);
+        var inactiveCustomers = Customers
+            .Where(customer => customer.LastPurchaseAt.HasValue && (DateTime.Today - customer.LastPurchaseAt.Value.Date).TotalDays >= CustomerReactivationDays)
+            .OrderBy(customer => customer.LastPurchaseAt ?? DateTime.MinValue)
+            .ToList();
+        var crmReady = GetCustomerCampaignCandidates(now, respectCooldown: true);
+        var crmSentToday = WhatsAppHistory.Count(log => string.Equals(log.BoardKind, "CRM", StringComparison.OrdinalIgnoreCase) && log.When.Date == DateTime.Today);
+        crmSummary.Children.Add(Metrics(
+            MetricCard("Clientes", Customers.Count.ToString("N0", Brazil), "cadastros da loja", "#08A99B"),
+            MetricCard("Retorno", inactiveCustomers.Count.ToString("N0", Brazil), $"{CustomerReactivationDays} dias sem compra", inactiveCustomers.Count == 0 ? "#08A99B" : "#A11D1D"),
+            MetricCard("WhatsApp pronto", crmReady.Count.ToString("N0", Brazil), "com telefone e sem cooldown", "#0B3A52"),
+            MetricCard("Disparos hoje", crmSentToday.ToString("N0", Brazil), "campanhas automaticas", "#99620D")));
+
+        var loyaltyCards = new StackPanel();
+        var campaignCards = new StackPanel();
+        var recentCrmCards = new StackPanel();
+        var crmAutomationStatus = new TextBlock
+        {
+            Foreground = Solid("#526579"),
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+
+        void RefreshCrmCards()
+        {
+            var current = DateTime.Now;
+            var settings = GetWhatsAppSettings();
+            loyaltyCards.Children.Clear();
+            foreach (var customer in Customers
+                         .OrderByDescending(customer => customer.LastPurchaseAt ?? DateTime.MinValue)
+                         .ThenBy(customer => customer.Name)
+                         .Take(80))
+            {
+                var phone = NormalizeWhatsAppPhone(customer.Phone, settings.DefaultCountryCode);
+                var reason = GetCustomerCampaignReason(customer, current);
+                var kind = GetCustomerCampaignKind(customer, current, respectCooldown: false);
+                var canSend = !string.IsNullOrWhiteSpace(phone)
+                    && !string.IsNullOrWhiteSpace(kind)
+                    && (!customer.LastPromotionAt.HasValue || current - customer.LastPromotionAt.Value >= CustomerCampaignCooldown);
+                var status = string.IsNullOrWhiteSpace(phone)
+                    ? "sem telefone"
+                    : canSend
+                        ? "pronto WhatsApp"
+                        : customer.LastPromotionAt.HasValue && current - customer.LastPromotionAt.Value < CustomerCampaignCooldown
+                            ? $"cooldown ate {customer.LastPromotionAt.Value.Add(CustomerCampaignCooldown):dd/MM}"
+                            : "acompanhando";
+                var subtitle = $"{FormatWhatsAppDisplayPhone(phone)}  |  {reason}  |  campanha {customer.LastPromotionAt?.ToString("dd/MM HH:mm") ?? "-"}";
+                var right = $"{customer.Points:N0} pts  {Money(customer.CashbackBalance)}";
+                loyaltyCards.Children.Add(RowCard(
+                    string.IsNullOrWhiteSpace(customer.Name) ? "Cliente sem nome" : customer.Name,
+                    subtitle,
+                    right,
+                    canSend ? "#08A99B" : string.IsNullOrWhiteSpace(phone) ? "#A11D1D" : "#0B3A52"));
+            }
+
+            if (loyaltyCards.Children.Count == 0)
+            {
+                loyaltyCards.Children.Add(RowCard("Nenhum cliente cadastrado", "Cadastre clientes pelo pedido, cardapio ou tela de clientes.", "-", "#526579"));
+            }
+
+            campaignCards.Children.Clear();
+            foreach (var item in GetCustomerCampaignCandidates(current, respectCooldown: true).Take(12))
+            {
+                campaignCards.Children.Add(RowCard(
+                    item.Customer.Name,
+                    $"{item.Kind.ToLowerInvariant()}  |  {item.Reason}  |  {FormatWhatsAppDisplayPhone(item.Customer.Phone)}",
+                    "fila real",
+                    "#08A99B"));
+            }
+
+            if (campaignCards.Children.Count == 0)
+            {
+                campaignCards.Children.Add(RowCard("Sem campanha pendente", "O sistema continua olhando aniversario, retorno e cooldown em tempo real.", "ativo", "#0B3A52"));
+            }
+
+            recentCrmCards.Children.Clear();
+            foreach (var log in WhatsAppHistory.Where(log => string.Equals(log.BoardKind, "CRM", StringComparison.OrdinalIgnoreCase)).Take(8))
+            {
+                recentCrmCards.Children.Add(RowCard(
+                    log.CustomerName,
+                    $"{log.When:dd/MM HH:mm}  |  {log.Status}  |  {FormatWhatsAppDisplayPhone(log.Phone)}",
+                    log.BoardNumber,
+                    log.Status.Contains("ERRO", StringComparison.OrdinalIgnoreCase) ? "#A11D1D" : "#08A99B"));
+            }
+
+            if (recentCrmCards.Children.Count == 0)
+            {
+                recentCrmCards.Children.Add(RowCard("Nenhum disparo CRM ainda", "Quando a automacao mandar, o historico aparece aqui.", "-", "#526579"));
+            }
+
+            crmAutomationStatus.Text = $"Ligado em tempo real: a cada 10 minutos o PDV procura aniversario e cliente com {CustomerReactivationDays} dias sem compra. Cooldown: {CustomerCampaignCooldown.TotalDays:N0} dias por cliente.";
+        }
+
+        var runCampaignNow = DialogButton("Enviar campanhas elegiveis agora", "#08A99B");
+        runCampaignNow.HorizontalAlignment = HorizontalAlignment.Stretch;
+        runCampaignNow.Width = double.NaN;
+        runCampaignNow.Click += (_, _) =>
+        {
+            RunCustomerReactivationCampaigns(automatic: false, maxToSend: 25);
+            RefreshCrmCards();
+        };
+        RefreshCrmCards();
+        crmSummary.Children.Add(Columns(
+            PanelCard("CRM e fidelidade", "Clientes, pontos, cashback e retorno sem precisar copiar mensagem.", CardScroller(loyaltyCards, 360)),
+            PanelCard("WhatsApp automatico", "Campanhas entram na fila real do WhatsApp da loja.", new StackPanel
+            {
+                Children =
+                {
+                    crmAutomationStatus,
+                    new WrapPanel
+                    {
+                        Children =
+                        {
+                            Pill("tempo real", "#00796B", "#E5F7F4"),
+                            Pill("sem copiar", "#0B3A52", "#E6F0F7"),
+                            Pill("anti-flood", "#99620D", "#FFF4DA")
+                        }
+                    },
+                    new TextBlock { Text = "Prontos para envio", Foreground = Solid("#071A2C"), FontSize = 15, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 8, 0, 4) },
+                    new TextBlock { Text = "Clientes elegiveis agora.", Foreground = Solid("#526579"), FontSize = 12, Margin = new Thickness(0, 0, 0, 8) },
+                    CardScroller(campaignCards, 190),
+                    runCampaignNow,
+                    new Separator { Margin = new Thickness(0, 12, 0, 12), Background = Solid("#D9E7F1") },
+                    new TextBlock { Text = "Historico CRM", Foreground = Solid("#071A2C"), FontSize = 15, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) },
+                    new TextBlock { Text = "Ultimos disparos pelo WhatsApp.", Foreground = Solid("#526579"), FontSize = 12, Margin = new Thickness(0, 0, 0, 8) },
+                    CardScroller(recentCrmCards, 190)
+                }
+            }),
+            560));
+
+        var closedBoards = Tables.Concat(DeliveryTiles).Concat(KitchenTiles)
+            .Where(board => board.LastClosedAt is not null)
+            .ToList();
+        var todayBoards = closedBoards.Where(board => board.LastClosedAt?.Date == DateTime.Today).ToList();
+        var todayRevenue = todayBoards.Sum(board => board.ClosedPayments.Count > 0 ? board.ClosedPayments.Sum(payment => payment.Amount) : board.ClosedLines.Sum(line => line.Total));
+        var todayCost = todayBoards.Sum(GetBoardProductCost);
+        var paidExpenses = FinanceEntries
+            .Where(entry => entry.Paid && entry.Type is "PAGAR" or "DESPESA" && (entry.PaidAt?.Date ?? entry.DueDate.Date) == DateTime.Today)
+            .Sum(entry => entry.Amount);
+        var todayProfit = todayRevenue - todayCost - paidExpenses;
+        var financeCards = new StackPanel();
+        var financeSelect = new ComboBox { DisplayMemberPath = nameof(FinanceEntry.Display), MinHeight = 34 };
+        var financeType = new ComboBox { ItemsSource = new[] { "PAGAR", "RECEBER", "DESPESA" }, SelectedIndex = 0, MinHeight = 34 };
+        var financeDescription = new TextBox();
+        var financeCategory = new TextBox { Text = "OPERACIONAL" };
+        var financeAmount = new TextBox { Text = "0,00" };
+        var financeDue = new TextBox { Text = DateTime.Today.ToString("dd/MM/yyyy", Brazil) };
+        AttachCurrencyField(financeAmount);
+        void RefreshFinanceList()
+        {
+            var entries = FinanceEntries.OrderBy(entry => entry.Paid).ThenBy(entry => entry.DueDate).ToList();
+            financeSelect.ItemsSource = entries;
+            if (financeSelect.SelectedItem is null && entries.Count > 0)
+            {
+                financeSelect.SelectedIndex = 0;
+            }
+
+            financeCards.Children.Clear();
+            foreach (var entry in entries.Take(80))
+            {
+                var accent = entry.Paid
+                    ? "#08A99B"
+                    : entry.DueDate.Date < DateTime.Today
+                        ? "#A11D1D"
+                        : "#99620D";
+                financeCards.Children.Add(RowCard(
+                    $"{entry.Type}  {entry.Description}",
+                    $"{entry.Category}  |  vence {entry.DueDate:dd/MM/yyyy}  |  {(entry.Paid ? $"pago {entry.PaidAt?.ToString("dd/MM HH:mm") ?? "-"}" : "em aberto")}",
+                    Money(entry.Amount),
+                    accent));
+            }
+
+            if (financeCards.Children.Count == 0)
+            {
+                financeCards.Children.Add(RowCard("Sem lançamentos", "Contas, despesas, sangria e recebimentos aparecem aqui.", "-", "#526579"));
+            }
+        }
+        var addFinance = DialogButton("Salvar lançamento", "#08A99B");
+        addFinance.HorizontalAlignment = HorizontalAlignment.Stretch;
+        addFinance.Width = double.NaN;
+        addFinance.Click += (_, _) =>
+        {
+            var amount = ParseMoney(financeAmount.Text, 0);
+            if (amount <= 0 || string.IsNullOrWhiteSpace(financeDescription.Text))
+            {
+                SetStatus("Informe descricao e valor financeiro.");
+                return;
+            }
+
+            DateTime.TryParse(financeDue.Text, Brazil, DateTimeStyles.None, out var dueDate);
+            FinanceEntries.Add(new FinanceEntry
+            {
+                Type = financeType.Text,
+                Description = financeDescription.Text.Trim(),
+                Category = string.IsNullOrWhiteSpace(financeCategory.Text) ? "OPERACIONAL" : financeCategory.Text.Trim().ToUpperInvariant(),
+                Amount = amount,
+                DueDate = dueDate == default ? DateTime.Today : dueDate
+            });
+            financeDescription.Text = "";
+            financeAmount.Text = "0,00";
+            RefreshFinanceList();
+            SaveStore();
+            SetStatus("Lancamento financeiro salvo.");
+        };
+        var markPaid = DialogButton("Marcar pago/recebido", "#0B3A52");
+        markPaid.HorizontalAlignment = HorizontalAlignment.Stretch;
+        markPaid.Width = double.NaN;
+        markPaid.Click += (_, _) =>
+        {
+            if (financeSelect.SelectedItem is not FinanceEntry entry) return;
+            entry.Paid = !entry.Paid;
+            entry.PaidAt = entry.Paid ? DateTime.Now : null;
+            RefreshFinanceList();
+            SaveStore();
+        };
+        RefreshFinanceList();
+        var financeRoot = new StackPanel();
+        financeRoot.Children.Add(Metrics(
+            MetricCard("Receita hoje", Money(todayRevenue), $"{todayBoards.Count:N0} venda(s)", "#08A99B"),
+            MetricCard("Custo hoje", Money(todayCost), "custo por produto/ficha", "#99620D"),
+            MetricCard("Despesas hoje", Money(paidExpenses), "pagas/lancadas", "#A11D1D"),
+            MetricCard("Lucro diario", Money(todayProfit), "DRE simples", todayProfit >= 0 ? "#08A99B" : "#A11D1D")));
+        financeRoot.Children.Add(Columns(
+            PanelCard("Contas e despesas", "Pagar, receber, despesas, sangria/suprimento e DRE simples.", new StackPanel
+            {
+                Children =
+                {
+                    DialogField("Selecionar lançamento", financeSelect),
+                    CardScroller(financeCards, 330),
+                    markPaid
+                }
+            }),
+            PanelCard("Novo lançamento", "Controle contas a pagar/receber e despesas da loja.", new StackPanel
+            {
+                Children =
+                {
+                    DialogField("Tipo", financeType),
+                    DialogField("Descrição", financeDescription),
+                    DialogField("Categoria", financeCategory),
+                    DialogField("Valor", financeAmount),
+                    DialogField("Vencimento", financeDue),
+                    addFinance
+                }
+            }),
+            520));
+
+        var purchaseCards = new StackPanel();
+        var receiptCards = new StackPanel();
+        var productBox = new ComboBox { ItemsSource = Products.OrderBy(product => product.Name).ToList(), DisplayMemberPath = nameof(ProductTile.SearchDisplay), MinHeight = 34 };
+        var supplierBox = new TextBox { Text = "FORNECEDOR" };
+        var purchaseQty = new TextBox { Text = "1,00" };
+        var purchaseCost = new TextBox { Text = "0,00" };
+        AttachCurrencyField(purchaseQty);
+        AttachCurrencyField(purchaseCost);
+        void RefreshPurchaseLists()
+        {
+            purchaseCards.Children.Clear();
+            var lowStockProducts = Products
+                .Where(product => product.MinimumStock > 0 && product.StockQuantity <= product.MinimumStock)
+                .OrderBy(product => product.StockQuantity - product.MinimumStock)
+                .ToList();
+            foreach (var product in lowStockProducts)
+            {
+                var quote = SupplierQuotes
+                    .Where(item => string.Equals(item.ProductCode, product.Code, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(item => item.UnitPrice <= 0 ? decimal.MaxValue : item.UnitPrice)
+                    .FirstOrDefault();
+                var buy = Math.Max(0, product.MinimumStock - product.StockQuantity);
+                purchaseCards.Children.Add(RowCard(
+                    $"{product.Code}  {product.Name}",
+                    $"comprar {buy:N2}  |  estoque {product.StockQuantity:N2}/{product.MinimumStock:N2}  |  fornecedor {quote?.Supplier ?? "-"}",
+                    Money(quote?.UnitPrice ?? product.CostPrice),
+                    "#A11D1D"));
+            }
+
+            if (purchaseCards.Children.Count == 0)
+            {
+                purchaseCards.Children.Add(RowCard("Estoque em dia", "Nenhum produto abaixo do minimo agora.", "-", "#08A99B"));
+            }
+
+            receiptCards.Children.Clear();
+            foreach (var receipt in GoodsReceipts.OrderByDescending(item => item.ReceivedAt).Take(80))
+            {
+                receiptCards.Children.Add(RowCard(
+                    $"{receipt.ProductCode}  {receipt.ProductName}",
+                    $"{receipt.Supplier}  |  entrada {receipt.ReceivedAt:dd/MM HH:mm}",
+                    $"+{receipt.Quantity:N2}  {Money(receipt.UnitCost)}",
+                    "#08A99B"));
+            }
+
+            if (receiptCards.Children.Count == 0)
+            {
+                receiptCards.Children.Add(RowCard("Sem entradas registradas", "Quando der entrada de mercadoria, o historico aparece aqui.", "-", "#526579"));
+            }
+        }
+        var saveReceipt = DialogButton("Dar entrada e cotar", "#08A99B");
+        saveReceipt.HorizontalAlignment = HorizontalAlignment.Stretch;
+        saveReceipt.Width = double.NaN;
+        saveReceipt.Click += (_, _) =>
+        {
+            if (productBox.SelectedItem is not ProductTile product)
+            {
+                SetStatus("Selecione o produto para entrada.");
+                return;
+            }
+
+            var qty = ParseMoney(purchaseQty.Text, 0);
+            var unitCost = ParseMoney(purchaseCost.Text, 0);
+            if (qty <= 0)
+            {
+                SetStatus("Quantidade de entrada invalida.");
+                return;
+            }
+
+            product.StockQuantity += qty;
+            if (unitCost > 0)
+            {
+                product.CostPrice = unitCost;
+            }
+            product.StockHistory.Add(new StockMovement { ProductCode = product.Code, Type = "ENTRADA", Quantity = qty, Reason = $"Entrada mercadoria - {supplierBox.Text}", When = DateTime.Now });
+            GoodsReceipts.Add(new GoodsReceipt { Supplier = supplierBox.Text.Trim().ToUpperInvariant(), ProductCode = product.Code, ProductName = product.Name, Quantity = qty, UnitCost = unitCost, ReceivedAt = DateTime.Now });
+            if (unitCost > 0)
+            {
+                SupplierQuotes.Add(new SupplierQuote { Supplier = supplierBox.Text.Trim().ToUpperInvariant(), ProductCode = product.Code, ProductName = product.Name, UnitPrice = unitCost, QuotedAt = DateTime.Now });
+            }
+            RefreshPurchaseLists();
+            ProductsList.Items.Refresh();
+            FilterProducts();
+            SaveStore();
+            QueueIFoodStockSync(product, "Entrada de mercadoria");
+            QueuePublicMenuPublish();
+            SetStatus($"Entrada registrada: {product.Name} +{qty:N2}.");
+        };
+        RefreshPurchaseLists();
+        var lowStockCount = Products.Count(product => product.MinimumStock > 0 && product.StockQuantity <= product.MinimumStock);
+        var purchaseRoot = new StackPanel();
+        purchaseRoot.Children.Add(Metrics(
+            MetricCard("Compras automaticas", lowStockCount.ToString("N0", Brazil), "itens abaixo do minimo", lowStockCount == 0 ? "#08A99B" : "#A11D1D"),
+            MetricCard("Cotações", SupplierQuotes.Count.ToString("N0", Brazil), "histórico de preço", "#0B3A52"),
+            MetricCard("Entradas", GoodsReceipts.Count.ToString("N0", Brazil), "mercadorias registradas", "#08A99B")));
+        purchaseRoot.Children.Add(Columns(
+            PanelCard("Lista de compras", "Gerada pelo estoque minimo. Ingredientes da ficha tecnica entram quando forem produtos de estoque.", CardScroller(purchaseCards, 430)),
+            PanelCard("Entrada de mercadoria", "Atualiza estoque, custo e histórico de fornecedor.", new StackPanel
+            {
+                Children =
+                {
+                    DialogField("Produto", productBox),
+                    DialogField("Fornecedor", supplierBox),
+                    DialogField("Quantidade", purchaseQty),
+                    DialogField("Custo unitário", purchaseCost),
+                    saveReceipt,
+                    new Separator { Margin = new Thickness(0, 12, 0, 12), Background = Solid("#D9E7F1") },
+                    new TextBlock { Text = "Últimas entradas", Foreground = Solid("#071A2C"), FontSize = 15, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 8) },
+                    CardScroller(receiptCards, 150)
+                }
+            }),
+            590));
+
+        var staffCards = new StackPanel();
+        var shiftCards = new StackPanel();
+        var staffBox = new ComboBox { ItemsSource = Users.OrderBy(user => StaffNumber(user)).ToList(), DisplayMemberPath = nameof(UserAccount.Display), MinHeight = 34 };
+        var shiftBox = new ComboBox { ItemsSource = new[] { "MANHA", "TARDE", "NOITE", "DOBRA", "FOLGA" }, SelectedIndex = 0, MinHeight = 34 };
+        var lateBox = new TextBox { Text = "0" };
+        var extraBox = new TextBox { Text = "0,00" };
+        var dayOffBox = new CheckBox { Content = "Folga" };
+        var shiftNotesBox = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 58 };
+        void RefreshStaffLists()
+        {
+            staffCards.Children.Clear();
+            foreach (var item in Users
+                .OrderBy(user => StaffNumber(user))
+                .Select(user =>
+                {
+                    var number = StaffNumber(user);
+                    var sales = closedBoards.Where(board => board.Waiter > 0 && board.Waiter.ToString(Brazil) == number).ToList();
+                    var revenue = sales.Sum(board => board.ClosedPayments.Count > 0 ? board.ClosedPayments.Sum(payment => payment.Amount) : board.ClosedLines.Sum(line => line.Total));
+                    return (User: user, Number: number, Sales: sales.Count, Revenue: revenue);
+                }))
+            {
+                staffCards.Children.Add(RowCard(
+                    $"{item.Number}  {item.User.Name}",
+                    $"{item.User.Role}  |  vendas fechadas {item.Sales:N0}",
+                    Money(item.Revenue),
+                    item.Sales > 0 ? "#08A99B" : "#0B3A52"));
+            }
+
+            if (staffCards.Children.Count == 0)
+            {
+                staffCards.Children.Add(RowCard("Equipe vazia", "Cadastre garcons, caixa, cozinha e entregadores na tela de equipe.", "-", "#526579"));
+            }
+
+            shiftCards.Children.Clear();
+            foreach (var shift in StaffShifts.OrderByDescending(item => item.Date).Take(100))
+            {
+                shiftCards.Children.Add(RowCard(
+                    $"{shift.StaffNumber}  {shift.StaffName}",
+                    $"{shift.Date:dd/MM}  |  {shift.Shift}  |  atraso {shift.LateMinutes:N0} min  |  extra {shift.ExtraHours:N2} h",
+                    shift.DayOff ? "FOLGA" : "TURNO",
+                    shift.DayOff ? "#99620D" : shift.LateMinutes > 0 ? "#A11D1D" : "#08A99B"));
+            }
+
+            if (shiftCards.Children.Count == 0)
+            {
+                shiftCards.Children.Add(RowCard("Sem turnos registrados", "Salve atrasos, folgas e horas extras para acompanhar a equipe.", "-", "#526579"));
+            }
+        }
+        var saveShift = DialogButton("Salvar turno", "#08A99B");
+        saveShift.HorizontalAlignment = HorizontalAlignment.Stretch;
+        saveShift.Width = double.NaN;
+        saveShift.Click += (_, _) =>
+        {
+            if (staffBox.SelectedItem is not UserAccount user)
+            {
+                SetStatus("Selecione alguem da equipe.");
+                return;
+            }
+
+            StaffShifts.Add(new StaffShiftRecord
+            {
+                StaffNumber = StaffNumber(user),
+                StaffName = user.Name,
+                Date = DateTime.Today,
+                Shift = shiftBox.Text,
+                DayOff = dayOffBox.IsChecked == true,
+                LateMinutes = Math.Max(0, ParseInt(lateBox.Text, 0)),
+                ExtraHours = Math.Max(0, ParseMoney(extraBox.Text, 0)),
+                Notes = shiftNotesBox.Text.Trim()
+            });
+            RefreshStaffLists();
+            SaveStore();
+            SetStatus("Turno salvo.");
+        };
+        RefreshStaffLists();
+        var staffRoot = new StackPanel();
+        staffRoot.Children.Add(Metrics(
+            MetricCard("Equipe", Users.Count.ToString("N0", Brazil), "garcons, caixas e cozinha", "#0B3A52"),
+            MetricCard("Turnos", StaffShifts.Count.ToString("N0", Brazil), "registros salvos", "#08A99B"),
+            MetricCard("Atrasos hoje", StaffShifts.Where(item => item.Date.Date == DateTime.Today).Sum(item => item.LateMinutes).ToString("N0", Brazil), "minutos", "#99620D")));
+        staffRoot.Children.Add(Columns(
+            PanelCard("Produtividade", "Resumo por garcom/caixa a partir das vendas fechadas.", CardScroller(staffCards, 430)),
+            PanelCard("Turnos, folgas e horas", "Controle atrasos, folgas, horas extras e observacoes.", new StackPanel
+            {
+                Children =
+                {
+                    DialogField("Equipe", staffBox),
+                    DialogField("Turno", shiftBox),
+                    DialogField("Atraso em minutos", lateBox),
+                    DialogField("Horas extras", extraBox),
+                    dayOffBox,
+                    DialogField("Observacao", shiftNotesBox),
+                    saveShift,
+                    new Separator { Margin = new Thickness(0, 12, 0, 12), Background = Solid("#D9E7F1") },
+                    new TextBlock { Text = "Historico de turnos", Foreground = Solid("#071A2C"), FontSize = 15, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 8) },
+                    CardScroller(shiftCards, 150)
+                }
+            }),
+            590));
+
+        views["crm"] = crmSummary;
+        views["finance"] = financeRoot;
+        views["purchase"] = purchaseRoot;
+        views["team"] = staffRoot;
+        SelectManagementView("crm");
+        dialog.Content = shell;
+        dialog.ShowDialog();
+    }
+
     private void ShowCashDialog()
     {
         if (!RequirePermission(IsCashUser, "Operacao de caixa"))
@@ -13638,6 +17629,14 @@ public partial class MainWindow : Window
     private bool ToggleCashRegister()
     {
         return IsCashOpen() ? CloseCashRegister() : OpenCashRegister();
+    }
+
+    private void HeaderCashToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (ToggleCashRegister())
+        {
+            RefreshTotals();
+        }
     }
 
     private bool OpenCashRegister()
@@ -13810,9 +17809,21 @@ public partial class MainWindow : Window
         var pending = GetPendingCashBoards();
         if (pending.Count > 0)
         {
-            ShowPendingCashCloseDialog(pending);
-            SetStatus($"Fechamento bloqueado: {pending.Count} conta(s) pendente(s).");
-            return false;
+            var settled = ShowPendingCashCloseDialog(pending);
+            if (settled <= 0)
+            {
+                SetStatus($"Fechamento bloqueado: {pending.Count} conta(s) pendente(s).");
+                return false;
+            }
+
+            pending = GetPendingCashBoards();
+            if (pending.Count > 0)
+            {
+                SetStatus($"Baixa automatica aplicada em {settled} pedido(s). Ainda restam {pending.Count} pendencia(s) manuais.");
+                return false;
+            }
+
+            SetStatus($"Baixa automatica aplicada em {settled} pedido(s). Continue o fechamento do caixa.");
         }
 
         var closing = ShowProfessionalCashClosingDialog();
@@ -13840,6 +17851,13 @@ public partial class MainWindow : Window
         SetStatus(printed
             ? $"Caixa fechado e resumo impresso. Fechamento gerado: {path}"
             : $"Caixa fechado. Fechamento gerado: {path}. Impressora padrao indisponivel.");
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (!IsCashOpen())
+            {
+                ShowReportsDialog();
+            }
+        }), DispatcherPriority.Background);
         return true;
     }
 
@@ -13849,7 +17867,30 @@ public partial class MainWindow : Window
             .Where(item => item.Type is "ABERTURA" or "FECHAMENTO")
             .OrderByDescending(item => item.When)
             .FirstOrDefault();
-        return lastState is null || lastState.Type != "FECHAMENTO";
+        return lastState?.Type == "ABERTURA";
+    }
+
+    private void EnsureCashClosedOnStartup()
+    {
+        var lastState = CashMovements
+            .Where(item => item.Type is "ABERTURA" or "FECHAMENTO")
+            .OrderByDescending(item => item.When)
+            .FirstOrDefault();
+
+        if (lastState?.Type != "ABERTURA")
+        {
+            return;
+        }
+
+        CashMovements.Add(new CashMovement
+        {
+            Type = "FECHAMENTO",
+            Amount = 0m,
+            Reason = "Estado inicial fechado ao abrir o app",
+            User = "Sistema",
+            When = DateTime.Now
+        });
+        SaveStore();
     }
 
     private List<TableTile> GetPendingCashBoards()
@@ -13864,7 +17905,7 @@ public partial class MainWindow : Window
 
     private static bool IsCashPendingBoard(TableTile board)
     {
-        if (IsIgnoredIFoodOperationalPending(board))
+        if (IsIgnoredDeliveryOperationalTile(board))
         {
             return false;
         }
@@ -13888,28 +17929,108 @@ public partial class MainWindow : Window
 
     private static bool IsIgnoredIFoodOperationalPending(TableTile board)
     {
+        return IsIgnoredDeliveryOperationalTile(board);
+    }
+
+    private static bool IsIgnoredDeliveryOperationalTile(TableTile board)
+    {
+        if (IsDemoOrTestDeliveryOrder(board))
+        {
+            return true;
+        }
+
         if (!IsIFoodOrder(board))
         {
             return false;
         }
 
         var status = NormalizeIFoodBoardStatus(board.Status);
-        return status is "CANCELAMENTO" or "CANCELADO"
-               || IsIFoodConfirmationExpired(board);
+        return status is "CANCELAMENTO" or "CANCELADO" or "ENTREGUE" or "FINALIZADO"
+               || IsIFoodConfirmationExpired(board)
+               || IsStaleIFoodOperationalOrder(board);
     }
 
-    private void ShowPendingCashCloseDialog(IReadOnlyList<TableTile> pending)
+    private static bool IsDemoOrTestDeliveryOrder(TableTile? board)
     {
-        var dialog = CreateDialog("Fechamento bloqueado", 620, 430);
+        if (board is null)
+        {
+            return false;
+        }
+
+        var source = board.ExternalSource ?? "";
+        if (source.Contains("DEMO", StringComparison.OrdinalIgnoreCase)
+            || source.Contains("TEST", StringComparison.OrdinalIgnoreCase)
+            || source.Contains("HOMOLOG", StringComparison.OrdinalIgnoreCase)
+            || source.Contains("SANDBOX", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var text = RemoveDiacritics($"{board.ExternalOrderId} {board.ExternalDisplayId} {board.Detail} {board.CustomerName}")
+            .ToUpperInvariant();
+        return text.Contains("DEMO", StringComparison.Ordinal)
+               || text.Contains("TESTE", StringComparison.Ordinal)
+               || text.Contains("HOMOLOG", StringComparison.Ordinal)
+               || text.Contains("SANDBOX", StringComparison.Ordinal);
+    }
+
+    private static bool IsStaleIFoodOperationalOrder(TableTile board)
+    {
+        var status = NormalizeIFoodBoardStatus(board.Status);
+        if (status is "NOVO" or "PLACED" or "CREATED")
+        {
+            return IsIFoodConfirmationExpired(board);
+        }
+
+        if (status is not ("AGUARDANDO" or "CONFIRMADO" or "ACEITO" or "PREPARO" or "PREPARANDO" or "PRONTO" or "ROTA" or "DESPACHADO"))
+        {
+            return false;
+        }
+
+        var reference = FirstKnownTime(
+            board.ExternalPreparationStartAt,
+            board.ExternalDeliveryExpectedAt,
+            board.ExternalCreatedAt,
+            board.CreatedAt);
+        return reference != DateTime.MaxValue && reference < DateTime.Now.AddHours(-18);
+    }
+
+    private int ShowPendingCashCloseDialog(IReadOnlyList<TableTile> pending)
+    {
+        var autoSettleCandidates = pending.Where(CanAutoSettleCashPendingBoard).ToList();
+        var settledCount = 0;
+        var dialog = CreateDialog("Fechamento bloqueado", 680, 520);
         var list = new ListBox
         {
             Height = 230,
             ItemsSource = pending.Select(PendingCashBoardDisplay).ToList(),
             Margin = new Thickness(0, 8, 0, 12)
         };
+        var autoMessage = new TextBlock
+        {
+            Text = autoSettleCandidates.Count > 0
+                ? $"{autoSettleCandidates.Count} pendencia(s) podem ser baixadas agora. Saldos abertos entram como BAIXA CAIXA, iFood entra como repasse/entrega."
+                : "Nenhuma pendencia segura para baixa automatica. Receba ou cancele as mesas/fichas manualmente.",
+            Foreground = autoSettleCandidates.Count > 0 ? Solid("#0B3A52") : Solid("#99620D"),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+        var autoSettle = DialogButton("Baixar automaticamente", "#08A99B");
+        autoSettle.HorizontalAlignment = HorizontalAlignment.Stretch;
+        autoSettle.IsEnabled = autoSettleCandidates.Count > 0;
+        autoSettle.Opacity = autoSettleCandidates.Count > 0 ? 1 : 0.42;
+        autoSettle.ToolTip = autoSettleCandidates.Count > 0
+            ? "Fecha as pendencias listadas e registra automaticamente o saldo aberto para liberar o fechamento do caixa."
+            : "Nao ha pendencia para baixa automatica.";
         var ok = DialogButton("Entendi", "#0B3A52");
         ok.HorizontalAlignment = HorizontalAlignment.Stretch;
         ok.Click += (_, _) => dialog.Close();
+        autoSettle.Click += (_, _) =>
+        {
+            settledCount = AutoSettleCashPendingBoards(autoSettleCandidates);
+            dialog.Close();
+        };
 
         var panel = DialogPanel();
         panel.Children.Add(new TextBlock
@@ -13921,9 +18042,227 @@ public partial class MainWindow : Window
         });
         panel.Children.Add(DialogLabel("Pendencias"));
         panel.Children.Add(list);
-        panel.Children.Add(ok);
+        panel.Children.Add(autoMessage);
+        var buttons = new UniformGrid { Columns = 2, Rows = 1 };
+        buttons.Children.Add(autoSettle);
+        buttons.Children.Add(ok);
+        panel.Children.Add(buttons);
         dialog.Content = panel;
         dialog.ShowDialog();
+        return settledCount;
+    }
+
+    private int AutoSettleCashPendingBoards(IReadOnlyList<TableTile> boards)
+    {
+        var count = 0;
+        foreach (var board in boards.Where(CanAutoSettleCashPendingBoard).ToList())
+        {
+            if (AutoSettleCashPendingBoard(board))
+            {
+                count++;
+            }
+        }
+
+        if (count == 0)
+        {
+            return 0;
+        }
+
+        if (CurrentBoard is not null && boards.Any(board => ReferenceEquals(board, CurrentBoard)))
+        {
+            TicketLines.Clear();
+            Payments.Clear();
+            LoadActiveTicketFromBoard(CurrentBoard);
+        }
+
+        RefreshTotals();
+        SaveStore();
+        RefreshBoardForMode();
+        return count;
+    }
+
+    private bool AutoSettleCashPendingBoard(TableTile board)
+    {
+        if (!CanAutoSettleCashPendingBoard(board))
+        {
+            return false;
+        }
+
+        if (IsIFoodOrder(board))
+        {
+            return AutoSettleIFoodCashPendingBoard(board);
+        }
+
+        return AutoSettleGenericCashPendingBoard(board);
+    }
+
+    private bool AutoSettleIFoodCashPendingBoard(TableTile board)
+    {
+        var status = NormalizeIFoodBoardStatus(board.Status);
+        var cancelledOrExpired = status is "CANCELAMENTO" or "CANCELADO" || IsIFoodConfirmationExpired(board);
+        var total = GetBoardOpenTotal(board);
+        if (total <= 0m)
+        {
+            total = board.Total;
+        }
+
+        var paid = board.Payments.Sum(payment => payment.Amount);
+        var balance = Math.Round(Math.Max(0, total - paid), 2, MidpointRounding.AwayFromZero);
+        if (!cancelledOrExpired && balance > 0m)
+        {
+            var payment = CreateAutoIFoodPayment(board, balance);
+            board.Payments.Add(payment);
+            _cashTotal += payment.Amount;
+        }
+
+        var closedLines = board.Lines.Select(CloneLine).ToList();
+        var closedPayments = board.Payments.Select(ClonePayment).ToList();
+        board.ClosedLines = closedLines;
+        board.ClosedPayments = closedPayments;
+        board.LastClosedAt = DateTime.Now;
+        board.LastReceiptPath = string.IsNullOrWhiteSpace(board.LastReceiptPath)
+            ? $"baixa-automatica-ifood-{board.ExternalDisplayId}-{DateTime.Now:yyyyMMdd-HHmmss}"
+            : board.LastReceiptPath;
+        board.Status = cancelledOrExpired ? "CANCELADO" : "ENTREGUE";
+        board.Total = 0;
+        board.Lines.Clear();
+        board.Payments.Clear();
+        UpdateIFoodDynamicDetail(board);
+        return true;
+    }
+
+    private static bool CanAutoSettleCashPendingBoard(TableTile board)
+    {
+        return CanAutoSettleIFoodCashPendingBoard(board)
+               || CanAutoSettleGenericCashPendingBoard(board);
+    }
+
+    private static bool CanAutoSettleIFoodCashPendingBoard(TableTile board)
+    {
+        if (!IsIFoodOrder(board))
+        {
+            return false;
+        }
+
+        if (IsIgnoredIFoodOperationalPending(board))
+        {
+            return true;
+        }
+
+        var status = NormalizeIFoodBoardStatus(board.Status);
+        if (status is "NOVO" or "PLACED" or "CREATED" or "CONFIRMADO" or "ACEITO" or "PREPARO" or "PREPARANDO")
+        {
+            return false;
+        }
+
+        if (status is "ENTREGUE" or "FINALIZADO" or "DESPACHADO")
+        {
+            return true;
+        }
+
+        if (status == "PRONTO" && IsIFoodShipment(board.ExternalDeliveredBy))
+        {
+            return true;
+        }
+
+        return IsIFoodPaidOnline(board)
+               && status is "AGUARDANDO" or "PRONTO" or "ROTA" or "IFOOD";
+    }
+
+    private bool AutoSettleGenericCashPendingBoard(TableTile board)
+    {
+        if (!CanAutoSettleGenericCashPendingBoard(board))
+        {
+            return false;
+        }
+
+        var total = GetBoardOpenTotal(board);
+        var paid = board.Payments.Sum(payment => payment.Amount);
+        var balance = Math.Round(Math.Max(0, total - paid), 2, MidpointRounding.AwayFromZero);
+        if (balance > 0m)
+        {
+            var payment = new PaymentLine
+            {
+                Payer = string.IsNullOrWhiteSpace(board.CustomerName) ? BoardKindLabel(board) : board.CustomerName,
+                Method = "BAIXA CAIXA",
+                Amount = balance,
+                TenderedAmount = balance,
+                ChangeAmount = 0m,
+                When = DateTime.Now
+            };
+            board.Payments.Add(payment);
+            _cashTotal += payment.Amount;
+        }
+
+        board.ClosedLines = board.Lines.Select(CloneLine).ToList();
+        board.ClosedPayments = board.Payments.Select(ClonePayment).ToList();
+        board.LastClosedAt = DateTime.Now;
+        board.LastReceiptPath = string.IsNullOrWhiteSpace(board.LastReceiptPath)
+            ? $"baixa-automatica-{board.Kind.ToLowerInvariant()}-{board.Number}-{DateTime.Now:yyyyMMdd-HHmmss}"
+            : board.LastReceiptPath;
+        board.Status = board.Kind switch
+        {
+            "DELIVERY" => "ENTREGUE",
+            "KDS" => "ENTREGUE",
+            "BALCAO" => "FINALIZADO",
+            _ => "LIVRE"
+        };
+        board.Total = 0;
+        board.Lines.Clear();
+        board.Payments.Clear();
+        QueuePublicMenuOrderStatusSync(board);
+        ResetBoardAfterReceivedPayment(board);
+        return true;
+    }
+
+    private static bool CanAutoSettleGenericCashPendingBoard(TableTile board)
+    {
+        if (IsIFoodOrder(board))
+        {
+            return false;
+        }
+
+        var total = GetBoardOpenTotal(board);
+        var hasMovement = total > 0m
+                          || board.Total > 0m
+                          || board.Lines.Count > 0
+                          || board.Payments.Count > 0;
+        if (hasMovement)
+        {
+            return true;
+        }
+
+        return board.Kind == "MESA"
+               && board.Status is not ("LIVRE" or "FINALIZADO" or "ENTREGUE" or "CANCELADO");
+    }
+
+    private static PaymentLine CreateAutoIFoodPayment(TableTile board, decimal amount)
+    {
+        var method = IsIFoodPaidOnDelivery(board) ? "IFOOD ENTREGA" : "IFOOD REPASSE";
+        return new PaymentLine
+        {
+            Payer = string.IsNullOrWhiteSpace(board.CustomerName) ? "iFood" : board.CustomerName,
+            Method = method,
+            Amount = amount,
+            TenderedAmount = amount,
+            ChangeAmount = 0m,
+            When = DateTime.Now
+        };
+    }
+
+    private static bool IsIFoodPaidOnline(TableTile order)
+    {
+        var payment = NormalizeIFoodPaymentText(order);
+        return payment.Contains("ONLINE", StringComparison.Ordinal)
+               || payment.Contains("PREPAGO", StringComparison.Ordinal)
+               || payment.Contains("PREPAID", StringComparison.Ordinal)
+               || payment.Contains("PAGO PELO IFOOD", StringComparison.Ordinal);
+    }
+
+    private static decimal GetBoardOpenTotal(TableTile board)
+    {
+        var total = board.Lines.Sum(line => line.Total);
+        return total <= 0 && board.Total > 0 ? board.Total : total;
     }
 
     private static string PendingCashBoardDisplay(TableTile board)
@@ -14535,20 +18874,247 @@ public partial class MainWindow : Window
 
     private void ShowClientDialog()
     {
-        var dialog = CreateDialog("Cadastro de clientes", 820, 560);
+        var dialog = CreateDialog("Cadastro de clientes", 1080, 700);
+        dialog.MinWidth = 980;
+        dialog.MinHeight = 640;
+
+        DataTemplate CustomerCardTemplate()
+        {
+            var card = new FrameworkElementFactory(typeof(Border));
+            card.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+            card.SetValue(Border.BorderBrushProperty, Brushes.Transparent);
+            card.SetValue(Border.BorderThicknessProperty, new Thickness(0));
+            card.SetValue(Border.PaddingProperty, new Thickness(10, 8, 10, 8));
+
+            var stack = new FrameworkElementFactory(typeof(StackPanel));
+            var name = new FrameworkElementFactory(typeof(TextBlock));
+            name.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(CustomerRecord.Name)));
+            name.SetValue(TextBlock.ForegroundProperty, Solid("#071A2C"));
+            name.SetValue(TextBlock.FontWeightProperty, FontWeights.Bold);
+            name.SetValue(TextBlock.FontSizeProperty, 14.0);
+            name.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
+            stack.AppendChild(name);
+
+            var phone = new FrameworkElementFactory(typeof(TextBlock));
+            phone.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(CustomerRecord.Phone)));
+            phone.SetValue(TextBlock.ForegroundProperty, Solid("#0B3A52"));
+            phone.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+            phone.SetValue(TextBlock.FontSizeProperty, 12.0);
+            phone.SetValue(TextBlock.MarginProperty, new Thickness(0, 4, 0, 0));
+            phone.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
+            stack.AppendChild(phone);
+
+            var district = new FrameworkElementFactory(typeof(TextBlock));
+            district.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(CustomerRecord.District)));
+            district.SetValue(TextBlock.ForegroundProperty, Solid("#5B6B7A"));
+            district.SetValue(TextBlock.FontSizeProperty, 12.0);
+            district.SetValue(TextBlock.MarginProperty, new Thickness(0, 2, 0, 0));
+            district.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
+            stack.AppendChild(district);
+
+            card.AppendChild(stack);
+            return new DataTemplate { VisualTree = card };
+        }
+
+        Style CustomerItemStyle()
+        {
+            var style = new Style(typeof(ListBoxItem));
+            style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
+            style.Setters.Add(new Setter(Control.MarginProperty, new Thickness(0, 0, 0, 8)));
+            style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
+            style.Setters.Add(new Setter(Control.BorderBrushProperty, Solid("#D6E4F1")));
+            style.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
+            style.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.White));
+            style.Setters.Add(new Setter(Control.TemplateProperty, CustomerItemTemplate()));
+            var selected = new Trigger { Property = Selector.IsSelectedProperty, Value = true };
+            selected.Setters.Add(new Setter(Control.BackgroundProperty, Solid("#E6FBF8")));
+            selected.Setters.Add(new Setter(Control.BorderBrushProperty, Solid("#08A99B")));
+            style.Triggers.Add(selected);
+            var hovered = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+            hovered.Setters.Add(new Setter(Control.BackgroundProperty, Solid("#F3F8FB")));
+            style.Triggers.Add(hovered);
+            return style;
+        }
+
+        ControlTemplate CustomerItemTemplate()
+        {
+            var border = new FrameworkElementFactory(typeof(Border));
+            border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+            border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+            border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(9));
+            var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+            presenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Stretch);
+            border.AppendChild(presenter);
+            return new ControlTemplate(typeof(ListBoxItem)) { VisualTree = border };
+        }
+
+        Border FormSection(string title, string subtitle, params UIElement[] children)
+        {
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = title,
+                Foreground = Solid("#071A2C"),
+                FontSize = 15,
+                FontWeight = FontWeights.Bold,
+                TextWrapping = TextWrapping.Wrap
+            });
+            if (!string.IsNullOrWhiteSpace(subtitle))
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = subtitle,
+                    Foreground = Solid("#5B6B7A"),
+                    FontSize = 11.5,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 2, 0, 10)
+                });
+            }
+
+            foreach (var child in children)
+            {
+                stack.Children.Add(child);
+            }
+
+            return new Border
+            {
+                Background = Brushes.Transparent,
+                BorderBrush = Solid("#E3EDF5"),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(0, 0, 0, 14),
+                Margin = new Thickness(0, 0, 0, 16),
+                Child = stack
+            };
+        }
+
+        var searchBox = new TextBox
+        {
+            ToolTip = "Busque por nome, telefone, CPF, bairro ou endereco."
+        };
         var customersList = new ListBox
         {
-            ItemsSource = Customers,
-            DisplayMemberPath = nameof(CustomerRecord.Display),
-            Width = 300,
-            Height = 370
+            ItemTemplate = CustomerCardTemplate(),
+            ItemContainerStyle = CustomerItemStyle(),
+            MinHeight = 380,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(0),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
         var cpfBox = new TextBox();
         var nameBox = new TextBox();
         var phoneBox = new TextBox();
-        var addressBox = new TextBox { Height = 64, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
+        var addressBox = new TextBox { MinHeight = 72, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
         var districtBox = new TextBox();
-        var notesBox = new TextBox { Height = 60, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
+        var notesBox = new TextBox { MinHeight = 72, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
+        var marketingConsentBox = new CheckBox
+        {
+            Content = "Cliente autorizou contato por WhatsApp/SMS da loja",
+            Foreground = Solid("#071A2C"),
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+        var countText = new TextBlock { Foreground = Solid("#0B3A52"), FontWeight = FontWeights.Bold, FontSize = 22 };
+        var phoneCountText = new TextBlock { Foreground = Solid("#08A99B"), FontWeight = FontWeights.Bold, FontSize = 22 };
+        var visibleCountText = new TextBlock { Foreground = Solid("#5B6B7A"), FontSize = 12, FontWeight = FontWeights.SemiBold };
+        var selectedInfoText = new TextBlock
+        {
+            Text = "Selecione um cliente ou crie um cadastro.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 3, 0, 0)
+        };
+        var statusText = new TextBlock
+        {
+            Foreground = GreenText,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+
+        void PrepareInput(Control control)
+        {
+            control.MinHeight = Math.Max(control.MinHeight, 40);
+            control.FontSize = 14;
+            control.Margin = new Thickness(0, 0, 0, 8);
+            control.Padding = new Thickness(10, 7, 10, 7);
+            control.BorderBrush = Solid("#BFD1E2");
+            control.BorderThickness = new Thickness(1);
+        }
+
+        PrepareInput(searchBox);
+        PrepareInput(cpfBox);
+        PrepareInput(nameBox);
+        PrepareInput(phoneBox);
+        PrepareInput(addressBox);
+        PrepareInput(districtBox);
+        PrepareInput(notesBox);
+
+        Border SummaryCard(string title, TextBlock value, string detail, string accent)
+        {
+            var card = new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = Solid("#E3EDF5"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12, 8, 12, 8),
+                Margin = new Thickness(0, 0, 10, 0)
+            };
+            value.Foreground = Solid(accent);
+            value.FontSize = 20;
+            card.Child = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock { Text = title, Foreground = Solid("#5B6B7A"), FontSize = 12, FontWeight = FontWeights.Bold },
+                    value,
+                    new TextBlock { Text = detail, Foreground = Solid("#5B6B7A"), FontSize = 11, TextWrapping = TextWrapping.Wrap }
+                }
+            };
+            return card;
+        }
+
+        bool MatchesCustomerSearch(CustomerRecord customer, string query)
+        {
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                return true;
+            }
+
+            var search = query.Trim();
+            return customer.Name.Contains(search, StringComparison.OrdinalIgnoreCase)
+                   || customer.Phone.Contains(search, StringComparison.OrdinalIgnoreCase)
+                   || customer.Cpf.Contains(search, StringComparison.OrdinalIgnoreCase)
+                   || customer.Address.Contains(search, StringComparison.OrdinalIgnoreCase)
+                   || customer.District.Contains(search, StringComparison.OrdinalIgnoreCase)
+                   || customer.Notes.Contains(search, StringComparison.OrdinalIgnoreCase);
+        }
+
+        void RefreshCustomerList(CustomerRecord? selected = null)
+        {
+            var filtered = Customers
+                .Where(customer => MatchesCustomerSearch(customer, searchBox.Text))
+                .OrderBy(customer => customer.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            customersList.ItemsSource = filtered;
+            visibleCountText.Text = string.IsNullOrWhiteSpace(searchBox.Text)
+                ? $"{filtered.Count:N0} cliente(s) na base"
+                : $"{filtered.Count:N0} resultado(s) encontrado(s)";
+
+            if (selected is not null)
+            {
+                customersList.SelectedItem = filtered.FirstOrDefault(customer => ReferenceEquals(customer, selected));
+            }
+        }
+
+        void RefreshCustomerStats()
+        {
+            countText.Text = Customers.Count.ToString("N0", Brazil);
+            phoneCountText.Text = Customers.Count(customer => !string.IsNullOrWhiteSpace(customer.Phone)).ToString("N0", Brazil);
+        }
 
         void LoadCustomer(CustomerRecord customer)
         {
@@ -14558,6 +19124,8 @@ public partial class MainWindow : Window
             addressBox.Text = customer.Address;
             districtBox.Text = customer.District;
             notesBox.Text = customer.Notes;
+            marketingConsentBox.IsChecked = customer.MarketingConsent;
+            selectedInfoText.Text = $"Editando {customer.Name}";
         }
 
         customersList.SelectionChanged += (_, _) =>
@@ -14567,6 +19135,7 @@ public partial class MainWindow : Window
                 LoadCustomer(customer);
             }
         };
+        searchBox.TextChanged += (_, _) => RefreshCustomerList(customersList.SelectedItem as CustomerRecord);
 
         var newButton = DialogButton("Novo cliente", "#0B3A52");
         newButton.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -14579,47 +19148,300 @@ public partial class MainWindow : Window
             addressBox.Text = "";
             districtBox.Text = "";
             notesBox.Text = "";
+            marketingConsentBox.IsChecked = false;
             customersList.SelectedItem = null;
+            selectedInfoText.Text = "Novo cadastro";
+            statusText.Text = "";
             nameBox.Focus();
         };
 
         var save = DialogButton("Salvar cliente", "#08A99B");
-        save.HorizontalAlignment = HorizontalAlignment.Stretch;
-        save.Width = double.NaN;
+        save.Content = "Salvar";
+        save.HorizontalAlignment = HorizontalAlignment.Right;
+        save.Width = 118;
         save.Click += (_, _) =>
         {
             var name = string.IsNullOrWhiteSpace(nameBox.Text) ? "CLIENTE" : nameBox.Text.Trim().ToUpperInvariant();
             var customer = UpsertCustomerRecord(cpfBox.Text.Trim(), name, phoneBox.Text.Trim(), addressBox.Text.Trim(), districtBox.Text.Trim(), notesBox.Text.Trim());
-            customersList.Items.Refresh();
-            customersList.SelectedItem = customer;
+            customer.MarketingConsent = marketingConsentBox.IsChecked == true;
+            if (customer.MarketingConsent && customer.DataConsentAt is null)
+            {
+                customer.DataConsentAt = DateTime.Now;
+                customer.DataConsentSource = "Cadastro de clientes";
+            }
+
+            if (!MatchesCustomerSearch(customer, searchBox.Text))
+            {
+                searchBox.Text = "";
+            }
+
+            RefreshCustomerList(customer);
             SaveStore();
-            SetStatus($"Cliente salvo: {customer.Name}");
+            RefreshCustomerStats();
+            statusText.Foreground = GreenText;
+            statusText.Text = $"Cliente salvo: {customer.Name}";
+            SetStatus(statusText.Text);
         };
 
-        var grid = new Grid { Margin = new Thickness(18) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(310) });
+        var exportClient = DialogButton("Exportar dados", "#0B3A52");
+        exportClient.HorizontalAlignment = HorizontalAlignment.Stretch;
+        exportClient.Width = double.NaN;
+        exportClient.Click += (_, _) =>
+        {
+            var customer = customersList.SelectedItem as CustomerRecord
+                ?? FindCustomerRecord(cpfBox.Text.Trim(), phoneBox.Text.Trim(), nameBox.Text.Trim());
+            ExportCustomerPrivacyData(customer, statusText);
+        };
+
+        var removeClientData = DialogButton("Remover dados pessoais", "#A11D1D");
+        removeClientData.HorizontalAlignment = HorizontalAlignment.Stretch;
+        removeClientData.Width = double.NaN;
+        removeClientData.Click += (_, _) =>
+        {
+            var customer = customersList.SelectedItem as CustomerRecord
+                ?? FindCustomerRecord(cpfBox.Text.Trim(), phoneBox.Text.Trim(), nameBox.Text.Trim());
+            if (AnonymizeCustomerRecord(customer, statusText))
+            {
+                RefreshCustomerList(customer);
+                RefreshCustomerStats();
+                LoadCustomer(customer!);
+            }
+        };
+
+        var privacyNotice = DialogButton("Aviso LGPD", "#5B6B7A");
+        privacyNotice.HorizontalAlignment = HorizontalAlignment.Stretch;
+        privacyNotice.Width = double.NaN;
+        privacyNotice.Click += (_, _) => ShowPrivacyLgpdDialog();
+
+        var shell = new Grid { Margin = new Thickness(18, 16, 18, 16) };
+        shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        var summary = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        var summaryText = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        summaryText.Children.Add(new TextBlock
+        {
+            Text = "Clientes",
+            Foreground = Solid("#071A2C"),
+            FontWeight = FontWeights.Bold,
+            FontSize = 24
+        });
+        summaryText.Children.Add(new TextBlock
+        {
+            Text = "Base usada no delivery, WhatsApp, cardapio online e vendas recorrentes.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 13,
+            Margin = new Thickness(0, 4, 0, 0)
+        });
+        summary.Children.Add(summaryText);
+        var totalCard = SummaryCard("Total", countText, "clientes salvos", "#0B3A52");
+        var phoneCard = SummaryCard("Com telefone", phoneCountText, "prontos para contato", "#08A99B");
+        Grid.SetColumn(totalCard, 1);
+        Grid.SetColumn(phoneCard, 2);
+        summary.Children.Add(totalCard);
+        summary.Children.Add(phoneCard);
+        shell.Children.Add(summary);
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(360) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var left = DialogPanel();
-        left.Children.Add(DialogLabel("Clientes cadastrados"));
-        left.Children.Add(customersList);
-        left.Children.Add(newButton);
+        Grid.SetRow(grid, 1);
+        shell.Children.Add(grid);
+
+        var left = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#D6E4F1"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(14),
+            Margin = new Thickness(0, 0, 14, 0)
+        };
+        var leftStack = new StackPanel();
+        leftStack.Children.Add(new TextBlock
+        {
+            Text = "Clientes cadastrados",
+            Foreground = Solid("#071A2C"),
+            FontWeight = FontWeights.Bold,
+            FontSize = 15
+        });
+        leftStack.Children.Add(new TextBlock
+        {
+            Text = "Busque e clique em um cliente para abrir o cadastro.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 3, 0, 10)
+        });
+        leftStack.Children.Add(DialogField("Buscar cliente", searchBox));
+        leftStack.Children.Add(visibleCountText);
+        leftStack.Children.Add(new ScrollViewer
+        {
+            Content = customersList,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            MaxHeight = 420,
+            Margin = new Thickness(0, 10, 0, 0)
+        });
+        newButton.Margin = new Thickness(0, 10, 0, 0);
+        leftStack.Children.Add(newButton);
+        left.Child = leftStack;
         grid.Children.Add(left);
 
-        var form = DialogPanel();
+        var formShell = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#D6E4F1"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(18, 16, 18, 16)
+        };
+        var form = new StackPanel();
+        form.Children.Add(new TextBlock
+        {
+            Text = "Dados do cliente",
+            Foreground = Solid("#071A2C"),
+            FontWeight = FontWeights.Bold,
+            FontSize = 18
+        });
+        form.Children.Add(new TextBlock
+        {
+            Text = "Use telefone e bairro para agilizar delivery e identificar pedidos recorrentes.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 3, 0, 14)
+        });
         form.Children.Add(TwoColumnFields(("CPF/CNPJ", cpfBox), ("Telefone", phoneBox)));
         form.Children.Add(DialogLabel("Nome"));
         form.Children.Add(nameBox);
-        form.Children.Add(DialogLabel("Endereco"));
+        form.Children.Add(DialogLabel("Endereço"));
         form.Children.Add(addressBox);
         form.Children.Add(DialogLabel("Bairro / referencia"));
         form.Children.Add(districtBox);
         form.Children.Add(DialogLabel("Observacao"));
         form.Children.Add(notesBox);
+        if (_appSettings.PrivacyNoticeEnabled)
+        {
+            form.Children.Add(new TextBlock
+            {
+                Text = BuildPrivacyNoticeText(),
+                Foreground = Solid("#5B6B7A"),
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+        }
+
+        form.Children.Add(marketingConsentBox);
         form.Children.Add(save);
-        Grid.SetColumn(form, 1);
-        grid.Children.Add(form);
-        dialog.Content = grid;
-        if (Customers.Count > 0)
+        form.Children.Add(TwoColumnFields(("LGPD: exportar", exportClient), ("LGPD: remover", removeClientData)));
+        form.Children.Add(privacyNotice);
+        form.Children.Add(statusText);
+        form.Children.Clear();
+
+        static void DetachClientDialogElement(UIElement element)
+        {
+            switch (LogicalTreeHelper.GetParent(element))
+            {
+                case System.Windows.Controls.Panel panel:
+                    panel.Children.Remove(element);
+                    break;
+                case Decorator decorator when ReferenceEquals(decorator.Child, element):
+                    decorator.Child = null;
+                    break;
+                case ContentControl content when ReferenceEquals(content.Content, element):
+                    content.Content = null;
+                    break;
+            }
+        }
+
+        DetachClientDialogElement(cpfBox);
+        DetachClientDialogElement(phoneBox);
+        DetachClientDialogElement(nameBox);
+        DetachClientDialogElement(addressBox);
+        DetachClientDialogElement(districtBox);
+        DetachClientDialogElement(notesBox);
+        DetachClientDialogElement(marketingConsentBox);
+        DetachClientDialogElement(save);
+        DetachClientDialogElement(exportClient);
+        DetachClientDialogElement(removeClientData);
+        DetachClientDialogElement(privacyNotice);
+
+        var formTitleGrid = new Grid { Margin = new Thickness(0, 0, 0, 14) };
+        formTitleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        formTitleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var formTitle = new StackPanel();
+        formTitle.Children.Add(new TextBlock
+        {
+            Text = "Dados do cliente",
+            Foreground = Solid("#071A2C"),
+            FontWeight = FontWeights.Bold,
+            FontSize = 18
+        });
+        formTitle.Children.Add(selectedInfoText);
+        formTitleGrid.Children.Add(formTitle);
+        save.Margin = new Thickness(14, 0, 0, 0);
+        save.MinWidth = 118;
+        save.Height = 38;
+        Grid.SetColumn(save, 1);
+        formTitleGrid.Children.Add(save);
+        form.Children.Add(formTitleGrid);
+
+        form.Children.Add(FormSection(
+            "Contato",
+            "Telefone identifica pedidos do WhatsApp e ajuda no retorno do cliente.",
+            TwoColumnFields(("CPF/CNPJ", cpfBox), ("Telefone", phoneBox)),
+            DialogField("Nome", nameBox)));
+        form.Children.Add(FormSection(
+            "Endereco de entrega",
+            "Bairro e referencia ajudam o delivery e evitam pergunta repetida no atendimento.",
+            DialogField("Endereco", addressBox),
+            DialogField("Bairro / referencia", districtBox)));
+        form.Children.Add(FormSection(
+            "Observacoes",
+            "Preferencias, restricoes, ponto de referencia ou cuidado no atendimento.",
+            DialogField("Observacao", notesBox)));
+        if (_appSettings.PrivacyNoticeEnabled)
+        {
+            form.Children.Add(new Border
+            {
+                Background = Solid("#F8FBFD"),
+                BorderBrush = Solid("#D6E4F1"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(12),
+                Margin = new Thickness(0, 0, 0, 10),
+                Child = new TextBlock
+                {
+                    Text = BuildPrivacyNoticeText(),
+                    Foreground = Solid("#5B6B7A"),
+                    FontSize = 11,
+                    TextWrapping = TextWrapping.Wrap
+                }
+            });
+        }
+
+        form.Children.Add(marketingConsentBox);
+        form.Children.Add(TwoColumnFields(("LGPD: exportar", exportClient), ("LGPD: remover", removeClientData)));
+        form.Children.Add(privacyNotice);
+        form.Children.Add(statusText);
+        formShell.Child = new ScrollViewer
+        {
+            Content = form,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+        Grid.SetColumn(formShell, 1);
+        grid.Children.Add(formShell);
+        dialog.Content = shell;
+        RefreshCustomerStats();
+        RefreshCustomerList();
+        if (customersList.Items.Count > 0)
         {
             customersList.SelectedIndex = 0;
         }
@@ -14736,6 +19558,29 @@ public partial class MainWindow : Window
         return customer;
     }
 
+    private void RegisterCustomerSale(TableTile board, decimal total)
+    {
+        if (total <= 0
+            || (string.IsNullOrWhiteSpace(board.CustomerName)
+                && string.IsNullOrWhiteSpace(board.CustomerCpf)
+                && string.IsNullOrWhiteSpace(board.Phone)))
+        {
+            return;
+        }
+
+        var customer = UpsertCustomerRecord(
+            board.CustomerCpf,
+            string.IsNullOrWhiteSpace(board.CustomerName) ? "CLIENTE" : board.CustomerName,
+            board.Phone,
+            board.Address,
+            board.District,
+            board.Notes);
+        customer.LastPurchaseAt = DateTime.Now;
+        customer.TotalSpent += total;
+        customer.Points += (int)Math.Floor(total);
+        customer.CashbackBalance += Math.Round(total * 0.02m, 2, MidpointRounding.AwayFromZero);
+    }
+
     private static string NormalizeLookup(string value)
     {
         return new string((value ?? "").Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
@@ -14775,16 +19620,57 @@ public partial class MainWindow : Window
             return;
         }
 
-        var dialog = CreateDialog("Garcons e operadores de caixa", 720, 500);
-        var staffList = new ListBox { DisplayMemberPath = nameof(UserAccount.Display), Width = 290 };
+        var dialog = CreateDialog("Equipe e entregadores", 960, 660);
+        var entityList = new ListBox
+        {
+            DisplayMemberPath = nameof(UserAccount.Display),
+            MinHeight = 390,
+            BorderBrush = Solid("#D5E4EF"),
+            BorderThickness = new Thickness(1),
+            Background = Brushes.White,
+            Padding = new Thickness(4)
+        };
         var nameBox = new TextBox();
         var numberBox = new TextBox();
-        var passwordBox = new PasswordBox { Height = 34 };
+        var passwordBox = new PasswordBox();
         var roleBox = new ComboBox
         {
             ItemsSource = new[] { "GARCOM", "CAIXA", "GERENTE" },
-            SelectedIndex = 0,
-            MinHeight = 34
+            SelectedIndex = 0
+        };
+        var driverNameBox = new TextBox();
+        var driverPhoneBox = new TextBox();
+        var driverActiveBox = new CheckBox
+        {
+            Content = "Ativo no delivery",
+            IsChecked = true,
+            Foreground = Solid("#071A2C"),
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        var shiftStaffBox = new ComboBox
+        {
+            DisplayMemberPath = nameof(UserAccount.Display)
+        };
+        var shiftBox = new ComboBox
+        {
+            ItemsSource = new[] { "MANHA", "TARDE", "NOITE", "DOBRA", "FOLGA" },
+            SelectedIndex = 0
+        };
+        var lateBox = new TextBox { Text = "0" };
+        var extraBox = new TextBox { Text = "0,00" };
+        var dayOffBox = new CheckBox
+        {
+            Content = "Folga",
+            Foreground = Solid("#071A2C"),
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        var shiftNotesBox = new TextBox
+        {
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            Height = 70
         };
         var status = new TextBlock
         {
@@ -14793,6 +19679,18 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 0)
         };
+        var currentMode = "STAFF";
+        var modeButtons = new List<Button>();
+        var listTitle = new TextBlock { Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold, FontSize = 16 };
+        var listSubtitle = new TextBlock { Foreground = Solid("#5B6B7A"), FontSize = 12, Margin = new Thickness(0, 3, 0, 10) };
+        var formTitle = new TextBlock { Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold, FontSize = 18 };
+        var formSubtitle = new TextBlock { Foreground = Solid("#5B6B7A"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 14) };
+        var staffCountText = new TextBlock { Foreground = Solid("#0B3A52"), FontWeight = FontWeights.Bold, FontSize = 20 };
+        var driverCountText = new TextBlock { Foreground = Solid("#08A99B"), FontWeight = FontWeights.Bold, FontSize = 20 };
+        var shiftCountText = new TextBlock { Foreground = Solid("#99620D"), FontWeight = FontWeights.Bold, FontSize = 20 };
+        var staffForm = new StackPanel();
+        var driverForm = new StackPanel();
+        var shiftForm = new StackPanel();
 
         List<UserAccount> StaffUsers()
         {
@@ -14803,28 +19701,153 @@ public partial class MainWindow : Window
                 .ToList();
         }
 
-        void RefreshStaffList(UserAccount? selected = null)
+        List<DeliveryDriver> DriverUsers()
         {
-            var staff = StaffUsers();
-            staffList.ItemsSource = staff;
-            if (selected is not null && staff.Contains(selected))
+            return Drivers
+                .OrderByDescending(driver => driver.Active)
+                .ThenBy(driver => driver.Name)
+                .ToList();
+        }
+
+        void PrepareInput(Control control)
+        {
+            control.MinHeight = 40;
+            control.FontSize = 14;
+            control.Margin = new Thickness(0, 0, 0, 8);
+        }
+
+        PrepareInput(nameBox);
+        PrepareInput(numberBox);
+        PrepareInput(passwordBox);
+        PrepareInput(roleBox);
+        PrepareInput(driverNameBox);
+        PrepareInput(driverPhoneBox);
+        PrepareInput(shiftStaffBox);
+        PrepareInput(shiftBox);
+        PrepareInput(lateBox);
+        PrepareInput(extraBox);
+        PrepareInput(shiftNotesBox);
+        AttachCurrencyField(extraBox);
+
+        Border SummaryCard(string title, TextBlock value, string detail)
+        {
+            var card = new Border
             {
-                staffList.SelectedItem = selected;
-            }
-            else if (staff.Count > 0 && staffList.SelectedIndex < 0)
+                Background = Brushes.White,
+                BorderBrush = Solid("#D5E4EF"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(14, 10, 14, 10),
+                Margin = new Thickness(0, 0, 12, 0)
+            };
+            card.Child = new StackPanel
             {
-                staffList.SelectedIndex = 0;
+                Children =
+                {
+                    new TextBlock { Text = title, Foreground = Solid("#5B6B7A"), FontSize = 12, FontWeight = FontWeights.Bold },
+                    value,
+                    new TextBlock { Text = detail, Foreground = Solid("#5B6B7A"), FontSize = 11, TextWrapping = TextWrapping.Wrap }
+                }
+            };
+            return card;
+        }
+
+        void SwitchMode(string mode)
+        {
+            currentMode = mode;
+            RefreshModeButtons();
+            RefreshEntityList();
+        }
+
+        Button ModeButton(string mode, string text)
+        {
+            var button = new Button
+            {
+                Content = text,
+                Tag = mode,
+                Height = 40,
+                Margin = new Thickness(0, 0, 8, 0),
+                Padding = new Thickness(12, 0, 12, 0),
+                Background = Brushes.White,
+                BorderBrush = Solid("#CAD6E2"),
+                BorderThickness = new Thickness(1),
+                Foreground = Solid("#071A2C"),
+                FontWeight = FontWeights.SemiBold,
+                Cursor = Cursors.Hand,
+                FocusVisualStyle = null,
+                Template = RoundedButtonTemplate()
+            };
+            button.Click += (_, _) => SwitchMode(mode);
+            modeButtons.Add(button);
+            return button;
+        }
+
+        void RefreshCounters()
+        {
+            var staffCount = StaffUsers().Count;
+            var activeDrivers = Drivers.Count(driver => driver.Active);
+            staffCountText.Text = staffCount.ToString("N0", Brazil);
+            driverCountText.Text = $"{activeDrivers:N0}/{Drivers.Count:N0}";
+            shiftCountText.Text = StaffShifts.Count.ToString("N0", Brazil);
+        }
+
+        void RefreshModeButtons()
+        {
+            foreach (var button in modeButtons)
+            {
+                var active = string.Equals(button.Tag?.ToString(), currentMode, StringComparison.Ordinal);
+                button.Background = active ? Solid("#0B3A52") : Brushes.White;
+                button.BorderBrush = active ? Solid("#0B3A52") : Solid("#CAD6E2");
+                button.Foreground = active ? Brushes.White : Solid("#071A2C");
             }
         }
 
-        void ClearForm()
+        void ClearStaffForm(bool clearSelection = true)
         {
-            staffList.SelectedIndex = -1;
+            if (clearSelection)
+            {
+                entityList.SelectedIndex = -1;
+            }
+
             nameBox.Text = "";
             numberBox.Text = GetNextStaffNumber().ToString(Brazil);
             passwordBox.Clear();
             roleBox.SelectedIndex = 0;
             nameBox.Focus();
+        }
+
+        void ClearDriverForm(bool clearSelection = true)
+        {
+            if (clearSelection)
+            {
+                entityList.SelectedIndex = -1;
+            }
+
+            driverNameBox.Text = "";
+            driverPhoneBox.Text = "";
+            driverActiveBox.IsChecked = true;
+            driverNameBox.Focus();
+        }
+
+        void ClearShiftForm(bool clearSelection = true)
+        {
+            if (clearSelection)
+            {
+                entityList.SelectedIndex = -1;
+            }
+
+            shiftStaffBox.ItemsSource = StaffUsers();
+            if (shiftStaffBox.SelectedItem is null && shiftStaffBox.Items.Count > 0)
+            {
+                shiftStaffBox.SelectedIndex = 0;
+            }
+
+            shiftBox.SelectedIndex = 0;
+            lateBox.Text = "0";
+            extraBox.Text = "0,00";
+            dayOffBox.IsChecked = false;
+            shiftNotesBox.Text = "";
+            shiftStaffBox.Focus();
         }
 
         void LoadStaff(UserAccount user)
@@ -14838,19 +19861,119 @@ public partial class MainWindow : Window
             roleBox.SelectedItem = user.Role is "CAIXA" or "GERENTE" ? user.Role : "GARCOM";
         }
 
-        staffList.SelectionChanged += (_, _) =>
+        void LoadDriver(DeliveryDriver driver)
         {
-            if (staffList.SelectedItem is UserAccount user)
+            driverNameBox.Text = driver.Name;
+            driverPhoneBox.Text = driver.Phone;
+            driverActiveBox.IsChecked = driver.Active;
+            driverNameBox.Focus();
+        }
+
+        void RefreshEntityList(object? selected = null)
+        {
+            RefreshCounters();
+            status.Text = "";
+            if (currentMode == "STAFF")
+            {
+                var staff = StaffUsers();
+                entityList.DisplayMemberPath = nameof(UserAccount.Display);
+                entityList.ItemsSource = staff;
+                listTitle.Text = "Equipe cadastrada";
+                listSubtitle.Text = $"{staff.Count:N0} garcom(ns), operador(es) e gerente(s)";
+                formTitle.Text = "Cadastro da equipe";
+                formSubtitle.Text = "Garcom atende mesas. Caixa recebe e opera caixa. Gerente libera configuracoes.";
+                staffForm.Visibility = Visibility.Visible;
+                driverForm.Visibility = Visibility.Collapsed;
+                shiftForm.Visibility = Visibility.Collapsed;
+                if (selected is UserAccount user && staff.Contains(user))
+                {
+                    entityList.SelectedItem = user;
+                }
+                else if (staff.Count > 0)
+                {
+                    entityList.SelectedIndex = 0;
+                }
+                else
+                {
+                    ClearStaffForm(clearSelection: false);
+                }
+            }
+            else if (currentMode == "DRIVER")
+            {
+                var drivers = DriverUsers();
+                entityList.DisplayMemberPath = nameof(DeliveryDriver.Display);
+                entityList.ItemsSource = drivers;
+                listTitle.Text = "Entregadores";
+                listSubtitle.Text = $"{drivers.Count(driver => driver.Active):N0} ativo(s) no delivery";
+                formTitle.Text = "Cadastro de entregador";
+                formSubtitle.Text = "O entregador ativo aparece no pedido delivery e no comprovante.";
+                staffForm.Visibility = Visibility.Collapsed;
+                driverForm.Visibility = Visibility.Visible;
+                shiftForm.Visibility = Visibility.Collapsed;
+                if (selected is DeliveryDriver driver && drivers.Contains(driver))
+                {
+                    entityList.SelectedItem = driver;
+                }
+                else if (drivers.Count > 0)
+                {
+                    entityList.SelectedIndex = 0;
+                }
+                else
+                {
+                    ClearDriverForm(clearSelection: false);
+                }
+            }
+            else
+            {
+                var shifts = StaffShifts
+                    .OrderByDescending(item => item.Date)
+                    .ThenBy(item => item.StaffName)
+                    .ToList();
+                entityList.DisplayMemberPath = nameof(StaffShiftRecord.Display);
+                entityList.ItemsSource = shifts;
+                listTitle.Text = "Turnos registrados";
+                listSubtitle.Text = $"{shifts.Count:N0} turno(s), atraso(s), folga(s) e hora(s) extra(s)";
+                formTitle.Text = "Turno da equipe";
+                formSubtitle.Text = "Registre folga, atraso, hora extra e observacao operacional.";
+                staffForm.Visibility = Visibility.Collapsed;
+                driverForm.Visibility = Visibility.Collapsed;
+                shiftForm.Visibility = Visibility.Visible;
+                ClearShiftForm(clearSelection: false);
+            }
+        }
+
+        entityList.SelectionChanged += (_, _) =>
+        {
+            if (currentMode == "STAFF" && entityList.SelectedItem is UserAccount user)
             {
                 LoadStaff(user);
             }
+            else if (currentMode == "DRIVER" && entityList.SelectedItem is DeliveryDriver driver)
+            {
+                LoadDriver(driver);
+            }
         };
 
-        var newButton = DialogButton("Novo cadastro", "#0B3A52");
-        newButton.Click += (_, _) => ClearForm();
+        var newButton = DialogButton("Novo", "#0B3A52");
+        newButton.Click += (_, _) =>
+        {
+            if (currentMode == "STAFF")
+            {
+                ClearStaffForm();
+            }
+            else if (currentMode == "DRIVER")
+            {
+                ClearDriverForm();
+            }
+            else
+            {
+                ClearShiftForm();
+            }
+        };
 
-        var saveButton = DialogButton("Salvar equipe", "#08A99B");
-        saveButton.Click += (_, _) =>
+        var saveButton = DialogButton("Salvar", "#08A99B");
+
+        void SaveStaff()
         {
             var name = nameBox.Text.Trim().ToUpperInvariant();
             if (string.IsNullOrWhiteSpace(name))
@@ -14872,7 +19995,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var selectedUser = staffList.SelectedItem as UserAccount;
+            var selectedUser = entityList.SelectedItem as UserAccount;
             if (string.IsNullOrWhiteSpace(password) && selectedUser is null)
             {
                 status.Foreground = RedText;
@@ -14894,7 +20017,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var user = Users.FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
+            var user = selectedUser ?? Users.FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
             if (user is null)
             {
                 user = new UserAccount();
@@ -14916,8 +20039,8 @@ public partial class MainWindow : Window
                 SetUserPassword(user, string.IsNullOrWhiteSpace(password) ? staffNumber : password);
             }
             NormalizeRolePermissions(user);
-            RefreshStaffList(user);
             SaveStore();
+            RefreshEntityList(user);
             status.Foreground = GreenText;
             status.Text = role == "CAIXA"
                 ? $"Operador de caixa salvo: {user.Name}"
@@ -14925,48 +20048,206 @@ public partial class MainWindow : Window
                     ? $"Gerente salvo: {user.Name}"
                     : $"Garcom salvo: {user.Name}";
             SetStatus(status.Text);
+        }
+
+        void SaveDriver()
+        {
+            var name = driverNameBox.Text.Trim().ToUpperInvariant();
+            var phone = driverPhoneBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                status.Foreground = RedText;
+                status.Text = "Informe o nome do entregador.";
+                driverNameBox.Focus();
+                return;
+            }
+
+            var selectedDriver = entityList.SelectedItem as DeliveryDriver;
+            var duplicated = Drivers.FirstOrDefault(driver =>
+                !ReferenceEquals(driver, selectedDriver)
+                && string.Equals(driver.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (duplicated is not null)
+            {
+                status.Foreground = RedText;
+                status.Text = $"Entregador ja cadastrado: {duplicated.Name}.";
+                driverNameBox.Focus();
+                driverNameBox.SelectAll();
+                return;
+            }
+
+            var driver = selectedDriver;
+            if (driver is null)
+            {
+                driver = new DeliveryDriver();
+                Drivers.Add(driver);
+            }
+
+            driver.Name = name;
+            driver.Phone = phone;
+            driver.Active = driverActiveBox.IsChecked == true;
+            SaveStore();
+            RefreshEntityList(driver);
+            status.Foreground = GreenText;
+            status.Text = driver.Active
+                ? $"Entregador salvo: {driver.Name}"
+                : $"Entregador inativo: {driver.Name}";
+            SetStatus(status.Text);
+        }
+
+        void SaveShift()
+        {
+            if (shiftStaffBox.SelectedItem is not UserAccount user)
+            {
+                status.Foreground = RedText;
+                status.Text = "Selecione alguem da equipe.";
+                shiftStaffBox.Focus();
+                return;
+            }
+
+            StaffShifts.Add(new StaffShiftRecord
+            {
+                StaffNumber = StaffNumber(user),
+                StaffName = user.Name,
+                Date = DateTime.Today,
+                Shift = shiftBox.SelectedItem?.ToString() ?? "MANHA",
+                DayOff = dayOffBox.IsChecked == true,
+                LateMinutes = Math.Max(0, ParseInt(lateBox.Text, 0)),
+                ExtraHours = Math.Max(0, ParseMoney(extraBox.Text, 0)),
+                Notes = shiftNotesBox.Text.Trim()
+            });
+            SaveStore();
+            RefreshEntityList();
+            status.Foreground = GreenText;
+            status.Text = "Turno salvo.";
+            SetStatus(status.Text);
+        }
+
+        saveButton.Click += (_, _) =>
+        {
+            if (currentMode == "STAFF")
+            {
+                SaveStaff();
+            }
+            else if (currentMode == "DRIVER")
+            {
+                SaveDriver();
+            }
+            else
+            {
+                SaveShift();
+            }
         };
 
-        var grid = new Grid { Margin = new Thickness(18) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var shell = new Grid { Margin = new Thickness(18) };
+        shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        var left = new StackPanel();
-        left.Children.Add(new TextBlock
+        var summary = new Grid { Margin = new Thickness(0, 0, 0, 14) };
+        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
+        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
+        var summaryText = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        summaryText.Children.Add(new TextBlock { Text = "Equipe operacional", Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold, FontSize = 24 });
+        summaryText.Children.Add(new TextBlock { Text = "Atendimento, caixa, gerente e entregadores em uma unica tela.", Foreground = Solid("#5B6B7A"), FontSize = 13, Margin = new Thickness(0, 4, 0, 0) });
+        summary.Children.Add(summaryText);
+        var staffSummary = SummaryCard("Equipe", staffCountText, "pessoas cadastradas");
+        var driverSummary = SummaryCard("Entregadores", driverCountText, "ativos / total");
+        var shiftSummary = SummaryCard("Turnos", shiftCountText, "registros salvos");
+        Grid.SetColumn(staffSummary, 1);
+        Grid.SetColumn(driverSummary, 2);
+        Grid.SetColumn(shiftSummary, 3);
+        summary.Children.Add(staffSummary);
+        summary.Children.Add(driverSummary);
+        summary.Children.Add(shiftSummary);
+        shell.Children.Add(summary);
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(330) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetRow(grid, 1);
+        shell.Children.Add(grid);
+
+        var left = new Border
         {
-            Text = "Equipe cadastrada",
-            Foreground = Solid("#071A2C"),
-            FontWeight = FontWeights.Bold,
-            FontSize = 16,
-            Margin = new Thickness(0, 0, 0, 8)
-        });
-        left.Children.Add(staffList);
-        Grid.SetColumn(left, 0);
+            Background = Brushes.White,
+            BorderBrush = Solid("#D5E4EF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(14),
+            Margin = new Thickness(0, 0, 14, 0)
+        };
+        var leftStack = new StackPanel();
+        var modeRow = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 14) };
+        modeRow.Children.Add(ModeButton("STAFF", "Equipe"));
+        modeRow.Children.Add(ModeButton("DRIVER", "Entregadores"));
+        modeRow.Children.Add(ModeButton("SHIFT", "Turnos"));
+        leftStack.Children.Add(modeRow);
+        leftStack.Children.Add(listTitle);
+        leftStack.Children.Add(listSubtitle);
+        leftStack.Children.Add(entityList);
+        left.Child = leftStack;
         grid.Children.Add(left);
 
-        var form = DialogPanel();
-        form.Children.Add(DialogLabel("Nome"));
-        form.Children.Add(nameBox);
-        form.Children.Add(DialogLabel("Numero"));
-        form.Children.Add(numberBox);
-        form.Children.Add(DialogLabel("Senha"));
-        form.Children.Add(passwordBox);
-        form.Children.Add(DialogLabel("Funcao"));
-        form.Children.Add(roleBox);
-        form.Children.Add(DialogHint("O numero identifica garcom/operador na comanda e no comprovante. A senha libera login e operacoes do caixa."));
-        var buttons = new UniformGrid { Columns = 2, Margin = new Thickness(0, 8, 0, 0) };
+        var formShell = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#D5E4EF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(18)
+        };
+        var form = new StackPanel();
+        form.Children.Add(formTitle);
+        form.Children.Add(formSubtitle);
+
+        staffForm.Children.Add(DialogLabel("Nome"));
+        staffForm.Children.Add(nameBox);
+        staffForm.Children.Add(DialogLabel("Numero"));
+        staffForm.Children.Add(numberBox);
+        staffForm.Children.Add(DialogLabel("Senha"));
+        staffForm.Children.Add(passwordBox);
+        staffForm.Children.Add(DialogLabel("Funcao"));
+        staffForm.Children.Add(roleBox);
+        staffForm.Children.Add(DialogHint("O numero identifica garcom/operador na comanda e no comprovante. A senha libera login e operacoes do caixa."));
+
+        driverForm.Children.Add(DialogLabel("Nome"));
+        driverForm.Children.Add(driverNameBox);
+        driverForm.Children.Add(DialogLabel("Telefone"));
+        driverForm.Children.Add(driverPhoneBox);
+        driverForm.Children.Add(driverActiveBox);
+        driverForm.Children.Add(DialogHint("Entregador ativo aparece na lista de delivery e sai impresso no pedido."));
+
+        shiftForm.Children.Add(DialogLabel("Equipe"));
+        shiftForm.Children.Add(shiftStaffBox);
+        shiftForm.Children.Add(DialogLabel("Turno"));
+        shiftForm.Children.Add(shiftBox);
+        shiftForm.Children.Add(DialogLabel("Atraso em minutos"));
+        shiftForm.Children.Add(lateBox);
+        shiftForm.Children.Add(DialogLabel("Horas extras"));
+        shiftForm.Children.Add(extraBox);
+        shiftForm.Children.Add(dayOffBox);
+        shiftForm.Children.Add(DialogLabel("Observacao"));
+        shiftForm.Children.Add(shiftNotesBox);
+        shiftForm.Children.Add(DialogHint("Esses registros ficam na tela de equipe para acompanhar rotina, folgas e produtividade."));
+
+        form.Children.Add(staffForm);
+        form.Children.Add(driverForm);
+        form.Children.Add(shiftForm);
+        var buttons = new UniformGrid { Columns = 2, Margin = new Thickness(0, 12, 0, 0) };
         buttons.Children.Add(newButton);
         buttons.Children.Add(saveButton);
         form.Children.Add(buttons);
         form.Children.Add(status);
-        Grid.SetColumn(form, 1);
-        grid.Children.Add(form);
+        formShell.Child = form;
+        Grid.SetColumn(formShell, 1);
+        grid.Children.Add(formShell);
 
-        dialog.Content = grid;
-        RefreshStaffList();
-        if (staffList.SelectedItem is not UserAccount)
+        dialog.Content = shell;
+        RefreshModeButtons();
+        RefreshEntityList();
+        if (entityList.SelectedItem is not UserAccount)
         {
-            ClearForm();
+            ClearStaffForm();
         }
         dialog.ShowDialog();
     }
@@ -15662,9 +20943,10 @@ public partial class MainWindow : Window
 
     private string EnsurePublicMenuSlug()
     {
+        _profile ??= new RestaurantIdentityProfile();
         var baseSlug = BuildPublicMenuBaseSlug();
         var slug = NormalizePublicMenuSlug(_profile.MenuSlug);
-        if (IsNumberedPublicMenuSlugForBase(slug, baseSlug))
+        if (!string.IsNullOrWhiteSpace(slug))
         {
             return slug;
         }
@@ -15789,8 +21071,7 @@ public partial class MainWindow : Window
             || !IsLoaded
             || !_appSettings.PublicMenuAutoPublish
             || !_appSettings.AdminSyncEnabled
-            || string.IsNullOrWhiteSpace(_appSettings.ActivationKey)
-            || Products.Count == 0)
+            || string.IsNullOrWhiteSpace(_appSettings.ActivationKey))
         {
             return;
         }
@@ -15822,6 +21103,10 @@ public partial class MainWindow : Window
         sb.AppendLine(GetPublicMenuLogoStamp());
         sb.AppendLine(GetPublicMenuImageStamp(_profile.LocalCoverPath));
         sb.AppendLine(_appSettings.PublicMenuStoreOpen.ToString());
+        sb.AppendLine(_appSettings.OnlineStoreScheduleEnabled.ToString());
+        sb.AppendLine(_appSettings.OnlineStoreManualMode);
+        sb.AppendLine(_appSettings.OnlineStoreOpenTime);
+        sb.AppendLine(_appSettings.OnlineStoreCloseTime);
         sb.AppendLine(_appSettings.PublicMenuWaitMinMinutes.ToString(CultureInfo.InvariantCulture));
         sb.AppendLine(_appSettings.PublicMenuWaitMaxMinutes.ToString(CultureInfo.InvariantCulture));
         sb.AppendLine(_appSettings.PublicMenuDiscountConfigured.ToString());
@@ -15833,6 +21118,7 @@ public partial class MainWindow : Window
         sb.AppendLine(_appSettings.PublicMenuLoyaltyEnabled.ToString());
         sb.AppendLine(_appSettings.PublicMenuLoyaltyGoal.ToString(CultureInfo.InvariantCulture));
         sb.AppendLine(_appSettings.PublicMenuLoyaltyMinimumOrder.ToString("0.00", CultureInfo.InvariantCulture));
+        sb.AppendLine(GetWhatsAppSettings().WhatsAppMessageOrdersEnabled.ToString());
 
         foreach (var product in Products
             .Where(product => product.Active)
@@ -16012,8 +21298,12 @@ public partial class MainWindow : Window
         payload.ThemeColor = "#0f766e";
         payload.Description = "Cardapio digital atualizado pelo Balcao Livre PDV.";
         payload.StoreOpen = _appSettings.PublicMenuStoreOpen;
+        payload.ScheduleEnabled = _appSettings.OnlineStoreScheduleEnabled;
+        payload.OpenTime = NormalizeClockText(_appSettings.OnlineStoreOpenTime, "00:00");
+        payload.CloseTime = NormalizeClockText(_appSettings.OnlineStoreCloseTime, "00:00");
         payload.WaitMinMinutes = Math.Max(1, _appSettings.PublicMenuWaitMinMinutes);
         payload.WaitMaxMinutes = Math.Max(payload.WaitMinMinutes, _appSettings.PublicMenuWaitMaxMinutes);
+        payload.WhatsAppMessageOrdersEnabled = GetWhatsAppSettings().WhatsAppMessageOrdersEnabled;
         var publishDiscount = _appSettings.PublicMenuDiscountConfigured && _appSettings.PublicMenuDiscountEnabled;
         var publishLoyalty = _appSettings.PublicMenuLoyaltyConfigured && _appSettings.PublicMenuLoyaltyEnabled;
         payload.DiscountEnabled = publishDiscount;
@@ -16041,7 +21331,7 @@ public partial class MainWindow : Window
                 Category = string.IsNullOrWhiteSpace(product.Category) ? "Cardapio" : product.Category,
                 Price = product.Price,
                 StockQuantity = product.StockQuantity,
-                IsInStock = product.StockQuantity >= 0,
+                IsInStock = product.StockQuantity > 0,
                 IsActive = product.Active,
                 ImageUrl = BuildPublicMenuProductImageUrl(product),
                 SortOrder = index++ * 10
@@ -16433,18 +21723,27 @@ public partial class MainWindow : Window
 
     private void ShowReportsDialog()
     {
-        if (!RequirePermission(IsManagerUser, "Relatorios"))
+        if (!RequirePermission(user => IsManagerUser(user) || IsCashUser(user), "Relatórios"))
         {
             return;
         }
 
-        var dialog = CreateDialog("Relatorios e BI operacional", 1200, 820);
+        var dialog = CreateDialog("Relatórios e BI operacional", 1260, 860);
         var shell = new Border
         {
             Background = Solid("#EEF4F7"),
             Padding = new Thickness(22)
         };
-        var root = new StackPanel();
+        var root = new Grid();
+        var toolbarRow = new RowDefinition { Height = GridLength.Auto };
+        var metricsRow = new RowDefinition { Height = GridLength.Auto };
+        var bodyRow = new RowDefinition { Height = new GridLength(1, GridUnitType.Star) };
+        var footerRow = new RowDefinition { Height = GridLength.Auto };
+        root.RowDefinitions.Add(toolbarRow);
+        root.RowDefinitions.Add(metricsRow);
+        root.RowDefinitions.Add(bodyRow);
+        root.RowDefinitions.Add(footerRow);
+        bodyRow.Height = GridLength.Auto;
 
         var periodBox = new ComboBox
         {
@@ -16454,10 +21753,12 @@ public partial class MainWindow : Window
                 "Ontem",
                 "Esta semana",
                 "Semana passada",
-                "Ultimos 7 dias",
-                "Ultimos 30 dias",
-                "Este mes",
-                "Mes passado",
+                "Últimos 7 dias",
+                "Últimos 14 dias",
+                "Últimos 30 dias",
+                "Últimos 90 dias",
+                "Este mês",
+                "Mês passado",
                 "Total"
             },
             SelectedIndex = 0,
@@ -16485,14 +21786,14 @@ public partial class MainWindow : Window
         var toolbarCopy = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         toolbarCopy.Children.Add(new TextBlock
         {
-            Text = "Painel operacional",
+            Text = "BI do restaurante",
             Foreground = Solid("#071A2C"),
             FontSize = 18,
             FontWeight = FontWeights.Bold
         });
         toolbarCopy.Children.Add(new TextBlock
         {
-            Text = "Acompanhe comandas, caixa, margem, estoque e integracoes em uma unica visao.",
+            Text = "Ganhos, custo da mercadoria vendida, canais, pagamentos, estoque e caixa em uma visão de dono.",
             Foreground = Solid("#5B6B7A"),
             FontSize = 12,
             Margin = new Thickness(0, 3, 0, 0)
@@ -16507,7 +21808,7 @@ public partial class MainWindow : Window
         };
         controlsContent.Children.Add(new TextBlock
         {
-            Text = "Periodo do relatorio",
+            Text = "Período do relatório",
             Foreground = Solid("#5B6B7A"),
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
@@ -16517,13 +21818,24 @@ public partial class MainWindow : Window
         Grid.SetColumn(controlsContent, 1);
         toolbarGrid.Children.Add(controlsContent);
         toolbar.Child = toolbarGrid;
+        Grid.SetRow(toolbar, 0);
         root.Children.Add(toolbar);
 
         var metricsHost = new ContentControl();
+        Grid.SetRow(metricsHost, 1);
         root.Children.Add(metricsHost);
 
-        var bodyHost = new ContentControl();
+        var bodyHost = new ContentControl
+        {
+            MinHeight = 0,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        Grid.SetRow(bodyHost, 2);
         root.Children.Add(bodyHost);
+
+        var selectedReportView = "Resumo";
+        var pageIndexes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        const int reportPageSize = 200;
 
         string SelectedPeriod() => periodBox.SelectedItem?.ToString() ?? "Hoje";
 
@@ -16531,73 +21843,150 @@ public partial class MainWindow : Window
         {
             var period = SelectedPeriod();
             var openOrders = GetOpenReportOrders();
-            var topProducts = GetTopReportProducts(period, 8);
+            var closedOrders = GetClosedReportBoards(period);
+            var topProducts = GetTopReportProducts(period, 80);
             var lowStock = Products
                 .Where(product => product.MinimumStock > 0 && product.StockQuantity <= product.MinimumStock)
                 .OrderBy(product => product.StockQuantity - product.MinimumStock)
                 .ThenBy(product => product.Name)
-                .Take(8)
                 .ToList();
             var cashMovements = GetReportCashMovements(period)
                 .OrderByDescending(item => item.When)
-                .Take(8)
+                .Take(80)
                 .ToList();
             var openTotal = openOrders.Sum(tile => tile.Total);
             var soldItems = GetSoldItemsForReportPeriod(period);
             var profitSummary = GetProfitSummaryForReportPeriod(period);
+            var averageTicket = closedOrders.Count > 0 ? profitSummary.Revenue / closedOrders.Count : 0m;
             var showIFoodReport = IsIFoodReportEnabled();
             var ifoodSummary = showIFoodReport ? GetIFoodReportSummary(period) : default;
+            var views = showIFoodReport
+                ? new[] { "Resumo", "Comandas", "iFood", "Produtos", "Financeiro", "Compras", "Estoque", "Caixa" }
+                : new[] { "Resumo", "Comandas", "Produtos", "Financeiro", "Compras", "Estoque", "Caixa" };
+            if (!views.Contains(selectedReportView, StringComparer.OrdinalIgnoreCase))
+            {
+                selectedReportView = "Resumo";
+            }
 
             var metrics = new UniformGrid
             {
-                Columns = showIFoodReport ? 3 : 5,
-                Rows = showIFoodReport ? 2 : 1,
-                Margin = new Thickness(0, 0, 0, 14)
+                Columns = 4,
+                Rows = showIFoodReport ? 3 : 2,
+                Margin = new Thickness(0, 0, 0, 12)
             };
+            metrics.Children.Add(CreateMetricCard("Faturamento", Money(profitSummary.Revenue), $"{closedOrders.Count:N0} conta(s) fechadas - {period}", "#0B3A52"));
+            metrics.Children.Add(CreateMetricCard("Lucro bruto", Money(profitSummary.Profit), $"Margem {profitSummary.Margin:N2}% - {period}", profitSummary.Profit >= 0 ? "#08A99B" : "#A11D1D"));
+            metrics.Children.Add(CreateMetricCard("Custo da mercadoria vendida", $"{profitSummary.CmvPercent:N2}%", $"Custo {Money(profitSummary.Cost)}", ReportCmvColor(profitSummary.CmvPercent)));
+            metrics.Children.Add(CreateMetricCard("Ticket médio", Money(averageTicket), $"{closedOrders.Count:N0} conta(s) no período", "#0B3A52"));
             metrics.Children.Add(CreateMetricCard("Em aberto", Money(openTotal), $"{openOrders.Count} comandas/pedidos", "#0B3A52"));
             metrics.Children.Add(CreateMetricCard("Caixa atual", Money(_cashTotal), IsCashOpen() ? "caixa aberto" : "caixa fechado", IsCashOpen() ? "#08A99B" : "#A11D1D"));
             metrics.Children.Add(CreateMetricCard("Itens vendidos", soldItems.ToString("N0", Brazil), $"{topProducts.Count} produtos no ranking - {period}", "#99620D"));
-            metrics.Children.Add(CreateMetricCard("Lucro bruto", Money(profitSummary.Profit), $"Margem {profitSummary.Margin:N2}% - {period}", profitSummary.Profit >= 0 ? "#08A99B" : "#A11D1D"));
+            metrics.Children.Add(CreateMetricCard("Estoque baixo", lowStock.Count.ToString("N0", Brazil), "itens abaixo do mínimo", lowStock.Count == 0 ? "#08A99B" : "#A11D1D"));
             if (showIFoodReport)
             {
-                metrics.Children.Add(CreateMetricCard("Lucro iFood", Money(ifoodSummary.EstimatedNetProfit), $"Taxa est. {Money(ifoodSummary.EstimatedFee)} - {period}", ifoodSummary.EstimatedNetProfit >= 0 ? "#08A99B" : "#A11D1D"));
+                metrics.Children.Add(CreateMetricCard("Repasse iFood", Money(ifoodSummary.EstimatedPayout), $"Liquido previsto - taxa {Money(ifoodSummary.EstimatedFee)}", "#EA1D2C", "iFood"));
             }
-
-            metrics.Children.Add(CreateMetricCard("Estoque baixo", lowStock.Count.ToString("N0", Brazil), "itens abaixo do minimo", lowStock.Count == 0 ? "#08A99B" : "#A11D1D"));
             metricsHost.Content = metrics;
+            metricsRow.Height = GridLength.Auto;
 
-            var body = new Grid { Margin = new Thickness(0, 0, 0, 0) };
-            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(showIFoodReport ? 1.08 : 1.15, GridUnitType.Star) });
-            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(showIFoodReport ? 0.92 : 0.85, GridUnitType.Star) });
-
-            var left = new StackPanel { Margin = new Thickness(0, 0, 10, 0) };
-            left.Children.Add(CreateReportSection("Comandas abertas", "Mesas, balcao e delivery com movimento", CreateOrderReportList(openOrders)));
-
-            var topProductsSection = CreateReportSection("Produtos mais vendidos", $"Ranking por quantidade vendida - {period}", CreateProductRanking(topProducts));
-            left.Children.Add(topProductsSection);
-            body.Children.Add(left);
-
-            var right = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
-            if (showIFoodReport)
+            var body = new Grid
             {
-                right.Children.Add(CreateReportSection("iFood", "Taxas estimadas: loja 12%, entrega iFood 23%", CreateIFoodReportList(ifoodSummary)));
+                Margin = new Thickness(0),
+                MinHeight = 0,
+                VerticalAlignment = VerticalAlignment.Top
+            };
+            body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-                var stockSection = CreateReportSection("Estoque critico", "Produtos no minimo ou abaixo", CreateLowStockList(lowStock));
-                right.Children.Add(stockSection);
-
-                var cashSection = CreateReportSection("Caixa", $"Total atual {Money(_cashTotal)} - {period}", CreateCashMovementList(cashMovements));
-                right.Children.Add(cashSection);
-            }
-            else
+            var tabs = new WrapPanel
             {
-                right.Children.Add(CreateReportSection("Estoque critico", "Produtos no minimo ou abaixo", CreateLowStockList(lowStock)));
-
-                var cashSection = CreateReportSection("Caixa", $"Total atual {Money(_cashTotal)} - {period}", CreateCashMovementList(cashMovements));
-                right.Children.Add(cashSection);
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            foreach (var view in views)
+            {
+                tabs.Children.Add(CreateReportTabButton(
+                    view,
+                    ReportViewCount(view),
+                    string.Equals(selectedReportView, view, StringComparison.OrdinalIgnoreCase),
+                    () =>
+                    {
+                        selectedReportView = view;
+                        pageIndexes[view] = 0;
+                        RenderReport();
+                    }));
             }
-            Grid.SetColumn(right, 1);
-            body.Children.Add(right);
+
+            var section = selectedReportView switch
+            {
+                "Resumo" => CreateReportSection("Resumo do restaurante", $"Leitura gerencial - {period}", CreateExecutiveReportPanel(period, closedOrders, openOrders, topProducts, lowStock, cashMovements, profitSummary, showIFoodReport, ifoodSummary)),
+                "iFood" => CreateReportSection("iFood", "Repasses, taxas, pagamentos e lucro estimado", CreateIFoodReportList(ifoodSummary)),
+                "Produtos" => CreateReportSection("Produtos mais vendidos", $"Página do ranking - {period}", CreatePagedReportList("Produtos", topProducts, reportPageSize, items => CreateProductRanking(items))),
+                "Financeiro" => CreateReportSection("Financeiro", "Contas a pagar, receber, despesas e baixa", CreateFinanceReportPanel(period, RenderReport)),
+                "Compras" => CreateReportSection("Compras", "Lista gerada por estoque mínimo e entrada de mercadoria", CreatePurchaseReportPanel(RenderReport)),
+                "Estoque" => CreateReportSection("Estoque crítico", "Produtos no mínimo ou abaixo", CreatePagedReportList("Estoque", lowStock, reportPageSize, items => CreateLowStockList(items))),
+                "Caixa" => CreateReportSection("Caixa", $"Movimentos do caixa - {period}", CreatePagedReportList("Caixa", cashMovements, reportPageSize, items => CreateCashMovementList(items))),
+                _ => CreateReportSection("Comandas abertas", "Mesas, balcão e delivery com movimento", CreatePagedReportList("Comandas", openOrders, reportPageSize, items => CreateOrderReportList(items)))
+            };
+            body.Children.Add(tabs);
+            Grid.SetRow(section, 1);
+            body.Children.Add(section);
             bodyHost.Content = body;
+
+            string ReportViewCount(string view)
+            {
+                return view switch
+                {
+                    "iFood" => $"{ifoodSummary.ValidOrders:N0} pedidos",
+                    "Resumo" => "BI",
+                    "Produtos" => $"{topProducts.Count:N0} itens",
+                    "Financeiro" => $"{FinanceEntries.Count(entry => !entry.Paid):N0} abertas",
+                    "Compras" => $"{lowStock.Count:N0} baixos",
+                    "Estoque" => $"{lowStock.Count:N0} baixos",
+                    "Caixa" => $"{cashMovements.Count:N0} movs.",
+                    _ => $"{openOrders.Count:N0} abertos"
+                };
+            }
+
+            UIElement CreatePagedReportList<T>(string key, IReadOnlyList<T> items, int pageSize, Func<IReadOnlyList<T>, UIElement> renderer)
+            {
+                var total = items.Count;
+                if (total <= pageSize)
+                {
+                    return renderer(items);
+                }
+
+                var maxPage = Math.Max(0, (int)Math.Ceiling(total / (double)pageSize) - 1);
+                var page = Math.Clamp(pageIndexes.TryGetValue(key, out var savedPage) ? savedPage : 0, 0, maxPage);
+                pageIndexes[key] = page;
+
+                var pageItems = items
+                    .Skip(page * pageSize)
+                    .Take(pageSize)
+                    .ToList();
+
+                var panel = new Grid();
+                panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                panel.Children.Add(renderer(pageItems));
+
+                var pager = CreateReportPager(
+                    total == 0 ? "Nenhum item" : $"{page * pageSize + 1:N0}-{Math.Min(total, (page + 1) * pageSize):N0} de {total:N0}",
+                    page > 0,
+                    page < maxPage,
+                    () =>
+                    {
+                        pageIndexes[key] = Math.Max(0, page - 1);
+                        RenderReport();
+                    },
+                    () =>
+                    {
+                        pageIndexes[key] = Math.Min(maxPage, page + 1);
+                        RenderReport();
+                    });
+                Grid.SetRow(pager, 1);
+                panel.Children.Add(pager);
+                return panel;
+            }
         }
 
         var footer = new Border
@@ -16615,13 +22004,13 @@ public partial class MainWindow : Window
         var footerCopy = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         footerCopy.Children.Add(new TextBlock
         {
-            Text = "Relatorio pronto para conferencia",
+            Text = "Relatório pronto para conferência",
             Foreground = Solid("#071A2C"),
             FontWeight = FontWeights.Bold
         });
         footerCopy.Children.Add(new TextBlock
         {
-            Text = "Use exportacao para salvar historico ou impressao para conferencia do caixa.",
+            Text = "Use exportação para salvar histórico ou impressão para conferência do caixa.",
             Foreground = Solid("#5B6B7A"),
             FontSize = 12,
             Margin = new Thickness(0, 2, 0, 0)
@@ -16642,36 +22031,49 @@ public partial class MainWindow : Window
         {
             var period = SelectedPeriod();
             var reportText = BuildOperationalReport(period);
-            var printed = TryPrintTextToDefaultPrinter(reportText, $"Relatorio operacional {period}", compact: true);
+            var printed = TryPrintTextToDefaultPrinter(reportText, $"Relatório operacional {period}", compact: true);
             SetStatus(printed
-                ? $"Relatorio {period.ToLowerInvariant()} impresso."
-                : "Relatorio nao impresso. Impressora padrao indisponivel.");
+                ? $"Relatório {period.ToLowerInvariant()} impresso."
+                : "Relatório não impresso. Impressora padrão indisponível.");
         };
         var export = DialogButton("Exportar TXT", "#08A99B");
-        export.Margin = new Thickness(0);
+        export.Margin = new Thickness(0, 0, 10, 0);
         export.Click += (_, _) =>
         {
             var period = SelectedPeriod();
             var reportText = BuildOperationalReport(period);
             var path = WriteReportFile("relatorio-operacional", reportText);
-            SetStatus($"Relatorio {period.ToLowerInvariant()} exportado: {path}");
+            SetStatus($"Relatório {period.ToLowerInvariant()} exportado: {path}");
+        };
+        var exportPdf = DialogButton("Exportar PDF", "#EA1D2C");
+        exportPdf.Margin = new Thickness(0);
+        exportPdf.Click += (_, _) =>
+        {
+            try
+            {
+                var period = SelectedPeriod();
+                var path = WriteOperationalReportPdf(period);
+                SetStatus($"Relatório PDF {period.ToLowerInvariant()} exportado: {path}");
+                Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"Falha ao gerar PDF: {ex.Message}");
+            }
         };
         footerActions.Children.Add(openFolder);
         footerActions.Children.Add(print);
         footerActions.Children.Add(export);
+        footerActions.Children.Add(exportPdf);
         Grid.SetColumn(footerActions, 1);
         footerGrid.Children.Add(footerActions);
         footer.Child = footerGrid;
+        Grid.SetRow(footer, 3);
         root.Children.Add(footer);
 
         periodBox.SelectionChanged += (_, _) => RenderReport();
         RenderReport();
-        shell.Child = new ScrollViewer
-        {
-            Content = root,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
-        };
+        shell.Child = CreateReportFullScroller(root);
         dialog.Content = shell;
         dialog.ShowDialog();
     }
@@ -16772,10 +22174,19 @@ public partial class MainWindow : Window
         var merchantRevenue = merchantOrders.Sum(IFoodReportOrderRevenue);
         var shipmentRevenue = shipmentOrders.Sum(IFoodReportOrderRevenue);
         var revenue = merchantRevenue + shipmentRevenue;
+        var directPaymentOrders = validOrders.Where(IsIFoodPaidOnDelivery).ToList();
+        var directPaymentRevenue = directPaymentOrders.Sum(IFoodReportOrderRevenue);
+        var onlinePaymentOrders = validOrders.Except(directPaymentOrders).ToList();
+        var onlinePaymentRevenue = onlinePaymentOrders.Sum(IFoodReportOrderRevenue);
+        var unspecifiedPaymentOrders = onlinePaymentOrders.Count(order => !HasIFoodPaymentKind(order));
+        var unspecifiedPaymentRevenue = onlinePaymentOrders
+            .Where(order => !HasIFoodPaymentKind(order))
+            .Sum(IFoodReportOrderRevenue);
         var cost = validOrders.Sum(GetBoardProductCost);
         var merchantFee = merchantRevenue * 0.12m;
         var shipmentFee = shipmentRevenue * 0.23m;
         var estimatedFee = merchantFee + shipmentFee;
+        var estimatedPayout = onlinePaymentRevenue - estimatedFee;
         var estimatedNetProfit = revenue - cost - estimatedFee;
         var margin = revenue > 0 ? estimatedNetProfit / revenue * 100m : 0m;
         return new IFoodReportSummary(
@@ -16788,12 +22199,63 @@ public partial class MainWindow : Window
             merchantRevenue,
             shipmentRevenue,
             revenue,
+            onlinePaymentOrders.Count,
+            directPaymentOrders.Count,
+            onlinePaymentRevenue,
+            directPaymentRevenue,
+            unspecifiedPaymentOrders,
+            unspecifiedPaymentRevenue,
             cost,
             merchantFee,
             shipmentFee,
             estimatedFee,
+            estimatedPayout,
             estimatedNetProfit,
             margin);
+    }
+
+    private static bool HasIFoodPaymentKind(TableTile order)
+    {
+        var payment = NormalizeIFoodPaymentText(order);
+        return payment.Contains("ONLINE", StringComparison.Ordinal)
+               || payment.Contains("PREPAGO", StringComparison.Ordinal)
+               || payment.Contains("PREPAID", StringComparison.Ordinal)
+               || payment.Contains("PAGO PELO IFOOD", StringComparison.Ordinal)
+               || IsIFoodPaidOnDelivery(order);
+    }
+
+    private static bool IsIFoodPaidOnDelivery(TableTile order)
+    {
+        var payment = NormalizeIFoodPaymentText(order);
+        return payment.Contains("NA ENTREGA", StringComparison.Ordinal)
+               || payment.Contains("ON DELIVERY", StringComparison.Ordinal)
+               || payment.Contains("ON_DELIVERY", StringComparison.Ordinal)
+               || payment.Contains("OFFLINE", StringComparison.Ordinal)
+               || payment.Contains("PAGO NA LOJA", StringComparison.Ordinal)
+               || payment.Contains("PAGAMENTO NA LOJA", StringComparison.Ordinal);
+    }
+
+    private static string NormalizeIFoodPaymentText(TableTile order)
+    {
+        var source = $"{order.ExternalPaymentMethod} {order.ExternalPaymentSummary}";
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            return "";
+        }
+
+        var normalized = source.Normalize(NormalizationForm.FormD);
+        var sb = new StringBuilder(normalized.Length);
+        foreach (var c in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            sb.Append(char.IsWhiteSpace(c) ? ' ' : char.ToUpperInvariant(c));
+        }
+
+        return string.Join(' ', sb.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
     }
 
     private List<TableTile> GetIFoodReportOrders(string period)
@@ -16867,6 +22329,269 @@ public partial class MainWindow : Window
         return boards.SelectMany(board => board.ClosedLines).ToList();
     }
 
+    private List<TableTile> GetClosedReportBoards(string period)
+    {
+        var boards = Tables
+            .Concat(DeliveryTiles)
+            .Where(board => board.ClosedLines.Count > 0 || board.ClosedPayments.Count > 0);
+
+        if (TryGetReportDateRange(period, out var start, out var end))
+        {
+            boards = boards.Where(board =>
+                board.LastClosedAt.HasValue
+                && board.LastClosedAt.Value >= start
+                && board.LastClosedAt.Value < end);
+        }
+
+        return boards
+            .OrderByDescending(board => board.LastClosedAt ?? board.CreatedAt)
+            .ThenBy(board => board.Kind)
+            .ThenBy(board => board.Number)
+            .ToList();
+    }
+
+    private static decimal ReportBoardRevenue(TableTile board)
+    {
+        var lineRevenue = board.ClosedLines.Sum(line => line.Total);
+        if (lineRevenue > 0m)
+        {
+            return lineRevenue;
+        }
+
+        var paidRevenue = board.ClosedPayments.Sum(payment => payment.Amount);
+        return paidRevenue > 0m ? paidRevenue : board.Total;
+    }
+
+    private decimal ReportBoardProductCost(TableTile board)
+    {
+        return board.ClosedLines.Sum(line =>
+        {
+            var product = Products.FirstOrDefault(item => string.Equals(item.Code, line.Code, StringComparison.OrdinalIgnoreCase));
+            return (product?.CostPrice ?? 0m) * line.Quantity;
+        });
+    }
+
+    private IReadOnlyList<ReportSlice> GetReportChannelSlices(string period)
+    {
+        var boards = GetClosedReportBoards(period);
+        var total = boards.Sum(ReportBoardRevenue);
+        return boards
+            .GroupBy(ReportChannelLabel)
+            .Select(group =>
+            {
+                var revenue = group.Sum(ReportBoardRevenue);
+                return new ReportSlice(
+                    group.Key,
+                    $"{group.Count():N0} conta(s) | {ReportPercentText(revenue, total)}",
+                    revenue,
+                    Money(revenue),
+                    ReportChannelColor(group.Key));
+            })
+            .OrderByDescending(slice => slice.Value)
+            .ThenBy(slice => slice.Title)
+            .ToList();
+    }
+
+    private IReadOnlyList<ReportSlice> GetReportPaymentSlices(string period)
+    {
+        var payments = GetClosedReportBoards(period)
+            .SelectMany(board => board.ClosedPayments)
+            .Where(payment => payment.Amount > 0m)
+            .ToList();
+        var total = payments.Sum(payment => payment.Amount);
+        return payments
+            .GroupBy(payment => string.IsNullOrWhiteSpace(payment.Method) ? "NAO INFORMADO" : payment.Method.Trim().ToUpperInvariant())
+            .Select(group =>
+            {
+                var amount = group.Sum(payment => payment.Amount);
+                return new ReportSlice(
+                    group.Key,
+                    $"{group.Count():N0} pagamento(s) | {ReportPercentText(amount, total)}",
+                    amount,
+                    Money(amount),
+                    ReportPaymentColor(group.Key));
+            })
+            .OrderByDescending(slice => slice.Value)
+            .ThenBy(slice => slice.Title)
+            .ToList();
+    }
+
+    private IReadOnlyList<ReportSlice> GetReportHourlySlices(string period)
+    {
+        var boards = GetClosedReportBoards(period)
+            .Where(board => (board.LastClosedAt ?? board.CreatedAt) != default)
+            .ToList();
+        var total = boards.Sum(ReportBoardRevenue);
+        return boards
+            .GroupBy(board => (board.LastClosedAt ?? board.CreatedAt).Hour)
+            .OrderBy(group => group.Key)
+            .Select(group =>
+            {
+                var revenue = group.Sum(ReportBoardRevenue);
+                return new ReportSlice(
+                    $"{group.Key:00}:00",
+                    $"{group.Count():N0} conta(s) | {ReportPercentText(revenue, total)}",
+                    revenue,
+                    Money(revenue),
+                    group.Key is >= 11 and <= 14 or >= 18 and <= 23 ? "#08A99B" : "#0B3A52");
+            })
+            .ToList();
+    }
+
+    private IReadOnlyList<ReportSlice> GetBusinessPeriodSlices()
+    {
+        var periods = new[] { "Hoje", "Ontem", "Esta semana", "Este mês", "Últimos 30 dias" };
+        return periods
+            .Select(period =>
+            {
+                var summary = GetProfitSummaryForReportPeriod(period);
+                var closedCount = GetClosedReportBoards(period).Count;
+                return new ReportSlice(
+                    period,
+                    $"{closedCount:N0} conta(s) | lucro {Money(summary.Profit)} | margem {summary.Margin:N2}%",
+                    summary.Revenue,
+                    Money(summary.Revenue),
+                    summary.Profit >= 0 ? "#0B3A52" : "#A11D1D");
+            })
+            .Where(slice => slice.Value > 0m || !string.Equals(RemoveDiacritics(slice.Title), "Ultimos 30 dias", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    private IReadOnlyList<ReportSlice> GetDeliveryPerformanceSlices(string period)
+    {
+        var orders = DeliveryTiles
+            .Where(tile => !IsIgnoredIFoodOperationalPending(tile))
+            .Where(tile => tile.Kind == "DELIVERY" || IsIFoodDeliveryBoard(tile) || !string.IsNullOrWhiteSpace(tile.ExternalSource))
+            .Where(tile => DeliveryStartedAt(tile).HasValue && DeliveryFinishedAt(tile).HasValue)
+            .Where(tile =>
+            {
+                if (!TryGetReportDateRange(period, out var start, out var end))
+                {
+                    return true;
+                }
+
+                var reference = DeliveryFinishedAt(tile) ?? DeliveryStartedAt(tile) ?? tile.CreatedAt;
+                return reference >= start && reference < end;
+            })
+            .ToList();
+
+        return orders
+            .GroupBy(ReportChannelLabel)
+            .Select(group =>
+            {
+                var durations = group
+                    .Select(tile => (DeliveryFinishedAt(tile)!.Value - DeliveryStartedAt(tile)!.Value).TotalMinutes)
+                    .Where(minutes => minutes >= 0 && minutes < 360)
+                    .ToList();
+                var average = durations.Count > 0 ? (decimal)durations.Average() : 0m;
+                var lateCount = group.Count(IsDeliveryLateForReport);
+                return new ReportSlice(
+                    group.Key,
+                    $"{group.Count():N0} pedido(s) | {lateCount:N0} atraso(s)",
+                    average,
+                    $"{average:N0} min",
+                    average <= 35 ? "#08A99B" : average <= 55 ? "#99620D" : "#A11D1D");
+            })
+            .Where(slice => slice.Value > 0m)
+            .OrderByDescending(slice => slice.Value)
+            .ThenBy(slice => slice.Title)
+            .ToList();
+    }
+
+    private static DateTime? DeliveryStartedAt(TableTile tile)
+    {
+        return tile.ExternalPreparationStartAt
+               ?? tile.ExternalCreatedAt
+               ?? tile.CreatedAt;
+    }
+
+    private static DateTime? DeliveryFinishedAt(TableTile tile)
+    {
+        return tile.ExternalDeliveredAt
+               ?? tile.ExternalCollectedAt
+               ?? tile.LastClosedAt;
+    }
+
+    private static bool IsDeliveryLateForReport(TableTile tile)
+    {
+        if (tile.ExternalDeliveryExpectedAt is not { } expected)
+        {
+            return false;
+        }
+
+        var finished = DeliveryFinishedAt(tile);
+        return finished.HasValue && finished.Value > expected;
+    }
+
+    private static string ReportChannelLabel(TableTile board)
+    {
+        var source = (board.ExternalSource ?? "").Trim();
+        if (string.Equals(source, "IFOOD", StringComparison.OrdinalIgnoreCase))
+        {
+            return "iFood";
+        }
+
+        if (string.Equals(source, "WHATSAPP", StringComparison.OrdinalIgnoreCase))
+        {
+            return "WhatsApp";
+        }
+
+        if (source.Contains("CARDAPIO", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Cardápio online";
+        }
+
+        return (board.Kind ?? "").Trim().ToUpperInvariant() switch
+        {
+            "MESA" => "Mesas",
+            "BALCAO" => "Balcão",
+            "DELIVERY" => "Delivery próprio",
+            _ => string.IsNullOrWhiteSpace(board.Kind) ? "Outros" : board.Kind.Trim()
+        };
+    }
+
+    private static string ReportChannelColor(string channel)
+    {
+        return channel switch
+        {
+            "iFood" => "#EA1D2C",
+            "WhatsApp" => "#08A99B",
+            "Cardápio online" => "#0B3A52",
+            "Delivery próprio" => "#99620D",
+            "Mesas" => "#087D73",
+            "Balcão" => "#5B6B7A",
+            _ => "#0B3A52"
+        };
+    }
+
+    private static string ReportPaymentColor(string method)
+    {
+        return method switch
+        {
+            "PIX" => "#08A99B",
+            "DINHEIRO" => "#087D73",
+            "CREDITO" or "CARTAO CREDITO" or "CARTAO" or "CRÉDITO" or "CARTÃO CRÉDITO" or "CARTÃO" => "#0B3A52",
+            "DEBITO" or "CARTAO DEBITO" or "DÉBITO" or "CARTÃO DÉBITO" => "#99620D",
+            "IFOOD" or "ONLINE" => "#EA1D2C",
+            _ => "#5B6B7A"
+        };
+    }
+
+    private static string ReportCmvColor(decimal cmvPercent)
+    {
+        if (cmvPercent <= 0m)
+        {
+            return "#5B6B7A";
+        }
+
+        return cmvPercent <= 35m ? "#08A99B" : cmvPercent <= 45m ? "#99620D" : "#A11D1D";
+    }
+
+    private static string ReportPercentText(decimal value, decimal total)
+    {
+        return total > 0m ? $"{value / total * 100m:N1}%" : "0,0%";
+    }
+
     private static bool HasReportDateRange(string period)
     {
         return TryGetReportDateRange(period, out _, out _);
@@ -16875,7 +22600,7 @@ public partial class MainWindow : Window
     private static bool TryGetReportDateRange(string period, out DateTime start, out DateTime end)
     {
         var today = DateTime.Today;
-        var normalized = (period ?? "").Trim().ToUpperInvariant();
+        var normalized = RemoveDiacritics((period ?? "").Trim()).ToUpperInvariant();
         var monthStart = new DateTime(today.Year, today.Month, 1);
         var weekStart = StartOfBusinessWeek(today);
 
@@ -16897,12 +22622,24 @@ public partial class MainWindow : Window
                 start = weekStart.AddDays(-7);
                 end = weekStart;
                 return true;
+            case "7 DIAS":
             case "ULTIMOS 7 DIAS":
                 start = today.AddDays(-6);
                 end = today.AddDays(1);
                 return true;
+            case "14 DIAS":
+            case "ULTIMOS 14 DIAS":
+                start = today.AddDays(-13);
+                end = today.AddDays(1);
+                return true;
+            case "30 DIAS":
             case "ULTIMOS 30 DIAS":
                 start = today.AddDays(-29);
+                end = today.AddDays(1);
+                return true;
+            case "90 DIAS":
+            case "ULTIMOS 90 DIAS":
+                start = today.AddDays(-89);
                 end = today.AddDays(1);
                 return true;
             case "ESTE MES":
@@ -16920,30 +22657,67 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ApplyIFoodStockSyncLink(IFoodStockSyncSnapshot snapshot, IFoodCloudStockSyncResponse response)
+    {
+        var product = Products.FirstOrDefault(item =>
+            string.Equals(item.Code, snapshot.Code, StringComparison.OrdinalIgnoreCase));
+        if (product is null)
+        {
+            return;
+        }
+
+        var changed = false;
+        var productId = (response.ProductId ?? "").Trim();
+        var externalCode = (response.ExternalCode ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(productId)
+            && !string.Equals(product.IFoodProductId ?? "", productId, StringComparison.Ordinal))
+        {
+            product.IFoodProductId = productId;
+            changed = true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(externalCode)
+            && !string.Equals(product.IFoodExternalCode ?? "", externalCode, StringComparison.Ordinal))
+        {
+            product.IFoodExternalCode = externalCode;
+            changed = true;
+        }
+
+        if (!changed)
+        {
+            return;
+        }
+
+        SaveStore();
+        ProductsList.Items.Refresh();
+        FilterProducts();
+    }
+
     private static DateTime StartOfBusinessWeek(DateTime date)
     {
         var diff = ((int)date.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
         return date.Date.AddDays(-diff);
     }
 
-    private static Border CreateMetricCard(string title, string value, string detail, string accentColor)
+    private static Border CreateMetricCard(string title, string value, string detail, string accentColor, string badgeText = "")
     {
         var root = new Border
         {
             Background = Brushes.White,
             BorderBrush = Solid("#D5E4EF"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(14),
-            Margin = new Thickness(0, 0, 12, 10),
+            CornerRadius = new CornerRadius(12),
+            Margin = new Thickness(0, 0, 10, 8),
+            MinHeight = 88,
             ClipToBounds = true
         };
 
         var grid = new Grid();
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(5) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(4) });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         grid.Children.Add(new Border { Background = Solid(accentColor) });
 
-        var content = new Grid { Margin = new Thickness(16, 10, 16, 10) };
+        var content = new Grid { Margin = new Thickness(14, 8, 14, 8) };
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -16954,13 +22728,15 @@ public partial class MainWindow : Window
             Foreground = Solid("#5B6B7A"),
             FontSize = 12,
             FontWeight = FontWeights.Bold,
+            TextWrapping = TextWrapping.Wrap,
+            MaxHeight = 34,
             TextTrimming = TextTrimming.CharacterEllipsis
         });
         text.Children.Add(new TextBlock
         {
             Text = value,
             Foreground = Solid("#071A2C"),
-            FontSize = 22,
+            FontSize = title.Length > 24 ? 18 : 20,
             FontWeight = FontWeights.Bold,
             Margin = new Thickness(0, 1, 0, 0)
         });
@@ -16976,15 +22752,17 @@ public partial class MainWindow : Window
         content.Children.Add(text);
         var chip = new Border
         {
-            Width = 30,
-            Height = 30,
-            Background = Solid("#F2F8FA"),
-            BorderBrush = Solid("#DCE7F1"),
+            Width = string.IsNullOrWhiteSpace(badgeText) ? 28 : 48,
+            Height = 28,
+            Background = string.IsNullOrWhiteSpace(badgeText) ? Solid("#F2F8FA") : Solid("#EA1D2C"),
+            BorderBrush = string.IsNullOrWhiteSpace(badgeText) ? Solid("#DCE7F1") : Solid("#EA1D2C"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Top,
-            Child = new Border
+            VerticalAlignment = VerticalAlignment.Top
+        };
+        chip.Child = string.IsNullOrWhiteSpace(badgeText)
+            ? new Border
             {
                 Width = 12,
                 Height = 12,
@@ -16993,13 +22771,130 @@ public partial class MainWindow : Window
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
-        };
+            : new TextBlock
+            {
+                Text = badgeText,
+                Foreground = Brushes.White,
+                FontSize = 10,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
         Grid.SetColumn(chip, 1);
         content.Children.Add(chip);
         Grid.SetRow(content, 1);
         grid.Children.Add(content);
         root.Child = grid;
         return root;
+    }
+
+    private static Button CreateReportTabButton(string title, string count, bool selected, Action onClick)
+    {
+        var content = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        content.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontSize = 13,
+            FontWeight = FontWeights.Bold,
+            Foreground = selected ? Brushes.White : Solid("#0B3A52"),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        content.Children.Add(new Border
+        {
+            Background = selected ? Solid("#DFFBFA") : Solid("#EAF8FA"),
+            CornerRadius = new CornerRadius(9),
+            Padding = new Thickness(8, 2, 8, 2),
+            Margin = new Thickness(10, 0, 0, 0),
+            Child = new TextBlock
+            {
+                Text = count,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = selected ? Solid("#0B3A52") : Solid("#5B6B7A")
+            }
+        });
+
+        var button = new Button
+        {
+            Content = content,
+            Background = selected ? Solid("#0B3A52") : Brushes.White,
+            Foreground = selected ? Brushes.White : Solid("#0B3A52"),
+            BorderBrush = selected ? Solid("#0B3A52") : Solid("#D5E4EF"),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(10, 9, 10, 9),
+            Margin = new Thickness(0, 0, 8, 0),
+            MinHeight = 44,
+            Cursor = Cursors.Hand
+        };
+        button.Click += (_, _) => onClick();
+        return button;
+    }
+
+    private static Border CreateReportPager(string label, bool canPrevious, bool canNext, Action previous, Action next)
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        grid.Children.Add(new TextBlock
+        {
+            Text = label,
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+        var previousButton = CreateReportPagerButton("Anterior", canPrevious, previous);
+        Grid.SetColumn(previousButton, 1);
+        grid.Children.Add(previousButton);
+
+        var nextButton = CreateReportPagerButton("Proximo", canNext, next);
+        nextButton.Margin = new Thickness(8, 0, 0, 0);
+        Grid.SetColumn(nextButton, 2);
+        grid.Children.Add(nextButton);
+
+        return new Border
+        {
+            Background = Solid("#F8FBFD"),
+            BorderBrush = Solid("#E3EBF2"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12, 8, 12, 8),
+            Margin = new Thickness(0, 8, 0, 0),
+            Child = grid
+        };
+    }
+
+    private static Button CreateReportPagerButton(string text, bool enabled, Action onClick)
+    {
+        var button = new Button
+        {
+            Content = text,
+            IsEnabled = enabled,
+            Background = enabled ? Solid("#0B3A52") : Solid("#E3EBF2"),
+            Foreground = enabled ? Brushes.White : Solid("#8A99A6"),
+            BorderBrush = enabled ? Solid("#0B3A52") : Solid("#D5E4EF"),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(14, 6, 14, 6),
+            MinWidth = 88,
+            Cursor = enabled ? Cursors.Hand : Cursors.Arrow,
+            FontWeight = FontWeights.Bold
+        };
+        button.Click += (_, _) =>
+        {
+            if (enabled)
+            {
+                onClick();
+            }
+        };
+        return button;
     }
 
     private static Border CreateReportSection(string title, string subtitle, UIElement content)
@@ -17010,13 +22905,14 @@ public partial class MainWindow : Window
             BorderBrush = Solid("#D5E4EF"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(14),
-            Margin = new Thickness(0, 0, 0, 12),
+            Margin = new Thickness(0),
+            VerticalAlignment = VerticalAlignment.Stretch,
             ClipToBounds = true
         };
 
         var grid = new Grid { Margin = new Thickness(18, 14, 18, 14) };
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         var header = new Grid();
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
@@ -17063,6 +22959,7 @@ public partial class MainWindow : Window
         if (content is FrameworkElement contentElement)
         {
             contentElement.Margin = new Thickness(0, 10, 0, 0);
+            contentElement.VerticalAlignment = content is ScrollViewer ? VerticalAlignment.Stretch : VerticalAlignment.Top;
         }
 
         Grid.SetRow(content, 1);
@@ -17107,7 +23004,7 @@ public partial class MainWindow : Window
             var totalProfit = product.ProfitAmount * product.SoldQuantity;
             panel.Children.Add(CreateProgressReportRow(
                 product.Name,
-                $"Qtd {product.SoldQuantity:N0}  Compra {product.CostPriceText}  Venda {product.PriceText}  Margem {product.ProfitMargin:N2}%",
+                $"Qtd {product.SoldQuantity:N0}  Compra {product.CostPriceText}  Venda {product.PriceText}  CMV {product.CmvPercent:N2}%  Margem {product.ProfitMargin:N2}%",
                 Money(totalProfit),
                 (double)(product.SoldQuantity / max),
                 totalProfit >= 0 ? "#08A99B" : "#A11D1D"));
@@ -17163,31 +23060,697 @@ public partial class MainWindow : Window
         var panel = new StackPanel();
         if (summary.TotalOrders == 0)
         {
-            panel.Children.Add(CreateEmptyReportState("Nenhum pedido iFood no periodo."));
+            panel.Children.Add(CreateEmptyReportState("Nenhum pedido iFood no período."));
             return panel;
+        }
+
+        var paymentMix = $"{summary.OnlinePaymentOrders:N0} iFood, {summary.DirectPaymentOrders:N0} direto";
+        if (summary.UnspecifiedPaymentOrders > 0)
+        {
+            paymentMix += $", {summary.UnspecifiedPaymentOrders:N0} conferir";
         }
 
         panel.Children.Add(CreateReportRow(
             "Vendas iFood",
-            $"{summary.ValidOrders:N0} pedido(s), {summary.DeliveredOrders:N0} entregue(s), {summary.CancelledOrders:N0} cancelado(s)",
+            $"{summary.ValidOrders:N0} valido(s), {summary.DeliveredOrders:N0} entregue(s), {summary.CancelledOrders:N0} cancelado(s)",
             Money(summary.Revenue),
             "#0B3A52"));
         panel.Children.Add(CreateReportRow(
-            "Entrega propria / merchant",
+            summary.EstimatedPayout >= 0 ? "Repasse iFood previsto" : "Repasse iFood negativo",
+            $"Bruto {Money(summary.OnlinePaymentRevenue)} | taxa {Money(summary.EstimatedFee)} | {paymentMix}",
+            Money(summary.EstimatedPayout),
+            summary.EstimatedPayout >= 0 ? "#08A99B" : "#A11D1D"));
+        panel.Children.Add(CreateReportRow(
+            "Pago direto na loja",
+            $"{summary.DirectPaymentOrders:N0} pedido(s) na entrega/offline - nao entra como repasse",
+            Money(summary.DirectPaymentRevenue),
+            "#5B6B7A"));
+        if (summary.UnspecifiedPaymentOrders > 0)
+        {
+            panel.Children.Add(CreateReportRow(
+                "Pagamento a conferir",
+                $"{summary.UnspecifiedPaymentOrders:N0} pedido(s) sem tipo claro; tratado como repasse previsto",
+                Money(summary.UnspecifiedPaymentRevenue),
+                "#99620D"));
+        }
+
+        panel.Children.Add(CreateReportRow(
+            "Taxa entrega propria",
             $"{summary.MerchantOrders:N0} pedido(s) x 12%",
             $"-{Money(summary.EstimatedMerchantFee)}",
             "#99620D"));
         panel.Children.Add(CreateReportRow(
-            "Entrega iFood",
+            "Taxa entrega iFood",
             $"{summary.IFoodShipmentOrders:N0} pedido(s) x 23%",
             $"-{Money(summary.EstimatedIFoodShipmentFee)}",
             "#A11D1D"));
         panel.Children.Add(CreateReportRow(
             "Lucro liquido estimado",
-            $"Custo produto {Money(summary.ProductCost)}  |  Margem {summary.EstimatedMargin:N2}%",
+            $"Custo produto {Money(summary.ProductCost)} | margem {summary.EstimatedMargin:N2}%",
             Money(summary.EstimatedNetProfit),
             summary.EstimatedNetProfit >= 0 ? "#08A99B" : "#A11D1D"));
         return panel;
+    }
+
+    private UIElement CreateExecutiveReportPanel(
+        string period,
+        IReadOnlyList<TableTile> closedOrders,
+        IReadOnlyList<TableTile> openOrders,
+        IReadOnlyList<ProductTile> topProducts,
+        IReadOnlyList<ProductTile> lowStock,
+        IReadOnlyList<CashMovement> cashMovements,
+        ProfitSummary profitSummary,
+        bool showIFoodReport,
+        IFoodReportSummary ifoodSummary)
+    {
+        var panel = new StackPanel();
+        var averageTicket = closedOrders.Count > 0 ? profitSummary.Revenue / closedOrders.Count : 0m;
+        var openTotal = openOrders.Sum(order => order.Total);
+        var cashIn = cashMovements.Where(movement => movement.Amount > 0m).Sum(movement => movement.Amount);
+        var cashOut = cashMovements.Where(movement => movement.Amount < 0m).Sum(movement => Math.Abs(movement.Amount));
+
+        var resultChart = CreateReportChartCard(
+            "Resultado do período",
+            "Faturamento, CMV e lucro bruto estimado.",
+            CreateHorizontalReportBars(
+                new List<ReportSlice>
+                {
+                    new("Faturamento", $"{closedOrders.Count:N0} conta(s) fechadas", profitSummary.Revenue, Money(profitSummary.Revenue), "#0B3A52"),
+                    new("CMV", $"{profitSummary.CmvPercent:N2}% do faturamento", profitSummary.Cost, Money(profitSummary.Cost), ReportCmvColor(profitSummary.CmvPercent)),
+                    new("Lucro bruto", $"Margem {profitSummary.Margin:N2}%", profitSummary.Profit, Money(profitSummary.Profit), profitSummary.Profit >= 0 ? "#08A99B" : "#A11D1D"),
+                    new("Ticket médio", $"{closedOrders.Count:N0} fechamento(s)", averageTicket, Money(averageTicket), "#99620D")
+                },
+                "Sem venda fechada no período."));
+
+        var channelChart = CreateReportChartCard(
+            "Vendas por canal",
+            "Mesa, balcão, delivery, cardápio, WhatsApp e iFood.",
+            CreateHorizontalReportBars(GetReportChannelSlices(period), "Sem venda fechada por canal."));
+
+        var paymentChart = CreateReportChartCard(
+            "Formas de pagamento",
+            "Dinheiro, Pix, cartão, iFood e outros recebimentos.",
+            CreateHorizontalReportBars(GetReportPaymentSlices(period), "Sem pagamento fechado no período."));
+
+        var periodComparison = CreateReportChartCard(
+            "Comparativo de vendas",
+            "Hoje, ontem, semana, mês e últimos 30 dias com lucro estimado.",
+            CreateHorizontalReportBars(GetBusinessPeriodSlices(), "Sem vendas fechadas para comparar."));
+
+        var hourChart = CreateReportChartCard(
+            "Horários de pico",
+            "Mostra onde concentrar equipe, cozinha e entregador.",
+            CreateHorizontalReportBars(GetReportHourlySlices(period), "Sem horário de fechamento no período."));
+
+        var deliveryTimeChart = CreateReportChartCard(
+            "Tempo médio no delivery",
+            "Calculado pelo pedido: entrada até entrega ou fechamento.",
+            CreateHorizontalReportBars(GetDeliveryPerformanceSlices(period), "Sem delivery finalizado com horário no período."));
+
+        var profitProducts = CreateReportChartCard(
+            "Produtos que puxam lucro",
+            "Ranking por lucro bruto estimado, não apenas quantidade.",
+            CreateProductProfitBars(topProducts));
+
+        var diagnosis = CreateReportChartCard(
+            "Alertas de gestão",
+            "O que vale olhar antes de fechar o dia.",
+            CreateReportInsights(period, closedOrders, openOrders, topProducts, lowStock, cashIn, cashOut, openTotal, profitSummary, showIFoodReport, ifoodSummary));
+
+        panel.Children.Add(CreateReportColumns(periodComparison, resultChart, 545));
+        AddReportGap(panel);
+        panel.Children.Add(CreateReportColumns(channelChart, paymentChart, 545));
+        AddReportGap(panel);
+        panel.Children.Add(CreateReportColumns(hourChart, deliveryTimeChart, 545));
+        AddReportGap(panel);
+        panel.Children.Add(CreateReportColumns(profitProducts, diagnosis, 545));
+
+        return panel;
+    }
+
+    private static void AddReportGap(System.Windows.Controls.Panel panel)
+    {
+        panel.Children.Add(new Border { Height = 12, Opacity = 0 });
+    }
+
+    private static Border CreateReportChartCard(string title, string subtitle, UIElement content)
+    {
+        var stack = new StackPanel();
+        stack.Children.Add(new TextBlock
+        {
+            Text = title,
+            Foreground = Solid("#071A2C"),
+            FontSize = 15,
+            FontWeight = FontWeights.Bold
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = subtitle,
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 2, 0, 10)
+        });
+        stack.Children.Add(content);
+
+        return new Border
+        {
+            Background = Solid("#F8FBFD"),
+            BorderBrush = Solid("#D5E4EF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(14),
+            MinHeight = 178,
+            Child = stack
+        };
+    }
+
+    private static UIElement CreateHorizontalReportBars(IReadOnlyList<ReportSlice> slices, string emptyText)
+    {
+        var panel = new StackPanel();
+        if (slices.Count == 0)
+        {
+            panel.Children.Add(CreateEmptyReportState(emptyText));
+            return panel;
+        }
+
+        var max = Math.Max(1m, slices.Max(slice => Math.Abs(slice.Value)));
+        foreach (var slice in slices.Take(8))
+        {
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var label = new StackPanel();
+            label.Children.Add(new TextBlock
+            {
+                Text = slice.Title,
+                Foreground = Solid("#071A2C"),
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            label.Children.Add(new TextBlock
+            {
+                Text = slice.Detail,
+                Foreground = Solid("#5B6B7A"),
+                FontSize = 10,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            row.Children.Add(label);
+
+            var track = new Border
+            {
+                Height = 14,
+                Background = Solid("#EAF2F7"),
+                CornerRadius = new CornerRadius(7),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 0, 12, 0)
+            };
+            var ratio = (double)(Math.Abs(slice.Value) / max);
+            track.Child = new Border
+            {
+                Width = Math.Clamp(ratio * 280, 12, 280),
+                Background = Solid(slice.AccentColor),
+                CornerRadius = new CornerRadius(7),
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            Grid.SetColumn(track, 1);
+            row.Children.Add(track);
+
+            var value = new TextBlock
+            {
+                Text = slice.ValueText,
+                Foreground = Solid("#071A2C"),
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                MinWidth = 84,
+                TextAlignment = TextAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(value, 2);
+            row.Children.Add(value);
+            panel.Children.Add(row);
+        }
+
+        return panel;
+    }
+
+    private UIElement CreateProductProfitBars(IReadOnlyList<ProductTile> topProducts)
+    {
+        var products = topProducts
+            .Where(product => product.SoldQuantity > 0)
+            .Select(product => new
+            {
+                Product = product,
+                Profit = product.ProfitAmount * product.SoldQuantity
+            })
+            .OrderByDescending(item => item.Profit)
+            .ThenBy(item => item.Product.Name)
+            .Take(8)
+            .Select(item => new ReportSlice(
+                item.Product.Name,
+                $"Qtd {item.Product.SoldQuantity:N0} | CMV {item.Product.CmvPercent:N2}% | margem {item.Product.ProfitMargin:N2}%",
+                item.Profit,
+                Money(item.Profit),
+                item.Profit >= 0 ? "#08A99B" : "#A11D1D"))
+            .ToList();
+
+        return CreateHorizontalReportBars(products, "Ainda nao ha produtos vendidos com custo para ranquear lucro.");
+    }
+
+    private UIElement CreateReportInsights(
+        string period,
+        IReadOnlyList<TableTile> closedOrders,
+        IReadOnlyList<TableTile> openOrders,
+        IReadOnlyList<ProductTile> topProducts,
+        IReadOnlyList<ProductTile> lowStock,
+        decimal cashIn,
+        decimal cashOut,
+        decimal openTotal,
+        ProfitSummary profitSummary,
+        bool showIFoodReport,
+        IFoodReportSummary ifoodSummary)
+    {
+        var panel = new StackPanel();
+        var missingCost = topProducts.Count(product => product.SoldQuantity > 0 && product.CostPrice <= 0m);
+        var lowMargin = topProducts.Count(product => product.SoldQuantity > 0 && product.Price > 0m && product.ProfitMargin < 25m);
+
+        if (profitSummary.Revenue <= 0m)
+        {
+            panel.Children.Add(CreateReportInsight("Sem venda fechada", $"Período {period}", "Abra o caixa e feche contas para o BI calcular lucro.", "#99620D"));
+        }
+        else
+        {
+            panel.Children.Add(CreateReportInsight(
+                "Resultado bruto",
+                $"{closedOrders.Count:N0} conta(s) | faturamento {Money(profitSummary.Revenue)}",
+                $"{Money(profitSummary.Profit)} / {profitSummary.Margin:N2}%",
+                profitSummary.Profit >= 0 ? "#08A99B" : "#A11D1D"));
+
+            if (profitSummary.CmvPercent <= 0m)
+            {
+                panel.Children.Add(CreateReportInsight("CMV zerado", "Cadastre custo de compra nos produtos.", "Sem custo", "#99620D"));
+            }
+            else if (profitSummary.CmvPercent > 45m)
+            {
+                panel.Children.Add(CreateReportInsight("CMV alto", "Custo consumindo muita venda. Reveja compra, ficha técnica e preço.", $"{profitSummary.CmvPercent:N2}%", "#A11D1D"));
+            }
+            else if (profitSummary.CmvPercent > 35m)
+            {
+                panel.Children.Add(CreateReportInsight("CMV em atenção", "Ainda vendável, mas precisa acompanhar margem.", $"{profitSummary.CmvPercent:N2}%", "#99620D"));
+            }
+            else
+            {
+                panel.Children.Add(CreateReportInsight("CMV saudavel", "Custo dentro de uma faixa boa para restaurante.", $"{profitSummary.CmvPercent:N2}%", "#08A99B"));
+            }
+        }
+
+        if (missingCost > 0)
+        {
+            panel.Children.Add(CreateReportInsight("Produtos sem custo", "O lucro fica errado enquanto compra/CMV estiver vazio.", $"{missingCost:N0}", "#A11D1D"));
+        }
+
+        if (lowMargin > 0)
+        {
+            panel.Children.Add(CreateReportInsight("Margem baixa", "Produtos vendidos com margem abaixo de 25%.", $"{lowMargin:N0}", "#99620D"));
+        }
+
+        if (lowStock.Count > 0)
+        {
+            panel.Children.Add(CreateReportInsight("Risco de ruptura", "Itens no mínimo ou abaixo podem travar venda e cardápio online.", $"{lowStock.Count:N0}", "#A11D1D"));
+        }
+
+        if (openOrders.Count > 0)
+        {
+            panel.Children.Add(CreateReportInsight("Conta em aberto", "Mesas, balcão ou delivery ainda com movimento.", $"{openOrders.Count:N0} / {Money(openTotal)}", "#0B3A52"));
+        }
+
+        if (cashOut > 0m)
+        {
+            panel.Children.Add(CreateReportInsight("Saidas de caixa", $"Entradas {Money(cashIn)} | retiradas {Money(cashOut)}", Money(cashIn - cashOut), cashIn >= cashOut ? "#08A99B" : "#A11D1D"));
+        }
+
+        if (showIFoodReport && ifoodSummary.TotalOrders > 0)
+        {
+            panel.Children.Add(CreateReportInsight(
+                "iFood",
+                $"{ifoodSummary.ValidOrders:N0} pedido(s) | taxa estimada {Money(ifoodSummary.EstimatedFee)}",
+                Money(ifoodSummary.EstimatedNetProfit),
+                ifoodSummary.EstimatedNetProfit >= 0 ? "#08A99B" : "#A11D1D"));
+        }
+
+        if (panel.Children.Count == 0)
+        {
+            panel.Children.Add(CreateReportInsight("Operação em dia", "Sem alerta importante no período selecionado.", "OK", "#08A99B"));
+        }
+
+        return panel;
+    }
+
+    private static Border CreateReportInsight(string title, string subtitle, string trailing, string accentColor)
+    {
+        return CreateReportRow(title, subtitle, trailing, accentColor);
+    }
+
+    private UIElement CreateFinanceReportPanel(string period, Action refreshReport)
+    {
+        var periodEntries = GetFinanceEntriesForReportPeriod(period).ToList();
+        var openEntries = FinanceEntries.Where(entry => !entry.Paid).ToList();
+        var overdueEntries = openEntries.Where(entry => entry.DueDate.Date < DateTime.Today).ToList();
+        var paidInPeriod = periodEntries.Where(entry => entry.Paid).Sum(entry => entry.Amount);
+        var openTotal = openEntries.Sum(entry => entry.Amount);
+
+        var entryPicker = new ComboBox
+        {
+            DisplayMemberPath = nameof(FinanceEntry.Display),
+            MinHeight = 38
+        };
+        var financeType = new ComboBox
+        {
+            ItemsSource = new[] { "PAGAR", "RECEBER", "DESPESA" },
+            SelectedIndex = 0,
+            MinHeight = 38
+        };
+        var descriptionBox = new TextBox();
+        var categoryBox = new TextBox { Text = "OPERACIONAL" };
+        var amountBox = new TextBox { Text = "0,00" };
+        var dueBox = new TextBox { Text = DateTime.Today.ToString("dd/MM/yyyy", Brazil) };
+        AttachCurrencyField(amountBox);
+
+        void RefreshPicker()
+        {
+            var entries = FinanceEntries
+                .OrderBy(entry => entry.Paid)
+                .ThenBy(entry => entry.DueDate)
+                .ThenBy(entry => entry.Description)
+                .ToList();
+            entryPicker.ItemsSource = entries;
+            if (entryPicker.SelectedItem is null && entries.Count > 0)
+            {
+                entryPicker.SelectedIndex = 0;
+            }
+        }
+
+        RefreshPicker();
+
+        var list = new StackPanel();
+        foreach (var entry in periodEntries
+                     .OrderBy(entry => entry.Paid)
+                     .ThenBy(entry => entry.DueDate)
+                     .Take(80))
+        {
+            var accent = entry.Paid
+                ? "#08A99B"
+                : entry.DueDate.Date < DateTime.Today
+                    ? "#A11D1D"
+                    : "#99620D";
+            list.Children.Add(CreateReportRow(
+                $"{entry.Type} - {entry.Description}",
+                $"{entry.Category} | vence {entry.DueDate:dd/MM/yyyy} | {(entry.Paid ? $"pago {entry.PaidAt?.ToString("dd/MM HH:mm") ?? "-"}" : "em aberto")}",
+                Money(entry.Amount),
+                accent));
+        }
+
+        if (list.Children.Count == 0)
+        {
+            list.Children.Add(CreateEmptyReportState("Nenhum lançamento financeiro nesse período."));
+        }
+
+        var markPaid = DialogButton("Marcar pago/recebido", "#0B3A52");
+        markPaid.HorizontalAlignment = HorizontalAlignment.Stretch;
+        markPaid.Width = double.NaN;
+        markPaid.Click += (_, _) =>
+        {
+            if (entryPicker.SelectedItem is not FinanceEntry entry)
+            {
+                SetStatus("Selecione um lançamento financeiro.");
+                return;
+            }
+
+            entry.Paid = !entry.Paid;
+            entry.PaidAt = entry.Paid ? DateTime.Now : null;
+            SaveStore();
+            SetStatus(entry.Paid ? "Lançamento baixado." : "Lançamento reaberto.");
+            refreshReport();
+        };
+
+        var save = DialogButton("Salvar lançamento", "#08A99B");
+        save.HorizontalAlignment = HorizontalAlignment.Stretch;
+        save.Width = double.NaN;
+        save.Click += (_, _) =>
+        {
+            var amount = ParseMoney(amountBox.Text, 0);
+            if (amount <= 0 || string.IsNullOrWhiteSpace(descriptionBox.Text))
+            {
+                SetStatus("Informe descrição e valor financeiro.");
+                return;
+            }
+
+            DateTime.TryParse(dueBox.Text, Brazil, DateTimeStyles.None, out var dueDate);
+            FinanceEntries.Add(new FinanceEntry
+            {
+                Type = financeType.SelectedItem?.ToString() ?? "PAGAR",
+                Description = descriptionBox.Text.Trim(),
+                Category = string.IsNullOrWhiteSpace(categoryBox.Text) ? "OPERACIONAL" : categoryBox.Text.Trim().ToUpperInvariant(),
+                Amount = amount,
+                DueDate = dueDate == default ? DateTime.Today : dueDate
+            });
+            SaveStore();
+            SetStatus("Lançamento financeiro salvo.");
+            refreshReport();
+        };
+
+        var metrics = new UniformGrid { Columns = 4, Margin = new Thickness(0, 0, 0, 12) };
+        metrics.Children.Add(CreateMetricCard("Abertos", Money(openTotal), $"{openEntries.Count:N0} lançamento(s)", "#0B3A52"));
+        metrics.Children.Add(CreateMetricCard("Vencidos", Money(overdueEntries.Sum(entry => entry.Amount)), $"{overdueEntries.Count:N0} em atraso", overdueEntries.Count == 0 ? "#08A99B" : "#A11D1D"));
+        metrics.Children.Add(CreateMetricCard("Baixado", Money(paidInPeriod), period, "#08A99B"));
+        metrics.Children.Add(CreateMetricCard("Lançamentos", periodEntries.Count.ToString("N0", Brazil), "no período", "#99620D"));
+
+        var left = new StackPanel
+        {
+            Children =
+            {
+                metrics,
+                new TextBlock { Text = "Contas e despesas", Foreground = Solid("#071A2C"), FontSize = 15, FontWeight = FontWeights.Bold },
+                new TextBlock { Text = "Pagar, receber, despesas e baixas ficam no relatório financeiro.", Foreground = Solid("#5B6B7A"), FontSize = 12, Margin = new Thickness(0, 2, 0, 10) },
+                DialogField("Selecionar lançamento", entryPicker),
+                list,
+                markPaid
+            }
+        };
+
+        var right = new StackPanel
+        {
+            Children =
+            {
+                new TextBlock { Text = "Novo lançamento", Foreground = Solid("#071A2C"), FontSize = 15, FontWeight = FontWeights.Bold },
+                new TextBlock { Text = "Cadastre uma conta sem sair do BI.", Foreground = Solid("#5B6B7A"), FontSize = 12, Margin = new Thickness(0, 2, 0, 10) },
+                DialogField("Tipo", financeType),
+                DialogField("Descrição", descriptionBox),
+                DialogField("Categoria", categoryBox),
+                DialogField("Valor", amountBox),
+                DialogField("Vencimento", dueBox),
+                save
+            }
+        };
+
+        return CreateReportColumns(left, right, 610);
+    }
+
+    private UIElement CreatePurchaseReportPanel(Action refreshReport)
+    {
+        var lowStockProducts = Products
+            .Where(product => product.MinimumStock > 0 && product.StockQuantity <= product.MinimumStock)
+            .OrderBy(product => product.StockQuantity - product.MinimumStock)
+            .ThenBy(product => product.Name)
+            .ToList();
+        var productBox = new ComboBox
+        {
+            ItemsSource = Products.OrderBy(product => product.Name).ToList(),
+            DisplayMemberPath = nameof(ProductTile.SearchDisplay),
+            MinHeight = 38
+        };
+        var supplierBox = new TextBox { Text = "FORNECEDOR" };
+        var quantityBox = new TextBox { Text = "1,00" };
+        var costBox = new TextBox { Text = "0,00" };
+        AttachCurrencyField(quantityBox);
+        AttachCurrencyField(costBox);
+
+        var purchaseList = new StackPanel();
+        foreach (var product in lowStockProducts)
+        {
+            var quote = SupplierQuotes
+                .Where(item => string.Equals(item.ProductCode, product.Code, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(item => item.UnitPrice <= 0 ? decimal.MaxValue : item.UnitPrice)
+                .FirstOrDefault();
+            var buy = Math.Max(0, product.MinimumStock - product.StockQuantity);
+            purchaseList.Children.Add(CreateReportRow(
+                $"{product.Code} - {product.Name}",
+                $"comprar {buy:N2} | estoque {product.StockQuantity:N2}/{product.MinimumStock:N2} | fornecedor {quote?.Supplier ?? "-"}",
+                Money(quote?.UnitPrice ?? product.CostPrice),
+                "#A11D1D"));
+        }
+
+        if (purchaseList.Children.Count == 0)
+        {
+            purchaseList.Children.Add(CreateEmptyReportState("Estoque em dia. Nenhuma compra sugerida agora."));
+        }
+
+        var receiptList = new StackPanel();
+        foreach (var receipt in GoodsReceipts.OrderByDescending(item => item.ReceivedAt).Take(25))
+        {
+            receiptList.Children.Add(CreateReportRow(
+                $"{receipt.ProductCode} - {receipt.ProductName}",
+                $"{receipt.Supplier} | entrada {receipt.ReceivedAt:dd/MM HH:mm}",
+                $"+{receipt.Quantity:N2} {Money(receipt.UnitCost)}",
+                "#08A99B"));
+        }
+
+        if (receiptList.Children.Count == 0)
+        {
+            receiptList.Children.Add(CreateEmptyReportState("Nenhuma entrada de mercadoria registrada."));
+        }
+
+        var saveReceipt = DialogButton("Dar entrada e cotar", "#08A99B");
+        saveReceipt.HorizontalAlignment = HorizontalAlignment.Stretch;
+        saveReceipt.Width = double.NaN;
+        saveReceipt.Click += (_, _) =>
+        {
+            if (productBox.SelectedItem is not ProductTile product)
+            {
+                SetStatus("Selecione o produto para entrada.");
+                return;
+            }
+
+            var quantity = ParseMoney(quantityBox.Text, 0);
+            var unitCost = ParseMoney(costBox.Text, 0);
+            if (quantity <= 0)
+            {
+                SetStatus("Quantidade de entrada invalida.");
+                return;
+            }
+
+            var supplier = string.IsNullOrWhiteSpace(supplierBox.Text)
+                ? "FORNECEDOR"
+                : supplierBox.Text.Trim().ToUpperInvariant();
+            product.StockQuantity += quantity;
+            if (unitCost > 0)
+            {
+                product.CostPrice = unitCost;
+            }
+
+            product.StockHistory.Add(new StockMovement { ProductCode = product.Code, Type = "ENTRADA", Quantity = quantity, Reason = $"Entrada mercadoria - {supplier}", When = DateTime.Now });
+            GoodsReceipts.Add(new GoodsReceipt { Supplier = supplier, ProductCode = product.Code, ProductName = product.Name, Quantity = quantity, UnitCost = unitCost, ReceivedAt = DateTime.Now });
+            if (unitCost > 0)
+            {
+                SupplierQuotes.Add(new SupplierQuote { Supplier = supplier, ProductCode = product.Code, ProductName = product.Name, UnitPrice = unitCost, QuotedAt = DateTime.Now });
+            }
+
+            ProductsList.Items.Refresh();
+            FilterProducts();
+            SaveStore();
+            QueueIFoodStockSync(product, "Entrada de mercadoria");
+            QueuePublicMenuPublish();
+            SetStatus($"Entrada registrada: {product.Name} +{quantity:N2}.");
+            refreshReport();
+        };
+
+        var metrics = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 12) };
+        metrics.Children.Add(CreateMetricCard("Compra sugerida", lowStockProducts.Count.ToString("N0", Brazil), "produtos abaixo do mínimo", lowStockProducts.Count == 0 ? "#08A99B" : "#A11D1D"));
+        metrics.Children.Add(CreateMetricCard("Cotações", SupplierQuotes.Count.ToString("N0", Brazil), "histórico de fornecedor", "#0B3A52"));
+        metrics.Children.Add(CreateMetricCard("Entradas", GoodsReceipts.Count.ToString("N0", Brazil), "mercadorias salvas", "#08A99B"));
+
+        var left = new StackPanel
+        {
+            Children =
+            {
+                metrics,
+                new TextBlock { Text = "Lista de compras", Foreground = Solid("#071A2C"), FontSize = 15, FontWeight = FontWeights.Bold },
+                new TextBlock { Text = "Gerada pelo estoque mínimo. Ao dar entrada, o estoque e o cardápio online são atualizados.", Foreground = Solid("#5B6B7A"), FontSize = 12, Margin = new Thickness(0, 2, 0, 10) },
+                purchaseList
+            }
+        };
+
+        var right = new StackPanel
+        {
+            Children =
+            {
+                new TextBlock { Text = "Entrada de mercadoria", Foreground = Solid("#071A2C"), FontSize = 15, FontWeight = FontWeights.Bold },
+                new TextBlock { Text = "Atualiza quantidade, custo, fornecedor e publicação online.", Foreground = Solid("#5B6B7A"), FontSize = 12, Margin = new Thickness(0, 2, 0, 10) },
+                DialogField("Produto", productBox),
+                DialogField("Fornecedor", supplierBox),
+                DialogField("Quantidade", quantityBox),
+                DialogField("Custo unitário", costBox),
+                saveReceipt,
+                new Separator { Margin = new Thickness(0, 14, 0, 12), Background = Solid("#D9E7F1") },
+                new TextBlock { Text = "Últimas entradas", Foreground = Solid("#071A2C"), FontSize = 15, FontWeight = FontWeights.Bold },
+                receiptList
+            }
+        };
+
+        return CreateReportColumns(left, right, 610);
+    }
+
+    private IEnumerable<FinanceEntry> GetFinanceEntriesForReportPeriod(string period)
+    {
+        if (!TryGetReportDateRange(period, out var start, out var end))
+        {
+            return FinanceEntries;
+        }
+
+        return FinanceEntries.Where(entry =>
+        {
+            var date = entry.PaidAt?.Date ?? entry.DueDate.Date;
+            return date >= start && date < end;
+        });
+    }
+
+    private static Grid CreateReportColumns(UIElement left, UIElement right, double leftWidth)
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(leftWidth) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        if (left is FrameworkElement leftElement)
+        {
+            leftElement.Margin = new Thickness(0, 0, 12, 0);
+        }
+
+        if (right is FrameworkElement rightElement)
+        {
+            rightElement.Margin = new Thickness(12, 0, 0, 0);
+        }
+
+        grid.Children.Add(left);
+        Grid.SetColumn(right, 1);
+        grid.Children.Add(right);
+        return grid;
+    }
+
+    private static ScrollViewer CreateReportScroller(UIElement content, double height)
+    {
+        return new ScrollViewer
+        {
+            Content = content,
+            MaxHeight = height,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            CanContentScroll = false
+        };
+    }
+
+    private static ScrollViewer CreateReportFullScroller(UIElement content)
+    {
+        return new ScrollViewer
+        {
+            Content = content,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            CanContentScroll = false,
+            MinHeight = 0,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
     }
 
     private static Border CreateReportRow(string title, string subtitle, string trailing, string accentColor)
@@ -17198,9 +23761,9 @@ public partial class MainWindow : Window
             BorderBrush = Solid("#E3EBF2"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
-            Margin = new Thickness(0, 0, 0, 9),
-            Padding = new Thickness(12, 10, 12, 10),
-            MinHeight = 52
+            Margin = new Thickness(0, 0, 0, 7),
+            Padding = new Thickness(10, 8, 10, 8),
+            MinHeight = 48
         };
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
@@ -17367,6 +23930,24 @@ public partial class MainWindow : Window
         var lastLocalBackupText = new TextBlock();
         var lastBackupText = new TextBlock();
         var lastSyncText = new TextBlock();
+        var backupFilesList = new ListBox
+        {
+            Height = 174,
+            BorderBrush = Solid("#CAD6E2"),
+            BorderThickness = new Thickness(1),
+            Background = Brushes.White,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+        backupFilesList.ItemTemplate = (DataTemplate)System.Windows.Markup.XamlReader.Parse("""
+<DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+  <Border Padding="10" BorderBrush="#E2EAF2" BorderThickness="0,0,0,1">
+    <StackPanel>
+      <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="#071A2C" TextTrimming="CharacterEllipsis"/>
+      <TextBlock Text="{Binding DirectoryName}" Foreground="#5B6B7A" FontSize="11" TextTrimming="CharacterEllipsis"/>
+    </StackPanel>
+  </Border>
+</DataTemplate>
+""");
 
         Border BackupCard(string title, string description, params UIElement[] children)
         {
@@ -17436,6 +24017,41 @@ public partial class MainWindow : Window
         StyleLastText(lastSyncText);
         StyleLastText(lastLocalBackupText);
 
+        List<FileInfo> GetLocalBackupFiles()
+        {
+            var files = new List<string>();
+            AddNewestFiles(files, BackupDir, "*.json");
+            AddNewestFiles(files, BackupDir, "*.sql");
+            AddNewestFiles(files, AutomaticBackupDir, "*.json");
+            AddNewestFiles(files, SqlBackupDir, "*.sql");
+            if (File.Exists($"{StoreFile}.bak"))
+            {
+                files.Add($"{StoreFile}.bak");
+            }
+
+            return files
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(File.Exists)
+                .Select(path => new FileInfo(path))
+                .OrderByDescending(info => info.LastWriteTimeUtc)
+                .ToList();
+        }
+
+        void RefreshBackupFiles()
+        {
+            var files = GetLocalBackupFiles();
+            backupFilesList.ItemsSource = null;
+            backupFilesList.ItemsSource = files;
+            if (files.Count > 0)
+            {
+                backupFilesList.SelectedIndex = 0;
+            }
+            else
+            {
+                backupFilesList.SelectedIndex = -1;
+            }
+        }
+
         void RefreshBackupState()
         {
             cloudStatus.Text = _appSettings.CloudBackupEnabled ? "backup ligado" : "backup desligado";
@@ -17472,6 +24088,7 @@ public partial class MainWindow : Window
             _appSettings.LastCloudBackupAt = DateTime.Now;
             SaveAppSettings();
             RefreshBackupState();
+            RefreshBackupFiles();
             result.Text = string.IsNullOrWhiteSpace(path)
                 ? "Nao foi possivel gerar o backup local."
                 : $"{path}\n{LatestSqlBackupFile}";
@@ -17508,8 +24125,84 @@ public partial class MainWindow : Window
             SelectProduct(0);
             RefreshTotals();
             RefreshBackupState();
+            RefreshBackupFiles();
             result.Text = $"Restaurado de: {LatestLocalBackupFile}";
             SetStatus("Backup local restaurado e arquivo principal regravado com seguranca.");
+        };
+        var deleteSelectedBackup = DialogButton("Apagar backup selecionado", "#A11D1D");
+        deleteSelectedBackup.Click += (_, _) =>
+        {
+            var selected = backupFilesList.SelectedItem as FileInfo;
+            if (selected is null && backupFilesList.Items.Count == 1)
+            {
+                backupFilesList.SelectedIndex = 0;
+                selected = backupFilesList.SelectedItem as FileInfo;
+            }
+
+            if (selected is null)
+            {
+                result.Text = "Selecione um backup na lista para apagar.";
+                SetStatus("Nenhum backup selecionado.");
+                return;
+            }
+
+            var confirm = System.Windows.MessageBox.Show(
+                dialog,
+                $"Apagar este arquivo de backup?\n\n{selected.Name}\n{selected.FullName}\n\nEsta acao nao tem desfazer.",
+                "Apagar backup",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No);
+            if (confirm != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            try
+            {
+                var summary = DeleteSingleLocalBackupFile(selected.FullName);
+                if (GetLocalBackupFiles().Count == 0)
+                {
+                    _appSettings.LastLocalBackupAt = null;
+                    SaveAppSettings();
+                }
+
+                RefreshBackupState();
+                RefreshBackupFiles();
+                result.Text = summary;
+                SetStatus(summary);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Selected backup delete failed: {ex}");
+                result.Text = $"Nao foi possivel apagar este backup: {ex.Message}";
+                SetStatus(result.Text);
+            }
+        };
+        var deleteBackups = DialogButton("Apagar todos os backups", "#A11D1D");
+        deleteBackups.Click += (_, _) =>
+        {
+            if (!ConfirmIrreversibleBackupDelete(dialog))
+            {
+                return;
+            }
+
+            try
+            {
+                var summary = DeleteAllLocalBackupFiles();
+                _appSettings.LastLocalBackupAt = null;
+                SaveAppSettings();
+                RefreshBackupState();
+                RefreshBackupFiles();
+                result.Text = summary;
+                SetStatus(summary);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"All backup delete failed: {ex}");
+                result.Text = $"Nao foi possivel apagar os backups: {ex.Message}";
+                SetStatus(result.Text);
+            }
         };
         var open = DialogButton("Abrir pasta de dados", "#5B6B7A");
         open.Click += (_, _) => Process.Start(new ProcessStartInfo(_dataRoot) { UseShellExecute = true });
@@ -17523,7 +24216,7 @@ public partial class MainWindow : Window
             SetStatus($"CSV gerado: {path}");
         };
 
-        foreach (var button in new[] { saveOnline, backup, restore, export, open })
+        foreach (var button in new[] { saveOnline, backup, restore, deleteSelectedBackup, deleteBackups, export, open })
         {
             button.HorizontalAlignment = HorizontalAlignment.Stretch;
             button.Width = double.NaN;
@@ -17560,6 +24253,8 @@ public partial class MainWindow : Window
             "O PDV grava com arquivo temporario, mantem .bak, atualiza um espelho JSON/SQL e cria copia versionada a cada 30 minutos.",
             pathBox,
             lastLocalBackupText,
+            DialogLabel("Backups encontrados"),
+            backupFilesList,
             DialogHint("A pasta automaticos guarda as copias para recuperacao manual mesmo depois de reiniciar o computador."));
 
         var actionsBox = BackupCard(
@@ -17567,6 +24262,9 @@ public partial class MainWindow : Window
             "Use backup manual antes de formatar, trocar de computador ou fazer alteracao grande.",
             backup,
             restore,
+            deleteSelectedBackup,
+            deleteBackups,
+            DialogHint("Irreversivel: apaga somente as copias locais de backup. As vendas e cadastros carregados agora continuam no PDV."),
             export,
             open,
             saveOnline,
@@ -17611,8 +24309,136 @@ public partial class MainWindow : Window
         layout.Children.Add(content);
 
         RefreshBackupState();
+        RefreshBackupFiles();
         dialog.Content = layout;
         dialog.ShowDialog();
+    }
+
+    private static bool ConfirmIrreversibleBackupDelete(Window owner)
+    {
+        return System.Windows.MessageBox.Show(
+            owner,
+            "Apagar todos os backups locais?\n\nEsta acao e irreversivel. O PDV vai remover as copias locais de backup, espelhos JSON/SQL e arquivos .bak. Os dados atuais da loja nao serao apagados.",
+            "Apagar backups",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No) == MessageBoxResult.Yes;
+    }
+
+    private string DeleteAllLocalBackupFiles()
+    {
+        var deletedFiles = 0;
+        var deletedDirectories = 0;
+        var failures = new List<string>();
+
+        void DeleteFileIfExists(string path)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    return;
+                }
+
+                File.Delete(path);
+                deletedFiles++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                failures.Add($"{Path.GetFileName(path)}: {ex.Message}");
+            }
+        }
+
+        try
+        {
+            if (Directory.Exists(BackupDir))
+            {
+                foreach (var path in Directory.EnumerateFiles(BackupDir, "*", SearchOption.AllDirectories))
+                {
+                    DeleteFileIfExists(path);
+                }
+
+                foreach (var directory in Directory
+                             .EnumerateDirectories(BackupDir, "*", SearchOption.AllDirectories)
+                             .OrderByDescending(path => path.Length))
+                {
+                    try
+                    {
+                        if (Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
+                        {
+                            Directory.Delete(directory);
+                            deletedDirectories++;
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+                    {
+                        failures.Add($"{Path.GetFileName(directory)}: {ex.Message}");
+                    }
+                }
+
+                try
+                {
+                    if (Directory.Exists(BackupDir) && !Directory.EnumerateFileSystemEntries(BackupDir).Any())
+                    {
+                        Directory.Delete(BackupDir);
+                        deletedDirectories++;
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+                {
+                    failures.Add($"{Path.GetFileName(BackupDir)}: {ex.Message}");
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            failures.Add($"backups: {ex.Message}");
+        }
+
+        DeleteFileIfExists($"{StoreFile}.bak");
+
+        var summary = $"Backups locais apagados de forma irreversivel: {deletedFiles} arquivo(s) e {deletedDirectories} pasta(s).";
+        if (failures.Count == 0)
+        {
+            return summary;
+        }
+
+        return $"{summary} Falha ao apagar {failures.Count} item(ns): {string.Join("; ", failures.Take(3))}";
+    }
+
+    private string DeleteSingleLocalBackupFile(string path)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            if (!CanDeleteBackupPath(fullPath))
+            {
+                return "Backup nao apagado: arquivo fora da pasta segura do PDV.";
+            }
+
+            if (!File.Exists(fullPath))
+            {
+                return "Backup ja nao existe mais.";
+            }
+
+            File.Delete(fullPath);
+            return $"Backup apagado de forma irreversivel: {Path.GetFileName(fullPath)}";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return $"Nao foi possivel apagar este backup: {ex.Message}";
+        }
+    }
+
+    private bool CanDeleteBackupPath(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var backupRoot = Path.GetFullPath(BackupDir)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        var storeBackup = Path.GetFullPath($"{StoreFile}.bak");
+        return fullPath.StartsWith(backupRoot, StringComparison.OrdinalIgnoreCase)
+               || string.Equals(fullPath, storeBackup, StringComparison.OrdinalIgnoreCase);
     }
 
     private void DeleteCurrentCommand()
@@ -18000,7 +24826,7 @@ public partial class MainWindow : Window
         var needsAdmin = CanCreateFirstAccessUser();
         var activated = false;
         UserAccount? createdAdmin = null;
-        var dialog = CreateDialog("Ativacao do Balcao Livre PDV", 680, needsAdmin ? 780 : 660);
+        var dialog = CreateDialog("Configuração inicial do Balcão Livre PDV", 980, needsAdmin ? 820 : 760);
         dialog.ResizeMode = ResizeMode.CanResize;
 
         var keyBox = new TextBox
@@ -18014,10 +24840,21 @@ public partial class MainWindow : Window
         var cnpjBox = new TextBox { Text = _profile.Cnpj };
         AttachCpfCnpjMask(cnpjBox);
         var phoneBox = new TextBox { Text = _profile.Phone };
+        var addressBox = new TextBox { Text = _profile.Address };
+        var cityBox = new TextBox { Text = _profile.City };
+        var stateBox = new TextBox { Text = _profile.State };
         var adminNameBox = new TextBox { Text = _profile.OwnerName };
         var adminNumberBox = new TextBox { Text = GetNextStaffNumber().ToString(Brazil) };
         var passwordBox = new PasswordBox { Height = 34 };
         var confirmBox = new PasswordBox { Height = 34 };
+        var logoPath = _profile.LocalLogoPath;
+        var logoNameText = new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(logoPath) ? "Nenhuma foto/logo selecionada" : Path.GetFileName(logoPath),
+            Foreground = Solid("#5B6B7A"),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap
+        };
         var error = new TextBlock
         {
             Foreground = RedText,
@@ -18028,9 +24865,25 @@ public partial class MainWindow : Window
         var activate = DialogButton(needsAdmin ? "Ativar e criar administrador" : "Ativar sistema", "#08A99B");
         activate.HorizontalAlignment = HorizontalAlignment.Stretch;
         activate.Width = double.NaN;
-        var renewSubscription = DialogButton("Pagar assinatura no Stripe", "#0B3A52");
-        renewSubscription.HorizontalAlignment = HorizontalAlignment.Stretch;
-        renewSubscription.Width = double.NaN;
+        var chooseLogo = DialogButton("Escolher foto/logo", "#0B3A52");
+        chooseLogo.MinWidth = 170;
+        chooseLogo.Click += (_, _) =>
+        {
+            var fileDialog = new OpenFileDialog
+            {
+                Title = "Escolher foto/logo da loja",
+                Filter = "Imagens|*.png;*.jpg;*.jpeg;*.webp;*.bmp|Todos os arquivos|*.*"
+            };
+            if (fileDialog.ShowDialog(dialog) != true)
+            {
+                return;
+            }
+
+            logoPath = CopyLogoToAppIdentityFolder(fileDialog.FileName);
+            logoNameText.Text = Path.GetFileName(logoPath);
+            _profile.LocalLogoPath = logoPath;
+            ApplyBrandLogo(logoPath);
+        };
 
         UIElement CreateLogo()
         {
@@ -18144,7 +24997,7 @@ public partial class MainWindow : Window
 
                 if (string.IsNullOrWhiteSpace(businessName) && string.IsNullOrWhiteSpace(ownerName))
                 {
-                    error.Text = "Informe o nome da loja ou do responsavel.";
+                    error.Text = "Informe o nome da loja ou do responsável.";
                     businessNameBox.Focus();
                     return;
                 }
@@ -18162,6 +25015,10 @@ public partial class MainWindow : Window
                 _profile.LegalName = legalNameBox.Text.Trim();
                 _profile.Cnpj = cnpj;
                 _profile.Phone = phoneBox.Text.Trim();
+                _profile.Address = addressBox.Text.Trim();
+                _profile.City = cityBox.Text.Trim();
+                _profile.State = stateBox.Text.Trim().ToUpperInvariant();
+                _profile.LocalLogoPath = logoPath;
                 SaveRestaurantProfile();
 
                 if (needsAdmin)
@@ -18180,21 +25037,21 @@ public partial class MainWindow : Window
 
                     if (string.IsNullOrWhiteSpace(number))
                     {
-                        error.Text = "Informe o numero do administrador.";
+                        error.Text = "Informe o número do administrador.";
                         adminNumberBox.Focus();
                         return;
                     }
 
                     if (password.Length < 3)
                     {
-                        error.Text = "Informe uma senha com pelo menos 3 digitos.";
+                        error.Text = "Informe uma senha com pelo menos 3 dígitos.";
                         passwordBox.Focus();
                         return;
                     }
 
                     if (!string.Equals(password, confirmation, StringComparison.Ordinal))
                     {
-                        error.Text = "A confirmacao da senha nao confere.";
+                        error.Text = "A confirmação da senha não confere.";
                         confirmBox.Focus();
                         return;
                     }
@@ -18247,7 +25104,7 @@ public partial class MainWindow : Window
 
                 if (expiresAt.HasValue && expiresAt.Value < DateTime.Now)
                 {
-                    error.Text = "Pagamento ainda nao confirmou a renovacao desta chave. Conclua o Stripe e tente ativar novamente.";
+                    error.Text = "O pagamento ainda não confirmou a renovação desta chave. Conclua o pagamento e tente ativar novamente.";
                     keyBox.Focus();
                     keyBox.SelectAll();
                     return;
@@ -18264,6 +25121,7 @@ public partial class MainWindow : Window
                 _appSettings.ActivationCompleted = true;
                 _appSettings.ActivationKey = normalizedKey;
                 _appSettings.ActivationPlan = plan;
+                _appSettings.ActivationFeatures = NormalizeLicenseFeatures(adminResult.Features, plan);
                 _appSettings.ActivationActivatedAt = DateTime.Now;
                 _appSettings.ActivationExpiresAt = expiresAt;
                 _appSettings.ActivationMachineHash = GetMachineFingerprint();
@@ -18274,7 +25132,7 @@ public partial class MainWindow : Window
                 _licenseTimer.Start();
                 QueueAdminCheckIn("activation", force: true);
                 SetStatus(expiresAt.HasValue
-                    ? $"Sistema ativado ate {expiresAt.Value:g}."
+                    ? $"Sistema ativado até {expiresAt.Value:g}."
                     : "Sistema ativado.");
                 dialog.Close();
             }
@@ -18288,20 +25146,6 @@ public partial class MainWindow : Window
         }
 
         activate.Click += async (_, _) => await ConfirmAsync();
-        renewSubscription.Click += (_, _) =>
-        {
-            var key = string.IsNullOrWhiteSpace(keyBox.Text) ? _appSettings.ActivationKey : keyBox.Text;
-            if (!OpenLicenseRenewalPage(key, _appSettings.ActivationPlan, showMessage: true))
-            {
-                error.Foreground = RedText;
-                error.Text = "Informe a chave vencida para abrir a renovacao.";
-            }
-            else
-            {
-                error.Foreground = Solid("#0B3A52");
-                error.Text = "Depois do pagamento, volte aqui e clique em Ativar sistema usando esta mesma chave.";
-            }
-        };
         keyBox.KeyDown += (_, e) =>
         {
             if (e.Key == Key.Enter)
@@ -18347,7 +25191,34 @@ public partial class MainWindow : Window
                 e.Handled = true;
             }
         };
-        phoneBox.KeyDown += async (_, e) =>
+        phoneBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                addressBox.Focus();
+                addressBox.SelectAll();
+                e.Handled = true;
+            }
+        };
+        addressBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                cityBox.Focus();
+                cityBox.SelectAll();
+                e.Handled = true;
+            }
+        };
+        cityBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                stateBox.Focus();
+                stateBox.SelectAll();
+                e.Handled = true;
+            }
+        };
+        stateBox.KeyDown += async (_, e) =>
         {
             if (e.Key == Key.Enter)
             {
@@ -18397,69 +25268,321 @@ public partial class MainWindow : Window
             }
         };
 
-        var panel = DialogPanel();
-        panel.Children.Add(CreateLogo());
-        panel.Children.Add(new TextBlock
+        Border ProgressPill(string number, string title)
         {
-            Text = needsAdmin
-                ? "Primeira instalacao: ative o sistema e crie o administrador antes de usar o PDV."
-                : "Ative a chave do sistema para continuar usando o PDV.",
-            Foreground = Solid("#0B3A52"),
-            FontWeight = FontWeights.SemiBold,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 10)
-        });
-        panel.Children.Add(DialogLabel("Chave de ativacao"));
-        panel.Children.Add(keyBox);
-        panel.Children.Add(DialogHint($"Codigo deste computador: {GetMachineCode()}. A chave fica vinculada a este PC."));
-        panel.Children.Add(renewSubscription);
-        panel.Children.Add(DialogHint("Se a chave venceu, pague pelo Stripe. A renovacao libera esta mesma chave no Supabase; depois clique em Ativar sistema."));
-        panel.Children.Add(new Border
-        {
-            Background = Solid("#F8FBFD"),
-            BorderBrush = Solid("#CAD6E2"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(9),
-            Padding = new Thickness(14),
-            Margin = new Thickness(0, 14, 0, 4),
-            Child = new StackPanel
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.Children.Add(new Border
             {
-                Children =
+                Width = 30,
+                Height = 30,
+                Background = Solid("#08A99B"),
+                CornerRadius = new CornerRadius(15),
+                Child = new TextBlock
                 {
-                    new TextBlock { Text = "Conta da loja", Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold, FontSize = 15, Margin = new Thickness(0, 0, 0, 8) },
-                    DialogHint("Vincule chave, email, nome e CPF/CNPJ para identificar esta loja nos acessos do sistema."),
-                    DialogField("Email da conta", accountEmailBox),
-                    DialogField("Nome fantasia", businessNameBox),
-                    DialogField("Razao social", legalNameBox),
-                    DialogField("CPF/CNPJ", cnpjBox),
-                    DialogField("Telefone", phoneBox)
+                    Text = number,
+                    Foreground = Brushes.White,
+                    FontWeight = FontWeights.Bold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            });
+            var label = new TextBlock
+            {
+                Text = title,
+                Foreground = Solid("#071A2C"),
+                FontWeight = FontWeights.Bold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0, 0, 0)
+            };
+            Grid.SetColumn(label, 1);
+            grid.Children.Add(label);
+            return new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = Solid("#D5E4EF"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(18),
+                Padding = new Thickness(12, 8, 14, 8),
+                Margin = new Thickness(0, 0, 8, 8),
+                Child = grid
+            };
+        }
+
+        Border SetupStep(string number, string title, string subtitle, params UIElement[] children)
+        {
+            var stack = new StackPanel();
+            var titleGrid = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+            titleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            titleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            titleGrid.Children.Add(new Border
+            {
+                Width = 38,
+                Height = 38,
+                Background = Solid("#0B3A52"),
+                CornerRadius = new CornerRadius(12),
+                Child = new TextBlock
+                {
+                    Text = number,
+                    Foreground = Brushes.White,
+                    FontWeight = FontWeights.Bold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            });
+            var copy = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
+            copy.Children.Add(new TextBlock
+            {
+                Text = title,
+                Foreground = Solid("#071A2C"),
+                FontSize = 18,
+                FontWeight = FontWeights.Bold
+            });
+            copy.Children.Add(new TextBlock
+            {
+                Text = subtitle,
+                Foreground = Solid("#5B6B7A"),
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 3, 0, 0)
+            });
+            Grid.SetColumn(copy, 1);
+            titleGrid.Children.Add(copy);
+            stack.Children.Add(titleGrid);
+            foreach (var child in children)
+            {
+                stack.Children.Add(child);
+            }
+
+            return new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = Solid("#D5E4EF"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(16),
+                Padding = new Thickness(18),
+                Margin = new Thickness(0, 0, 0, 14),
+                Child = stack
+            };
+        }
+
+        Grid TwoColumns(UIElement left, UIElement right)
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            if (left is FrameworkElement leftElement)
+            {
+                leftElement.Margin = new Thickness(0, 0, 8, 10);
+            }
+            if (right is FrameworkElement rightElement)
+            {
+                rightElement.Margin = new Thickness(8, 0, 0, 10);
+            }
+            grid.Children.Add(left);
+            Grid.SetColumn(right, 1);
+            grid.Children.Add(right);
+            return grid;
+        }
+
+        Border PlanCard(ActivationCheckoutPlan plan)
+        {
+            var monthly = DialogButton($"Mensal - {plan.MonthlyPrice}", "#08A99B");
+            var annual = DialogButton($"Anual - {plan.AnnualPrice}", "#0B3A52");
+            foreach (var button in new[] { monthly, annual })
+            {
+                button.HorizontalAlignment = HorizontalAlignment.Stretch;
+                button.Width = double.NaN;
+                button.Margin = new Thickness(0);
+            }
+
+            void OpenPlan(string planId)
+            {
+                _profile.Email = accountEmailBox.Text.Trim().ToLowerInvariant();
+                _profile.OwnerName = adminNameBox.Text.Trim();
+                _profile.BusinessName = businessNameBox.Text.Trim();
+                _profile.LegalName = legalNameBox.Text.Trim();
+                _profile.Cnpj = cnpjBox.Text.Trim();
+                _profile.Phone = phoneBox.Text.Trim();
+                _profile.Address = addressBox.Text.Trim();
+                _profile.City = cityBox.Text.Trim();
+                _profile.State = stateBox.Text.Trim().ToUpperInvariant();
+                _profile.LocalLogoPath = logoPath;
+                SaveRestaurantProfile();
+                var key = string.IsNullOrWhiteSpace(keyBox.Text) ? _appSettings.ActivationKey : keyBox.Text;
+                if (!OpenPlanCheckoutPage(planId, key, showMessage: true))
+                {
+                    error.Foreground = RedText;
+                    error.Text = "Não consegui abrir este plano agora.";
+                    return;
+                }
+
+                error.Foreground = Solid("#0B3A52");
+                error.Text = string.IsNullOrWhiteSpace(key)
+                    ? "Depois do pagamento, copie a chave gerada e cole no campo de ativação."
+                    : "Depois do pagamento, volte aqui e clique em Ativar sistema usando esta mesma chave.";
+            }
+
+            monthly.Click += (_, _) => OpenPlan(plan.MonthlyPlanId);
+            annual.Click += (_, _) => OpenPlan(plan.AnnualPlanId);
+
+            var buttons = new UniformGrid { Columns = 2, Margin = new Thickness(0, 14, 0, 0) };
+            buttons.Children.Add(monthly);
+            buttons.Children.Add(annual);
+
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = plan.Name,
+                Foreground = Solid("#071A2C"),
+                FontSize = 17,
+                FontWeight = FontWeights.Bold,
+                TextWrapping = TextWrapping.Wrap
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = plan.Description,
+                Foreground = Solid("#5B6B7A"),
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 0)
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = plan.Features,
+                Foreground = Solid("#0B3A52"),
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 8, 0, 0)
+            });
+            stack.Children.Add(buttons);
+            return new Border
+            {
+                Background = Solid("#F8FBFD"),
+                BorderBrush = Solid("#D5E4EF"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(14),
+                Padding = new Thickness(18),
+                Margin = new Thickness(0, 0, 12, 0),
+                Child = stack
+            };
+        }
+
+        var panel = DialogPanel();
+        var heroGrid = new Grid();
+        heroGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        heroGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        heroGrid.Children.Add(new StackPanel
+        {
+            Children =
+            {
+                new TextBlock { Text = "Configuração inicial", Foreground = Brushes.White, FontSize = 30, FontWeight = FontWeights.Bold },
+                new TextBlock
+                {
+                    Text = needsAdmin
+                        ? "Crie o acesso do dono, cadastre a loja, escolha o plano e ative a chave antes de operar."
+                        : "Revise os dados da loja, escolha plano se precisar renovar e ative a chave do PDV.",
+                    Foreground = Solid("#D6E7F0"),
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 8, 0, 0)
                 }
             }
         });
+        var setupLogo = CreateLogo();
+        if (setupLogo is FrameworkElement logoElement)
+        {
+            logoElement.Margin = new Thickness(24, 0, 0, 0);
+        }
+        Grid.SetColumn(setupLogo, 1);
+        heroGrid.Children.Add(setupLogo);
+        panel.Children.Add(new Border
+        {
+            Background = Solid("#071A2C"),
+            BorderBrush = Solid("#0E3446"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(18),
+            Padding = new Thickness(24),
+            Margin = new Thickness(0, 0, 0, 14),
+            Child = heroGrid
+        });
 
+        var progress = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
+        progress.Children.Add(ProgressPill("1", "Login"));
+        progress.Children.Add(ProgressPill("2", "Loja"));
+        progress.Children.Add(ProgressPill("3", "Marca"));
+        progress.Children.Add(ProgressPill("4", "Plano e chave"));
+        panel.Children.Add(progress);
+
+        var loginFields = new List<UIElement>
+        {
+            DialogField("Email da conta", accountEmailBox)
+        };
         if (needsAdmin)
         {
-            panel.Children.Add(new Border
+            loginFields.Add(TwoColumns(
+                DialogField("Nome do administrador", adminNameBox),
+                DialogField("Número do operador", adminNumberBox)));
+            loginFields.Add(TwoColumns(
+                DialogField("Senha", passwordBox),
+                DialogField("Confirmar senha", confirmBox)));
+        }
+        else
+        {
+            loginFields.Add(DialogHint("O administrador já existe nesta instalação. Use esta etapa para manter o email da conta certo."));
+        }
+        panel.Children.Add(SetupStep("1", "Acesso do dono", "Crie o gerente real do caixa e identifique quem responde pela loja.", loginFields.ToArray()));
+
+        panel.Children.Add(SetupStep(
+            "2",
+            "Dados da loja",
+            "Esses dados aparecem no app, comprovante, cardápio online, integrações e suporte.",
+            TwoColumns(DialogField("Nome fantasia", businessNameBox), DialogField("Razão social", legalNameBox)),
+            TwoColumns(DialogField("CPF/CNPJ", cnpjBox), DialogField("Telefone", phoneBox)),
+            DialogField("Endereço", addressBox),
+            TwoColumns(DialogField("Cidade", cityBox), DialogField("UF", stateBox))));
+
+        var logoGrid = new Grid();
+        logoGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        logoGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        if (logoNameText is FrameworkElement logoNameElement)
+        {
+            logoNameElement.VerticalAlignment = VerticalAlignment.Center;
+            logoNameElement.Margin = new Thickness(0, 0, 16, 0);
+        }
+        Grid.SetColumn(chooseLogo, 1);
+        logoGrid.Children.Add(logoNameText);
+        logoGrid.Children.Add(chooseLogo);
+
+        panel.Children.Add(SetupStep(
+            "3",
+            "Foto e identidade",
+            "Adicione a logo/foto para aparecer no topo do PDV, cardápio e relatórios.",
+            new Border
             {
                 Background = Solid("#F8FBFD"),
-                BorderBrush = Solid("#CAD6E2"),
+                BorderBrush = Solid("#D5E4EF"),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(9),
+                CornerRadius = new CornerRadius(12),
                 Padding = new Thickness(14),
-                Margin = new Thickness(0, 14, 0, 4),
-                Child = new StackPanel
-                {
-                    Children =
-                    {
-                        new TextBlock { Text = "Administrador", Foreground = Solid("#071A2C"), FontWeight = FontWeights.Bold, FontSize = 15, Margin = new Thickness(0, 0, 0, 8) },
-                        DialogField("Nome", adminNameBox),
-                        DialogField("Numero do operador", adminNumberBox),
-                        DialogField("Senha", passwordBox),
-                        DialogField("Confirmar senha", confirmBox)
-                    }
-                }
-            });
+                Child = logoGrid
+            }));
+
+        var planGrid = new UniformGrid { Columns = 2 };
+        foreach (var plan in ActivationCheckoutPlans)
+        {
+            planGrid.Children.Add(PlanCard(plan));
         }
+        panel.Children.Add(SetupStep(
+            "4",
+            "Plano e chave de ativação",
+            "Escolha um plano para comprar/renovar ou cole uma chave já liberada no admin.",
+            planGrid,
+            DialogField("Chave de ativação", keyBox),
+            DialogHint($"Código deste computador: {GetMachineCode()}. A chave fica vinculada a este PC."),
+            DialogHint("Se a chave já existe, escolha mensal/anual para renovar. Se comprou agora, copie a chave gerada depois do pagamento e cole aqui.")));
 
         panel.Children.Add(error);
         panel.Children.Add(activate);
@@ -18471,8 +25594,8 @@ public partial class MainWindow : Window
         };
         dialog.Loaded += (_, _) =>
         {
-            keyBox.Focus();
-            keyBox.SelectAll();
+            accountEmailBox.Focus();
+            accountEmailBox.SelectAll();
         };
         _activationPromptOpen = true;
         try
@@ -18632,7 +25755,7 @@ public partial class MainWindow : Window
         });
         panel.Children.Add(DialogLabel("Nome do gerente"));
         panel.Children.Add(nameBox);
-        panel.Children.Add(DialogLabel("Numero do operador"));
+        panel.Children.Add(DialogLabel("Número do operador"));
         panel.Children.Add(numberBox);
         panel.Children.Add(DialogLabel("Senha"));
         panel.Children.Add(passwordBox);
@@ -18670,9 +25793,10 @@ public partial class MainWindow : Window
 
         if (normalized == "BL-TESTE-2026")
         {
-            expiresAt = DateTime.Now.AddDays(30);
-            plan = "Teste 30 dias";
-            message = "Chave de teste ativada.";
+            expiresAt = DateTime.Now.AddDays(7);
+            plan = "Teste Online 7 dias";
+            requireAdminConfirmation = true;
+            message = "Chave de teste precisa ser confirmada online no Supabase.";
             return true;
         }
 
@@ -18683,7 +25807,7 @@ public partial class MainWindow : Window
             if (signedExpiration < DateTime.Now)
             {
                 requireAdminConfirmation = true;
-                message = "Chave vencida localmente. Vou confirmar no Supabase se o Stripe ja renovou esta mesma chave.";
+                message = "Chave vencida localmente. Vou confirmar no admin se o plano ja renovou esta mesma chave.";
                 return true;
             }
 
@@ -19021,6 +26145,21 @@ public partial class MainWindow : Window
         _appSettings.MercadoPago.SellerUserId = (_appSettings.MercadoPago.SellerUserId ?? "").Trim();
         _appSettings.MercadoPago.LastError = (_appSettings.MercadoPago.LastError ?? "").Trim();
 
+        _appSettings.FiscalTef ??= new FiscalTefSettings();
+        _appSettings.FiscalTef.RestaurantNfceHistory ??= [];
+        _appSettings.PrivacyContact = FirstNonEmpty(_appSettings.PrivacyContact, _profile.Email, _profile.Phone);
+        if (_appSettings.PrivacyRetentionDays < 30)
+        {
+            _appSettings.PrivacyRetentionDays = 730;
+            shouldSaveSettings = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(_appSettings.PrivacyNoticeText) || IsLegacyPrivacyNoticeText(_appSettings.PrivacyNoticeText))
+        {
+            _appSettings.PrivacyNoticeText = BuildPrivacyNoticeText();
+            shouldSaveSettings = true;
+        }
+
         _appSettings.PagBank ??= new PagBankPaymentSettings();
         _appSettings.PagBank.AccountId = (_appSettings.PagBank.AccountId ?? "").Trim();
         _appSettings.PagBank.DefaultTerminalId = (_appSettings.PagBank.DefaultTerminalId ?? "").Trim();
@@ -19086,6 +26225,17 @@ public partial class MainWindow : Window
         if (_appSettings.PublicMenuWaitMaxMinutes < _appSettings.PublicMenuWaitMinMinutes)
         {
             _appSettings.PublicMenuWaitMaxMinutes = Math.Max(_appSettings.PublicMenuWaitMinMinutes, 60);
+            shouldSaveSettings = true;
+        }
+
+        var openTime = _appSettings.OnlineStoreOpenTime;
+        var closeTime = _appSettings.OnlineStoreCloseTime;
+        var manualMode = _appSettings.OnlineStoreManualMode;
+        NormalizeOnlineStoreScheduleSettings();
+        if (!string.Equals(openTime, _appSettings.OnlineStoreOpenTime, StringComparison.Ordinal)
+            || !string.Equals(closeTime, _appSettings.OnlineStoreCloseTime, StringComparison.Ordinal)
+            || !string.Equals(manualMode, _appSettings.OnlineStoreManualMode, StringComparison.Ordinal))
+        {
             shouldSaveSettings = true;
         }
 
@@ -19159,7 +26309,7 @@ public partial class MainWindow : Window
         var destination = NormalizeSectorName(value, fallback);
         return destination switch
         {
-            "BALCAO" or "BALCÃO" or "SEM SETOR" or "DELIVERY" or "ENTREGA" or "RETIRADA" => "CAIXA",
+            "BALCAO" or "BALCÃƒÆ’O" or "SEM SETOR" or "DELIVERY" or "ENTREGA" or "RETIRADA" => "CAIXA",
             _ => destination
         };
     }
@@ -19203,9 +26353,9 @@ public partial class MainWindow : Window
         }
 
         if (string.Equals(printer, "Usar padrao do Windows", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(printer, "Usar padrão do Windows", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(printer, "Usar padrÃƒÂ£o do Windows", StringComparison.OrdinalIgnoreCase)
             || string.Equals(printer, "Padrao do Windows", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(printer, "Padrão do Windows", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(printer, "PadrÃƒÂ£o do Windows", StringComparison.OrdinalIgnoreCase)
             || string.Equals(printer, "nenhuma", StringComparison.OrdinalIgnoreCase)
             || string.Equals(printer, "none", StringComparison.OrdinalIgnoreCase)
             || string.Equals(printer, "default", StringComparison.OrdinalIgnoreCase))
@@ -19520,7 +26670,7 @@ public partial class MainWindow : Window
         return Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
             .InformationalVersion
-            ?? "1.8.2026.5";
+            ?? "1.8.2026.11";
     }
 
     private async Task<bool> CheckForUpdatesAsync(bool showIfCurrent, bool autoInstall = false, bool startupCheck = false)
@@ -19653,42 +26803,185 @@ public partial class MainWindow : Window
     private void ShowUpdateDialog(UpdateManifest manifest, bool requiredMode = false)
     {
         requiredMode = requiredMode || IsUpdateRequired(manifest, GetAppVersion());
-        var dialog = CreateDialog(requiredMode ? "Atualizacao obrigatoria" : "Atualizacao disponivel", 560, requiredMode ? 460 : 420);
+        var dialog = CreateDialog(requiredMode ? "Atualizacao obrigatoria" : "Atualizacao disponivel", 680, requiredMode ? 620 : 560);
+        dialog.MinWidth = 620;
+        dialog.MinHeight = 520;
+        dialog.Background = Solid("#F4F8FB");
+        var currentVersion = GetAppVersion();
         var panel = DialogPanel();
+        panel.Margin = new Thickness(0);
+        panel.Children.Clear();
+        panel.Background = Solid("#F4F8FB");
         var status = new TextBlock
         {
-            Foreground = Solid("#5B6B7A"),
+            Foreground = requiredMode ? Solid("#7A3E00") : Solid("#405366"),
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 10, 0, 0)
+            FontWeight = requiredMode ? FontWeights.SemiBold : FontWeights.Normal,
+            Margin = new Thickness(0, 12, 0, 0)
         };
-        var version = new TextBlock
+        var statusCard = new Border
         {
-            Text = $"Nova versao: {manifest.Version}",
-            Foreground = Solid("#08A99B"),
-            FontSize = 26,
-            FontWeight = FontWeights.Bold,
-            Margin = new Thickness(0, 4, 0, 8)
-        };
-        var notes = new TextBlock
-        {
-            Text = string.IsNullOrWhiteSpace(manifest.Notes)
-                ? "Baixe o instalador e execute para atualizar o Balcao Livre PDV."
-                : manifest.Notes,
-            Foreground = Solid("#405366"),
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 8)
-        };
-        var download = DialogButton(requiredMode ? "Atualizar agora" : "Baixar instalador", "#08A99B");
-        var later = DialogButton(requiredMode ? "Sair" : "Depois", "#5B6B7A");
-        var buttons = new UniformGrid
-        {
-            Columns = 2,
-            Rows = 1,
-            Margin = new Thickness(0, 8, 0, 0)
+            Background = requiredMode ? Solid("#FFF4D8") : Solid("#E6FBF8"),
+            BorderBrush = requiredMode ? Solid("#F0B451") : Solid("#9DECE4"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(14, 12, 14, 12),
+            Margin = new Thickness(22, 0, 22, 0),
+            Child = status
         };
 
+        var title = requiredMode ? "Atualizacao obrigatoria" : "Atualizacao disponivel";
+        var subtitle = requiredMode
+            ? "Para continuar usando o PDV com seguranca, instale a nova versao agora."
+            : "Existe uma versao nova do Balcao Livre PDV pronta para instalar.";
+
+        var hero = new Border
+        {
+            Background = Solid("#03151F"),
+            BorderBrush = Solid("#0B3A52"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(16),
+            Padding = new Thickness(24, 22, 24, 22),
+            Margin = new Thickness(22, 20, 22, 16)
+        };
+        var heroGrid = new Grid();
+        heroGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        heroGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        heroGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var icon = new Border
+        {
+            Width = 58,
+            Height = 58,
+            CornerRadius = new CornerRadius(16),
+            Background = requiredMode ? Solid("#F59E0B") : Solid("#08A99B"),
+            Child = new TextBlock
+            {
+                Text = requiredMode ? "!" : "UP",
+                Foreground = requiredMode ? Solid("#03151F") : Brushes.White,
+                FontWeight = FontWeights.Black,
+                FontSize = requiredMode ? 30 : 18,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+        var heroText = new StackPanel { Margin = new Thickness(16, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        heroText.Children.Add(new TextBlock
+        {
+            Text = title,
+            Foreground = Brushes.White,
+            FontSize = 26,
+            FontWeight = FontWeights.Black,
+            TextWrapping = TextWrapping.Wrap
+        });
+        heroText.Children.Add(new TextBlock
+        {
+            Text = subtitle,
+            Foreground = Solid("#CFE1ED"),
+            FontSize = 13.5,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 5, 0, 0)
+        });
+        var badge = new Border
+        {
+            Background = requiredMode ? Solid("#FFF4D8") : Solid("#E6FBF8"),
+            CornerRadius = new CornerRadius(20),
+            Padding = new Thickness(14, 8, 14, 8),
+            VerticalAlignment = VerticalAlignment.Top,
+            Child = new TextBlock
+            {
+                Text = requiredMode ? "PRECISA ATUALIZAR" : "NOVO DOWNLOAD",
+                Foreground = requiredMode ? Solid("#7A3E00") : GreenText,
+                FontWeight = FontWeights.Black,
+                FontSize = 11
+            }
+        };
+        Grid.SetColumn(icon, 0);
+        Grid.SetColumn(heroText, 1);
+        Grid.SetColumn(badge, 2);
+        heroGrid.Children.Add(icon);
+        heroGrid.Children.Add(heroText);
+        heroGrid.Children.Add(badge);
+        hero.Child = heroGrid;
+
+        var versionGrid = new Grid { Margin = new Thickness(22, 0, 22, 14) };
+        versionGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        versionGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        versionGrid.Children.Add(UpdateVersionCard("Versao instalada", currentVersion, "#F8FBFD", "#BFD1E2", "#5B6B7A"));
+        var newVersionCard = UpdateVersionCard("Nova versao", manifest.Version, "#E6FBF8", "#08A99B", "#08A99B");
+        Grid.SetColumn(newVersionCard, 1);
+        versionGrid.Children.Add(newVersionCard);
+
+        var notesText = string.IsNullOrWhiteSpace(manifest.Notes)
+            ? "Baixe e execute o instalador para atualizar o Balcao Livre PDV."
+            : manifest.Notes.Trim();
+        var notesCard = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#CAD6E2"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(18),
+            Margin = new Thickness(22, 0, 22, 14)
+        };
+        var notesPanel = new StackPanel();
+        notesPanel.Children.Add(new TextBlock
+        {
+            Text = "O que muda nesta atualizacao",
+            Foreground = Solid("#071A2C"),
+            FontSize = 16,
+            FontWeight = FontWeights.Black,
+            Margin = new Thickness(0, 0, 0, 8)
+        });
+        notesPanel.Children.Add(new TextBlock
+        {
+            Text = notesText,
+            Foreground = Solid("#405366"),
+            FontSize = 13,
+            TextWrapping = TextWrapping.Wrap,
+            LineHeight = 19
+        });
+        notesPanel.Children.Add(UpdateChecklistItem("Pedidos do WhatsApp por codigo chegam no PDV com alerta."));
+        notesPanel.Children.Add(UpdateChecklistItem("Fila de producao, impressao e baixa de estoque ficam corrigidas."));
+        notesPanel.Children.Add(UpdateChecklistItem("A atualizacao fecha e reabre o PDV automaticamente quando possivel."));
+        notesCard.Child = notesPanel;
+
+        var requiredCard = new Border
+        {
+            Background = Solid("#FFF4F4"),
+            BorderBrush = Solid("#F2B6B6"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(14),
+            Margin = new Thickness(22, 0, 22, 14),
+            Visibility = requiredMode ? Visibility.Visible : Visibility.Collapsed,
+            Child = new TextBlock
+            {
+                Text = "Esta versao antiga nao deve continuar em uso. Clique em Atualizar agora para baixar o instalador.",
+                Foreground = RedText,
+                FontWeight = FontWeights.Bold,
+                TextWrapping = TextWrapping.Wrap
+            }
+        };
+
+        var download = DialogButton(requiredMode ? "Atualizar agora" : "Baixar instalador", "#08A99B");
+        var later = DialogButton(requiredMode ? "Sair" : "Depois", "#5B6B7A");
+        var buttons = new Grid
+        {
+            Margin = new Thickness(22, 14, 22, 22)
+        };
+        buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
+        buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.45, GridUnitType.Star) });
+
         download.HorizontalAlignment = HorizontalAlignment.Stretch;
+        download.Height = 52;
+        download.FontSize = 16;
+        download.Margin = new Thickness(0);
         later.HorizontalAlignment = HorizontalAlignment.Stretch;
+        later.Height = 52;
+        later.Margin = new Thickness(0);
+        Grid.SetColumn(later, 0);
+        Grid.SetColumn(download, 2);
         buttons.Children.Add(later);
         buttons.Children.Add(download);
 
@@ -19708,7 +27001,8 @@ public partial class MainWindow : Window
         {
             download.IsEnabled = false;
             later.IsEnabled = false;
-            status.Text = "Baixando instalador...";
+            status.Foreground = Solid("#405366");
+            status.Text = "Baixando o instalador. Aguarde...";
             try
             {
                 if (await DownloadAndOpenInstallerAsync(manifest, status, silentInstall: requiredMode))
@@ -19727,29 +27021,14 @@ public partial class MainWindow : Window
             }
         };
 
-        panel.Children.Add(new TextBlock
-        {
-            Text = "Tem uma nova versao pronta para instalar.",
-            Foreground = Solid("#071A2C"),
-            FontSize = 18,
-            FontWeight = FontWeights.Bold,
-            TextWrapping = TextWrapping.Wrap
-        });
-        panel.Children.Add(version);
-        panel.Children.Add(notes);
-        if (requiredMode)
-        {
-            panel.Children.Add(new TextBlock
-            {
-                Text = "Atualizacao obrigatoria. Esta versao antiga nao deve continuar em uso.",
-                Foreground = RedText,
-                FontWeight = FontWeights.SemiBold,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 4, 0, 0)
-            });
-        }
-
-        panel.Children.Add(status);
+        status.Text = requiredMode
+            ? "Atualizacao obrigatoria detectada. Se o download falhar, confira a internet e clique em Atualizar agora novamente."
+            : "Voce pode baixar o instalador agora ou atualizar depois.";
+        panel.Children.Add(hero);
+        panel.Children.Add(versionGrid);
+        panel.Children.Add(notesCard);
+        panel.Children.Add(requiredCard);
+        panel.Children.Add(statusCard);
         panel.Children.Add(buttons);
         dialog.Content = panel;
         dialog.Closing += (_, _) =>
@@ -19761,6 +27040,76 @@ public partial class MainWindow : Window
             }
         };
         dialog.ShowDialog();
+    }
+
+    private static Border UpdateVersionCard(string label, string value, string background, string border, string accent)
+    {
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock
+        {
+            Text = label.ToUpperInvariant(),
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 11,
+            FontWeight = FontWeights.Black,
+            Margin = new Thickness(0, 0, 0, 6)
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(value) ? "-" : value,
+            Foreground = Solid(accent),
+            FontSize = 24,
+            FontWeight = FontWeights.Black,
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        return new Border
+        {
+            Background = Solid(background),
+            BorderBrush = Solid(border),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(16),
+            Margin = new Thickness(0, 0, 10, 0),
+            Child = panel
+        };
+    }
+
+    private static Grid UpdateChecklistItem(string text)
+    {
+        var row = new Grid { Margin = new Thickness(0, 12, 0, 0) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var check = new Border
+        {
+            Width = 24,
+            Height = 24,
+            CornerRadius = new CornerRadius(12),
+            Background = Solid("#E6FBF8"),
+            BorderBrush = Solid("#9DECE4"),
+            BorderThickness = new Thickness(1),
+            Child = new TextBlock
+            {
+                Text = "OK",
+                Foreground = Solid("#067A70"),
+                FontSize = 9,
+                FontWeight = FontWeights.Black,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+        var label = new TextBlock
+        {
+            Text = text,
+            Foreground = Solid("#071A2C"),
+            FontSize = 12.5,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(10, 2, 0, 0)
+        };
+        Grid.SetColumn(label, 1);
+        row.Children.Add(check);
+        row.Children.Add(label);
+        return row;
     }
 
     private async Task<bool> DownloadAndOpenInstallerAsync(UpdateManifest manifest, TextBlock? status, bool silentInstall)
@@ -19803,6 +27152,8 @@ public partial class MainWindow : Window
             var message = BuildUpdateFailureMessage(ex, "baixar");
             if (status is not null)
             {
+                status.Foreground = RedText;
+                status.FontWeight = FontWeights.Bold;
                 status.Text = $"{message} Tente novamente quando a internet voltar.";
             }
 
@@ -19813,6 +27164,8 @@ public partial class MainWindow : Window
 
         if (status is not null)
         {
+            status.Foreground = GreenText;
+            status.FontWeight = FontWeights.Bold;
             status.Text = $"Instalador salvo em {destination}.";
         }
 
@@ -19835,6 +27188,8 @@ public partial class MainWindow : Window
             Debug.WriteLine($"Pre-update backup failed: {ex.Message}");
             if (status is not null)
             {
+                status.Foreground = RedText;
+                status.FontWeight = FontWeights.Bold;
                 status.Text = "Atualizacao bloqueada: nao consegui gerar o backup de seguranca.";
             }
 
@@ -20379,7 +27734,20 @@ public partial class MainWindow : Window
         style.Setters.Add(new Setter(Control.BorderBrushProperty, Solid("#BFD1E2")));
         style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
         style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(10, 0, 8, 0)));
+        style.Setters.Add(new EventSetter(UIElement.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler(DialogComboBoxPreviewMouseLeftButtonDown)));
         return style;
+    }
+
+    private static void DialogComboBoxPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not ComboBox combo || !combo.IsEnabled || combo.IsDropDownOpen)
+        {
+            return;
+        }
+
+        combo.Focus();
+        combo.IsDropDownOpen = true;
+        e.Handled = true;
     }
 
     private static Style DialogListBoxStyle()
@@ -20729,6 +28097,7 @@ public partial class MainWindow : Window
     private string BuildOperationalReport(string period = "Total")
     {
         var openOrders = GetOpenReportOrders();
+        var closedOrders = GetClosedReportBoards(period);
         var topProducts = GetTopReportProducts(period, 20);
         var lowStock = Products
             .Where(product => product.MinimumStock > 0 && product.StockQuantity <= product.MinimumStock)
@@ -20739,6 +28108,7 @@ public partial class MainWindow : Window
             .Take(50)
             .ToList();
         var profitSummary = GetProfitSummaryForReportPeriod(period);
+        var averageTicket = closedOrders.Count > 0 ? profitSummary.Revenue / closedOrders.Count : 0m;
 
         var sb = new StringBuilder();
         sb.AppendLine($"{AppReceiptName} - RELATORIO OPERACIONAL");
@@ -20753,19 +28123,51 @@ public partial class MainWindow : Window
 
         sb.AppendLine();
         sb.AppendLine("LUCRO E MARGEM");
+        sb.AppendLine($"Contas fechadas: {closedOrders.Count:N0}");
         sb.AppendLine($"Vendas calculadas: {Money(profitSummary.Revenue)}");
         sb.AppendLine($"Custo estimado: {Money(profitSummary.Cost)}");
+        sb.AppendLine($"CMV: {profitSummary.CmvPercent:N2}%");
         sb.AppendLine($"Lucro bruto: {Money(profitSummary.Profit)}");
         sb.AppendLine($"Margem: {profitSummary.Margin:N2}%");
+        sb.AppendLine($"Ticket medio: {Money(averageTicket)}");
+
+        sb.AppendLine();
+        sb.AppendLine("VENDAS POR CANAL");
+        foreach (var slice in GetReportChannelSlices(period))
+        {
+            sb.AppendLine($"{slice.Title}: {slice.ValueText} ({slice.Detail})");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("FORMAS DE PAGAMENTO");
+        foreach (var slice in GetReportPaymentSlices(period))
+        {
+            sb.AppendLine($"{slice.Title}: {slice.ValueText} ({slice.Detail})");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("TEMPO MEDIO DE DELIVERY");
+        foreach (var slice in GetDeliveryPerformanceSlices(period))
+        {
+            sb.AppendLine($"{slice.Title}: {slice.ValueText} ({slice.Detail})");
+        }
 
         if (IsIFoodReportEnabled())
         {
             var ifoodSummary = GetIFoodReportSummary(period);
             sb.AppendLine();
-            sb.AppendLine("IFOOD - TAXAS E LUCRO ESTIMADOS");
+            sb.AppendLine("IFOOD - REPASSES, TAXAS E LUCRO ESTIMADOS");
             sb.AppendLine("Taxas padrao estimadas: entrega propria/merchant 12%; entrega iFood 23%.");
+            sb.AppendLine("Repasse previsto considera pedidos pagos pelo iFood menos taxa estimada. Pedidos na entrega ficam como valor recebido direto pela loja.");
             sb.AppendLine($"Pedidos iFood: {ifoodSummary.TotalOrders:N0}  validos {ifoodSummary.ValidOrders:N0}  entregues {ifoodSummary.DeliveredOrders:N0}  cancelados {ifoodSummary.CancelledOrders:N0}");
             sb.AppendLine($"Venda bruta iFood: {Money(ifoodSummary.Revenue)}");
+            sb.AppendLine($"Repasse iFood previsto: {Money(ifoodSummary.EstimatedPayout)}  pedidos pagos pelo iFood {ifoodSummary.OnlinePaymentOrders:N0}  bruto {Money(ifoodSummary.OnlinePaymentRevenue)}");
+            sb.AppendLine($"Pago direto na loja/entrega: {Money(ifoodSummary.DirectPaymentRevenue)}  pedidos {ifoodSummary.DirectPaymentOrders:N0}");
+            if (ifoodSummary.UnspecifiedPaymentOrders > 0)
+            {
+                sb.AppendLine($"Pagamento a conferir: {Money(ifoodSummary.UnspecifiedPaymentRevenue)}  pedidos {ifoodSummary.UnspecifiedPaymentOrders:N0} sem tipo claro tratados como repasse previsto");
+            }
+
             sb.AppendLine($"Entrega propria/merchant ({ifoodSummary.MerchantOrders:N0}): venda {Money(ifoodSummary.MerchantRevenue)}  taxa -{Money(ifoodSummary.EstimatedMerchantFee)}");
             sb.AppendLine($"Entrega iFood ({ifoodSummary.IFoodShipmentOrders:N0}): venda {Money(ifoodSummary.IFoodShipmentRevenue)}  taxa -{Money(ifoodSummary.EstimatedIFoodShipmentFee)}");
             sb.AppendLine($"Custo produto estimado: {Money(ifoodSummary.ProductCost)}");
@@ -20779,7 +28181,7 @@ public partial class MainWindow : Window
         foreach (var product in topProducts)
         {
             var totalProfit = product.ProfitAmount * product.SoldQuantity;
-            sb.AppendLine($"{product.Code} {product.Name} qtd {product.SoldQuantity:N0} venda {product.PriceText} compra {product.CostPriceText} lucro {Money(totalProfit)} margem {product.ProfitMargin:N2}% estoque {product.StockQuantity:N0}");
+            sb.AppendLine($"{product.Code} {product.Name} qtd {product.SoldQuantity:N0} venda {product.PriceText} compra {product.CostPriceText} CMV {product.CmvPercent:N2}% lucro {Money(totalProfit)} margem {product.ProfitMargin:N2}% estoque {product.StockQuantity:N0}");
         }
 
         sb.AppendLine();
@@ -20798,6 +28200,486 @@ public partial class MainWindow : Window
         }
 
         return sb.ToString();
+    }
+
+    private string WriteOperationalReportPdf(string period)
+    {
+        EnsurePdfFontsConfigured();
+        Directory.CreateDirectory(ExportDir);
+        var path = Path.Combine(ExportDir, $"relatorio-operacional-{DateTime.Now:yyyyMMdd-HHmmss}.pdf");
+
+        var openOrders = GetOpenReportOrders();
+        var topProducts = GetTopReportProducts(period, 20);
+        var lowStock = Products
+            .Where(product => product.MinimumStock > 0 && product.StockQuantity <= product.MinimumStock)
+            .OrderBy(product => product.Name)
+            .ToList();
+        var cashMovements = GetReportCashMovements(period)
+            .OrderByDescending(item => item.When)
+            .Take(50)
+            .ToList();
+        var closedOrders = GetClosedReportBoards(period);
+        var openTotal = openOrders.Sum(order => order.Total);
+        var soldItems = GetSoldItemsForReportPeriod(period);
+        var profitSummary = GetProfitSummaryForReportPeriod(period);
+        var averageTicket = closedOrders.Count > 0 ? profitSummary.Revenue / closedOrders.Count : 0m;
+        var channelSlices = GetReportChannelSlices(period);
+        var paymentSlices = GetReportPaymentSlices(period);
+        var showIFoodReport = IsIFoodReportEnabled();
+        var ifoodSummary = showIFoodReport ? GetIFoodReportSummary(period) : default;
+
+        using var document = new PdfDocument();
+        document.Info.Title = $"Relatorio operacional - {period}";
+        document.Info.Author = "Balcao Livre PDV Online";
+        document.Info.Subject = "Relatorio operacional";
+
+        using var restaurantLogo = TryLoadPdfImage(_profile.LocalLogoPath);
+        using var appLogo = TryLoadPdfImage(Path.Combine(AppContext.BaseDirectory, "Assets", "app-icon.png"));
+
+        PdfPage page = null!;
+        XGraphics gfx = null!;
+        const double margin = 34;
+        var y = margin;
+        var pageNumber = 0;
+
+        var fontTitle = new XFont("Arial", 18, XFontStyleEx.Bold);
+        var fontSection = new XFont("Arial", 13, XFontStyleEx.Bold);
+        var fontBody = new XFont("Arial", 9, XFontStyleEx.Regular);
+        var fontSmall = new XFont("Arial", 8, XFontStyleEx.Regular);
+        var fontSmallBold = new XFont("Arial", 8, XFontStyleEx.Bold);
+        var fontMetric = new XFont("Arial", 15, XFontStyleEx.Bold);
+        var fontFooter = new XFont("Arial", 7, XFontStyleEx.Regular);
+
+        var navy = new XSolidBrush(PdfColor("#0B3A52"));
+        var teal = new XSolidBrush(PdfColor("#08A99B"));
+        var red = new XSolidBrush(PdfColor("#EA1D2C"));
+        var bronze = new XSolidBrush(PdfColor("#99620D"));
+        var ink = new XSolidBrush(PdfColor("#071A2C"));
+        var muted = new XSolidBrush(PdfColor("#5B6B7A"));
+        var soft = new XSolidBrush(PdfColor("#F4F9FB"));
+        var linePen = new XPen(PdfColor("#D5E4EF"), 0.7);
+
+        var restaurantName = string.IsNullOrWhiteSpace(_profile.BusinessName)
+            ? FirstNonEmpty(_profile.LegalName, AppReceiptName)
+            : _profile.BusinessName.Trim();
+        var meta = new List<string>();
+        if (!string.IsNullOrWhiteSpace(_profile.LegalName) && !string.Equals(_profile.LegalName, restaurantName, StringComparison.OrdinalIgnoreCase))
+        {
+            meta.Add(_profile.LegalName.Trim());
+        }
+        if (!string.IsNullOrWhiteSpace(_profile.Cnpj)) meta.Add($"{BusinessTaxIdLabel(_profile.Cnpj)} {_profile.Cnpj.Trim()}");
+        if (!string.IsNullOrWhiteSpace(_profile.Phone)) meta.Add(_profile.Phone.Trim());
+        if (!string.IsNullOrWhiteSpace(_profile.Address)) meta.Add(_profile.Address.Trim());
+
+        NewPage();
+        DrawSummary();
+        DrawTable(
+            "Vendas por canal",
+            "Origem das contas fechadas",
+            ["Canal", "Detalhe", "Valor"],
+            [150, 250, 108],
+            channelSlices.Select(slice => new[] { slice.Title, slice.Detail, slice.ValueText }),
+            "#0B3A52");
+
+        DrawTable(
+            "Formas de pagamento",
+            "Mix de recebimento do periodo",
+            ["Forma", "Detalhe", "Valor"],
+            [150, 250, 108],
+            paymentSlices.Select(slice => new[] { slice.Title, slice.Detail, slice.ValueText }),
+            "#08A99B");
+
+        DrawTable(
+            "Comandas abertas",
+            "Mesas, balcao e delivery com movimento",
+            ["Origem", "Status", "Cliente", "Valor"],
+            [92, 86, 250, 80],
+            openOrders.Select(order => new[]
+            {
+                $"{order.Kind} {order.Number}",
+                order.Status,
+                string.IsNullOrWhiteSpace(order.CustomerName) ? "-" : order.CustomerName,
+                Money(order.Total)
+            }),
+            "#0B3A52");
+
+        if (showIFoodReport)
+        {
+            DrawTable(
+                "iFood - repasses, taxas e lucro",
+                "Valores estimados para conferencia operacional",
+                ["Indicador", "Detalhe", "Valor"],
+                [138, 286, 84],
+                BuildIFoodPdfRows(ifoodSummary),
+                "#EA1D2C");
+        }
+
+        DrawTable(
+            "Produtos mais vendidos",
+            $"Ranking por quantidade vendida - {period}",
+            ["Codigo", "Produto", "Qtd", "CMV", "Lucro", "Margem"],
+            [54, 218, 42, 58, 68, 68],
+            topProducts.Select(product =>
+            {
+                var totalProfit = product.ProfitAmount * product.SoldQuantity;
+                return new[]
+                {
+                    product.Code,
+                    product.Name,
+                    product.SoldQuantity.ToString("N0", Brazil),
+                    $"{product.CmvPercent:N2}%",
+                    Money(totalProfit),
+                    $"{product.ProfitMargin:N2}%"
+                };
+            }),
+            "#08A99B");
+
+        DrawTable(
+            "Estoque baixo",
+            "Produtos no minimo ou abaixo",
+            ["Codigo", "Produto", "Estoque", "Minimo"],
+            [74, 290, 72, 72],
+            lowStock.Select(product => new[]
+            {
+                product.Code,
+                product.Name,
+                product.StockQuantity.ToString("N0", Brazil),
+                product.MinimumStock.ToString("N0", Brazil)
+            }),
+            "#A11D1D");
+
+        DrawTable(
+            "Caixa",
+            $"Total atual {Money(_cashTotal)} - {period}",
+            ["Data", "Tipo", "Usuario", "Valor", "Motivo"],
+            [98, 74, 86, 74, 166],
+            cashMovements.Select(movement => new[]
+            {
+                movement.When.ToString("g", Brazil),
+                movement.Type,
+                movement.User,
+                Money(movement.Amount),
+                movement.Reason
+            }),
+            "#99620D");
+
+        DrawFinalBrand();
+        DrawFooter();
+        gfx.Dispose();
+        document.Save(path);
+        return path;
+
+        void NewPage()
+        {
+            if (gfx is not null)
+            {
+                DrawFooter();
+                gfx.Dispose();
+            }
+
+            page = document.AddPage();
+            page.Size = PageSize.A4;
+            gfx = XGraphics.FromPdfPage(page);
+            pageNumber++;
+            y = margin;
+            DrawHeader();
+        }
+
+        void EnsureSpace(double height)
+        {
+            if (y + height > page.Height.Point - 52)
+            {
+                NewPage();
+            }
+        }
+
+        void DrawHeader()
+        {
+            var width = page.Width.Point - margin * 2;
+            gfx.DrawRectangle(navy, margin, y, width, 78);
+
+            var logoBox = new XRect(margin + 14, y + 14, 50, 50);
+            gfx.DrawRectangle(XBrushes.White, logoBox);
+            if (restaurantLogo is not null)
+            {
+                DrawImageFit(restaurantLogo, logoBox);
+            }
+            else
+            {
+                gfx.DrawString(ReportInitials(restaurantName), new XFont("Arial", 14, XFontStyleEx.Bold), navy, logoBox, XStringFormats.Center);
+            }
+
+            gfx.DrawString(restaurantName, fontTitle, XBrushes.White, new XRect(margin + 78, y + 14, 300, 22), XStringFormats.TopLeft);
+            var metaText = meta.Count == 0 ? "Restaurante" : string.Join("  |  ", meta.Take(3));
+            gfx.DrawString(FitText(metaText, fontSmall, 310), fontSmall, new XSolidBrush(PdfColor("#DFFBFA")), new XRect(margin + 78, y + 40, 320, 14), XStringFormats.TopLeft);
+            if (meta.Count > 3)
+            {
+                gfx.DrawString(FitText(string.Join("  |  ", meta.Skip(3)), fontSmall, 310), fontSmall, new XSolidBrush(PdfColor("#DFFBFA")), new XRect(margin + 78, y + 55, 320, 12), XStringFormats.TopLeft);
+            }
+
+            var rightX = margin + width - 178;
+            gfx.DrawString("Relatorio operacional", new XFont("Arial", 12, XFontStyleEx.Bold), XBrushes.White, new XRect(rightX, y + 16, 160, 16), XStringFormats.TopRight);
+            gfx.DrawString($"Periodo: {period}", fontSmallBold, new XSolidBrush(PdfColor("#DFFBFA")), new XRect(rightX, y + 38, 160, 12), XStringFormats.TopRight);
+            gfx.DrawString(DateTime.Now.ToString("G", Brazil), fontSmall, new XSolidBrush(PdfColor("#DFFBFA")), new XRect(rightX, y + 54, 160, 12), XStringFormats.TopRight);
+            y += 96;
+        }
+
+        void DrawSummary()
+        {
+            var cards = new List<(string Title, string Value, string Detail, XSolidBrush Brush)>
+            {
+                ("Faturamento", Money(profitSummary.Revenue), $"{closedOrders.Count:N0} conta(s) fechadas", navy),
+                ("Lucro bruto", Money(profitSummary.Profit), $"Margem {profitSummary.Margin:N2}%", profitSummary.Profit >= 0 ? teal : red),
+                ("CMV", $"{profitSummary.CmvPercent:N2}%", $"Custo {Money(profitSummary.Cost)}", new XSolidBrush(PdfColor(ReportCmvColor(profitSummary.CmvPercent)))),
+                ("Ticket medio", Money(averageTicket), $"{closedOrders.Count:N0} conta(s)", bronze),
+                ("Em aberto", Money(openTotal), $"{openOrders.Count:N0} comandas/pedidos", navy),
+                ("Caixa atual", Money(_cashTotal), IsCashOpen() ? "caixa aberto" : "caixa fechado", IsCashOpen() ? teal : red),
+                ("Itens vendidos", soldItems.ToString("N0", Brazil), period, bronze),
+                ("Estoque baixo", lowStock.Count.ToString("N0", Brazil), "itens abaixo do minimo", lowStock.Count == 0 ? teal : red)
+            };
+            if (showIFoodReport)
+            {
+                cards.Add(("Repasse iFood", Money(ifoodSummary.EstimatedPayout), $"Taxa {Money(ifoodSummary.EstimatedFee)}", red));
+            }
+
+            EnsureSpace(150);
+            var contentWidth = page.Width.Point - margin * 2;
+            var cardGap = 10d;
+            var cardWidth = (contentWidth - cardGap * 2) / 3;
+            var cardHeight = 62d;
+            for (var i = 0; i < cards.Count; i++)
+            {
+                var row = i / 3;
+                var col = i % 3;
+                var x = margin + col * (cardWidth + cardGap);
+                var top = y + row * (cardHeight + cardGap);
+                var card = cards[i];
+                gfx.DrawRectangle(soft, x, top, cardWidth, cardHeight);
+                gfx.DrawRectangle(card.Brush, x, top, 5, cardHeight);
+                gfx.DrawRectangle(linePen, x, top, cardWidth, cardHeight);
+                gfx.DrawString(card.Title, fontSmallBold, muted, new XRect(x + 14, top + 10, cardWidth - 28, 12), XStringFormats.TopLeft);
+                gfx.DrawString(FitText(card.Value, fontMetric, cardWidth - 28), fontMetric, ink, new XRect(x + 14, top + 26, cardWidth - 28, 18), XStringFormats.TopLeft);
+                gfx.DrawString(FitText(card.Detail, fontSmall, cardWidth - 28), fontSmall, muted, new XRect(x + 14, top + 48, cardWidth - 28, 10), XStringFormats.TopLeft);
+            }
+
+            y += ((cards.Count + 2) / 3) * (cardHeight + cardGap) + 8;
+        }
+
+        void DrawTable(string title, string subtitle, string[] headers, double[] widths, IEnumerable<string[]> rows, string accentHex)
+        {
+            var rowList = rows.ToList();
+            EnsureSpace(60);
+            DrawSectionTitle(title, subtitle, accentHex);
+            DrawTableHeader(headers, widths, accentHex);
+            if (rowList.Count == 0)
+            {
+                DrawEmptyRow("Nenhum registro neste periodo.", widths.Sum());
+                return;
+            }
+
+            var alternate = false;
+            foreach (var row in rowList)
+            {
+                EnsureSpace(24);
+                DrawTableRow(row, widths, alternate);
+                alternate = !alternate;
+            }
+
+            y += 8;
+        }
+
+        void DrawSectionTitle(string title, string subtitle, string accentHex)
+        {
+            var width = page.Width.Point - margin * 2;
+            gfx.DrawRectangle(new XSolidBrush(PdfColor(accentHex)), margin, y, 5, 30);
+            gfx.DrawString(title, fontSection, ink, new XRect(margin + 12, y, width - 12, 16), XStringFormats.TopLeft);
+            gfx.DrawString(subtitle, fontSmall, muted, new XRect(margin + 12, y + 17, width - 12, 12), XStringFormats.TopLeft);
+            y += 36;
+        }
+
+        void DrawTableHeader(string[] headers, double[] widths, string accentHex)
+        {
+            var x = margin;
+            var headerBrush = new XSolidBrush(PdfColor(accentHex));
+            gfx.DrawRectangle(headerBrush, margin, y, widths.Sum(), 22);
+            for (var i = 0; i < headers.Length; i++)
+            {
+                gfx.DrawString(FitText(headers[i], fontSmallBold, widths[i] - 8), fontSmallBold, XBrushes.White, new XRect(x + 4, y + 6, widths[i] - 8, 10), XStringFormats.TopLeft);
+                x += widths[i];
+            }
+            y += 22;
+        }
+
+        void DrawTableRow(string[] values, double[] widths, bool alternate)
+        {
+            var rowHeight = 24d;
+            var x = margin;
+            if (alternate)
+            {
+                gfx.DrawRectangle(new XSolidBrush(PdfColor("#F8FBFD")), margin, y, widths.Sum(), rowHeight);
+            }
+            gfx.DrawRectangle(linePen, margin, y, widths.Sum(), rowHeight);
+            for (var i = 0; i < widths.Length; i++)
+            {
+                var text = i < values.Length ? values[i] : "";
+                var format = i == widths.Length - 1 ? XStringFormats.CenterRight : XStringFormats.CenterLeft;
+                var rect = new XRect(x + 4, y, widths[i] - 8, rowHeight);
+                gfx.DrawString(FitText(text, fontBody, widths[i] - 8), fontBody, ink, rect, format);
+                x += widths[i];
+            }
+            y += rowHeight;
+        }
+
+        void DrawEmptyRow(string text, double width)
+        {
+            EnsureSpace(34);
+            gfx.DrawRectangle(soft, margin, y, width, 30);
+            gfx.DrawRectangle(linePen, margin, y, width, 30);
+            gfx.DrawString(text, fontBody, muted, new XRect(margin + 10, y + 9, width - 20, 12), XStringFormats.TopLeft);
+            y += 38;
+        }
+
+        void DrawFinalBrand()
+        {
+            EnsureSpace(92);
+            var width = page.Width.Point - margin * 2;
+            gfx.DrawRectangle(navy, margin, y, width, 76);
+            if (appLogo is not null)
+            {
+                DrawImageFit(appLogo, new XRect(margin + 16, y + 18, 40, 40));
+            }
+            else
+            {
+                gfx.DrawRectangle(XBrushes.White, margin + 16, y + 18, 40, 40);
+                gfx.DrawString("BL", new XFont("Arial", 12, XFontStyleEx.Bold), navy, new XRect(margin + 16, y + 18, 40, 40), XStringFormats.Center);
+            }
+
+            gfx.DrawString("Balcao Livre PDV Online", new XFont("Arial", 16, XFontStyleEx.Bold), XBrushes.White, new XRect(margin + 72, y + 18, 300, 20), XStringFormats.TopLeft);
+            gfx.DrawString("Relatorio gerado pelo sistema de gestao operacional do restaurante.", fontSmall, new XSolidBrush(PdfColor("#DFFBFA")), new XRect(margin + 72, y + 42, 390, 12), XStringFormats.TopLeft);
+            gfx.DrawString("balcaolivrepdv.com.br", fontSmallBold, new XSolidBrush(PdfColor("#DFFBFA")), new XRect(margin + 72, y + 56, 390, 12), XStringFormats.TopLeft);
+            y += 90;
+        }
+
+        void DrawFooter()
+        {
+            var footerY = page.Height.Point - 28;
+            gfx.DrawLine(new XPen(PdfColor("#D5E4EF"), 0.6), margin, footerY - 6, page.Width.Point - margin, footerY - 6);
+            gfx.DrawString($"Gerado por Balcao Livre PDV Online  |  Pagina {pageNumber}", fontFooter, muted, new XRect(margin, footerY, page.Width.Point - margin * 2, 10), XStringFormats.Center);
+        }
+
+        void DrawImageFit(XImage image, XRect rect)
+        {
+            var imageRatio = image.PixelHeight <= 0 ? 1 : image.PixelWidth / (double)image.PixelHeight;
+            var boxRatio = rect.Width / rect.Height;
+            double drawWidth;
+            double drawHeight;
+            if (imageRatio > boxRatio)
+            {
+                drawWidth = rect.Width;
+                drawHeight = rect.Width / imageRatio;
+            }
+            else
+            {
+                drawHeight = rect.Height;
+                drawWidth = rect.Height * imageRatio;
+            }
+
+            gfx.DrawImage(image, rect.X + (rect.Width - drawWidth) / 2, rect.Y + (rect.Height - drawHeight) / 2, drawWidth, drawHeight);
+        }
+
+        string FitText(string value, XFont font, double maxWidth)
+        {
+            var text = CompactPdfText(value);
+            if (gfx.MeasureString(text, font).Width <= maxWidth)
+            {
+                return text;
+            }
+
+            while (text.Length > 3 && gfx.MeasureString($"{text}...", font).Width > maxWidth)
+            {
+                text = text[..^1];
+            }
+
+            return $"{text.TrimEnd()}...";
+        }
+    }
+
+    private static XImage? TryLoadPdfImage(string? path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                return null;
+            }
+
+            return XImage.FromFile(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            Debug.WriteLine($"PDF image load failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static void EnsurePdfFontsConfigured()
+    {
+        if (_pdfFontsConfigured)
+        {
+            return;
+        }
+
+        try
+        {
+            PdfSharp.Fonts.GlobalFontSettings.UseWindowsFontsUnderWindows = true;
+        }
+        catch (InvalidOperationException ex)
+        {
+            Debug.WriteLine($"PDF font resolver skipped: {ex.Message}");
+        }
+
+        _pdfFontsConfigured = true;
+    }
+
+    private static XColor PdfColor(string hex)
+    {
+        var clean = hex.Trim().TrimStart('#');
+        if (clean.Length != 6)
+        {
+            return XColors.Black;
+        }
+
+        var r = int.Parse(clean[..2], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+        var g = int.Parse(clean[2..4], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+        var b = int.Parse(clean[4..], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+        return XColor.FromArgb(r, g, b);
+    }
+
+    private static string CompactPdfText(string value)
+    {
+        return string.Join(" ", (value ?? "")
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private IEnumerable<string[]> BuildIFoodPdfRows(IFoodReportSummary summary)
+    {
+        var rows = new List<string[]>
+        {
+            new[] { "Vendas iFood", $"{summary.ValidOrders:N0} validos, {summary.DeliveredOrders:N0} entregues, {summary.CancelledOrders:N0} cancelados", Money(summary.Revenue) },
+            new[] { summary.EstimatedPayout >= 0 ? "Repasse previsto" : "Repasse negativo", $"{summary.OnlinePaymentOrders:N0} pago(s) pelo iFood - taxa estimada {Money(summary.EstimatedFee)}", Money(summary.EstimatedPayout) },
+            new[] { "Pago direto na loja", $"{summary.DirectPaymentOrders:N0} pedido(s) na entrega/offline", Money(summary.DirectPaymentRevenue) }
+        };
+        if (summary.UnspecifiedPaymentOrders > 0)
+        {
+            rows.Add(new[] { "Pagamento a conferir", $"{summary.UnspecifiedPaymentOrders:N0} pedido(s) sem tipo claro", Money(summary.UnspecifiedPaymentRevenue) });
+        }
+
+        rows.Add(new[] { "Entrega propria / merchant", $"{summary.MerchantOrders:N0} pedido(s) x 12%", $"-{Money(summary.EstimatedMerchantFee)}" });
+        rows.Add(new[] { "Entrega iFood", $"{summary.IFoodShipmentOrders:N0} pedido(s) x 23%", $"-{Money(summary.EstimatedIFoodShipmentFee)}" });
+        rows.Add(new[] { "Lucro liquido estimado", $"Custo produto {Money(summary.ProductCost)} | margem {summary.EstimatedMargin:N2}%", Money(summary.EstimatedNetProfit) });
+        return rows;
     }
 
     private string BuildCashReport()
@@ -20845,6 +28727,7 @@ public partial class MainWindow : Window
         sb.AppendLine($"TOTAL EM CAIXA: {Money(_cashTotal)}");
         sb.AppendLine($"VENDAS DO DIA: {Money(salesTotal)}");
         sb.AppendLine($"CUSTO ESTIMADO: {Money(profitSummary.Cost)}");
+        sb.AppendLine($"CMV: {profitSummary.CmvPercent:N2}%");
         sb.AppendLine($"LUCRO BRUTO: {Money(profitSummary.Profit)}");
         sb.AppendLine($"MARGEM: {profitSummary.Margin:N2}%");
         sb.AppendLine($"CONTAS FECHADAS: {closedBoards.Count}");
@@ -20878,7 +28761,8 @@ public partial class MainWindow : Window
                 var cost = (product?.CostPrice ?? 0m) * quantity;
                 var itemProfit = revenue - cost;
                 var itemMargin = revenue > 0 ? itemProfit / revenue * 100m : 0m;
-                sb.AppendLine($"{group.Key.Code} {group.Key.Name} qtd {quantity} total {Money(revenue)} lucro {Money(itemProfit)} margem {itemMargin:N2}%");
+                var itemCmv = revenue > 0 ? cost / revenue * 100m : 0m;
+                sb.AppendLine($"{group.Key.Code} {group.Key.Name} qtd {quantity} total {Money(revenue)} CMV {itemCmv:N2}% lucro {Money(itemProfit)} margem {itemMargin:N2}%");
             }
         }
 
@@ -21043,9 +28927,10 @@ public partial class MainWindow : Window
             Kind = "KDS",
             Status = AggregateKitchenStatus(linesToPrint),
             Waiter = board.Waiter,
+            CustomerName = board.CustomerName,
             Lines = linesToPrint.Select(CloneLine).ToList(),
             Total = linesToPrint.Sum(line => line.Total),
-            Detail = $"{board.Kind} {board.Number}  {linesToPrint.Sum(line => line.Quantity):N0} item(ns)"
+            Detail = BuildKitchenBoardDetail(board, linesToPrint.Sum(line => line.Quantity))
         });
 
         if (!_appSettings.AutoPrintKitchen)
@@ -21092,6 +28977,12 @@ public partial class MainWindow : Window
         var path = Path.Combine(ExportDir, $"cozinha-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
         var sb = new StringBuilder();
         sb.AppendLine($"{board.Kind} {board.Number}");
+        var customerLine = BuildKitchenCustomerLine(board);
+        if (!string.IsNullOrWhiteSpace(customerLine))
+        {
+            sb.AppendLine(customerLine);
+        }
+
         var staffLine = BuildStaffReceiptLine(board);
         if (!string.IsNullOrWhiteSpace(staffLine))
         {
@@ -21147,9 +29038,10 @@ public partial class MainWindow : Window
             Kind = "KDS",
             Status = AggregateKitchenStatus(TicketLines),
             Waiter = board.Waiter,
+            CustomerName = board.CustomerName,
             Lines = TicketLines.Select(CloneLine).ToList(),
             Total = TicketLines.Sum(line => line.Total),
-            Detail = $"{board.Kind} {board.Number}  {TicketLines.Count(ShouldSendLineToProduction):N0} item(ns)"
+            Detail = BuildKitchenBoardDetail(board, TicketLines.Count(ShouldSendLineToProduction))
         });
         if (_appSettings.AutoPrintKitchen)
         {
@@ -21220,6 +29112,12 @@ public partial class MainWindow : Window
         var sb = new StringBuilder();
         sb.AppendLine($"{board.Kind} {board.Number}");
         sb.AppendLine($"SETOR {NormalizeSectorName(sector, "SEM SETOR")}");
+        var customerLine = BuildKitchenCustomerLine(board);
+        if (!string.IsNullOrWhiteSpace(customerLine))
+        {
+            sb.AppendLine(customerLine);
+        }
+
         var staffLine = BuildStaffReceiptLine(board);
         if (!string.IsNullOrWhiteSpace(staffLine))
         {
@@ -21285,7 +29183,7 @@ public partial class MainWindow : Window
         sb.AppendLine($"Cliente: {order.CustomerName}");
         if (!string.IsNullOrWhiteSpace(order.CustomerCpf)) sb.AppendLine($"CPF/CNPJ: {order.CustomerCpf}");
         if (!string.IsNullOrWhiteSpace(order.Phone)) sb.AppendLine($"Telefone: {order.Phone}");
-        if (!string.IsNullOrWhiteSpace(order.Address)) sb.AppendLine($"Endereco: {order.Address}");
+        if (!string.IsNullOrWhiteSpace(order.Address)) sb.AppendLine($"Endereço: {order.Address}");
         if (!string.IsNullOrWhiteSpace(districtText)) sb.AppendLine($"Bairro/ref: {districtText}");
         if (!string.IsNullOrWhiteSpace(order.Driver)) sb.AppendLine($"Entregador: {order.Driver}");
         if (!string.IsNullOrWhiteSpace(order.Notes))
@@ -21357,10 +29255,11 @@ public partial class MainWindow : Window
 
             if (!string.IsNullOrWhiteSpace(qrPayload))
             {
+                var qrCaptionLines = SplitQrCaption(qrCaption);
                 var qr = TryCreateQrBitmap(qrPayload, compact ? 8 : 10);
                 if (qr is not null)
                 {
-                    document.Blocks.Add(new Paragraph(new Run(string.IsNullOrWhiteSpace(qrCaption) ? "QR CODE" : qrCaption.Trim().ToUpperInvariant()))
+                    document.Blocks.Add(new Paragraph(new Run(qrCaptionLines.Header))
                     {
                         TextAlignment = TextAlignment.Center,
                         FontWeight = FontWeights.Bold,
@@ -21379,8 +29278,19 @@ public partial class MainWindow : Window
                     })
                     {
                         TextAlignment = TextAlignment.Center,
-                        Margin = new Thickness(0, 0, 0, compact ? 2 : 8)
+                        Margin = new Thickness(0, 0, 0, qrCaptionLines.Footer.Count == 0 ? compact ? 2 : 8 : 2)
                     });
+
+                    foreach (var footerLine in qrCaptionLines.Footer)
+                    {
+                        document.Blocks.Add(new Paragraph(new Run(footerLine))
+                        {
+                            TextAlignment = TextAlignment.Center,
+                            FontWeight = FontWeights.SemiBold,
+                            FontSize = fontSize,
+                            Margin = new Thickness(0, 0, 0, compact ? 0 : 1)
+                        });
+                    }
                 }
             }
 
@@ -21595,10 +29505,11 @@ public partial class MainWindow : Window
         qrPayload = (qrPayload ?? "").Trim();
         if (!string.IsNullOrWhiteSpace(qrPayload))
         {
+            var qrCaptionLines = SplitQrCaption(qrCaption);
             Text("\n");
             Command(0x1B, 0x61, 0x01);
             Command(0x1D, 0x21, 0x00);
-            Text(string.IsNullOrWhiteSpace(qrCaption) ? "QR CODE\n" : $"{qrCaption.Trim().ToUpperInvariant()}\n");
+            Text(qrCaptionLines.Header + "\n");
 
             if (!TryAppendEscPosQrRaster(ms, qrPayload, desiredPrintWidth: compact ? 272 : 296, maxPrintWidth: 384))
             {
@@ -21616,11 +29527,34 @@ public partial class MainWindow : Window
             }
 
             Text("\n");
+            foreach (var footerLine in qrCaptionLines.Footer)
+            {
+                Text(footerLine + "\n");
+            }
+
             Command(0x1B, 0x61, 0x00);
         }
 
         Text("\n\n\n");
         return ms.ToArray();
+    }
+
+    private static (string Header, List<string> Footer) SplitQrCaption(string qrCaption)
+    {
+        var lines = string.IsNullOrWhiteSpace(qrCaption)
+            ? ["QR CODE"]
+            : qrCaption
+                .Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(line => line.ToUpperInvariant())
+                .ToList();
+
+        if (lines.Count == 0)
+        {
+            lines.Add("QR CODE");
+        }
+
+        return (lines[0], lines.Skip(1).ToList());
     }
 
     private static bool TryPrintEscPosQrOnly(string printerName, string qrPayload, string jobName)
@@ -21883,6 +29817,11 @@ public partial class MainWindow : Window
 
     private void CloseTicket()
     {
+        if (!RequireCashOpenForFront("fechar conta"))
+        {
+            return;
+        }
+
         if (TicketLines.Count == 0)
         {
             SetStatus("Comanda vazia.");
@@ -21946,6 +29885,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        var receiveRule = PdvOperationalCore.ValidateReceive(board, total, paidTotal, IsCashOpen());
+        if (!receiveRule.Ok)
+        {
+            SetStatus(receiveRule.Message);
+            return;
+        }
+
         var receive = ShowReceiveDialog(balance, total, paidTotal);
         if (receive is null)
         {
@@ -21972,6 +29918,25 @@ public partial class MainWindow : Window
             return;
         }
 
+        var fiscalResult = TryIssueRestaurantNfceForPaidTicket(
+            board,
+            TicketLines.Select(CloneLine).ToList(),
+            Payments.Select(ClonePayment).ToList(),
+            total);
+        if (fiscalResult.Attempted && !fiscalResult.Ok && _appSettings.FiscalTef?.RequireFiscalBeforeReceipt == true)
+        {
+            RefreshTotals();
+            SaveStore();
+            SetStatus($"Venda paga, mas fiscal bloqueou o comprovante: {fiscalResult.StatusMessage}");
+            return;
+        }
+
+        var fiscalStatus = fiscalResult.Attempted
+            ? fiscalResult.Ok
+                ? $" NFC-e: {fiscalResult.StatusCode}."
+                : $" Fiscal: {fiscalResult.StatusMessage}"
+            : "";
+
         var receiptText = BuildReceipt("COMPROVANTE NAO FISCAL", NextReceiptNumber());
         var path = Path.Combine(ExportDir, $"recibo-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
         File.WriteAllText(path, receiptText, Encoding.UTF8);
@@ -21992,6 +29957,7 @@ public partial class MainWindow : Window
         Payments.Clear();
         if (board is not null)
         {
+            RegisterCustomerSale(board, total);
             board.ClosedLines = closedLines;
             board.ClosedPayments = closedPayments;
             board.LastClosedAt = DateTime.Now;
@@ -22026,14 +29992,14 @@ public partial class MainWindow : Window
             CodeBox.Focus();
             CodeBox.SelectAll();
             SetStatus(printedReceipt
-                ? $"Ficha {finishedCounterNumber} recebida e impressa. Nova ficha {BoardTiles[nextIndex].Number} pronta."
-                : $"Ficha {finishedCounterNumber} recebida. Impressora padrao indisponivel. Nova ficha {BoardTiles[nextIndex].Number} pronta.");
+                ? $"Ficha {finishedCounterNumber} recebida e impressa.{fiscalStatus} Nova ficha {BoardTiles[nextIndex].Number} pronta."
+                : $"Ficha {finishedCounterNumber} recebida.{fiscalStatus} Impressora padrao indisponivel. Nova ficha {BoardTiles[nextIndex].Number} pronta.");
             return;
         }
 
         SetStatus(printedReceipt
-            ? $"Conta recebida e comprovante impresso. Recibo: {path}"
-            : $"Conta recebida. Recibo: {path}. Impressora padrao indisponivel.");
+            ? $"Conta recebida e comprovante impresso.{fiscalStatus} Recibo: {path}"
+            : $"Conta recebida.{fiscalStatus} Recibo: {path}. Impressora padrao indisponivel.");
     }
 
     private void ResetBoardAfterReceivedPayment(TableTile board)
@@ -22761,6 +30727,24 @@ public partial class MainWindow : Window
             : $"{label}: {board.Waiter} - {staff.Name}";
     }
 
+    private static string BuildKitchenCustomerLine(TableTile board)
+    {
+        var customer = (board.CustomerName ?? "").Trim();
+        return string.IsNullOrWhiteSpace(customer) ? "" : $"CLIENTE: {customer.ToUpperInvariant()}";
+    }
+
+    private static string BuildKitchenBoardDetail(TableTile board, int itemCount)
+    {
+        var customer = (board.CustomerName ?? "").Trim();
+        var label = $"{board.Kind} {board.Number}";
+        if (!string.IsNullOrWhiteSpace(customer))
+        {
+            label = $"{label} - {customer.ToUpperInvariant()}";
+        }
+
+        return $"{label}  {itemCount:N0} item(ns)";
+    }
+
     private UserAccount? FindStaffByNumber(int number, string preferredRole)
     {
         if (number <= 0)
@@ -22800,13 +30784,19 @@ public partial class MainWindow : Window
             return "";
         }
 
+        var kind = NormalizeReceiptQrKind(_appSettings.ReceiptQrKind);
         var content = (_appSettings.ReceiptQrContent ?? "").Trim();
         if (string.IsNullOrWhiteSpace(content))
         {
+            if (kind == "PIX")
+            {
+                return "";
+            }
+
             return BuildReceiptQrFallbackPayload(amount);
         }
 
-        return NormalizeReceiptQrKind(_appSettings.ReceiptQrKind) switch
+        return kind switch
         {
             "PIX" => BuildPixQrPayload(content, amount),
             "INSTAGRAM" => NormalizeInstagramQrContent(content),
@@ -22821,6 +30811,11 @@ public partial class MainWindow : Window
         var kind = NormalizeReceiptQrKind(_appSettings.ReceiptQrKind);
         if (string.IsNullOrWhiteSpace(_appSettings.ReceiptQrContent))
         {
+            if (kind == "PIX")
+            {
+                return "";
+            }
+
             return "DADOS DA LOJA";
         }
 
@@ -23402,13 +31397,18 @@ public partial class MainWindow : Window
 
     private void RefreshTotals()
     {
+        var cashOpen = IsCashOpen();
         var ticketTotal = TicketLines.Sum(line => line.Total);
         var paidTotal = Payments.Sum(payment => payment.Amount);
         var balance = Math.Max(0, ticketTotal - paidTotal);
         TicketTotalText.Text = Money(balance);
         CashTotalText.Text = Money(_cashTotal);
-        CashStatusText.Text = IsCashOpen() ? "Caixa aberto" : "Caixa fechado";
-        CashStatusText.Foreground = IsCashOpen() ? Solid("#5B6B7A") : RedText;
+        CashStatusText.Text = cashOpen ? "Caixa aberto" : "Caixa fechado";
+        CashStatusText.Foreground = cashOpen ? Solid("#5B6B7A") : RedText;
+        HeaderCashToggleButton.Content = cashOpen ? "Fechar caixa" : "Abrir caixa";
+        HeaderCashToggleButton.Background = Solid(cashOpen ? "#A11D1D" : "#08A99B");
+        HeaderCashToggleButton.BorderBrush = Solid(cashOpen ? "#A11D1D" : "#08A99B");
+        RefreshCashRibbonAction(cashOpen);
         TodaySalesText.Text = $"Vendas hoje: {Money(GetTodaySalesTotal())}";
         if (CurrentBoard is { } board)
         {
@@ -23421,12 +31421,456 @@ public partial class MainWindow : Window
         CategoriesList.Items.Refresh();
         PaymentsList.Items.Refresh();
         RefreshChargeToggleButton();
+        RefreshCashClosedOperationalUi();
+        RefreshClosedCashDashboard();
+    }
+
+    private void RefreshCashRibbonAction(bool cashOpen)
+    {
+        var index = RibbonActions
+            .Select((action, actionIndex) => (action, actionIndex))
+            .FirstOrDefault(item => item.action.Id == "CloseCash")
+            .actionIndex;
+        if (index < 0 || index >= RibbonActions.Count || RibbonActions[index].Id != "CloseCash")
+        {
+            return;
+        }
+
+        var updated = new RibbonAction("CloseCash", "F10", cashOpen ? "Fechar caixa" : "Abrir caixa", "Clique aqui");
+        if (!Equals(RibbonActions[index], updated))
+        {
+            RibbonActions[index] = updated;
+        }
+    }
+
+    private void RefreshClosedCashDashboard()
+    {
+        if (OperationalWorkArea is null
+            || OperationalModeBar is null
+            || ClosedCashModeBar is null
+            || ClosedCashDashboard is null
+            || ClosedCashDashboardContent is null)
+        {
+            return;
+        }
+
+        var cashOpen = IsCashOpen();
+        OperationalModeBar.Visibility = cashOpen ? Visibility.Visible : Visibility.Collapsed;
+        OperationalWorkArea.Visibility = cashOpen ? Visibility.Visible : Visibility.Collapsed;
+        ClosedCashModeBar.Visibility = cashOpen ? Visibility.Collapsed : Visibility.Visible;
+        ClosedCashDashboard.Visibility = cashOpen ? Visibility.Collapsed : Visibility.Visible;
+
+        if (cashOpen)
+        {
+            ClosedCashDashboardContent.Content = null;
+            return;
+        }
+
+        if (ClosedCashUpdatedText is not null)
+        {
+            ClosedCashUpdatedText.Text = $"Atualizado {DateTime.Now:HH:mm}";
+        }
+
+        ClosedCashDashboardContent.Content = CreateClosedCashDashboardPanel();
+    }
+
+    private UIElement CreateClosedCashDashboardPanel()
+    {
+        var period = _closedCashDashboardPeriod;
+        var periodDetail = ClosedCashPeriodDetail(period);
+        var openOrders = GetOpenReportOrders();
+        var closedOrders = GetClosedReportBoards(period);
+        var topProducts = GetTopReportProducts(period, 12);
+        var lowStock = Products
+            .Where(product => product.MinimumStock > 0 && product.StockQuantity <= product.MinimumStock)
+            .OrderBy(product => product.StockQuantity - product.MinimumStock)
+            .ThenBy(product => product.Name)
+            .Take(12)
+            .ToList();
+        var cashMovements = GetReportCashMovements(period)
+            .OrderByDescending(item => item.When)
+            .Take(12)
+            .ToList();
+        var soldItems = GetSoldItemsForReportPeriod(period);
+        var profitSummary = GetProfitSummaryForReportPeriod(period);
+        var averageTicket = closedOrders.Count > 0 ? profitSummary.Revenue / closedOrders.Count : 0m;
+        var openTotal = openOrders.Sum(order => order.Total);
+        var openAverageTicket = openOrders.Count > 0 ? openTotal / openOrders.Count : 0m;
+        var showIFoodReport = IsIFoodReportEnabled();
+        var ifoodSummary = showIFoodReport ? GetIFoodReportSummary(period) : default;
+        var netProfitEstimate = profitSummary.Profit - (showIFoodReport ? ifoodSummary.EstimatedFee : 0m);
+
+        var root = new StackPanel
+        {
+            Margin = new Thickness(0, 0, 8, 0)
+        };
+
+        root.Children.Add(CreateClosedCashHero(profitSummary, closedOrders.Count, openOrders.Count, openTotal, period));
+
+        var metrics = new UniformGrid
+        {
+            Columns = 4,
+            Rows = 3,
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        metrics.Children.Add(CreateMetricCard("Faturamento", Money(profitSummary.Revenue), $"{closedOrders.Count:N0} conta(s) fechadas - {periodDetail}", "#0B3A52"));
+        metrics.Children.Add(CreateMetricCard("Lucro bruto", Money(profitSummary.Profit), $"Margem {profitSummary.Margin:N2}%", profitSummary.Profit >= 0 ? "#08A99B" : "#A11D1D"));
+        metrics.Children.Add(CreateMetricCard("Custo da mercadoria vendida", $"{profitSummary.CmvPercent:N2}%", $"Custo {Money(profitSummary.Cost)}", ReportCmvColor(profitSummary.CmvPercent)));
+        metrics.Children.Add(CreateMetricCard("Ticket médio", Money(averageTicket), $"{closedOrders.Count:N0} fechamento(s) - {periodDetail}", "#99620D"));
+        metrics.Children.Add(CreateMetricCard("Em aberto", Money(openTotal), $"{openOrders.Count:N0} comanda(s)/pedido(s)", openOrders.Count == 0 ? "#08A99B" : "#A11D1D"));
+        metrics.Children.Add(CreateMetricCard("Itens vendidos", soldItems.ToString("N0", Brazil), $"{topProducts.Count:N0} produto(s) no ranking", "#0B3A52"));
+        metrics.Children.Add(CreateMetricCard("Estoque baixo", lowStock.Count.ToString("N0", Brazil), "itens no mínimo ou abaixo", lowStock.Count == 0 ? "#08A99B" : "#A11D1D"));
+        if (showIFoodReport)
+        {
+            metrics.Children.Add(CreateMetricCard("Repasse iFood", Money(ifoodSummary.EstimatedPayout), $"Líquido previsto - taxa {Money(ifoodSummary.EstimatedFee)}", "#EA1D2C", "iFood"));
+        }
+        else
+        {
+            metrics.Children.Add(CreateMetricCard("Caixa atual", Money(_cashTotal), "caixa fechado", "#A11D1D"));
+        }
+        metrics.Children.Add(CreateMetricCard("Custo total", Money(profitSummary.Cost), "compra e ficha técnica", ReportCmvColor(profitSummary.CmvPercent)));
+        metrics.Children.Add(CreateMetricCard("Margem bruta", $"{profitSummary.Margin:N2}%", Money(profitSummary.Profit), profitSummary.Profit >= 0 ? "#08A99B" : "#A11D1D"));
+        metrics.Children.Add(CreateMetricCard("Ticket em aberto", Money(openAverageTicket), $"{openOrders.Count:N0} pendência(s)", openOrders.Count == 0 ? "#08A99B" : "#99620D"));
+        metrics.Children.Add(CreateMetricCard("Resultado estimado", Money(netProfitEstimate), showIFoodReport ? "lucro menos taxa iFood" : "lucro bruto do período", netProfitEstimate >= 0 ? "#08A99B" : "#A11D1D"));
+
+        root.Children.Add(metrics);
+
+        var recentCard = CreateClosedCashRecentCard(closedOrders, openOrders, lowStock);
+        root.Children.Add(CreateClosedCashActionStrip());
+        AddReportGap(root);
+        root.Children.Add(recentCard);
+        AddReportGap(root);
+
+        root.Children.Add(CreateExecutiveReportPanel(
+            period,
+            closedOrders,
+            openOrders,
+            topProducts,
+            lowStock,
+            cashMovements,
+            profitSummary,
+            showIFoodReport,
+            ifoodSummary));
+
+        return root;
+    }
+
+    private static string ClosedCashPeriodDetail(string period)
+    {
+        var value = (period ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "hoje";
+        }
+
+        return string.Equals(value, "Total", StringComparison.OrdinalIgnoreCase)
+            ? "histórico completo"
+            : value.ToLower(Brazil);
+    }
+
+    private ComboBox CreateClosedCashPeriodSelector()
+    {
+        var box = new ComboBox
+        {
+            ItemsSource = ClosedCashDashboardPeriods,
+            SelectedItem = _closedCashDashboardPeriod,
+            Width = 132,
+            Height = 32,
+            Padding = new Thickness(10, 0, 10, 0),
+            Background = Brushes.White,
+            BorderBrush = Solid("#1D5A73"),
+            Foreground = Solid("#071A2C"),
+            FontSize = 12,
+            FontWeight = FontWeights.Bold,
+            Margin = new Thickness(12, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        box.SelectionChanged += (_, _) =>
+        {
+            var selected = box.SelectedItem?.ToString();
+            if (string.IsNullOrWhiteSpace(selected)
+                || string.Equals(_closedCashDashboardPeriod, selected, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _closedCashDashboardPeriod = selected;
+            RefreshClosedCashDashboard();
+        };
+        return box;
+    }
+
+    private UIElement CreateClosedCashHero(ProfitSummary profitSummary, int closedCount, int openCount, decimal openTotal, string period)
+    {
+        var card = new Border
+        {
+            Background = Solid("#071A2C"),
+            BorderBrush = Solid("#0B3A52"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(18, 14, 18, 14),
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var copy = new StackPanel();
+        var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
+        titleRow.Children.Add(new TextBlock
+        {
+            Text = "Painel do caixa fechado",
+            Foreground = Brushes.White,
+            FontSize = 22,
+            FontWeight = FontWeights.Bold,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        titleRow.Children.Add(new Border
+        {
+            Background = Solid("#0B3A52"),
+            BorderBrush = Solid("#1D5A73"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(999),
+            Padding = new Thickness(10, 3, 10, 3),
+            Margin = new Thickness(12, 1, 0, 0),
+            Child = new TextBlock
+            {
+                Text = "operação pausada",
+                Foreground = Solid("#73E7DE"),
+                FontSize = 12,
+                FontWeight = FontWeights.Bold
+            }
+        });
+        titleRow.Children.Add(CreateClosedCashPeriodSelector());
+        copy.Children.Add(titleRow);
+        copy.Children.Add(new TextBlock
+        {
+            Text = $"Veja o resumo de {ClosedCashPeriodDetail(period)}, resolva pendências e abra o caixa quando estiver pronto para vender.",
+            Foreground = Solid("#C9D7E3"),
+            FontSize = 13,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0)
+        });
+        grid.Children.Add(copy);
+
+        var summary = new UniformGrid
+        {
+            Columns = 3,
+            Rows = 1,
+            MinWidth = 520,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(18, 0, 0, 0)
+        };
+        summary.Children.Add(CreateClosedCashHeroMetric("Vendas no período", Money(profitSummary.Revenue), "#08A99B"));
+        summary.Children.Add(CreateClosedCashHeroMetric("Contas fechadas", closedCount.ToString("N0", Brazil), "#FFFFFF"));
+        summary.Children.Add(CreateClosedCashHeroMetric("Pendências abertas", $"{openCount:N0} | {Money(openTotal)}", openCount == 0 ? "#08A99B" : "#FFC857"));
+        Grid.SetColumn(summary, 1);
+        grid.Children.Add(summary);
+
+        card.Child = grid;
+        return card;
+    }
+
+    private static Border CreateClosedCashHeroMetric(string title, string value, string valueColor)
+    {
+        var row = new Border
+        {
+            Background = Solid("#0B3A52"),
+            BorderBrush = Solid("#1D5A73"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12, 7, 12, 7),
+            Margin = new Thickness(4, 0, 0, 0),
+            MinWidth = 170
+        };
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock
+        {
+            Text = title,
+            Foreground = Solid("#C9D7E3"),
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = value,
+            Foreground = Solid(valueColor),
+            FontSize = 16,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 2, 0, 0)
+        });
+        row.Child = panel;
+        return row;
+    }
+
+    private UIElement CreateClosedCashActionStrip()
+    {
+        var card = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#D5E4EF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(14),
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var copy = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        copy.Children.Add(new TextBlock
+        {
+            Text = "O que fazer agora",
+            Foreground = Solid("#071A2C"),
+            FontSize = 16,
+            FontWeight = FontWeights.Bold
+        });
+        copy.Children.Add(new TextBlock
+        {
+            Text = "Use os atalhos principais antes de voltar para a operação.",
+            Foreground = Solid("#5B6B7A"),
+            FontSize = 12,
+            Margin = new Thickness(0, 3, 0, 0)
+        });
+        grid.Children.Add(copy);
+
+        var actions = new UniformGrid
+        {
+            Columns = 4,
+            Rows = 1,
+            Width = 780,
+            Margin = new Thickness(18, 0, 0, 0)
+        };
+
+        var openCash = DialogButton("Abrir caixa e vender", "#08A99B");
+        openCash.Click += (_, _) =>
+        {
+            if (ToggleCashRegister())
+            {
+                RefreshTotals();
+            }
+        };
+
+        var fullReport = DialogButton("BI completo", "#0B3A52");
+        fullReport.Click += (_, _) => ShowReportsDialog();
+
+        var inventory = DialogButton("Estoque e custo", "#99620D");
+        inventory.Click += (_, _) => ShowInventoryDialog();
+
+        var cash = DialogButton("Movimentos", "#5B6B7A");
+        cash.Click += (_, _) => ShowCashDialog();
+
+        foreach (var button in new[] { openCash, fullReport, inventory, cash })
+        {
+            button.HorizontalAlignment = HorizontalAlignment.Stretch;
+            button.Width = double.NaN;
+            button.Height = 42;
+            button.Margin = new Thickness(5, 0, 0, 0);
+            actions.Children.Add(button);
+        }
+
+        Grid.SetColumn(actions, 1);
+        grid.Children.Add(actions);
+        card.Child = grid;
+        return card;
+    }
+
+    private UIElement CreateClosedCashActionCard()
+    {
+        var panel = new StackPanel();
+        var openCash = DialogButton("Abrir caixa e vender", "#08A99B");
+        openCash.HorizontalAlignment = HorizontalAlignment.Stretch;
+        openCash.Width = double.NaN;
+        openCash.Click += (_, _) =>
+        {
+            if (ToggleCashRegister())
+            {
+                RefreshClosedCashDashboard();
+            }
+        };
+
+        var fullReport = DialogButton("Abrir BI completo", "#0B3A52");
+        fullReport.HorizontalAlignment = HorizontalAlignment.Stretch;
+        fullReport.Width = double.NaN;
+        fullReport.Click += (_, _) => ShowReportsDialog();
+
+        var inventory = DialogButton("Ver estoque e custo", "#99620D");
+        inventory.HorizontalAlignment = HorizontalAlignment.Stretch;
+        inventory.Width = double.NaN;
+        inventory.Click += (_, _) => ShowInventoryDialog();
+
+        var cash = DialogButton("Movimentos de caixa", "#5B6B7A");
+        cash.HorizontalAlignment = HorizontalAlignment.Stretch;
+        cash.Width = double.NaN;
+        cash.Click += (_, _) => ShowCashDialog();
+
+        panel.Children.Add(openCash);
+        panel.Children.Add(fullReport);
+        panel.Children.Add(inventory);
+        panel.Children.Add(cash);
+
+        return CreateReportChartCard(
+            "Ações de gestão",
+            "Atalhos que fazem sentido com o caixa fechado.",
+            panel);
+    }
+
+    private UIElement CreateClosedCashRecentCard(
+        IReadOnlyList<TableTile> closedOrders,
+        IReadOnlyList<TableTile> openOrders,
+        IReadOnlyList<ProductTile> lowStock)
+    {
+        var panel = new StackPanel();
+        if (openOrders.Count > 0)
+        {
+            panel.Children.Add(CreateReportRow(
+                "Pendências abertas",
+                "Feche ou confira antes de começar outra operação.",
+                $"{openOrders.Count:N0} | {Money(openOrders.Sum(order => order.Total))}",
+                "#A11D1D"));
+        }
+
+        foreach (var board in closedOrders.Take(4))
+        {
+            panel.Children.Add(CreateReportRow(
+                $"{ReportChannelLabel(board)} {board.Number}",
+                board.LastClosedAt.HasValue ? $"Fechado {board.LastClosedAt.Value:HH:mm}" : "Fechado hoje",
+                Money(ReportBoardRevenue(board)),
+                "#0B3A52"));
+        }
+
+        if (lowStock.Count > 0)
+        {
+            foreach (var product in lowStock.Take(3))
+            {
+                panel.Children.Add(CreateReportRow(
+                    product.Name,
+                    $"Estoque {product.StockQuantity:N0} | mínimo {product.MinimumStock:N0}",
+                    "Estoque",
+                    "#99620D"));
+            }
+        }
+
+        if (panel.Children.Count == 0)
+        {
+            panel.Children.Add(CreateEmptyReportState("Sem pendências importantes agora."));
+        }
+
+        return CreateReportChartCard(
+            "Resumo rápido",
+            "Últimos fechamentos e pontos que merecem atenção.",
+            panel);
     }
 
     private void RefreshIFoodDeliveryLockUi(TableTile? board)
     {
         var locked = IsIFoodDeliveryBoard(board);
-        var canEditProducts = !locked;
+        var cashOpen = IsCashOpen();
+        var canEditProducts = cashOpen && !locked;
 
         CodeBox.IsEnabled = canEditProducts;
         QuantityBox.IsEnabled = canEditProducts;
@@ -23436,12 +31880,16 @@ public partial class MainWindow : Window
         NoteBox.IsEnabled = canEditProducts;
         ChargeToggleButton.IsEnabled = canEditProducts;
 
-        SearchButton.Content = locked ? "F9 Acoes iFood" : "F3 Catalogo";
+        SearchButton.Content = !cashOpen ? "BI Relatorios" : locked ? "F9 Acoes iFood" : "F3 Catalogo";
         SearchButton.ToolTip = locked
             ? "Abrir acoes do pedido iFood: confirmar, preparar, pronto, despachar ou cancelar."
-            : "Pesquisar produto";
+            : cashOpen
+                ? "Pesquisar produto"
+                : "Caixa fechado: abrir relatorios e BI do restaurante.";
 
-        KeyboardText.Text = locked
+        KeyboardText.Text = !cashOpen
+            ? "Caixa fechado: comanda, balcao e delivery pausados  |  F10 abre caixa  |  BI mostra ontem, semana, mes, lucro e delivery"
+            : locked
             ? "Pedido iFood: F9 abre acoes/despacho  |  Itens bloqueados para edicao manual  |  F10 abrir/fechar caixa"
             : "Tab troca area: Comanda > Mesas/Fichas > Venda rapida  |  Enter inclui  |  F3 catalogo  |  Excluir na linha do item  |  F10 abrir/fechar caixa";
 
@@ -23467,6 +31915,76 @@ public partial class MainWindow : Window
             SelectedProductText.Text = "Pedido iFood bloqueado para edicao. Use F9 ou Acoes iFood para confirmar/despachar.";
             SelectArea(KeyboardArea.Ticket);
         }
+
+        if (!cashOpen)
+        {
+            SelectedProductText.Text = "Caixa fechado. Abra com F10 para vender; use BI para acompanhar vendas, lucro, custo e delivery.";
+            SelectArea(KeyboardArea.Ticket);
+        }
+    }
+
+    private bool RequireCashOpenForFront(string action)
+    {
+        if (IsCashOpen())
+        {
+            return true;
+        }
+
+        SetStatus($"Caixa fechado. Abra com F10 antes de {action}; os relatorios continuam liberados para conferencia.");
+        RefreshCashClosedOperationalUi();
+        return false;
+    }
+
+    private void RefreshCashClosedOperationalUi()
+    {
+        if (ModeList is null)
+        {
+            return;
+        }
+
+        var cashOpen = IsCashOpen();
+        var currentIFoodLocked = cashOpen && IsCurrentIFoodDeliveryLocked();
+        var canEditProducts = cashOpen && !currentIFoodLocked;
+        ModeList.IsEnabled = cashOpen;
+        ModeList.ToolTip = cashOpen
+            ? "Escolha Comanda, Balcao ou Delivery."
+            : "Caixa fechado: Comanda, Balcao e Delivery estao pausados ate abrir o caixa.";
+        TablesList.IsEnabled = cashOpen;
+        CreateTablesButton.IsEnabled = cashOpen && string.Equals(CurrentMode, "Comandas", StringComparison.OrdinalIgnoreCase);
+        TableBox.IsEnabled = cashOpen;
+        WaiterBox.IsEnabled = cashOpen;
+        CodeBox.IsEnabled = canEditProducts;
+        QuantityBox.IsEnabled = canEditProducts;
+        PriceBox.IsEnabled = canEditProducts;
+        NoteBox.IsEnabled = canEditProducts;
+        CategoriesList.IsEnabled = cashOpen;
+        ProductsList.IsEnabled = canEditProducts;
+        SearchBox.IsEnabled = canEditProducts;
+        ChargeToggleButton.IsEnabled = canEditProducts;
+        SearchButton.IsEnabled = true;
+
+        if (!cashOpen)
+        {
+            SearchButton.Content = "BI Relatorios";
+            SearchButton.ToolTip = "Caixa fechado: abrir relatorios de venda, lucro, custo e delivery.";
+            ActiveAreaText.Text = "Caixa fechado: operacao pausada";
+            OpenInfoText.Text = "Caixa fechado  |  Comanda, balcao e delivery desativados  |  F10 abre caixa";
+            foreach (var line in TicketLines)
+            {
+                line.CanDelete = false;
+            }
+
+            TicketList.Items.Refresh();
+            return;
+        }
+
+        ActiveAreaText.Text = _area switch
+        {
+            KeyboardArea.Tables => CurrentMode == "Balcao" ? "Area: Fichas" : "Area: Mesas",
+            KeyboardArea.Categories => "Area: Categorias",
+            KeyboardArea.Ticket => "Area: Comanda",
+            _ => "Area: Venda rapida"
+        };
     }
 
     private decimal GetTodaySalesTotal()
@@ -23632,6 +32150,15 @@ public partial class MainWindow : Window
         color = "#08A99B";
         softColor = "#E6FBF8";
 
+        if (lower.Contains("whatsapp ativo") || lower.Contains("whatsapp:"))
+        {
+            title = "Cliente no WhatsApp";
+            code = "WA";
+            color = "#08A99B";
+            softColor = "#E6FBF8";
+            return true;
+        }
+
         if (lower.Contains("bloquead") || lower.Contains("pendente"))
         {
             title = "Bloqueado";
@@ -23703,63 +32230,60 @@ public partial class MainWindow : Window
         RibbonActions.Clear();
         RibbonActions.Add(new("SearchProducts", "PS", "Pesquisa", "Produtos"));
         RibbonActions.Add(new("TransferProducts", "F6", "Transferir", "Comanda"));
-        RibbonActions.Add(new("Discount", "DS", "Desconto", "Permissao"));
+        RibbonActions.Add(new("Discount", "DS", "Desconto", "Permissão"));
         RibbonActions.Add(new("ChangeClient", "CL", "Cadastro", "Clientes"));
         RibbonActions.Add(new("ReopenCommand", "RC", "Reabrir", "Gerente"));
-        RibbonActions.Add(new("PeopleCount", "EQ", "Equipe", "Garcom/Caixa"));
+        RibbonActions.Add(new("PeopleCount", "EQ", "Equipe", "Garçom/Caixa"));
         RibbonActions.Add(new("ProductCatalog", "CP", "Cadastro", "Produtos"));
         RibbonActions.Add(new("Cash", "CX", "Caixa", "Movimentos"));
+        RibbonActions.Add(new("ReceivePayment", "F9", "Receber", "Pagamento"));
         RibbonActions.Add(new("CloseCash", "F10", "Abrir/Fechar", "Caixa"));
         RibbonActions.Add(new("DeliveryNew", "DL", "Novo", "Delivery"));
-        RibbonActions.Add(new("DeliveryZones", "TZ", "Taxas", "Delivery"));
-        RibbonActions.Add(new("IFood", "IF", "iFood", "Pedidos"));
-        RibbonActions.Add(new("WhatsApp", "WA", "Ativar", "WhatsApp"));
-        RibbonActions.Add(new("WaiterWeb", "GW", "Garcom", "Web"));
         RibbonActions.Add(new("Inventory", "ES", "Estoque", "Receitas"));
-        RibbonActions.Add(new("Cardapio", "QR", "Cardapio", "Digital"));
-        RibbonActions.Add(new("Reports", "BI", "Relatorios", "Vendas"));
-        RibbonActions.Add(new("Backup", "BK", "Backup", "Dados"));
+        RibbonActions.Add(new("Cardapio", "QR", "Cardápio", "Digital"));
+        RibbonActions.Add(new("Reports", "BI", "Relatórios", "Vendas"));
     }
 
     private void EnsureOnlineRibbonActions()
     {
+        NormalizeReceivePaymentRibbonAction();
         NormalizeWhatsAppRibbonAction();
-        if (RibbonActions.Any(action => action.Id == "IFood")
-            && RibbonActions.Any(action => action.Id == "WaiterWeb")
-            && RibbonActions.Any(action => action.Id == "DeliveryZones")
-            && RibbonActions.Any(action => action.Id == "WhatsApp"))
+        RemoveRetiredRibbonActions();
+    }
+
+    private void NormalizeReceivePaymentRibbonAction()
+    {
+        var action = BuildReceivePaymentRibbonAction();
+        for (var i = 0; i < RibbonActions.Count; i++)
         {
-            return;
+            if (RibbonActions[i].Id == action.Id)
+            {
+                RibbonActions[i] = action;
+                return;
+            }
         }
 
-        var insertAt = RibbonActions
-            .Select((action, index) => new { action.Id, index })
-            .FirstOrDefault(item => item.Id == "Inventory")?.index ?? RibbonActions.Count;
-        if (RibbonActions.All(action => action.Id != "DeliveryZones"))
+        var insertIndex = RibbonActions.Count;
+        for (var i = 0; i < RibbonActions.Count; i++)
         {
-            RibbonActions.Insert(insertAt, new RibbonAction("DeliveryZones", "TZ", "Taxas", "Delivery"));
-            insertAt++;
+            if (RibbonActions[i].Id == "CloseCash")
+            {
+                insertIndex = i;
+                break;
+            }
         }
 
-        if (RibbonActions.All(action => action.Id != "IFood"))
-        {
-            RibbonActions.Insert(insertAt, new RibbonAction("IFood", "IF", "iFood", "Pedidos"));
-            insertAt++;
-        }
+        RibbonActions.Insert(insertIndex, action);
+    }
 
-        if (RibbonActions.All(action => action.Id != "WhatsApp"))
+    private void RemoveRetiredRibbonActions()
+    {
+        for (var i = RibbonActions.Count - 1; i >= 0; i--)
         {
-            RibbonActions.Insert(insertAt, new RibbonAction("WhatsApp", "WA", "Ativar", "WhatsApp"));
-            insertAt++;
-        }
-        else
-        {
-            NormalizeWhatsAppRibbonAction();
-        }
-
-        if (RibbonActions.All(action => action.Id != "WaiterWeb"))
-        {
-            RibbonActions.Insert(insertAt, new RibbonAction("WaiterWeb", "GW", "Garcom", "Web"));
+            if (RibbonActions[i].Id == "Management")
+            {
+                RibbonActions.RemoveAt(i);
+            }
         }
     }
 
@@ -23769,10 +32293,20 @@ public partial class MainWindow : Window
         {
             if (RibbonActions[i].Id == "WhatsApp")
             {
-                RibbonActions[i] = RibbonActions[i] with { KeyText = "WA", Title = "Ativar", Subtitle = "WhatsApp" };
+                RibbonActions[i] = BuildWhatsAppRibbonAction();
                 return;
             }
         }
+    }
+
+    private RibbonAction BuildWhatsAppRibbonAction()
+    {
+        return new RibbonAction("WhatsApp", "WA", "WhatsApp", "Atendimento");
+    }
+
+    private static RibbonAction BuildReceivePaymentRibbonAction()
+    {
+        return new RibbonAction("ReceivePayment", "F9", "Receber", "Pagamento");
     }
 
     private void SeedStore()
@@ -23796,26 +32330,7 @@ public partial class MainWindow : Window
         TicketLines.Clear();
         Payments.Clear();
         Users.Clear();
-        Users.Add(new UserAccount
-        {
-            Name = "MASTER",
-            Pin = "1234",
-            EmployeeNumber = "0",
-            Role = "MASTER",
-            IsMaster = true,
-            CanTransfer = true,
-            CanCancel = true,
-            CanDiscount = true,
-            CanManageProducts = true,
-            CanReports = true,
-            CanCash = true
-        });
-        Users.Add(new UserAccount { Name = "CAIXA", Pin = "1111", EmployeeNumber = "1", Role = "CAIXA", CanCash = true, CanCancel = true, CanDiscount = true });
-        Users.Add(new UserAccount { Name = "GARCOM", Pin = "2222", EmployeeNumber = "1", Role = "GARCOM", CanTransfer = true });
-        foreach (var user in Users)
-        {
-            NormalizeLoadedUser(user);
-        }
+        SeedDefaultUsers();
 
         Drivers.Clear();
 
@@ -23823,6 +32338,10 @@ public partial class MainWindow : Window
         WhatsAppHistory.Clear();
         WhatsAppPendingOrders.Clear();
         CashMovements.Clear();
+        FinanceEntries.Clear();
+        SupplierQuotes.Clear();
+        GoodsReceipts.Clear();
+        StaffShifts.Clear();
         _settings = new LocalHubSettings();
         _profile = new RestaurantIdentityProfile();
         _appSettings = new AppSettings();
@@ -23845,6 +32364,7 @@ public partial class MainWindow : Window
         }
 
         SeedStore();
+        WriteStoreFile(CreateStoreSnapshot());
         CreateLocalStoreBackup("primeira-carga", force: true);
     }
 
@@ -23897,6 +32417,10 @@ public partial class MainWindow : Window
             Drivers = Drivers.ToList(),
             Customers = Customers.ToList(),
             CashMovements = CashMovements.ToList(),
+            FinanceEntries = FinanceEntries.ToList(),
+            SupplierQuotes = SupplierQuotes.ToList(),
+            GoodsReceipts = GoodsReceipts.ToList(),
+            StaffShifts = StaffShifts.ToList(),
             WhatsAppHistory = WhatsAppHistory.Take(500).ToList(),
             WhatsAppPendingOrders = WhatsAppPendingOrders.Take(100).ToList(),
             Settings = _settings,
@@ -23906,18 +32430,26 @@ public partial class MainWindow : Window
 
     private bool ApplyStore(AppStore store)
     {
+        if (store is null)
+        {
+            return false;
+        }
+
+        NormalizeStoreCollections(store);
+        PdvOperationalCore.NormalizeStore(store);
+
         if (store.RibbonActions.Count > 0)
         {
             RibbonActions.Clear();
-            foreach (var item in store.RibbonActions.Where(action => action.Id is not "Users" and not "DeleteCommand" and not "FiscalTef"))
+            foreach (var item in store.RibbonActions.Where(action => action.Id is not "Users" and not "DeleteCommand" and not "FiscalTef" and not "Management"))
             {
                 RibbonActions.Add(item.Id switch
                 {
                     "ChangeClient" => item with { Title = "Cadastro", Subtitle = "Clientes" },
                     "TransferProducts" => item with { KeyText = "F6", Title = "Transferir", Subtitle = "Comanda" },
                     "ReopenCommand" => item with { KeyText = "RC", Title = "Reabrir", Subtitle = "Gerente" },
-                    "PeopleCount" => item with { KeyText = "EQ", Title = "Equipe", Subtitle = "Garcom/Caixa" },
-                    "WhatsApp" => item with { KeyText = "WA", Title = "Ativar", Subtitle = "WhatsApp" },
+                    "PeopleCount" => item with { KeyText = "EQ", Title = "Equipe", Subtitle = "Garçom/Caixa" },
+                    "WhatsApp" => BuildWhatsAppRibbonAction(),
                     _ => item
                 });
             }
@@ -23941,7 +32473,9 @@ public partial class MainWindow : Window
             var loadedAppSettings = _appSettings;
             _appSettings = store.AppSettings;
             MergeWhatsAppSendPulseSettings(loadedAppSettings.WhatsApp, _appSettings.WhatsApp ??= new WhatsAppSettings());
+            TryApplyEvolutionLocalEnv(_appSettings.WhatsApp);
             RestoreWhatsAppRuntimeStateOnStartup();
+            NormalizeWhatsAppRibbonAction();
             NormalizeProductionDestinations();
             SaveAppSettings();
         }
@@ -23983,6 +32517,9 @@ public partial class MainWindow : Window
             }
 
             item.Sector = destination;
+            item.Modifiers ??= [];
+            item.RecipeItems ??= [];
+            item.StockHistory ??= [];
             Products.Add(item);
         }
         ApplyPendingIFoodStockReconciliation();
@@ -23993,6 +32530,10 @@ public partial class MainWindow : Window
         {
             NormalizeLoadedUser(item);
             Users.Add(item);
+        }
+        if (Users.Count == 0)
+        {
+            SeedDefaultUsers();
         }
         RemoveDefaultSeedUsersIfRealUsersExist();
         Drivers.Clear();
@@ -24011,6 +32552,14 @@ public partial class MainWindow : Window
         }
         CashMovements.Clear();
         foreach (var item in store.CashMovements) CashMovements.Add(item);
+        FinanceEntries.Clear();
+        foreach (var item in store.FinanceEntries) FinanceEntries.Add(item);
+        SupplierQuotes.Clear();
+        foreach (var item in store.SupplierQuotes) SupplierQuotes.Add(item);
+        GoodsReceipts.Clear();
+        foreach (var item in store.GoodsReceipts) GoodsReceipts.Add(item);
+        StaffShifts.Clear();
+        foreach (var item in store.StaffShifts) StaffShifts.Add(item);
         _settings = store.Settings ?? new LocalHubSettings();
         _cashTotal = store.CashTotal;
 
@@ -24021,7 +32570,54 @@ public partial class MainWindow : Window
             Tables[0].Total = Tables[0].Lines.Sum(line => line.Total);
         }
 
-        return Users.Count > 0;
+        return true;
+    }
+
+    private void SeedDefaultUsers()
+    {
+        Users.Clear();
+        Users.Add(new UserAccount
+        {
+            Name = "MASTER",
+            Pin = "1234",
+            EmployeeNumber = "0",
+            Role = "MASTER",
+            IsMaster = true,
+            CanTransfer = true,
+            CanCancel = true,
+            CanDiscount = true,
+            CanManageProducts = true,
+            CanReports = true,
+            CanCash = true
+        });
+        Users.Add(new UserAccount { Name = "CAIXA", Pin = "1111", EmployeeNumber = "1", Role = "CAIXA", CanCash = true, CanCancel = true, CanDiscount = true });
+        Users.Add(new UserAccount { Name = "GARCOM", Pin = "2222", EmployeeNumber = "1", Role = "GARCOM", CanTransfer = true });
+        foreach (var user in Users)
+        {
+            NormalizeLoadedUser(user);
+        }
+    }
+
+    private static void NormalizeStoreCollections(AppStore store)
+    {
+        store.RibbonActions ??= [];
+        store.Tables ??= [];
+        store.DeliveryTiles ??= [];
+        store.KitchenTiles ??= [];
+        store.Categories ??= [];
+        store.Products ??= [];
+        store.TicketLines ??= [];
+        store.Payments ??= [];
+        store.Users ??= [];
+        store.Customers ??= [];
+        store.Drivers ??= [];
+        store.CashMovements ??= [];
+        store.FinanceEntries ??= [];
+        store.SupplierQuotes ??= [];
+        store.GoodsReceipts ??= [];
+        store.StaffShifts ??= [];
+        store.WhatsAppHistory ??= [];
+        store.WhatsAppPendingOrders ??= [];
     }
 
     private void ApplyPendingIFoodStockReconciliation()
@@ -24798,6 +33394,17 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         return value.ToString("C", Brazil);
     }
 
+    private string AreaText()
+    {
+        return _area switch
+        {
+            KeyboardArea.Tables => CurrentMode == "Balcao" ? "Area: Fichas" : "Area: Mesas",
+            KeyboardArea.Categories => "Area: Categorias",
+            KeyboardArea.Ticket => "Area: Comanda",
+            _ => "Area: Venda rapida"
+        };
+    }
+
     private static Brush Solid(string hex)
     {
         return new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
@@ -24827,6 +33434,10 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public List<CustomerRecord> Customers { get; set; } = [];
         public List<DeliveryDriver> Drivers { get; set; } = [];
         public List<CashMovement> CashMovements { get; set; } = [];
+        public List<FinanceEntry> FinanceEntries { get; set; } = [];
+        public List<SupplierQuote> SupplierQuotes { get; set; } = [];
+        public List<GoodsReceipt> GoodsReceipts { get; set; } = [];
+        public List<StaffShiftRecord> StaffShifts { get; set; } = [];
         public List<WhatsAppMessageLog> WhatsAppHistory { get; set; } = [];
         public List<WhatsAppPendingOrder> WhatsAppPendingOrders { get; set; } = [];
         public LocalHubSettings? Settings { get; set; }
@@ -24839,6 +33450,7 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
     {
         private bool _isSelected;
         private string _customerName = "";
+        private string _driver = "";
         private string _status = "LIVRE";
         private decimal _total;
 
@@ -24865,7 +33477,21 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string Address { get; set; } = "";
         public string CustomerCpf { get; set; } = "";
         public string District { get; set; } = "";
-        public string Driver { get; set; } = "";
+        public string Driver
+        {
+            get => _driver;
+            set
+            {
+                if (_driver == value)
+                {
+                    return;
+                }
+
+                _driver = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(DisplaySubtitle));
+            }
+        }
         public string Notes { get; set; } = "";
         public string ExternalSource { get; set; } = "";
         public string ExternalOrderId { get; set; } = "";
@@ -25057,6 +33683,8 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
 
     private readonly record struct ProfitSummary(decimal Revenue, decimal Cost, decimal Profit, decimal Margin)
     {
+        public decimal CmvPercent => Revenue > 0 ? Cost / Revenue * 100m : 0m;
+
         public static ProfitSummary From(decimal revenue, decimal cost)
         {
             var profit = revenue - cost;
@@ -25064,6 +33692,8 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
             return new ProfitSummary(revenue, cost, profit, margin);
         }
     }
+
+    private readonly record struct ReportSlice(string Title, string Detail, decimal Value, string ValueText, string AccentColor);
 
     private readonly record struct IFoodReportSummary(
         int TotalOrders,
@@ -25075,10 +33705,17 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         decimal MerchantRevenue,
         decimal IFoodShipmentRevenue,
         decimal Revenue,
+        int OnlinePaymentOrders,
+        int DirectPaymentOrders,
+        decimal OnlinePaymentRevenue,
+        decimal DirectPaymentRevenue,
+        int UnspecifiedPaymentOrders,
+        decimal UnspecifiedPaymentRevenue,
         decimal ProductCost,
         decimal EstimatedMerchantFee,
         decimal EstimatedIFoodShipmentFee,
         decimal EstimatedFee,
+        decimal EstimatedPayout,
         decimal EstimatedNetProfit,
         decimal EstimatedMargin);
 
@@ -25112,6 +33749,12 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string IFoodProductId { get; set; } = "";
         public string IFoodExternalCode { get; set; } = "";
         public bool IFoodCompositionEnabled { get; set; }
+        public string FiscalNcm { get; set; } = "";
+        public string FiscalCest { get; set; } = "";
+        public string FiscalCfop { get; set; } = "";
+        public string FiscalCsosn { get; set; } = "";
+        public string FiscalOrigin { get; set; } = "";
+        public string FiscalUnit { get; set; } = "";
         public List<ProductModifier> Modifiers { get; set; } = [];
         public List<ProductRecipeItem> RecipeItems { get; set; } = [];
         public decimal StockQuantity { get; set; }
@@ -25124,8 +33767,10 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         [JsonIgnore] public string PriceText => Money(Price);
         [JsonIgnore] public decimal ProfitAmount => Price - CostPrice;
         [JsonIgnore] public decimal ProfitMargin => Price > 0 ? ProfitAmount / Price * 100m : 0m;
-        [JsonIgnore] public string ProfitMarginText => $"Margem {ProfitMargin:N2}%";
-        [JsonIgnore] public string ProfitSummary => $"Compra {CostPriceText}  Venda {PriceText}  Lucro {Money(ProfitAmount)}";
+        [JsonIgnore] public decimal CmvPercent => Price > 0 ? CostPrice / Price * 100m : 0m;
+        [JsonIgnore] public string CmvText => $"CMV {CmvPercent:N2}%";
+        [JsonIgnore] public string ProfitMarginText => $"CMV {CmvPercent:N2}%  |  Margem {ProfitMargin:N2}%";
+        [JsonIgnore] public string ProfitSummary => $"Compra {CostPriceText}  Venda {PriceText}  CMV {CmvPercent:N2}%  Lucro {Money(ProfitAmount)}";
         [JsonIgnore] public bool HasImage => !string.IsNullOrWhiteSpace(ImagePath);
         [JsonIgnore] public string ImageStatusText => HasImage ? "Com foto" : "Sem foto";
         [JsonIgnore] public string IFoodCompositionText => IFoodCompositionEnabled
@@ -25137,6 +33782,7 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
             : $"{Code} {Name}  estoque {StockQuantity:N0}  minimo {MinimumStock:N0}";
         [JsonIgnore] public bool IsLowStock => StockQuantity < 0 || (MinimumStock > 0 && StockQuantity <= MinimumStock);
         [JsonIgnore] public string StockStatusText => StockQuantity < 0 ? "NEGATIVO" : IsLowStock ? "CRITICO" : "OK";
+        public override string ToString() => SearchDisplay;
 
         [JsonIgnore]
         public bool IsSelected
@@ -25220,6 +33866,8 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
                     : $"{number} - {Name}  {Role}";
             }
         }
+
+        public override string ToString() => Display;
     }
 
     public sealed class CustomerRecord
@@ -25230,7 +33878,19 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string Address { get; set; } = "";
         public string District { get; set; } = "";
         public string Notes { get; set; } = "";
+        public DateTime? Birthday { get; set; }
+        public DateTime? LastPurchaseAt { get; set; }
+        public DateTime? LastPromotionAt { get; set; }
+        public bool MarketingConsent { get; set; }
+        public DateTime? DataConsentAt { get; set; }
+        public string DataConsentSource { get; set; } = "";
+        public DateTime? PrivacyRemovalAt { get; set; }
+        public decimal TotalSpent { get; set; }
+        public int Points { get; set; }
+        public decimal CashbackBalance { get; set; }
         [JsonIgnore] public string Display => $"{Name}  {Phone}  {Cpf}";
+        [JsonIgnore] public string LoyaltyDisplay => $"{Name}  pontos {Points:N0}  cashback {Money(CashbackBalance)}  ultima {LastPurchaseAt?.ToString("dd/MM") ?? "-"}";
+        public override string ToString() => Display;
     }
 
     public sealed class DeliveryDriver
@@ -25238,6 +33898,13 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string Name { get; set; } = "";
         public string Phone { get; set; } = "";
         public bool Active { get; set; } = true;
+        [JsonIgnore] public string Display => string.Join("  ", new[]
+        {
+            Name,
+            Phone,
+            Active ? "ATIVO" : "INATIVO"
+        }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        public override string ToString() => Display;
     }
 
     public sealed class DeliveryZoneFee
@@ -25279,6 +33946,52 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string CscId { get; set; } = "";
         public string Environment { get; set; } = "HOMOLOGACAO";
         public bool RequireFiscalBeforeReceipt { get; set; }
+        public bool RestaurantNfEnabled { get; set; }
+        public string RestaurantNfModel { get; set; } = "NFC-E";
+        public string RestaurantNfIntegrationProvider { get; set; } = "UNIMAKE.DFE";
+        public string RestaurantNfState { get; set; } = "";
+        public string RestaurantNfCity { get; set; } = "";
+        public int RestaurantNfMunicipalityCode { get; set; }
+        public string RestaurantNfAddress { get; set; } = "";
+        public string RestaurantNfAddressNumber { get; set; } = "";
+        public string RestaurantNfDistrict { get; set; } = "";
+        public string RestaurantNfZipCode { get; set; } = "";
+        public string RestaurantNfRegime { get; set; } = "SIMPLES NACIONAL";
+        public string RestaurantNfStateRegistration { get; set; } = "";
+        public int RestaurantNfSeries { get; set; } = 1;
+        public int RestaurantNfNextNumber { get; set; } = 1;
+        public string RestaurantNfCscId { get; set; } = "";
+        public string RestaurantNfCscToken { get; set; } = "";
+        public string RestaurantNfCertificatePath { get; set; } = "";
+        public string RestaurantNfCertificatePassword { get; set; } = "";
+        public string RestaurantDefaultNcm { get; set; } = "";
+        public string RestaurantDefaultCfop { get; set; } = "5102";
+        public string RestaurantDefaultCsosn { get; set; } = "102";
+        public string RestaurantDefaultOrigin { get; set; } = "0";
+        public string RestaurantDefaultUnit { get; set; } = "UN";
+        public bool RestaurantIncludeDeliveryFee { get; set; } = true;
+        public bool RestaurantIncludeServiceFee { get; set; } = true;
+        public bool RestaurantIncludeCouvert { get; set; } = true;
+        public bool RestaurantAutoIssueAfterPayment { get; set; }
+        public bool RestaurantPrintDanfeAfterAuthorization { get; set; } = true;
+        public DateTime? RestaurantNfLastReadyCheckAt { get; set; }
+        public string RestaurantNfLastReadyMessage { get; set; } = "";
+        public List<RestaurantNfceIssueRecord> RestaurantNfceHistory { get; set; } = [];
+    }
+
+    public sealed class RestaurantNfceIssueRecord
+    {
+        public DateTime IssuedAt { get; set; } = DateTime.Now;
+        public string Environment { get; set; } = "";
+        public int Series { get; set; }
+        public int Number { get; set; }
+        public string AccessKey { get; set; } = "";
+        public string StatusCode { get; set; } = "";
+        public string StatusMessage { get; set; } = "";
+        public decimal Total { get; set; }
+        public string Board { get; set; } = "";
+        public string XmlPath { get; set; } = "";
+        public string Protocol { get; set; } = "";
     }
 
     public sealed class CashClosingSnapshot
@@ -25306,6 +34019,54 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         [JsonIgnore] public string Display => $"{When:t}  {CashMovementLabel(Type)}  {Money(Amount)}  {Reason}";
     }
 
+    public sealed class FinanceEntry
+    {
+        public string Type { get; set; } = "PAGAR";
+        public string Description { get; set; } = "";
+        public string Category { get; set; } = "";
+        public decimal Amount { get; set; }
+        public DateTime DueDate { get; set; } = DateTime.Today;
+        public bool Paid { get; set; }
+        public DateTime? PaidAt { get; set; }
+        public string Notes { get; set; } = "";
+        [JsonIgnore] public string Display => $"{DueDate:dd/MM}  {Type}  {Description}  {Money(Amount)}  {(Paid ? "PAGO" : "ABERTO")}";
+    }
+
+    public sealed class SupplierQuote
+    {
+        public string Supplier { get; set; } = "";
+        public string ProductCode { get; set; } = "";
+        public string ProductName { get; set; } = "";
+        public decimal UnitPrice { get; set; }
+        public DateTime QuotedAt { get; set; } = DateTime.Now;
+        public string Notes { get; set; } = "";
+        [JsonIgnore] public string Display => $"{QuotedAt:dd/MM}  {Supplier}  {ProductName}  {Money(UnitPrice)}";
+    }
+
+    public sealed class GoodsReceipt
+    {
+        public string Supplier { get; set; } = "";
+        public string ProductCode { get; set; } = "";
+        public string ProductName { get; set; } = "";
+        public decimal Quantity { get; set; }
+        public decimal UnitCost { get; set; }
+        public DateTime ReceivedAt { get; set; } = DateTime.Now;
+        [JsonIgnore] public string Display => $"{ReceivedAt:dd/MM HH:mm}  {Supplier}  {ProductName}  +{Quantity:N2}  {Money(UnitCost)}";
+    }
+
+    public sealed class StaffShiftRecord
+    {
+        public string StaffNumber { get; set; } = "";
+        public string StaffName { get; set; } = "";
+        public DateTime Date { get; set; } = DateTime.Today;
+        public string Shift { get; set; } = "TURNO";
+        public bool DayOff { get; set; }
+        public int LateMinutes { get; set; }
+        public decimal ExtraHours { get; set; }
+        public string Notes { get; set; } = "";
+        [JsonIgnore] public string Display => $"{Date:dd/MM}  {StaffNumber} {StaffName}  {Shift}  atraso {LateMinutes:N0}min  extra {ExtraHours:N2}h{(DayOff ? "  FOLGA" : "")}";
+    }
+
     public sealed class WhatsAppSettings
     {
         public bool Enabled { get; set; } = true;
@@ -25319,6 +34080,21 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string SendPulseOrderConfirmedScript { get; set; } = "";
         public string SendPulseOrderReadyScript { get; set; } = "";
         public string SendPulseOrderDispatchedScript { get; set; } = "";
+        public string EvolutionLocalBaseUrl { get; set; } = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/evolution-proxy";
+        public string EvolutionLocalApiKey { get; set; } = "";
+        public string EvolutionLocalInstanceName { get; set; } = "balcao-livre-online";
+        public string EvolutionLocalLastState { get; set; } = "";
+        public string EvolutionLocalConnectedName { get; set; } = "";
+        public string EvolutionLocalConnectedPhone { get; set; } = "";
+        public DateTime? EvolutionLocalLastConnectedAt { get; set; }
+        public bool EvolutionLocalAutoReceiveEnabled { get; set; }
+        public DateTime? EvolutionLocalLastMessageAt { get; set; }
+        public bool WhatsAppMessageOrdersEnabled { get; set; }
+        public bool WhatsAppBrainEnabled { get; set; } = true;
+        public bool WhatsAppBrainLearningEnabled { get; set; } = true;
+        public bool WhatsAppBrainLocalModelEnabled { get; set; }
+        public string WhatsAppBrainLocalModelPath { get; set; } = "";
+        public List<WhatsAppBrainLearningExample> WhatsAppBrainLearningExamples { get; set; } = [];
         public bool AutoPressEnter { get; set; } = true;
         public int SendDelaySeconds { get; set; } = 8;
         public string DefaultCountryCode { get; set; } = "55";
@@ -25344,6 +34120,9 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public DateTime When { get; set; } = DateTime.Now;
         public DateTime? OpenedAt { get; set; }
         public DateTime? SentAt { get; set; }
+        public int SendAttempts { get; set; }
+        public DateTime? LastAttemptAt { get; set; }
+        public DateTime? NextRetryAt { get; set; }
         [JsonIgnore] public string Display => $"{When:dd/MM HH:mm}  {Status}  {CustomerName}  {Phone}  {BoardKind} {BoardNumber}  {Money(Total)}";
     }
 
@@ -25435,6 +34214,7 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public bool ActivationCompleted { get; set; }
         public string ActivationKey { get; set; } = "";
         public string ActivationPlan { get; set; } = "";
+        public List<string> ActivationFeatures { get; set; } = [];
         public DateTime? ActivationActivatedAt { get; set; }
         public DateTime? ActivationExpiresAt { get; set; }
         public string ActivationMachineHash { get; set; } = "";
@@ -25450,6 +34230,10 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string PublicMenuBaseUrl { get; set; } = DefaultPublicMenuBaseUrl;
         public DateTime? LastPublicMenuPublishAt { get; set; }
         public bool PublicMenuStoreOpen { get; set; } = true;
+        public bool OnlineStoreScheduleEnabled { get; set; } = true;
+        public string OnlineStoreManualMode { get; set; } = OnlineStoreModeAuto;
+        public string OnlineStoreOpenTime { get; set; } = "00:00";
+        public string OnlineStoreCloseTime { get; set; } = "00:00";
         public int PublicMenuWaitMinMinutes { get; set; } = 30;
         public int PublicMenuWaitMaxMinutes { get; set; } = 60;
         public bool PublicMenuDiscountConfigured { get; set; }
@@ -25464,6 +34248,16 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public IFoodIntegrationSettings IFood { get; set; } = new();
         public MercadoPagoPaymentSettings MercadoPago { get; set; } = new();
         public PagBankPaymentSettings PagBank { get; set; } = new();
+        public DateTime? SetupReviewedAt { get; set; }
+        public string SetupReviewedBy { get; set; } = "";
+        public DateTime? FiscalComplianceReviewedAt { get; set; }
+        public string FiscalComplianceReviewedBy { get; set; } = "";
+        public bool PrivacyNoticeEnabled { get; set; } = true;
+        public string PrivacyContact { get; set; } = "";
+        public int PrivacyRetentionDays { get; set; } = 730;
+        public string PrivacyNoticeText { get; set; } = "";
+        public DateTime? PrivacyReviewedAt { get; set; }
+        public string PrivacyReviewedBy { get; set; } = "";
     }
 
     public sealed class MercadoPagoPaymentSettings
@@ -25518,9 +34312,11 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string LicenseKey { get; set; } = "";
         public string MachineHash { get; set; } = "";
         public string MachineCode { get; set; } = "";
+        public string ClientKind { get; set; } = "windows-online";
         public string AppVersion { get; set; } = "";
         public DateTime? LocalExpiresAt { get; set; }
         public string LocalPlan { get; set; } = "";
+        public AdminEnvironmentSnapshot Environment { get; set; } = new();
         public AdminProfileSnapshot Profile { get; set; } = new();
         public AdminSettingsSnapshot Settings { get; set; } = new();
         public AdminMetricsSnapshot Metrics { get; set; } = new();
@@ -25532,13 +34328,15 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string Message { get; set; } = "";
         public string Plan { get; set; } = "";
         public DateTime? ExpiresAt { get; set; }
+        public List<string> Features { get; set; } = [];
 
         public static AdminActivationResult Allow(string plan, DateTime? expiresAt, string message) => new()
         {
             Ok = true,
             Plan = plan,
             ExpiresAt = expiresAt,
-            Message = message
+            Message = message,
+            Features = NormalizeLicenseFeatures([], plan)
         };
 
         public static AdminActivationResult Deny(string message) => new()
@@ -25574,6 +34372,9 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
     public sealed class AdminMercadoPagoTerminalsResult : AdminMercadoPagoResult
     {
         public List<AdminMercadoPagoTerminalDto> Terminals { get; set; } = [];
+        public string SelectedTerminalId { get; set; } = "";
+        public string SelectedTerminalLabel { get; set; } = "";
+        public bool AutoSelected { get; set; }
     }
 
     public sealed class AdminMercadoPagoTerminalDto
@@ -25743,8 +34544,12 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string CoverImageContentType { get; set; } = "";
         public string CoverImageBase64 { get; set; } = "";
         public bool StoreOpen { get; set; } = true;
+        public bool ScheduleEnabled { get; set; } = true;
+        public string OpenTime { get; set; } = "00:00";
+        public string CloseTime { get; set; } = "00:00";
         public int WaitMinMinutes { get; set; } = 30;
         public int WaitMaxMinutes { get; set; } = 60;
+        public bool WhatsAppMessageOrdersEnabled { get; set; }
         public bool DiscountEnabled { get; set; }
         public string DiscountCode { get; set; } = "EXCLUSIVO4";
         public decimal DiscountAmount { get; set; } = 4m;
@@ -25939,6 +34744,25 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string State { get; set; } = "";
     }
 
+    public sealed class AdminEnvironmentSnapshot
+    {
+        public string ClientProduct { get; set; } = "";
+        public string MachineName { get; set; } = "";
+        public string WindowsUser { get; set; } = "";
+        public string DomainName { get; set; } = "";
+        public string OperatingSystem { get; set; } = "";
+        public string OSArchitecture { get; set; } = "";
+        public string ProcessArchitecture { get; set; } = "";
+        public string PrimaryLocalIp { get; set; } = "";
+        public List<string> LocalIpAddresses { get; set; } = [];
+        public string PublicIp { get; set; } = "";
+        public string ForwardedFor { get; set; } = "";
+        public string UserAgent { get; set; } = "";
+        public string RequestHost { get; set; } = "";
+        public string TimeZone { get; set; } = "";
+        public string UtcOffset { get; set; } = "";
+    }
+
     public sealed class AdminSettingsSnapshot
     {
         public bool WindowsNotificationsEnabled { get; set; }
@@ -25954,6 +34778,8 @@ VALUES ('latest', '{created}', '{escapedReason}', '{escapedJson}');
         public string ReceiptQrContentPreview { get; set; } = "";
         public bool AutoCheckUpdates { get; set; }
         public bool AdminSyncEnabled { get; set; }
+        public string WaiterBridgeLocalUrl { get; set; } = "";
+        public string WaiterBridgeNetworkUrl { get; set; } = "";
         public bool SupabaseAuthEnabled { get; set; }
         public bool SupabaseUrlConfigured { get; set; }
         public string SupabaseUserEmail { get; set; } = "";
