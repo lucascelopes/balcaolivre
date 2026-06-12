@@ -153,6 +153,12 @@
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
         </Style>
 
+        <Style x:Key="BoardListItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+
         <Style x:Key="ModeListItemStyle" TargetType="ListBoxItem">
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Margin" Value="0,0,7,0"/>
@@ -243,6 +249,28 @@
 
         <DataTemplate x:Key="TableTemplate">
             <Border x:Name="TableRoot" Background="#FFFFFF" BorderBrush="#CAD6E2" BorderThickness="1" CornerRadius="8" Margin="0,0,7,7" Width="84" Height="78" ClipToBounds="True">
+                <Border.ContextMenu>
+                    <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+                                 Opened="BoardContextMenu_Opened">
+                        <ContextMenu.Resources>
+                            <Style TargetType="{x:Type MenuItem}">
+                                <Setter Property="Padding" Value="14,8,18,8"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                <Setter Property="Foreground" Value="#071A2C"/>
+                            </Style>
+                        </ContextMenu.Resources>
+                        <MenuItem Header="Selecionar" Tag="Select" Click="BoardContextSelect_Click"/>
+                        <Separator/>
+                        <MenuItem Header="Abrir comanda" Tag="Open" Click="BoardContextOpen_Click"/>
+                        <MenuItem Header="Fechar conta" Tag="Close" Click="BoardContextClose_Click"/>
+                        <MenuItem Header="Receber pagamento" Tag="Receive" Click="BoardContextReceive_Click"/>
+                        <Separator Tag="DeliverySeparator"/>
+                        <MenuItem Header="Fixar entregador" Tag="Driver" Click="BoardContextDriver_Click"/>
+                        <MenuItem Header="Marcar entregue" Tag="Delivered" Click="BoardContextDelivered_Click"/>
+                        <Separator/>
+                        <MenuItem Header="Apagar / limpar" Tag="Delete" Click="BoardContextDelete_Click"/>
+                    </ContextMenu>
+                </Border.ContextMenu>
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="6"/>
@@ -574,17 +602,40 @@
                         ToolTip="Avancar acoes">
                     <Path Width="10" Height="18" Stroke="{StaticResource BlueDark}" StrokeThickness="2.2" Data="M 2 2 L 8 9 L 2 16" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
                 </Button>
-                <Border Grid.Column="3" Background="#FFFFFF" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="14,10">
-                    <StackPanel>
-                        <TextBlock x:Name="CashStatusText" Text="Caixa aberto" Foreground="{StaticResource Muted}" FontSize="12"/>
-                        <TextBlock x:Name="CashTotalText" Text="R$ 0,00" Foreground="{StaticResource Accent}" FontSize="22" FontWeight="Bold"/>
-                        <TextBlock x:Name="TodaySalesText" Text="Vendas hoje: R$ 0,00" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold" Margin="0,3,0,0"/>
-                    </StackPanel>
+                <Border Grid.Column="3"
+                        Background="#FFFFFF"
+                        BorderBrush="{StaticResource Line}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="12,10"
+                        Width="320"
+                        Height="94"
+                        VerticalAlignment="Center">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
+                            <TextBlock x:Name="CashStatusText" Text="Caixa aberto" Foreground="{StaticResource Muted}" FontSize="11"/>
+                            <TextBlock x:Name="CashTotalText" Text="R$ 0,00" Foreground="{StaticResource Accent}" FontSize="21" FontWeight="Bold"/>
+                            <TextBlock x:Name="TodaySalesText" Text="Vendas hoje: R$ 0,00" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <Button x:Name="HeaderCashToggleButton"
+                                Grid.Column="1"
+                                Content="Abrir caixa"
+                                Style="{StaticResource CommandButton}"
+                                Height="54"
+                                Width="112"
+                                FontSize="13"
+                                VerticalAlignment="Center"
+                                Click="HeaderCashToggleButton_Click"/>
+                    </Grid>
                 </Border>
             </Grid>
         </Border>
 
-        <Grid Grid.Row="2" Background="#F8FBFD">
+        <Grid x:Name="OperationalModeBar" Grid.Row="2" Background="#F8FBFD">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
@@ -609,7 +660,29 @@
             </Border>
         </Grid>
 
-        <Grid Grid.Row="3" Margin="10">
+        <Border x:Name="ClosedCashModeBar"
+                Grid.Row="2"
+                Background="#FFFFFF"
+                BorderBrush="{StaticResource Line}"
+                BorderThickness="0,0,0,1"
+                Visibility="Collapsed">
+            <Grid Margin="14,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="30" Height="30" Background="#E6FBF8" CornerRadius="8" Margin="0,0,10,0">
+                        <TextBlock Text="BI" Foreground="{StaticResource Accent}" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Text="Painel do caixa" Foreground="{StaticResource Ink}" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <TextBlock Text="  |  operação pausada" Foreground="{StaticResource Muted}" FontSize="12" VerticalAlignment="Center"/>
+                </StackPanel>
+                <TextBlock x:Name="ClosedCashUpdatedText" Grid.Column="1" Text="Atualizado agora" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
+        <Grid x:Name="OperationalWorkArea" Grid.Row="3" Margin="10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="440"/>
                 <ColumnDefinition Width="330"/>
@@ -645,7 +718,7 @@
                             <TextBox x:Name="WaiterBox" Text="1" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
                         </StackPanel>
                         <StackPanel Grid.Column="2" Margin="8,0,0,0">
-                            <TextBlock Text="Codigo" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
+                            <TextBlock Text="Código" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
                             <TextBox x:Name="CodeBox" Text="" TextChanged="CodeBox_TextChanged" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
                         </StackPanel>
                         <StackPanel Grid.Column="3" Margin="8,0,0,0">
@@ -665,7 +738,7 @@
                             <TextBox x:Name="PriceBox" Text="0,00" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Margin="8,0,0,0">
-                            <TextBlock Text="% Garcom" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
+                            <TextBlock Text="% Garçom" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
                             <TextBox x:Name="NoteBox" Text="10" GotKeyboardFocus="CommandTextBox_GotKeyboardFocus"/>
                         </StackPanel>
                         <Button Grid.Column="2" x:Name="ChargeToggleButton" Content="Ativar" Click="ConfirmInclude_Click" Style="{StaticResource CommandButton}" Margin="8,19,0,0"/>
@@ -686,11 +759,11 @@
                                         <ColumnDefinition Width="78"/>
                                         <ColumnDefinition Width="62"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Codigo" VerticalAlignment="Center" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
+                                    <TextBlock Text="Código" VerticalAlignment="Center" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
                                     <TextBlock Grid.Column="1" Text="Produto" VerticalAlignment="Center" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
                                     <TextBlock Grid.Column="2" Text="Qtd" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
                                     <TextBlock Grid.Column="3" Text="Total" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
-                                    <TextBlock Grid.Column="4" Text="Acao" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="4" Text="Ação" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
                                 </Grid>
                             </Border>
                             <ListBox Grid.Row="1"
@@ -765,7 +838,7 @@
                                     Margin="10,0,0,0"/>
                         </Grid>
                     </Border>
-                    <ListBox Grid.Row="1" x:Name="TablesList" ItemsSource="{Binding BoardTiles}" ItemTemplate="{StaticResource TableTemplate}" SelectionChanged="TablesList_SelectionChanged" MouseDoubleClick="TablesList_MouseDoubleClick" Margin="0,10,0,0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox Grid.Row="1" x:Name="TablesList" ItemsSource="{Binding BoardTiles}" ItemTemplate="{StaticResource TableTemplate}" ItemContainerStyle="{StaticResource BoardListItemStyle}" SelectionChanged="TablesList_SelectionChanged" MouseDoubleClick="TablesList_MouseDoubleClick" Margin="0,10,0,0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <WrapPanel/>
@@ -792,7 +865,7 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <Border Background="{StaticResource Blue}" CornerRadius="2" Height="22" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="1" Text="Venda rapida" Foreground="{StaticResource Ink}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                            <TextBlock Grid.Column="1" x:Name="QuickSaleTitleText" Text="Catálogo / venda rápida" Foreground="{StaticResource Ink}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" Margin="10,0,0,0"/>
                         </Grid>
                     </Border>
 
@@ -809,8 +882,8 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="112"/>
                         </Grid.ColumnDefinitions>
-                        <TextBox x:Name="SearchBox" TextChanged="SearchBox_TextChanged" Margin="0,0,8,0" FontSize="16" Height="40" VerticalContentAlignment="Center" ToolTip="Digite codigo ou nome do produto"/>
-                        <Button Grid.Column="1" x:Name="SearchButton" Content="F3 Catalogo" Click="SearchButton_Click" Style="{StaticResource GhostButton}" Height="40"/>
+                        <TextBox x:Name="SearchBox" TextChanged="SearchBox_TextChanged" Margin="0,0,8,0" FontSize="16" Height="40" VerticalContentAlignment="Center" ToolTip="Digite código ou nome do produto"/>
+                        <Button Grid.Column="1" x:Name="SearchButton" Content="F3 Catálogo" Click="SearchButton_Click" Style="{StaticResource GhostButton}" Height="40"/>
                     </Grid>
 
                     <Grid Grid.Row="2" Margin="0,0,0,4">
@@ -821,10 +894,10 @@
                             <ColumnDefinition Width="92"/>
                             <ColumnDefinition Width="86"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Codigo" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                        <TextBlock Text="Código" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" Margin="10,0,0,0"/>
                         <TextBlock Grid.Column="1" Text="Produto" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         <TextBlock Grid.Column="2" Text="Grupo" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="3" Text="Preco" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0"/>
+                        <TextBlock Grid.Column="3" Text="Preço" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0"/>
                         <TextBlock Grid.Column="4" Text="Estoque" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0"/>
                     </Grid>
 
@@ -847,6 +920,15 @@
                 </Grid>
             </Border>
         </Grid>
+
+        <ScrollViewer x:Name="ClosedCashDashboard"
+                      Grid.Row="3"
+                      Margin="12,10"
+                      Visibility="Collapsed"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <ContentControl x:Name="ClosedCashDashboardContent"/>
+        </ScrollViewer>
 
         <Border Grid.Row="4" Background="#FFFFFF" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0">
             <Grid Margin="10,0">
@@ -906,5 +988,118 @@
                 </StackPanel>
             </Grid>
         </Border>
+
+        <Border x:Name="FloatingServicePanel"
+                Grid.RowSpan="5"
+                Panel.ZIndex="60"
+                Width="392"
+                MaxHeight="500"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                Margin="0,0,22,118"
+                Background="#FFFFFF"
+                BorderBrush="#0B3A52"
+                BorderThickness="1"
+                CornerRadius="18"
+                Visibility="Collapsed">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="28" ShadowDepth="6" Opacity="0.22" Color="#000000"/>
+            </Border.Effect>
+        </Border>
+
+        <Button x:Name="FloatingServiceButton"
+                Grid.RowSpan="5"
+                Panel.ZIndex="45"
+                Width="172"
+                Height="50"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                Margin="0,0,20,54"
+                Background="#FFFFFF"
+                BorderBrush="#BFD3E1"
+                BorderThickness="1"
+                Foreground="#071A2C"
+                FontWeight="Bold"
+                Cursor="Hand"
+                FocusVisualStyle="{x:Null}"
+                Click="FloatingServiceButton_Click"
+                ToolTip="Atendimento: WhatsApp, suporte e iFood">
+            <Button.Effect>
+                <DropShadowEffect BlurRadius="18" ShadowDepth="4" Opacity="0.18" Color="#071A2C"/>
+            </Button.Effect>
+            <Button.Template>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="16"
+                            Padding="10,0">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="#F2FFFD"/>
+                            <Setter Property="BorderBrush" Value="#08A99B"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Button.Template>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Border x:Name="FloatingServiceBadge"
+                        Grid.ColumnSpan="2"
+                        Panel.ZIndex="5"
+                        MinWidth="24"
+                        Height="24"
+                        Padding="6,0"
+                        Background="#D92626"
+                        BorderBrush="#FFFFFF"
+                        BorderThickness="2"
+                        CornerRadius="12"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Top"
+                        Margin="0,-11,-11,0"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="FloatingServiceBadgeText"
+                               Text="0"
+                               Foreground="White"
+                               FontSize="11"
+                               FontWeight="Black"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Border>
+                <Border Width="34"
+                        Height="34"
+                        CornerRadius="12"
+                        Background="#08A99B"
+                        BorderBrush="#73E7DE"
+                        BorderThickness="1"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Center">
+                    <TextBlock Text="AT"
+                               Foreground="#FFFFFF"
+                               FontSize="11"
+                               FontWeight="Black"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="7,0,0,0">
+                    <TextBlock Text="Atendimento"
+                               Foreground="#071A2C"
+                               FontSize="13.5"
+                               FontWeight="Bold"
+                               TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="WA | Suporte | iFood"
+                               Foreground="#5B6B7A"
+                               FontSize="9.5"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis"
+                               Margin="0,1,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Button>
     </Grid>
 </Window>

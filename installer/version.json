@@ -1,8 +1,8 @@
 {
-  "version": "1.8.2026.5",
-  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.5.exe",
-  "minimumVersion": "1.8.2026.5",
-  "notes": "Balcao Livre PDV Online 1.8.2026.5. Adiciona o botao Liberar Point para desconectar a maquininha do PDV e usar no modo normal, ajusta a configuracao visual do Mercado Pago e mantem atualizacao obrigatoria para testes, pagos e instalacoes existentes.",
+  "version": "1.8.2026.21",
+  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.21.exe",
+  "minimumVersion": "1.8.2026.21",
+  "notes": "Balcao Livre PDV Online 1.8.2026.21. Melhora o botao direito nas mesas, comandas e delivery: o menu abre mais rapido, sem carregar a comanda antes da acao, e mantem acoes de fechar, receber, apagar e fixar entregador.",
   "required": true,
-  "publishedAt": "2026-06-02T22:09:56-03:00"
+  "publishedAt": "2026-06-12T11:37:17-03:00"
 }

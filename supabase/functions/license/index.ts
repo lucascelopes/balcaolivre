@@ -1,14 +1,17 @@
-﻿import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const PUBLIC_MENU_BASE_URL = "https://cardapio.balcaolivrepdv.com.br";
 const LICENSE_SECRET = "BalcaoLivrePDV-local-license-v1";
 const ADMIN_STORE_BUCKET = "balcao-livre-admin";
 const ADMIN_STORE_OBJECT = "admin-store.json";
 const OFFLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.2.2026.1.exe";
-const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.5.exe";
+const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.21.exe";
 const TRIAL_SOURCE = "landing_trial_download";
 const TRIAL_DAYS = 7;
 const TRIAL_WHATSAPP_URL = "https://wa.me/5527981267551?text=Ola%2C%20preciso%20liberar%20outro%20teste%20do%20Balcao%20Livre%20PDV.";
+const TRIAL_ONLINE_FEATURES = ["pdv", "whatsapp", "cardapio", "garcom", "mercado-pago", "nfce", "equipe", "entregadores"];
+const PAID_ONLINE_FEATURES = [...TRIAL_ONLINE_FEATURES, "ifood"];
+const OFFLINE_FEATURES = ["pdv", "caixa", "estoque", "nfce"];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,6 +31,7 @@ type ClientPayload = {
   profile?: Record<string, unknown>;
   settings?: Record<string, unknown>;
   metrics?: Record<string, unknown>;
+  environment?: Record<string, unknown>;
 };
 
 type SupportPayload = ClientPayload & {
@@ -56,8 +60,12 @@ type PublicMenuPayload = ClientPayload & {
   coverImageContentType?: string;
   coverImageBase64?: string;
   storeOpen?: boolean;
+  scheduleEnabled?: boolean;
+  openTime?: string;
+  closeTime?: string;
   waitMinMinutes?: number;
   waitMaxMinutes?: number;
+  whatsappMessageOrdersEnabled?: boolean;
   discountEnabled?: boolean;
   discountCode?: string;
   discountAmount?: number;
@@ -71,6 +79,7 @@ type PublicMenuPayload = ClientPayload & {
 type PublicMenuOrderPayload = {
   slug?: string;
   menuId?: string;
+  source?: string;
   orderType?: string;
   customer?: Record<string, unknown>;
   items?: PublicMenuOrderItem[];
@@ -148,6 +157,28 @@ type MobilePayload = ClientPayload & {
   localWhen?: string | null;
 };
 
+type MobileAuthPayload = {
+  login?: string;
+  password?: string;
+  machineHash?: string;
+  machineCode?: string;
+  clientKind?: string;
+  appVersion?: string;
+};
+
+type AppSyncPayload = ClientPayload & {
+  syncKind?: string;
+  summary?: Record<string, unknown>;
+  localWhen?: string | null;
+};
+
+type AppBackupPayload = ClientPayload & {
+  store?: Record<string, unknown>;
+  storeHash?: string;
+  storeBytes?: number;
+  localWhen?: string | null;
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -179,6 +210,18 @@ Deno.serve(async (req) => {
 
     if (route === "/checkin" || route === "/api/app/checkin") {
       return checkIn(req);
+    }
+
+    if (route === "/sync" || route === "/api/app/sync") {
+      return appSync(req);
+    }
+
+    if (route === "/backup" || route === "/api/app/backup") {
+      return appBackup(req);
+    }
+
+    if (route === "/mobile/auth" || route === "/api/mobile/auth") {
+      return mobileAuth(req);
     }
 
     if (route === "/mobile/bootstrap" || route === "/api/mobile/bootstrap") {
@@ -257,32 +300,151 @@ Deno.serve(async (req) => {
 });
 
 async function activate(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<ClientPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: true, eventType: "activation" });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
   }
 
+  await writeAdminStoreClientSeen(payload, result.license, "activation.ok", `Ativacao: ${businessName(payload.profile) || stringValue(payload.machineCode)}`);
   return json({
     ok: true,
     message: "Chave ativada pelo Supabase.",
     plan: result.license.plan,
     expiresAt: result.license.expires_at,
+    features: featuresForLicense(result.license),
   });
 }
 
 async function checkIn(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<ClientPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: payload.eventName || "checkin" });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
   }
 
-  return json({ ok: true, message: "Licenca sincronizada no Supabase.", mode: "supabase" });
+  await writeAdminStoreClientSeen(payload, result.license, stringValue(payload.eventName) || "device.checkin", `Check-in ${businessName(payload.profile) || stringValue(payload.machineCode)}`);
+  return json({
+    ok: true,
+    message: "Licenca sincronizada no Supabase.",
+    mode: "supabase",
+    plan: result.license.plan,
+    expiresAt: result.license.expires_at,
+    features: featuresForLicense(result.license),
+  });
+}
+
+async function appSync(req: Request) {
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<AppSyncPayload>(req)), req);
+  const result = await ensureLicense(payload, { bindMachine: false, eventType: payload.eventName || "app.sync", skipEvent: true });
+  if (!result.ok) {
+    return json({ ok: false, message: result.message }, result.status ?? 401);
+  }
+
+  const store = await readAdminStore();
+  upsertAdminStoreLicense(store, payload, result.license);
+  upsertAdminStoreDevice(store, payload);
+  appendAdminStoreEvent(store, stringValue(payload.eventName) || "app.sync", "Sync central recebido do Windows.", payload);
+  trimAdminStore(store);
+  await writeAdminStore(store);
+  await appendEvent(stringValue(payload.eventName) || "app.sync", "Sync central recebido do Windows.", payload);
+
+  return json({
+    ok: true,
+    message: "Sync central recebido.",
+    plan: result.license.plan,
+    expiresAt: result.license.expires_at,
+    serverTime: new Date().toISOString(),
+  });
+}
+
+async function appBackup(req: Request) {
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<AppBackupPayload>(req)), req);
+  const result = await ensureLicense(payload, { bindMachine: false, eventType: payload.eventName || "app.backup", skipEvent: true });
+  if (!result.ok) {
+    return json({ ok: false, message: result.message }, result.status ?? 401);
+  }
+
+  const licenseKey = normalizeLicense(payload.licenseKey);
+  const snapshot = mobileSnapshotFromWindowsStore(recordValue(payload.store), payload, result.license);
+  const fileName = `${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+  await writeMobileSnapshot(licenseKey, "shared", snapshot, "latest.json");
+  await writeMobileSnapshot(licenseKey, "shared", snapshot, `windows-backups/${fileName}`);
+
+  const store = await readAdminStore();
+  upsertAdminStoreLicense(store, payload, result.license);
+  upsertAdminStoreDevice(store, payload);
+  appendAdminStoreEvent(store, stringValue(payload.eventName) || "app.backup", "Backup completo recebido do Windows.", payload);
+  trimAdminStore(store);
+  await writeAdminStore(store);
+  await appendEvent(stringValue(payload.eventName) || "app.backup", "Backup completo recebido do Windows.", payload);
+
+  return json({
+    ok: true,
+    message: "Backup Windows salvo para web/mobile.",
+    plan: result.license.plan,
+    expiresAt: result.license.expires_at,
+    serverTime: new Date().toISOString(),
+  });
+}
+
+async function mobileAuth(req: Request) {
+  const payload = normalizePayloadKeys(await readJson<MobileAuthPayload>(req));
+  const login = stringValue(payload.login);
+  const password = stringValue(payload.password);
+  if (!login || !password) {
+    return json({ ok: false, message: "Informe login e senha de sincronizacao." }, 400);
+  }
+
+  const license = await findLicenseForSyncLogin(login);
+  if (!license.ok) {
+    return json({ ok: false, message: license.message }, license.status ?? 401);
+  }
+
+  const licenseKey = normalizeLicense(license.license.key);
+  const snapshot = await readMobileSnapshot(licenseKey, "shared");
+  if (!snapshot) {
+    return json({
+      ok: false,
+      message: "Nenhum backup do Windows encontrado. Abra o PDV Windows e rode Backup/sync central uma vez.",
+    }, 409);
+  }
+
+  const users = usersFromSnapshot(snapshot);
+  const user = await authenticateSyncUser(users, login, password);
+  if (!user.ok) {
+    return json({ ok: false, message: user.message }, 401);
+  }
+
+  const clientPayload: ClientPayload = {
+    eventName: "mobile.auth",
+    licenseKey,
+    machineHash: stringValue(payload.machineHash) || "mobile",
+    machineCode: stringValue(payload.machineCode) || "mobile",
+    clientKind: stringValue(payload.clientKind) || "mobile",
+    appVersion: stringValue(payload.appVersion),
+    profile: {
+      email: stringValue(license.license.email),
+      businessName: stringValue(license.license.business_name) || stringValue(license.license.customer_name),
+      cnpj: stringValue(license.license.cnpj),
+      phone: stringValue(license.license.phone),
+    },
+  };
+  await appendEvent("mobile.auth", `Login mobile liberado para ${stringValue(user.user.name) || login}.`, clientPayload);
+
+  return json({
+    ok: true,
+    message: "Login de sincronizacao liberado.",
+    license: publicLicensePayload(license.license),
+    operatorName: stringValue(user.user.name) || login,
+    profile: clientPayload.profile,
+    snapshot: sanitizeMobileSnapshotForClient(snapshot),
+    serverTime: new Date().toISOString(),
+  });
 }
 
 async function mobileBootstrap(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<MobilePayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<MobilePayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mobile.bootstrap", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -303,7 +465,7 @@ async function mobileBootstrap(req: Request) {
 }
 
 async function mobileSync(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<MobilePayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<MobilePayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mobile.sync", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -337,7 +499,7 @@ async function mobileSync(req: Request) {
 }
 
 async function mobileBackup(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<MobilePayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<MobilePayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mobile.backup", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -410,6 +572,9 @@ async function createTrialDownload(req: Request) {
     source: TRIAL_SOURCE,
     installer: kind,
     trial_days: TRIAL_DAYS,
+    features: kind === "online" ? TRIAL_ONLINE_FEATURES : OFFLINE_FEATURES,
+    ifood_enabled: false,
+    whatsapp_enabled: kind === "online",
     trial_ip_hash: trialIpHash,
     user_agent_hash: userAgentHash,
     generated_at: now.toISOString(),
@@ -456,7 +621,7 @@ async function createTrialDownload(req: Request) {
 }
 
 async function listSupportTickets(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<ClientPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "support.list", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message, tickets: [] }, result.status ?? 401);
@@ -481,7 +646,7 @@ async function listSupportTickets(req: Request) {
 }
 
 async function createSupportTicket(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<SupportPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<SupportPayload>(req)), req);
   payload.message = stringValue(payload.message);
   if (!payload.message) {
     return json({ ok: false, message: "Mensagem do suporte obrigatoria." }, 400);
@@ -519,8 +684,10 @@ async function createSupportTicket(req: Request) {
     cnpj: stringValue(payload.profile?.cnpj),
     city: stringValue(payload.profile?.city),
     state: stringValue(payload.profile?.state),
+    address: stringValue(payload.profile?.address),
     profile: payload.profile ?? {},
     metrics: payload.metrics ?? {},
+    environment: payload.environment ?? {},
   };
 
   const store = await readAdminStore();
@@ -536,7 +703,7 @@ async function createSupportTicket(req: Request) {
 }
 
 async function appendSupportMessage(req: Request, id: string) {
-  const payload = normalizePayloadKeys(await readJson<SupportMessagePayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<SupportMessagePayload>(req)), req);
   const message = stringValue(payload.message);
   if (!message) {
     return json({ ok: false, message: "Mensagem obrigatoria." }, 400);
@@ -568,6 +735,7 @@ async function appendSupportMessage(req: Request, id: string) {
   ticket.updatedAt = now;
   ticket.profile = payload.profile ?? ticket.profile ?? {};
   ticket.metrics = payload.metrics ?? ticket.metrics ?? {};
+  ticket.environment = payload.environment ?? ticket.environment ?? {};
   upsertAdminStoreLicense(store, payload, result.license);
   upsertAdminStoreDevice(store, payload);
   appendAdminStoreEvent(store, "support.customer_message", `Nova mensagem no suporte ${shortSupportId(stringValue(ticket.id))}`, payload);
@@ -579,7 +747,7 @@ async function appendSupportMessage(req: Request, id: string) {
 }
 
 async function publishMenu(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<PublicMenuPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<PublicMenuPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "menu.publish" });
   if (!result.ok) {
     return json({ ok: false, message: result.message, slug: "", publicUrl: "", itemsPublished: 0 }, result.status ?? 401);
@@ -599,6 +767,8 @@ async function publishMenu(req: Request) {
   }
 
   const waitMin = Math.max(1, Math.round(numberValue(payload.waitMinMinutes) || 30));
+  const openTime = normalizeClockText(payload.openTime);
+  const closeTime = normalizeClockText(payload.closeTime);
   const menuPayload = {
     store_id: licenseKey,
     name: businessName(payload.profile) || "Balcao Livre",
@@ -611,8 +781,12 @@ async function publishMenu(req: Request) {
     cover_image_url: resolveInlineImageUrl(payload.coverImageUrl, payload.coverImageContentType, payload.coverImageBase64),
     theme_color: stringValue(payload.themeColor) || "#0f766e",
     store_open: payload.storeOpen !== false,
+    schedule_enabled: payload.scheduleEnabled !== false,
+    open_time: openTime,
+    close_time: closeTime,
     wait_min_minutes: waitMin,
     wait_max_minutes: Math.max(waitMin, Math.round(numberValue(payload.waitMaxMinutes) || 60)),
+    whatsapp_message_orders_enabled: payload.whatsappMessageOrdersEnabled === true,
     discount_enabled: payload.discountEnabled === true,
     discount_code: (stringValue(payload.discountCode) || "EXCLUSIVO4").toUpperCase(),
     discount_amount: Math.max(0, numberValue(payload.discountAmount) || 0),
@@ -628,20 +802,34 @@ async function publishMenu(req: Request) {
   let slug = stringValue(existing.data?.slug);
 
   if (menuId) {
-    const { error } = await supabase
+    let { error } = await supabase
       .from("bv_public_menus")
       .update({ ...menuPayload, slug: slug || baseSlug })
       .eq("id", menuId);
+    if (error && isMissingWhatsAppOptionsColumn(error.message)) {
+      const retry = await supabase
+        .from("bv_public_menus")
+        .update({ ...withoutWhatsAppOptionsColumn(menuPayload), slug: slug || baseSlug })
+        .eq("id", menuId);
+      error = retry.error;
+    }
     if (error) {
       return json(failMenu(`Supabase recusou atualizar cardapio: ${error.message}`), 500);
     }
   } else {
     for (const candidate of slugCandidates(baseSlug)) {
-      const inserted = await supabase
+      let inserted = await supabase
         .from("bv_public_menus")
         .insert({ ...menuPayload, slug: candidate })
         .select("id, slug")
         .single();
+      if (inserted.error && isMissingWhatsAppOptionsColumn(inserted.error.message)) {
+        inserted = await supabase
+          .from("bv_public_menus")
+          .insert({ ...withoutWhatsAppOptionsColumn(menuPayload), slug: candidate })
+          .select("id, slug")
+          .single();
+      }
 
       if (!inserted.error && inserted.data) {
         menuId = inserted.data.id;
@@ -737,6 +925,7 @@ async function createPublicMenuOrder(req: Request) {
   if (!orderType) {
     return json({ ok: false, message: "Escolha entrega, retirada ou mesa/local." }, 400);
   }
+  const source = normalizePublicOrderSource(payload.source);
 
   const customer = payload.customer ?? {};
   const customerName = stringValue(customer.name);
@@ -776,7 +965,7 @@ async function createPublicMenuOrder(req: Request) {
       menu_id: stringValue(menu.id),
       store_id: storeId,
       slug: stringValue(menu.slug),
-      source: "CARDAPIO_ONLINE",
+      source,
       status: "NOVO",
       customer_name: customerName,
       customer_phone: customerPhone,
@@ -848,7 +1037,7 @@ async function getPublicMenuOrderStatus(req: Request) {
 }
 
 async function listPublicMenuOrders(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<ClientPayload & { limit?: number }>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<ClientPayload & { limit?: number }>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "menu.orders.poll", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message, orders: [] }, result.status ?? 401);
@@ -888,7 +1077,7 @@ async function listPublicMenuOrders(req: Request) {
 }
 
 async function ackPublicMenuOrder(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<PublicMenuOrderAckPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<PublicMenuOrderAckPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "menu.orders.ack", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -931,7 +1120,7 @@ async function ackPublicMenuOrder(req: Request) {
 }
 
 async function startMercadoPagoConnect(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<ClientPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.connect.start", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -1022,7 +1211,7 @@ async function handleMercadoPagoOAuthCallback(req: Request) {
 }
 
 async function getMercadoPagoConnectionStatus(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<ClientPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.status", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -1043,7 +1232,7 @@ async function getMercadoPagoConnectionStatus(req: Request) {
 }
 
 async function listMercadoPagoTerminals(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<ClientPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<ClientPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.terminals", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message, terminals: [] }, result.status ?? 401);
@@ -1067,7 +1256,7 @@ async function listMercadoPagoTerminals(req: Request) {
 }
 
 async function selectMercadoPagoTerminal(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<MercadoPagoTerminalPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<MercadoPagoTerminalPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.terminal.select", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -1122,7 +1311,7 @@ async function selectMercadoPagoTerminal(req: Request) {
 }
 
 async function createMercadoPagoPointCharge(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<MercadoPagoChargePayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<MercadoPagoChargePayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.point.charge", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -1208,7 +1397,7 @@ async function createMercadoPagoPointCharge(req: Request) {
 }
 
 async function getMercadoPagoPointStatus(req: Request) {
-  const payload = normalizePayloadKeys(await readJson<MercadoPagoPointStatusPayload>(req));
+  const payload = withRequestEnvironment(normalizePayloadKeys(await readJson<MercadoPagoPointStatusPayload>(req)), req);
   const result = await ensureLicense(payload, { bindMachine: false, eventType: "mercadopago.point.status", skipEvent: true });
   if (!result.ok) {
     return json({ ok: false, message: result.message }, result.status ?? 401);
@@ -1272,6 +1461,309 @@ async function readMobileSnapshot(licenseKey: string, machineHash: string) {
   const machinePath = mobileStoragePath(licenseKey, machineHash, "latest.json");
   const sharedPath = mobileStoragePath(licenseKey, "shared", "latest.json");
   return await readStorageJson(machinePath) ?? await readStorageJson(sharedPath);
+}
+
+function mobileSnapshotFromWindowsStore(
+  store: Record<string, unknown>,
+  payload: AppBackupPayload,
+  license: Record<string, unknown>,
+): Record<string, unknown> {
+  const profile = {
+    ...recordValue(store.profile),
+    ...(payload.profile ?? {}),
+  };
+  const products = arrayValue(store.products).map((item, index) => {
+    const product = recordValue(item);
+    return {
+      id: stringValue(product.id) || stringValue(product.code) || `prd-${index + 1}`,
+      code: stringValue(product.code) || `${index + 1}`,
+      name: stringValue(product.name) || "Produto",
+      category: stringValue(product.category) || "Cardapio",
+      price: roundMoney(product.price),
+      cost: roundMoney(product.costPrice ?? product.cost),
+      stock: numberValue(product.stockQuantity ?? product.stock),
+      minStock: numberValue(product.minimumStock ?? product.minStock),
+      active: product.active !== false,
+    };
+  });
+
+  const boards = [...arrayValue(store.tables), ...arrayValue(store.deliveryTiles)];
+  const orders = boards
+    .map((item, index) => boardToMobileOrder(recordValue(item), index))
+    .filter((item) => item !== null);
+
+  const customers = arrayValue(store.customers).map((item, index) => {
+    const customer = recordValue(item);
+    return {
+      id: stringValue(customer.id) || stringValue(customer.phone) || `cus-${index + 1}`,
+      name: stringValue(customer.name) || "Cliente",
+      phone: stringValue(customer.phone),
+      document: stringValue(customer.cpf) || stringValue(customer.cnpj),
+      address: [stringValue(customer.address), stringValue(customer.district)].filter(Boolean).join(" - "),
+      points: numberValue(customer.points),
+      cashback: roundMoney(customer.cashbackBalance ?? customer.cashback),
+      lastPurchaseAt: stringValue(customer.lastPurchaseAt),
+    };
+  });
+
+  const cashMovements = arrayValue(store.cashMovements).map((item, index) => {
+    const movement = recordValue(item);
+    return {
+      id: stringValue(movement.id) || `mov-${index + 1}`,
+      type: stringValue(movement.type) || "Movimento",
+      amount: roundMoney(movement.amount),
+      note: stringValue(movement.note) || stringValue(movement.description),
+      createdAt: stringValue(movement.createdAt) || stringValue(movement.when) || new Date().toISOString(),
+    };
+  });
+  const adminSettings = {
+    ...recordValue(store.appSettings),
+    ...recordValue(payload.settings),
+  };
+  const environment = recordValue(payload.environment);
+  const primaryLocalIp = stringValue(environment.primaryLocalIp);
+  const bridgeLocalUrl = normalizeBridgeBaseUrl(
+    stringValue(adminSettings.waiterBridgeLocalUrl) || "http://localhost:5050",
+  );
+  const bridgeNetworkUrl = normalizeBridgeBaseUrl(
+    stringValue(adminSettings.waiterBridgeNetworkUrl) || (primaryLocalIp ? `http://${primaryLocalIp}:5050` : ""),
+  );
+
+  return {
+    settings: {
+      id: "windows-shared",
+      storeId: normalizeLicense(payload.licenseKey),
+      terminalId: stringValue(payload.machineCode),
+      adminApiUrl: `${stringValue(Deno.env.get("SUPABASE_URL")).replace(/\/$/, "")}/functions/v1/license`,
+      windowsBridgeUrl: bridgeNetworkUrl || bridgeLocalUrl,
+      windowsBridgeLocalUrl: bridgeLocalUrl,
+      printMode: "WINDOWS_BRIDGE",
+      autoSync: 1,
+      cashOpen: recordValue(store.appSettings).cashOpen ?? 1,
+      lastSyncAt: new Date().toISOString(),
+    },
+    profile: {
+      email: stringValue(profile.email).toLowerCase() || stringValue(license.email).toLowerCase(),
+      ownerName: stringValue(profile.ownerName),
+      businessName: businessName(profile) || stringValue(license.business_name) || stringValue(license.customer_name),
+      legalName: stringValue(profile.legalName),
+      businessDocument: stringValue(profile.businessDocument) || stringValue(profile.cnpj) || stringValue(license.cnpj),
+      cnpj: stringValue(profile.cnpj) || stringValue(license.cnpj),
+      businessPhone: stringValue(profile.businessPhone) || stringValue(profile.phone) || stringValue(license.phone),
+      phone: stringValue(profile.phone) || stringValue(license.phone),
+      city: stringValue(profile.city) || stringValue(license.city),
+      state: stringValue(profile.state) || stringValue(license.state),
+    },
+    products,
+    orders,
+    customers,
+    cashMovements,
+    users: arrayValue(store.users).map(sanitizeUserForPrivateSnapshot),
+  };
+}
+
+function boardToMobileOrder(board: Record<string, unknown>, index: number): Record<string, unknown> | null {
+  const lines = arrayValue(board.lines);
+  const payments = arrayValue(board.payments);
+  const total = roundMoney(board.total);
+  const status = stringValue(board.status).toUpperCase();
+  const hasMovement = lines.length > 0 || payments.length > 0 || total > 0;
+  if (!hasMovement && ["", "LIVRE", "ABERTO", "ABERTA"].includes(status)) {
+    return null;
+  }
+
+  const kindText = stringValue(board.kind).toUpperCase();
+  const externalSource = stringValue(board.externalSource).toUpperCase();
+  const kind = externalSource.includes("IFOOD")
+    ? "ifood"
+    : kindText.includes("DELIVERY")
+      ? "delivery"
+      : kindText.includes("BALCAO")
+        ? "counter"
+        : "table";
+
+  return {
+    id: stringValue(board.id) || `${kind}-${stringValue(board.number) || index + 1}`,
+    number: stringValue(board.externalDisplayId) || stringValue(board.number) || `${index + 1}`,
+    kind,
+    status: mobileOrderStatus(status),
+    createdAt: stringValue(board.createdAt) || new Date().toISOString(),
+    customerName: stringValue(board.customerName) || stringValue(board.detail),
+    waiter: stringValue(board.waiter) || "1",
+    address: [stringValue(board.address), stringValue(board.district)].filter(Boolean).join(" - "),
+    paymentMethod: stringValue(board.externalPaymentMethod),
+    ifoodRepasse: externalSource.includes("IFOOD") ? roundMoney(total * 0.88) : 0,
+    items: lines.map((line, lineIndex) => {
+      const item = recordValue(line);
+      return {
+        productId: stringValue(item.productId) || stringValue(item.code) || `item-${lineIndex + 1}`,
+        code: stringValue(item.code),
+        name: stringValue(item.name) || "Item",
+        quantity: numberValue(item.quantity) || 1,
+        price: roundMoney(item.price ?? item.unitPrice),
+        cost: roundMoney(item.cost ?? item.costPrice),
+      };
+    }),
+  };
+}
+
+function mobileOrderStatus(status: string) {
+  if (status.includes("CANCEL")) return "canceled";
+  if (status.includes("FECH") || status.includes("FINAL") || status.includes("ENTREG")) return "closed";
+  if (status.includes("DESPACH") || status.includes("ROTA")) return "dispatched";
+  if (status.includes("PREPAR") || status.includes("NOVO")) return "preparing";
+  return "open";
+}
+
+async function findLicenseForSyncLogin(login: string): Promise<
+  | { ok: true; license: Record<string, unknown> }
+  | { ok: false; message: string; status?: number }
+> {
+  const normalizedLogin = stringValue(login).toLowerCase();
+  const loginDigits = digitsOnly(normalizedLogin);
+  const supabase = serviceClient();
+  const { data, error } = await supabase
+    .from("bv_licenses")
+    .select("*")
+    .order("updated_at", { ascending: false })
+    .limit(500);
+  if (error) {
+    return { ok: false, message: `Supabase recusou licencas: ${error.message}`, status: 500 };
+  }
+
+  const licenses = Array.isArray(data) ? data as Record<string, unknown>[] : [];
+  const license = licenses.find((item) => {
+    const key = normalizeLicense(item.key).toLowerCase();
+    const email = stringValue(item.email).toLowerCase();
+    const cnpj = digitsOnly(stringValue(item.cnpj));
+    const profile = recordValue(item.profile);
+    const profileCnpj = digitsOnly(stringValue(profile.cnpj) || stringValue(profile.businessDocument));
+    return key === normalizeLicense(login).toLowerCase()
+      || email === normalizedLogin
+      || (!!loginDigits && (cnpj === loginDigits || profileCnpj === loginDigits));
+  });
+
+  if (!license) {
+    return { ok: false, message: "Login da loja nao encontrado. Use email, CNPJ ou chave da licenca.", status: 404 };
+  }
+
+  const status = stringValue(license.status).toUpperCase();
+  if (status === "BLOQUEADA") {
+    return { ok: false, message: "Licenca bloqueada no painel.", status: 401 };
+  }
+  const expiresAt = dateValue(license.expires_at);
+  if (expiresAt && expiresAt.getTime() <= Date.now()) {
+    return { ok: false, message: "Licenca expirada. Renove para entrar.", status: 401 };
+  }
+
+  return { ok: true, license };
+}
+
+function usersFromSnapshot(snapshot: Record<string, unknown>) {
+  return arrayValue(snapshot.users).map(recordValue);
+}
+
+async function authenticateSyncUser(
+  users: Record<string, unknown>[],
+  login: string,
+  password: string,
+): Promise<
+  | { ok: true; user: Record<string, unknown> }
+  | { ok: false; message: string }
+> {
+  if (users.length === 0) {
+    return { ok: false, message: "Backup do Windows ainda nao trouxe usuarios. Rode backup/sync no Windows de novo." };
+  }
+
+  for (const user of users) {
+    if (!canUserSync(user)) continue;
+    if (await verifyWindowsUserPassword(user, password)) {
+      return { ok: true, user };
+    }
+  }
+
+  return { ok: false, message: "Senha de sincronizacao invalida ou usuario sem permissao." };
+}
+
+function canUserSync(user: Record<string, unknown>) {
+  const role = stringValue(user.role).toUpperCase();
+  return user.isMaster === true
+    || user.canCentralSync === true
+    || ["MASTER", "GERENTE", "ADMIN"].includes(role);
+}
+
+async function verifyWindowsUserPassword(user: Record<string, unknown>, password: string) {
+  const cleanPassword = stringValue(password);
+  if (!cleanPassword) return false;
+  const hash = stringValue(user.pinHash);
+  if (hash && await verifyPbkdf2Password(hash, cleanPassword)) {
+    return true;
+  }
+  const pin = stringValue(user.pin);
+  const number = normalizeStaffNumber(stringValue(user.employeeNumber));
+  return pin === cleanPassword || (!!number && number === normalizeStaffNumber(cleanPassword));
+}
+
+async function verifyPbkdf2Password(encoded: string, password: string) {
+  try {
+    const parts = encoded.split("$");
+    if (parts.length !== 4 || parts[0] !== "PBKDF2") return false;
+    const iterations = Number(parts[1]);
+    if (!Number.isFinite(iterations) || iterations <= 0) return false;
+    const salt = base64ToBytes(parts[2]);
+    const expected = base64ToBytes(parts[3]);
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(password),
+      "PBKDF2",
+      false,
+      ["deriveBits"],
+    );
+    const bits = await crypto.subtle.deriveBits(
+      { name: "PBKDF2", hash: "SHA-256", salt, iterations },
+      key,
+      expected.length * 8,
+    );
+    return timingSafeEqual(new Uint8Array(bits), expected);
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeMobileSnapshotForClient(snapshot: Record<string, unknown>) {
+  const clean = structuredClone(snapshot) as Record<string, unknown>;
+  delete clean.users;
+  return clean;
+}
+
+function sanitizeUserForPrivateSnapshot(value: unknown) {
+  const user = recordValue(value);
+  return {
+    name: stringValue(user.name),
+    pin: stringValue(user.pin),
+    pinHash: stringValue(user.pinHash),
+    employeeNumber: stringValue(user.employeeNumber),
+    role: stringValue(user.role),
+    isMaster: user.isMaster === true,
+    canCentralSync: user.canCentralSync === true,
+  };
+}
+
+function publicLicensePayload(license: Record<string, unknown>) {
+  return {
+    key: normalizeLicense(license.key),
+    status: stringValue(license.status),
+    plan: stringValue(license.plan),
+    customer_name: stringValue(license.customer_name),
+    email: stringValue(license.email).toLowerCase(),
+    business_name: stringValue(license.business_name),
+    cnpj: stringValue(license.cnpj),
+    phone: stringValue(license.phone),
+    city: stringValue(license.city),
+    state: stringValue(license.state),
+    expires_at: stringValue(license.expires_at),
+    profile: recordValue(license.profile),
+  };
 }
 
 async function writeMobileSnapshot(
@@ -1356,6 +1848,16 @@ function safeStorageSegment(value: unknown) {
   return clean || "item";
 }
 
+function normalizeBridgeBaseUrl(value: unknown) {
+  let clean = stringValue(value).replace(/\/+$/, "");
+  if (!clean) return "";
+  if (!/^https?:\/\//i.test(clean)) {
+    clean = `http://${clean}`;
+  }
+  clean = clean.replace(/\/garcom$/i, "");
+  return clean;
+}
+
 function emptyMobileSnapshot(payload: MobilePayload): Record<string, unknown> {
   return {
     settings: {
@@ -1364,7 +1866,8 @@ function emptyMobileSnapshot(payload: MobilePayload): Record<string, unknown> {
       terminalId: "mobile_01",
       adminApiUrl: `${stringValue(Deno.env.get("SUPABASE_URL")).replace(/\/$/, "")}/functions/v1/license`,
       ifoodApiUrl: `${stringValue(Deno.env.get("SUPABASE_URL")).replace(/\/$/, "")}/functions/v1/ifood`,
-      windowsBridgeUrl: "",
+      windowsBridgeUrl: "http://localhost:5050",
+      windowsBridgeLocalUrl: "http://localhost:5050",
       printMode: "WINDOWS_BRIDGE",
       autoSync: 1,
       cashOpen: 0,
@@ -1482,10 +1985,13 @@ function upsertAdminStoreLicense(store: Record<string, unknown>, payload: Client
   row.ownerName = stringValue(profile.ownerName);
   row.cnpj = stringValue(profile.cnpj);
   row.phone = stringValue(profile.phone);
+  row.address = stringValue(profile.address);
   row.city = stringValue(profile.city);
   row.state = stringValue(profile.state);
+  row.environmentSnapshot = payload.environment ?? {};
   row.machineHash = stringValue(payload.machineHash) || stringValue(row.machineHash);
   row.machineCode = stringValue(payload.machineCode) || stringValue(row.machineCode);
+  row.clientKind = normalizeClientKind(payload.clientKind);
   row.appVersion = stringValue(payload.appVersion);
   row.expiresAt = stringValue(license.expires_at) || stringValue(payload.localExpiresAt) || row.expiresAt || now;
   row.activatedAt = row.activatedAt || now;
@@ -1518,6 +2024,21 @@ function upsertAdminStoreDevice(store: Record<string, unknown>, payload: ClientP
   row.profile = payload.profile ?? {};
   row.settings = payload.settings ?? {};
   row.metrics = payload.metrics ?? {};
+  row.environment = payload.environment ?? {};
+}
+
+async function writeAdminStoreClientSeen(
+  payload: ClientPayload,
+  license: Record<string, unknown>,
+  eventType: string,
+  eventMessage: string,
+) {
+  const store = await readAdminStore();
+  upsertAdminStoreLicense(store, payload, license);
+  upsertAdminStoreDevice(store, payload);
+  appendAdminStoreEvent(store, eventType, eventMessage, payload);
+  trimAdminStore(store);
+  await writeAdminStore(store);
 }
 
 function appendAdminStoreEvent(store: Record<string, unknown>, type: string, message: string, payload: ClientPayload) {
@@ -1649,11 +2170,19 @@ async function ensureLicense(
     return { ok: false, message: "Esta chave ja foi usada em outro computador.", status: 401 };
   }
 
-  const profile = payload.profile ?? {};
+  const profile = {
+    ...recordValue(current?.profile),
+    ...(payload.profile ?? {}),
+  };
+  const nextPlan = stringValue(current?.plan) || stringValue(payload.localPlan) || "Licenca comercial";
+  const nextClientKind = normalizeClientKind(payload.clientKind);
+  profile.features = normalizeFeatureList(profile.features, nextPlan, nextClientKind);
+  profile.ifood_enabled = (profile.features as string[]).includes("ifood");
+  profile.whatsapp_enabled = (profile.features as string[]).includes("whatsapp");
   const next = {
     key: licenseKey,
     status: "ATIVA",
-    plan: stringValue(current?.plan) || stringValue(payload.localPlan) || "Licenca comercial",
+    plan: nextPlan,
     customer_name: businessName(profile) || stringValue(current?.customer_name) || "Cliente sem nome",
     email,
     business_name: businessName(profile),
@@ -1665,7 +2194,7 @@ async function ensureLicense(
     machine_hash: machineInDb || !options.bindMachine || isMultiDeviceClient(payload) ? machineInDb : machineHash,
     machine_code: machineInDb || !options.bindMachine || isMultiDeviceClient(payload) ? stringValue(current?.machine_code) : machineCode,
     app_version: stringValue(payload.appVersion),
-    client_kind: normalizeClientKind(payload.clientKind),
+    client_kind: nextClientKind,
     profile,
     settings: payload.settings ?? {},
     metrics: payload.metrics ?? {},
@@ -1812,6 +2341,20 @@ function normalizePayloadKeys<T>(value: T): T {
   return normalized as T;
 }
 
+function withRequestEnvironment<T extends ClientPayload>(payload: T, req: Request): T {
+  const environment = payload.environment && typeof payload.environment === "object" && !Array.isArray(payload.environment)
+    ? payload.environment
+    : {};
+  const publicIp = requestIp(req);
+  environment.publicIp = stringValue(environment.publicIp) || publicIp;
+  environment.forwardedFor = stringValue(req.headers.get("x-forwarded-for"));
+  environment.userAgent = stringValue(environment.userAgent) || stringValue(req.headers.get("user-agent"));
+  environment.requestHost = new URL(req.url).host;
+  environment.serverSeenAt = new Date().toISOString();
+  payload.environment = environment;
+  return payload;
+}
+
 function normalizeClientKind(value: unknown) {
   const clean = stringValue(value).toLowerCase();
   return clean || "windows";
@@ -1845,13 +2388,94 @@ function businessName(profile?: Record<string, unknown>) {
   return stringValue(profile?.businessName) || stringValue(profile?.legalName) || stringValue(profile?.ownerName);
 }
 
+function featuresForLicense(license: Record<string, unknown>) {
+  const profile = recordValue(license.profile);
+  return normalizeFeatureList(profile.features, stringValue(license.plan), stringValue(license.client_kind));
+}
+
+function normalizeFeatureList(value: unknown, plan: string, clientKind: string) {
+  const fromValue = Array.isArray(value)
+    ? value.map(item => stringValue(item).toLowerCase().replaceAll("_", "-")).filter(Boolean)
+    : [];
+  const defaults = defaultFeaturesForPlan(plan, clientKind);
+  const base = [...(fromValue.length > 0 ? fromValue : defaults)];
+  if (isPaidOnlinePlan(plan, clientKind)) {
+    base.push(...defaults);
+  }
+
+  return [...new Set(base)];
+}
+
+function defaultFeaturesForPlan(plan: string, clientKind: string) {
+  const text = `${plan} ${clientKind}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (text.includes("teste") || text.includes("trial")) {
+    return text.includes("online") ? TRIAL_ONLINE_FEATURES : OFFLINE_FEATURES;
+  }
+
+  if (isPaidOnlineText(text)) {
+    return PAID_ONLINE_FEATURES;
+  }
+
+  return OFFLINE_FEATURES;
+}
+
+function isPaidOnlinePlan(plan: string, clientKind: string) {
+  const text = `${plan} ${clientKind}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return isPaidOnlineText(text);
+}
+
+function isPaidOnlineText(text: string) {
+  return !text.includes("teste")
+    && !text.includes("trial")
+    && (text.includes("online")
+      || text.includes("profissional")
+      || text.includes("comercial")
+      || text.includes("hibrido")
+      || text.includes("completo")
+      || text.includes("integracoes")
+      || text.includes("139")
+      || text.includes("windows-online"));
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
 function stringValue(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function digitsOnly(value: unknown) {
+  return stringValue(value).replace(/\D+/g, "");
+}
+
+function normalizeStaffNumber(value: unknown) {
+  const digits = digitsOnly(value);
+  return digits.replace(/^0+/, "") || digits;
 }
 
 function numberValue(value: unknown) {
   const number = Number(value ?? 0);
   return Number.isFinite(number) ? number : 0;
+}
+
+function base64ToBytes(value: string) {
+  return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
+}
+
+function timingSafeEqual(a: Uint8Array, b: Uint8Array) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff === 0;
 }
 
 function roundMoney(value: unknown) {
@@ -1868,6 +2492,11 @@ function normalizePublicOrderType(value: unknown) {
   if (["PICKUP", "RETIRADA", "TAKEOUT"].includes(normalized)) return "PICKUP";
   if (["TABLE", "MESA", "LOCAL", "MESA_LOCAL"].includes(normalized)) return "TABLE";
   return "";
+}
+
+function normalizePublicOrderSource(value: unknown) {
+  const normalized = stringValue(value).toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+  return normalized === "WHATSAPP" ? "WHATSAPP" : "CARDAPIO_ONLINE";
 }
 
 function normalizePublicOrderAckStatus(value: unknown) {
@@ -1937,6 +2566,34 @@ function normalizeSlug(value: string) {
     .replace(/-+$/g, "");
 }
 
+function normalizeClockText(value: unknown) {
+  const text = stringValue(value)
+    .replace(/[hH.,]/g, ":")
+    .trim();
+  if (!text) return "00:00";
+
+  let hour = Number.NaN;
+  let minute = 0;
+  if (text.includes(":")) {
+    const parts = text.split(":").map((part) => part.trim()).filter(Boolean);
+    if (parts.length !== 2) return "00:00";
+    hour = Number.parseInt(parts[0], 10);
+    minute = Number.parseInt(parts[1], 10);
+  } else if (/^\d{3,4}$/.test(text)) {
+    const padded = text.padStart(4, "0");
+    hour = Number.parseInt(padded.slice(0, 2), 10);
+    minute = Number.parseInt(padded.slice(2), 10);
+  } else if (/^\d{1,2}$/.test(text)) {
+    hour = Number.parseInt(text, 10);
+  }
+
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return "00:00";
+  }
+
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
 function* slugCandidates(baseSlug: string) {
   yield baseSlug;
   for (let i = 1; i <= 999; i += 1) {
@@ -1951,6 +2608,27 @@ function slugToPath(slug: string) {
 
 function isConflict(error: { code?: string; message?: string } | null) {
   return error?.code === "23505" || /duplicate|unique/i.test(error?.message ?? "");
+}
+
+function isMissingWhatsAppOptionsColumn(message: unknown) {
+  const clean = String(message ?? "").toLowerCase();
+  return clean.includes("whatsapp_message_orders_enabled")
+    || clean.includes("schedule_enabled")
+    || clean.includes("open_time")
+    || clean.includes("close_time")
+    || clean.includes("could not find")
+    || clean.includes("pgrst204");
+}
+
+function withoutWhatsAppOptionsColumn<T extends Record<string, unknown>>(payload: T) {
+  const {
+    whatsapp_message_orders_enabled: _ignoredWhatsApp,
+    schedule_enabled: _ignoredSchedule,
+    open_time: _ignoredOpenTime,
+    close_time: _ignoredCloseTime,
+    ...legacyPayload
+  } = payload;
+  return legacyPayload;
 }
 
 function failMenu(message: string) {

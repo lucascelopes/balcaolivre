@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -13,10 +13,10 @@
     <AssemblyTitle>Balcão Livre PDV Online</AssemblyTitle>
     <Company>Nagazaki Software</Company>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
-    <Version>1.8.2026.5</Version>
-    <AssemblyVersion>1.8.2026.5</AssemblyVersion>
-    <FileVersion>1.8.2026.5</FileVersion>
-    <InformationalVersion>1.8.2026.5</InformationalVersion>
+    <Version>1.8.2026.21</Version>
+    <AssemblyVersion>1.8.2026.21</AssemblyVersion>
+    <FileVersion>1.8.2026.21</FileVersion>
+    <InformationalVersion>1.8.2026.21</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
@@ -49,11 +49,61 @@
       <Link>BalcaoLivre.WhatsAppExtension\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="..\deploy\evolution-local-windows\.dockerignore">
+      <Link>evolution-local-windows\.dockerignore</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\deploy\evolution-local-windows\.env.example">
+      <Link>evolution-local-windows\.env.example</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\deploy\evolution-local-windows\Dockerfile.evolution-local">
+      <Link>evolution-local-windows\Dockerfile.evolution-local</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\deploy\evolution-local-windows\docker-compose.yml">
+      <Link>evolution-local-windows\docker-compose.yml</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\deploy\evolution-local-windows\patch-baileys-version.js">
+      <Link>evolution-local-windows\patch-baileys-version.js</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\deploy\evolution-local-windows\README.md">
+      <Link>evolution-local-windows\README.md</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\deploy\evolution-local-windows\start-local.ps1">
+      <Link>evolution-local-windows\start-local.ps1</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\deploy\evolution-local-windows\start-bot.ps1">
+      <Link>evolution-local-windows\start-bot.ps1</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\deploy\evolution-local-windows\bot-server.mjs">
+      <Link>evolution-local-windows\bot-server.mjs</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\deploy\evolution-local-windows\stop-local.ps1">
+      <Link>evolution-local-windows\stop-local.ps1</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\deploy\evolution-local-windows\start-quick-tunnel.ps1">
+      <Link>evolution-local-windows\start-quick-tunnel.ps1</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\deploy\evolution-local-windows\test-api.ps1">
+      <Link>evolution-local-windows\test-api.ps1</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3967.48" />
+    <PackageReference Include="PDFsharp" Version="6.2.4" />
     <PackageReference Include="QRCoder" Version="1.8.0" />
+    <PackageReference Include="Unimake.DFe" Version="20260529.1655.12" />
   </ItemGroup>
 
 </Project>
