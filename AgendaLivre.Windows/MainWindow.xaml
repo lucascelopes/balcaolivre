@@ -304,6 +304,8 @@
         <Style x:Key="OnboardingComboBox" TargetType="ComboBox">
             <Setter Property="Height" Value="44"/>
             <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="Background" Value="White"/>
             <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
             <Setter Property="BorderThickness" Value="1"/>
@@ -314,8 +316,11 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type ComboBox}">
-                        <Grid>
+                        <Grid MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
                             <ToggleButton x:Name="ToggleButton"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch"
+                                          Width="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
                                           Focusable="False"
                                           IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
                                           ClickMode="Press"
@@ -323,20 +328,21 @@
                                           BorderThickness="0">
                                 <ToggleButton.Template>
                                     <ControlTemplate TargetType="{x:Type ToggleButton}">
-                                        <ContentPresenter/>
+                                        <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
                                     </ControlTemplate>
                                 </ToggleButton.Template>
                                 <Border x:Name="Chrome"
+                                        HorizontalAlignment="Stretch"
                                         Background="{TemplateBinding Background}"
                                         BorderBrush="{TemplateBinding BorderBrush}"
                                         BorderThickness="{TemplateBinding BorderThickness}"
                                         CornerRadius="8">
-                                    <Grid>
+                                    <Grid MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
                                         <ContentPresenter x:Name="ContentSite"
                                                           Content="{TemplateBinding SelectionBoxItem}"
                                                           ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
                                                           ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
-                                                          Margin="{TemplateBinding Padding}"
+                                                          Margin="12,0,34,0"
                                                           VerticalAlignment="Center"
                                                           HorizontalAlignment="Left"
                                                           IsHitTestVisible="False"/>
@@ -537,24 +543,71 @@
             </Setter>
         </Style>
 
+        <Style x:Key="AgendaTabItemStyle" TargetType="TabItem">
+            <Setter Property="Padding" Value="18,8"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type TabItem}">
+                        <Border x:Name="Chrome"
+                                Background="#F8FAFC"
+                                BorderBrush="{StaticResource Line}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter ContentSource="Header"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"
+                                              TextElement.FontWeight="{TemplateBinding FontWeight}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <DataTemplate x:Key="MetricTemplate">
-            <Border Background="{Binding Background}"
+            <Border Background="#FFFFFF"
                     BorderBrush="{StaticResource Line}"
                     BorderThickness="1"
-                    CornerRadius="7"
-                    Padding="10"
-                    MinHeight="78"
+                    CornerRadius="8"
+                    Padding="0"
+                    MinHeight="82"
                     Margin="0,0,8,8">
-                <StackPanel>
-                    <TextBlock Text="{Binding Label}" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
-                    <TextBlock Text="{Binding Value}" Foreground="{StaticResource Ink}" FontSize="24" FontWeight="Bold" Margin="0,3,0,1"/>
-                    <TextBlock Text="{Binding Hint}" Foreground="{StaticResource Muted}" FontSize="10.5" TextWrapping="Wrap"/>
-                </StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="5"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Background="{Binding Background}" CornerRadius="8,0,0,8"/>
+                    <StackPanel Grid.Column="1" Margin="14,10,12,10">
+                        <TextBlock Text="{Binding Label}" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding Value}" Foreground="{StaticResource Ink}" FontSize="24" FontWeight="Bold" Margin="0,4,0,1"/>
+                        <TextBlock Text="{Binding Hint}" Foreground="{StaticResource Muted}" FontSize="10.5" TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+                </Grid>
             </Border>
         </DataTemplate>
 
         <DataTemplate x:Key="ProfessionalTemplate">
-            <Border Background="#FFFFFF" BorderBrush="#DDE6EF" BorderThickness="1" CornerRadius="7" Padding="9" Margin="0,0,0,7">
+            <Border Background="#FFFFFF" BorderBrush="#DDE6EF" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,8">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -620,7 +673,7 @@
         </DataTemplate>
 
         <DataTemplate x:Key="RecentCustomerTemplate">
-            <Border Background="#FFFFFF" BorderBrush="#DDE6EF" BorderThickness="1" CornerRadius="7" Padding="9" Margin="0,0,0,7">
+            <Border Background="#FFFFFF" BorderBrush="#DDE6EF" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,8">
                 <StackPanel>
                     <TextBlock Text="{Binding Name}" Foreground="{StaticResource Ink}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                     <TextBlock Text="{Binding Detail}" Foreground="{StaticResource Muted}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
@@ -629,23 +682,25 @@
         </DataTemplate>
 
         <DataTemplate x:Key="HomeMetricTemplate">
-            <Border Background="{Binding Background}"
+            <Border Background="#FFFFFF"
                     BorderBrush="#DDE7F4"
                     BorderThickness="1"
-                    CornerRadius="12"
-                    Padding="10"
+                    CornerRadius="10"
+                    Padding="0"
                     HorizontalAlignment="Stretch"
-                    MinHeight="74"
+                    MinHeight="68"
                     Margin="0,0,8,0">
                 <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <TextBlock Text="{Binding Label}" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock Grid.Row="1" Text="{Binding Value}" Foreground="{StaticResource Ink}" FontSize="21" FontWeight="Bold" Margin="0,4,0,1"/>
-                    <TextBlock Grid.Row="2" Text="{Binding Hint}" Foreground="{StaticResource Muted}" FontSize="10" TextWrapping="Wrap"/>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="5"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Background="{Binding Background}" CornerRadius="10,0,0,10"/>
+                    <StackPanel Grid.Column="1" Margin="12,8,10,8">
+                        <TextBlock Text="{Binding Label}" Foreground="{StaticResource Muted}" FontSize="10.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding Value}" Foreground="{StaticResource Ink}" FontSize="20" FontWeight="Bold" Margin="0,3,0,0"/>
+                        <TextBlock Text="{Binding Hint}" Foreground="{StaticResource Muted}" FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+                    </StackPanel>
                 </Grid>
             </Border>
         </DataTemplate>
@@ -841,7 +896,7 @@
                         </StackPanel>
                     </Grid>
                     <TextBlock Grid.Row="1" Text="{Binding Description}" Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,10,0,12"/>
-                    <Button Grid.Row="2" Content="{Binding ActionText}" Style="{StaticResource GhostButton}" Height="32" Click="OpenEstablishmentSectionButton_Click"/>
+                    <Button Grid.Row="2" Content="{Binding ActionText}" Tag="{Binding Title}" Style="{StaticResource GhostButton}" Height="32" Click="OpenEstablishmentSectionButton_Click"/>
                 </Grid>
             </Border>
         </DataTemplate>
@@ -895,13 +950,76 @@
                 </Grid>
             </Border>
         </DataTemplate>
+
+        <DataTemplate x:Key="WhatsAppMessageTemplate">
+            <Border Background="{Binding BubbleBackground}"
+                    BorderBrush="{Binding BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Padding="10"
+                    Margin="0,0,0,8"
+                    Cursor="Hand"
+                    Tag="{Binding Phone}"
+                    ToolTip="Selecionar conversa para responder aqui"
+                    PreviewMouseLeftButtonUp="SelectWhatsAppConversationFromMessageButton_Click">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding CustomerName}" Foreground="{StaticResource Ink}" FontSize="13.5" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                        <Border Grid.Column="1" Background="{Binding BadgeBackground}" CornerRadius="12" Padding="8,3" Margin="8,0,0,0">
+                            <TextBlock Text="{Binding BadgeText}" Foreground="{Binding BadgeForeground}" FontSize="10" FontWeight="Bold"/>
+                        </Border>
+                    </Grid>
+                    <TextBlock Text="{Binding Message}" Foreground="{StaticResource Ink}" FontSize="12.5" TextWrapping="Wrap" Margin="0,6,0,5"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding Detail}" Foreground="{StaticResource Muted}" FontSize="10.5" TextWrapping="Wrap"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0" Visibility="Collapsed">
+                            <TextBlock Text="Responder" Foreground="{StaticResource Accent}" FontSize="10.5" FontWeight="Bold"/>
+                            <materialDesign:PackIcon Kind="Reply" Foreground="{StaticResource Accent}" Width="13" Height="13" Margin="4,0,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="WhatsAppConversationTemplate">
+            <Border Background="#FFFFFF"
+                    BorderBrush="#E2E8F0"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Padding="12"
+                    Margin="0,0,0,8"
+                    Cursor="Hand"
+                    Tag="{Binding Phone}"
+                    PreviewMouseLeftButtonUp="OpenWhatsAppConversationCard_Click">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding Title}" Foreground="{StaticResource Ink}" FontSize="14" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Grid.Column="1" Text="{Binding Detail}" Foreground="{StaticResource Muted}" FontSize="10.5" Margin="10,1,0,0"/>
+                    </Grid>
+                    <TextBlock Text="{Binding Preview}" Foreground="{StaticResource Ink}" FontSize="12.5" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" Margin="0,7,0,0"/>
+                    <TextBlock Text="Abrir conversa" Foreground="{StaticResource Accent}" FontSize="11" FontWeight="Bold" HorizontalAlignment="Right" Margin="0,8,0,0"/>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
     </Window.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="66"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="0"/>
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="16,10">
@@ -1240,7 +1358,6 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="14" Padding="14" Margin="0,0,0,8">
@@ -1255,8 +1372,11 @@
                                 <TextBlock x:Name="HomeBusinessText" Text="Isabelinha Clinics" Foreground="{StaticResource Accent}" FontSize="14" FontWeight="SemiBold" Margin="0,6,0,0"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                <Button Content="Novo Agendamento" Style="{StaticResource CommandButton}" Click="NewButton_Click" Margin="0,0,8,0"/>
-                                <Button Content="Abrir Agenda" Style="{StaticResource GhostButton}" Click="AgendaSidebarButton_Click"/>
+                                <Button Content="Novo horario" Style="{StaticResource CommandButton}" Click="NewButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="Agenda" Style="{StaticResource GhostButton}" Click="AgendaSidebarButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="Receber" Style="{StaticResource GhostButton}" Click="RegisterPaymentQuickButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="Cliente" Style="{StaticResource GhostButton}" Click="NewCustomerQuickButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="WhatsApp" Style="{StaticResource GhostButton}" Click="OpenWhatsAppPanelButton_Click"/>
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -1267,12 +1387,12 @@
                                   Margin="0,0,0,8">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <UniformGrid Rows="1" Columns="7"/>
+                                <UniformGrid Rows="1" Columns="4"/>
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                     </ItemsControl>
 
-                    <Border Grid.Row="2" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,0,8">
+                    <Border Grid.Row="2" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,0,8" Visibility="Collapsed">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
@@ -1293,7 +1413,7 @@
                         </Grid>
                     </Border>
 
-                    <Grid Grid.Row="3" Margin="0,0,0,8">
+                    <Grid Grid.Row="2" Margin="0,0,0,8">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
@@ -1313,8 +1433,8 @@
                                         <ColumnDefinition Width="112"/>
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Margin="0,0,8,0">
-                                        <TextBlock Text="Próximo atendimento" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
-                                        <TextBlock Text="Acompanhe o próximo compromisso do dia" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                        <TextBlock Text="Atendimento agora" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                        <TextBlock Text="Quem precisa de atencao primeiro" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
                                     </StackPanel>
                                     <Button Grid.Column="1" Content="Abrir" Style="{StaticResource SubtleButton}" Click="OpenNextAppointmentButton_Click" Height="32" MinWidth="92" Padding="10,0"/>
                                 </Grid>
@@ -1340,9 +1460,9 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,10,8">
+                        <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,10,8">
                             <StackPanel>
-                                <TextBlock Text="Resumo financeiro" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                <TextBlock Text="Caixa de hoje" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
                                 <TextBlock x:Name="HomeFinancialSubtitleText" Text="Receitas previstas e realizadas" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,10"/>
                                 <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
@@ -1369,20 +1489,20 @@
 
                         <Border Grid.Row="0" Grid.Column="2" Grid.RowSpan="2" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,0,8">
                             <StackPanel>
-                                <TextBlock Text="Alertas operacionais" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
-                                <TextBlock Text="Pontos que precisam de atenção" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,10"/>
+                                <TextBlock Text="Atencao" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                <TextBlock Text="O que pode travar o dia" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,10"/>
                                 <ItemsControl x:Name="HomeAlertsItemsControl" ItemTemplate="{StaticResource HomeAlertTemplate}"/>
                             </StackPanel>
                         </Border>
 
-                        <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,10,8">
+                        <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,10,8">
                             <StackPanel>
                                 <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Agenda de hoje" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                    <TextBlock Text="Proximos horarios" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
                                     <Button Grid.Column="1" Content="Ver agenda" Style="{StaticResource SubtleButton}" Click="AgendaSidebarButton_Click" Height="30" MinWidth="82"/>
                                 </Grid>
                                 <ItemsControl x:Name="HomeAgendaItemsControl" ItemTemplate="{StaticResource HomeAgendaTemplate}"/>
@@ -1391,26 +1511,26 @@
 
                         <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource PanelCard}" Padding="12" Margin="0,0,10,8">
                             <StackPanel>
-                                <TextBlock Text="Metas" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                <TextBlock Text="WhatsApp e retornos" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
                                 <TextBlock x:Name="HomeGoalSubtitleText" Text="Meta diária e mensal" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,10"/>
                                 <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Meta diária" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
+                                    <TextBlock Text="Confirmacoes" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
                                     <TextBlock x:Name="HomeDailyGoalText" Grid.Column="1" Text="R$ 0 / R$ 0" Foreground="{StaticResource Ink}" FontWeight="Bold"/>
                                 </Grid>
-                                <ProgressBar x:Name="HomeDailyGoalProgress" Height="8" Maximum="100" Value="0" Foreground="{StaticResource Accent}" Background="#EAF2FF" Margin="0,0,0,10"/>
+                                <ProgressBar x:Name="HomeDailyGoalProgress" Height="8" Maximum="100" Value="0" Foreground="{StaticResource Accent}" Background="#EAF2FF" Margin="0,0,0,10" Visibility="Collapsed"/>
                                 <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Meta mensal" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
+                                    <TextBlock Text="Sem retorno" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
                                     <TextBlock x:Name="HomeMonthlyGoalText" Grid.Column="1" Text="R$ 0 / R$ 0" Foreground="{StaticResource Ink}" FontWeight="Bold"/>
                                 </Grid>
-                                <ProgressBar x:Name="HomeMonthlyGoalProgress" Height="8" Maximum="100" Value="0" Foreground="{StaticResource Accent}" Background="#EAF2FF"/>
+                                <ProgressBar x:Name="HomeMonthlyGoalProgress" Height="8" Maximum="100" Value="0" Foreground="{StaticResource Accent}" Background="#EAF2FF" Visibility="Collapsed"/>
                             </StackPanel>
                         </Border>
 
@@ -1496,7 +1616,7 @@
                             <ColumnDefinition Width="1*"/>
                         </Grid.ColumnDefinitions>
 
-                        <Border Grid.Column="0" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,0">
+                        <Border x:Name="EstablishmentClientsPanel" Grid.Column="0" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,0">
                             <StackPanel>
                                 <Grid Margin="0,0,0,10">
                                     <Grid.ColumnDefinitions>
@@ -1514,7 +1634,7 @@
                         </Border>
 
                         <StackPanel Grid.Column="1" Margin="0,0,10,0">
-                            <Border Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,10">
+                            <Border x:Name="EstablishmentProfessionalsPanel" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,10">
                                 <StackPanel>
                                     <Grid Margin="0,0,0,10">
                                         <Grid.ColumnDefinitions>
@@ -1531,7 +1651,7 @@
                                 </StackPanel>
                             </Border>
 
-                            <Border Style="{StaticResource PanelCard}" Padding="14">
+                            <Border x:Name="EstablishmentServicesPanel" Style="{StaticResource PanelCard}" Padding="14">
                                 <StackPanel>
                                     <Grid Margin="0,0,0,10">
                                         <Grid.ColumnDefinitions>
@@ -1550,7 +1670,7 @@
                         </StackPanel>
 
                         <StackPanel Grid.Column="2">
-                            <Border Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,10">
+                            <Border x:Name="EstablishmentProductsPanel" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,10">
                                 <StackPanel>
                                     <Grid Margin="0,0,0,10">
                                         <Grid.ColumnDefinitions>
@@ -1567,7 +1687,7 @@
                                 </StackPanel>
                             </Border>
 
-                            <Border Style="{StaticResource PanelCard}" Padding="14">
+                            <Border x:Name="EstablishmentSalesPanel" Style="{StaticResource PanelCard}" Padding="14">
                                 <StackPanel>
                                     <Grid Margin="0,0,0,10">
                                         <Grid.ColumnDefinitions>
@@ -1608,48 +1728,110 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <StackPanel>
-                                <TextBlock Text="Financeiro" Foreground="{StaticResource Ink}" FontSize="26" FontWeight="Bold"/>
-                                <TextBlock Text="Controle receitas, despesas e pagamentos do negócio." Foreground="{StaticResource Muted}" FontSize="13" Margin="0,3,0,0"/>
+                                <TextBlock Text="Caixa e pagamentos" Foreground="{StaticResource Ink}" FontSize="26" FontWeight="Bold"/>
+                                <TextBlock Text="Entradas, cobrancas pendentes, gastos e maquininha em uma tela." Foreground="{StaticResource Muted}" FontSize="13" Margin="0,3,0,0"/>
                                 <TextBlock x:Name="FinanceBusinessText" Text="Isabelinha Clinics" Foreground="{StaticResource Accent}" FontSize="14" FontWeight="SemiBold" Margin="0,7,0,0"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                <Button Content="Registrar pagamento" Style="{StaticResource CommandButton}" Click="RegisterPaymentButton_Click" Margin="0,0,8,0"/>
-                                <Button Content="Nova despesa" Style="{StaticResource GhostButton}" Click="NewExpenseButton_Click"/>
+                                <Button Content="Receber agora" Style="{StaticResource CommandButton}" Click="RegisterPaymentButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="Lancar despesa" Style="{StaticResource GhostButton}" Click="NewExpenseButton_Click" Margin="0,0,8,0"/>
+                                <Button Content="Vender produto" Style="{StaticResource GhostButton}" Click="RegisterProductSaleButton_Click"/>
                             </StackPanel>
                         </Grid>
                     </Border>
 
-                    <ItemsControl Grid.Row="1"
-                                  x:Name="FinanceMetricsItemsControl"
-                                  ItemTemplate="{StaticResource EstablishmentMetricTemplate}"
-                                  Margin="0,0,0,10">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <UniformGrid Rows="1" Columns="5"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                    </ItemsControl>
+                    <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#DDE7F4" BorderThickness="1" CornerRadius="12" Padding="0" Margin="0,0,0,10">
+                        <Grid MinHeight="108">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1.2*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="1.15*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="4"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name="FinanceBalanceAccentBorder" Background="#DC2626" CornerRadius="12,0,0,12"/>
+                                <StackPanel Grid.Column="1" Margin="14,13,12,13">
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Resultado do mes" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
+                                        <Border x:Name="FinanceBalanceBadgeBorder" Grid.Column="1" Background="#FEE2E2" CornerRadius="11" Padding="8,3" Margin="8,0,0,0">
+                                            <TextBlock x:Name="FinanceBalanceBadgeText" Text="negativo" Foreground="#991B1B" FontSize="10" FontWeight="Bold"/>
+                                        </Border>
+                                    </Grid>
+                                    <TextBlock x:Name="FinanceBalanceText" Text="R$ 0" Foreground="{StaticResource Ink}" FontSize="25" FontWeight="Bold"/>
+                                    <TextBlock x:Name="FinanceBalanceHintText" Text="Entradas menos despesas" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <Border Grid.Column="1" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="14,13">
+                                <StackPanel>
+                                    <TextBlock Text="Entrou" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="FinanceReceivedMonthText" Text="R$ 0" Foreground="{StaticResource Ink}" FontSize="22" FontWeight="Bold" Margin="0,6,0,0"/>
+                                    <TextBlock Text="recebido no mes" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="2" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="14,13">
+                                <StackPanel>
+                                    <TextBlock Text="A cobrar" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="FinancePendingTotalText" Text="R$ 0" Foreground="#B45309" FontSize="22" FontWeight="Bold" Margin="0,6,0,0"/>
+                                    <TextBlock x:Name="FinancePendingHintText" Text="0 atendimentos em aberto" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="3" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="14,13">
+                                <StackPanel>
+                                    <TextBlock Text="Gastos" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="FinanceExpensesMonthText" Text="R$ 0" Foreground="#991B1B" FontSize="22" FontWeight="Bold" Margin="0,6,0,0"/>
+                                    <TextBlock Text="lancados no mes" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="4" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="14,13">
+                                <StackPanel>
+                                    <TextBlock Text="Mercado Pago" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="FinanceMercadoPagoText" Text="Desativado" Foreground="#166534" FontSize="17" FontWeight="Bold" TextWrapping="Wrap" Margin="0,7,0,0"/>
+                                    <TextBlock x:Name="FinanceMercadoPagoHintText" Text="Cartao na maquininha" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </Border>
 
                     <Grid Grid.Row="2" Margin="0">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="1*"/>
-                            <ColumnDefinition Width="1.1*"/>
+                            <ColumnDefinition Width="0.95*"/>
+                            <ColumnDefinition Width="1.25*"/>
                             <ColumnDefinition Width="0.95*"/>
                         </Grid.ColumnDefinitions>
 
-                        <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,10">
-                            <StackPanel>
-                                <TextBlock Text="Entradas do mês" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
-                                <TextBlock Text="Serviços, produtos e pagamentos manuais" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,12"/>
-                                <ItemsControl x:Name="FinanceEntriesItemsControl" ItemTemplate="{StaticResource HomeFinanceBarTemplate}"/>
-                            </StackPanel>
-                        </Border>
+                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                            <Border Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="Dinheiro que entrou" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                    <TextBlock Text="Origem dos recebimentos do mes." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,12"/>
+                                    <ItemsControl x:Name="FinanceEntriesItemsControl" ItemTemplate="{StaticResource HomeFinanceBarTemplate}"/>
+                                </StackPanel>
+                            </Border>
 
-                        <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,10">
+                            <Border Style="{StaticResource PanelCard}" Padding="14">
+                                <StackPanel>
+                                    <TextBlock Text="Ultimos 7 dias" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                    <TextBlock Text="Recebido por dia." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,12"/>
+                                    <ItemsControl x:Name="FinanceChartItemsControl" ItemTemplate="{StaticResource HomeFinanceBarTemplate}"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <Border Grid.Column="1" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,0" VerticalAlignment="Top">
                             <StackPanel>
                                 <Grid Margin="0,0,0,10">
                                     <Grid.ColumnDefinitions>
@@ -1657,48 +1839,47 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <StackPanel>
-                                        <TextBlock Text="Pagamentos pendentes" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
-                                        <TextBlock Text="Atendimentos com valor ainda em aberto" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                                        <TextBlock Text="Clientes para cobrar" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                        <TextBlock Text="Atendimentos sem baixa no caixa." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
                                     </StackPanel>
-                                    <Button Grid.Column="1" Content="Registrar" Style="{StaticResource SubtleButton}" Height="32" MinWidth="86" Click="RegisterPaymentButton_Click"/>
+                                    <Button Grid.Column="1" Content="Receber" Style="{StaticResource SubtleButton}" Height="32" MinWidth="86" Click="RegisterPaymentButton_Click"/>
                                 </Grid>
-                                <ItemsControl x:Name="FinancePendingItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                                <ScrollViewer MaxHeight="410" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                    <ItemsControl x:Name="FinancePendingItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                                </ScrollViewer>
                             </StackPanel>
                         </Border>
 
-                        <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,10" MaxHeight="344" VerticalAlignment="Top">
-                            <StackPanel>
-                                <Grid Margin="0,0,0,10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Text="Despesas recentes" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
-                                        <TextBlock Text="Saídas cadastradas no financeiro" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                    <Button Grid.Column="1" Content="Nova" Style="{StaticResource SubtleButton}" Height="32" MinWidth="70" Click="NewExpenseButton_Click"/>
-                                </Grid>
-                                <ItemsControl x:Name="FinanceExpensesItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
-                            </StackPanel>
-                        </Border>
+                        <StackPanel Grid.Column="2">
+                            <Border Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="Gastos" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
+                                            <TextBlock Text="Despesas lancadas." Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Lancar" Style="{StaticResource SubtleButton}" Height="32" MinWidth="70" Click="NewExpenseButton_Click"/>
+                                    </Grid>
+                                    <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                        <ItemsControl x:Name="FinanceExpensesItemsControl" ItemTemplate="{StaticResource EstablishmentListTemplate}"/>
+                                    </ScrollViewer>
+                                </StackPanel>
+                            </Border>
 
-                        <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,10,0">
-                            <StackPanel>
-                                <TextBlock Text="Faturamento dos últimos 7 dias" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold"/>
-                                <TextBlock Text="Entradas recebidas por dia" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,12"/>
-                                <ItemsControl x:Name="FinanceChartItemsControl" ItemTemplate="{StaticResource HomeFinanceBarTemplate}"/>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Grid.Row="1" Grid.Column="2" Style="{StaticResource PanelCard}" Padding="14">
-                            <StackPanel>
-                                <TextBlock Text="Ações rápidas" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold" Margin="0,0,0,12"/>
-                                <Button Content="Registrar pagamento" Style="{StaticResource CommandButton}" Click="RegisterPaymentButton_Click" Margin="0,0,0,8"/>
-                                <Button Content="Nova despesa" Style="{StaticResource GhostButton}" Click="NewExpenseButton_Click" Margin="0,0,0,8"/>
-                                <Button Content="Registrar venda de produto" Style="{StaticResource GhostButton}" Click="RegisterProductSaleButton_Click"/>
-                            </StackPanel>
-                        </Border>
+                            <Border Style="{StaticResource PanelCard}" Padding="14">
+                                <StackPanel>
+                                    <TextBlock Text="Acoes do caixa" Foreground="{StaticResource Ink}" FontSize="18" FontWeight="Bold" Margin="0,0,0,12"/>
+                                    <Button Content="Receber atendimento" Style="{StaticResource CommandButton}" Click="RegisterPaymentButton_Click" Margin="0,0,0,8"/>
+                                    <Button Content="Lancar despesa" Style="{StaticResource GhostButton}" Click="NewExpenseButton_Click" Margin="0,0,0,8"/>
+                                    <Button Content="Venda de produto" Style="{StaticResource GhostButton}" Click="RegisterProductSaleButton_Click" Margin="0,0,0,8"/>
+                                    <Button Content="Mercado Pago" Style="{StaticResource GhostButton}" Click="OpenMercadoPagoSettingsButton_Click"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
                     </Grid>
                 </Grid>
             </ScrollViewer>
@@ -2019,20 +2200,29 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <Border Grid.Row="0" Background="Transparent" Padding="0" Margin="0,0,0,14">
+                <Border Grid.Row="0" Style="{StaticResource PanelCard}" Padding="16" Margin="0,0,0,12">
                     <Grid>
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel>
-                            <TextBlock x:Name="AgendaTitleText" Text="Agenda geral" Foreground="{StaticResource Ink}" FontSize="29" FontWeight="Bold"/>
-                            <TextBlock x:Name="AgendaSubtitleText" Text="Quadro do dia" Foreground="{StaticResource Muted}" FontSize="13" Margin="0,2,0,0"/>
+                        <Border Width="46" Height="46" CornerRadius="12" Background="{StaticResource AccentSoft}" Margin="0,0,14,0">
+                            <materialDesign:PackIcon Kind="CalendarMonth"
+                                                     Foreground="{StaticResource Accent}"
+                                                     Width="24"
+                                                     Height="24"
+                                                     HorizontalAlignment="Center"
+                                                     VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock x:Name="AgendaTitleText" Text="Agenda de hoje" Foreground="{StaticResource Ink}" FontSize="28" FontWeight="Bold"/>
+                            <TextBlock x:Name="AgendaSubtitleText" Text="Atendimentos do dia" Foreground="{StaticResource Muted}" FontSize="13" Margin="0,3,0,0"/>
                         </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button Content="Confirmar" Style="{StaticResource SubtleButton}" Click="ConfirmButton_Click" Margin="0,0,8,0"/>
-                            <Button Content="Chegou" Style="{StaticResource SubtleButton}" Click="CheckInButton_Click" Margin="0,0,8,0"/>
-                            <Button Content="Iniciar" Style="{StaticResource SubtleButton}" Click="StartServiceButton_Click" Margin="0,0,8,0"/>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Content="Confirmar" Style="{StaticResource SubtleButton}" Click="ConfirmButton_Click" Margin="0,0,7,0"/>
+                            <Button Content="Chegou" Style="{StaticResource SubtleButton}" Click="CheckInButton_Click" Margin="0,0,7,0"/>
+                            <Button Content="Iniciar" Style="{StaticResource SubtleButton}" Click="StartServiceButton_Click" Margin="0,0,7,0"/>
                             <Button Content="Finalizar" Style="{StaticResource CommandButton}" Click="FinishButton_Click"/>
                         </StackPanel>
                     </Grid>
@@ -2052,8 +2242,8 @@
                 <Border x:Name="SelectedAppointmentCard"
                         Grid.Row="2"
                         Style="{StaticResource PanelCard}"
-                        Padding="12"
-                        Margin="0,0,0,14"
+                        Padding="14"
+                        Margin="0,0,0,12"
                         Visibility="Collapsed">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -2095,6 +2285,13 @@
                                        FontWeight="Bold"
                                        HorizontalAlignment="Right"
                                        Margin="0,8,0,0"/>
+                            <Button Content="WhatsApp"
+                                    Style="{StaticResource GhostButton}"
+                                    Height="32"
+                                    MinWidth="112"
+                                    HorizontalAlignment="Right"
+                                    Margin="0,8,0,0"
+                                    Click="SendSelectedWhatsAppButton_Click"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -2102,63 +2299,57 @@
                 <Grid Grid.Row="3">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="300"/>
+                        <ColumnDefinition Width="286"/>
                     </Grid.ColumnDefinitions>
 
-                    <Border Grid.Column="0" Style="{StaticResource PanelCard}" Padding="10">
-                        <TabControl x:Name="AgendaTabs">
-                            <TabItem Header="Quadro">
+                    <Border Grid.Column="0" Style="{StaticResource PanelCard}" Padding="12">
+                        <TabControl x:Name="AgendaTabs"
+                                    Background="Transparent"
+                                    BorderThickness="0">
+                            <TabItem Header="Quadro" Style="{StaticResource AgendaTabItemStyle}">
                                 <ScrollViewer VerticalScrollBarVisibility="Auto"
                                               HorizontalScrollBarVisibility="Auto"
-                                              Background="#FFFFFF">
+                                              Background="#F8FAFC"
+                                              Margin="0,10,0,0">
                                     <Grid x:Name="ScheduleBoardGrid" MinWidth="760"/>
                                 </ScrollViewer>
                             </TabItem>
-                            <TabItem Header="Lista">
+                            <TabItem Header="Lista" Style="{StaticResource AgendaTabItemStyle}">
                                 <ListBox x:Name="DayAgendaList"
                                          ItemTemplate="{StaticResource AppointmentTemplate}"
                                          SelectionChanged="AgendaList_SelectionChanged"
                                          MouseDoubleClick="DayAgendaList_MouseDoubleClick"
-                                         Padding="2,8,8,8"
+                                         Padding="0,10,0,0"
                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
                             </TabItem>
-                            <TabItem Header="Semana">
+                            <TabItem Header="Semana" Style="{StaticResource AgendaTabItemStyle}">
                                 <ListBox x:Name="WeekAgendaList"
                                          ItemTemplate="{StaticResource AppointmentTemplate}"
                                          SelectionChanged="AgendaList_SelectionChanged"
-                                         Padding="2,8,8,8"
+                                         Padding="0,10,0,0"
                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
                             </TabItem>
                         </TabControl>
                     </Border>
 
-                    <StackPanel Grid.Column="1" Margin="16,0,0,0">
-                        <Border Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,14">
+                    <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                        <Border Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,12">
                             <StackPanel>
                                 <TextBlock Text="Equipe do dia" Foreground="{StaticResource Ink}" FontSize="16" FontWeight="Bold"/>
-                                <TextBlock Text="Profissionais com agenda ativa" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,10"/>
-                                <ListBox x:Name="ProfessionalListBox" ItemTemplate="{StaticResource ProfessionalTemplate}" MaxHeight="220"/>
+                                <TextBlock Text="Carga por profissional" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,10"/>
+                                <ListBox x:Name="ProfessionalListBox" ItemTemplate="{StaticResource ProfessionalTemplate}" MaxHeight="210"/>
                             </StackPanel>
                         </Border>
 
-                        <Border Style="{StaticResource PanelCard}" Padding="14" Margin="0,0,0,14">
+                        <Border Style="{StaticResource PanelCard}" Padding="14">
                             <StackPanel>
                                 <TextBlock Text="Clientes recentes" Foreground="{StaticResource Ink}" FontSize="16" FontWeight="Bold"/>
                                 <TextBlock Text="Últimos cadastros atendidos" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,10"/>
-                                <ListBox x:Name="RecentCustomerListBox" ItemTemplate="{StaticResource RecentCustomerTemplate}" MaxHeight="210"/>
+                                <ListBox x:Name="RecentCustomerListBox" ItemTemplate="{StaticResource RecentCustomerTemplate}" MaxHeight="260"/>
                             </StackPanel>
                         </Border>
 
-                        <Border Background="#EFF6FF"
-                                BorderBrush="#BFDBFE"
-                                BorderThickness="1"
-                                CornerRadius="12"
-                                Padding="14">
-                            <StackPanel>
-                                <TextBlock Text="Banco local" Foreground="{StaticResource Ink}" FontWeight="Bold" FontSize="13"/>
-                                <TextBlock x:Name="DataPathText" Foreground="{StaticResource Muted}" TextWrapping="Wrap" FontSize="10.5" Margin="0,4,0,0"/>
-                            </StackPanel>
-                        </Border>
+                        <TextBlock x:Name="DataPathText" Visibility="Collapsed"/>
                     </StackPanel>
                 </Grid>
             </Grid>
@@ -2167,48 +2358,90 @@
                   Grid.ColumnSpan="2"
                   Background="#B50F172A"
                   Visibility="Collapsed">
-                <Border Width="820"
-                        MaxHeight="760"
+                <Border Width="960"
+                        MaxHeight="820"
                         Style="{StaticResource PanelCard}"
-                        Padding="18"
+                        Padding="20"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center">
                     <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <Border Grid.Row="0" Background="#F8FAFC" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,0,0,14">
+                    <Border Grid.Row="0" Background="#F8FAFC" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="12" Padding="18" Margin="0,0,0,16">
                         <Grid>
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock x:Name="EditorTitleText" Text="Novo agendamento" Foreground="{StaticResource Ink}" FontSize="22" FontWeight="Bold"/>
-                                <TextBlock x:Name="EditorStatusText" Text="Pronto para agendar" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+                            <Border Width="42" Height="42" CornerRadius="10" Background="{StaticResource AccentSoft}" Margin="0,0,14,0">
+                                <materialDesign:PackIcon Kind="CalendarMonth"
+                                                         Foreground="{StaticResource Accent}"
+                                                         Width="22"
+                                                         Height="22"
+                                                         HorizontalAlignment="Center"
+                                                         VerticalAlignment="Center"/>
+                            </Border>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock x:Name="EditorTitleText" Text="Novo agendamento" Foreground="{StaticResource Ink}" FontSize="23" FontWeight="Bold"/>
+                                <TextBlock x:Name="EditorStatusText" Text="Pronto para agendar" Foreground="{StaticResource Muted}" FontSize="13" Margin="0,3,0,0"/>
                             </StackPanel>
-                            <Button Grid.Column="1"
+                            <Button Grid.Column="2"
                                     Content="Fechar"
                                     Style="{StaticResource GhostButton}"
-                                    Height="34"
-                                    MinWidth="74"
-                                    Margin="12,0,0,0"
+                                    Height="36"
+                                    MinWidth="82"
+                                    Margin="18,0,0,0"
                                     Click="CloseAppointmentModalButton_Click"/>
                         </Grid>
                     </Border>
 
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                        <StackPanel>
-                            <TextBlock Text="Segmento" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
+                    <Border x:Name="AppointmentRuleAlert"
+                            Grid.Row="1"
+                            Background="#FEF2F2"
+                            BorderBrush="#FCA5A5"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="12"
+                            Margin="0,0,0,14"
+                            Visibility="Collapsed">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="28"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <materialDesign:PackIcon Kind="AlertCircle"
+                                                     Foreground="#DC2626"
+                                                     Width="18"
+                                                     Height="18"
+                                                     VerticalAlignment="Top"
+                                                     Margin="0,2,0,0"/>
+                            <TextBlock x:Name="AppointmentRuleText"
+                                       Grid.Column="1"
+                                       Foreground="{StaticResource Ink}"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       TextWrapping="Wrap"/>
+                        </Grid>
+                    </Border>
+
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Width="900"
+                                    KeyboardNavigation.TabNavigation="Cycle"
+                                    PreviewKeyDown="AppointmentEditorForm_PreviewKeyDown">
+                            <TextBlock Text="Detalhes do horário" Foreground="{StaticResource Ink}" FontWeight="Bold" FontSize="16" Margin="0,0,0,10"/>
+                            <TextBlock Text="Tipo de atendimento" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
                             <ComboBox x:Name="AppointmentSegmentCombo" Style="{StaticResource OnboardingComboBox}" SelectionChanged="AppointmentSegmentCombo_SelectionChanged" Margin="0,3,0,10"/>
 
                             <Grid Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="10"/>
-                                    <ColumnDefinition Width="112"/>
+                                    <ColumnDefinition Width="170"/>
                                 </Grid.ColumnDefinitions>
                                 <StackPanel>
                                     <TextBlock Text="Data" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
@@ -2227,7 +2460,7 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="10"/>
-                                    <ColumnDefinition Width="112"/>
+                                    <ColumnDefinition Width="170"/>
                                 </Grid.ColumnDefinitions>
                                 <StackPanel>
                                     <TextBlock Text="Profissional" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
@@ -2242,9 +2475,9 @@
                             <TextBlock x:Name="ResourceLabelText" Text="Sala, box ou cadeira" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
                             <ComboBox x:Name="ResourceCombo" Style="{StaticResource OnboardingComboBox}" Margin="0,3,0,10"/>
 
-                            <Border Background="#F7FAFC" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="11" Margin="0,2,0,10">
+                            <Border Background="#F8FAFC" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,6,0,12">
                                 <StackPanel>
-                                    <TextBlock x:Name="ClientSectionTitle" Text="Cliente" Foreground="{StaticResource Ink}" FontWeight="Bold" FontSize="15" Margin="0,0,0,8"/>
+                                    <TextBlock x:Name="ClientSectionTitle" Text="Cliente" Foreground="{StaticResource Ink}" FontWeight="Bold" FontSize="16" Margin="0,0,0,10"/>
                                     <TextBlock Text="Nome" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
                                     <TextBox x:Name="CustomerNameTextBox" Style="{StaticResource OnboardingTextBox}" Tag="Nome do cliente" Margin="0,3,0,8"/>
 
@@ -2255,7 +2488,7 @@
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="10"/>
-                                            <ColumnDefinition Width="112"/>
+                                            <ColumnDefinition Width="150"/>
                                         </Grid.ColumnDefinitions>
                                         <StackPanel>
                                             <TextBlock Text="Telefone" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
@@ -2271,7 +2504,7 @@
 
                             <TextBlock Text="Observações" Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
                             <TextBox x:Name="NotesTextBox"
-                                     Height="74"
+                                     Height="88"
                                      AcceptsReturn="True"
                                      TextWrapping="Wrap"
                                      VerticalContentAlignment="Top"
@@ -2285,7 +2518,7 @@
                                     <ColumnDefinition Width="8"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <Button Grid.Column="0" Content="Salvar" Style="{StaticResource CommandButton}" Click="SaveAppointmentButton_Click"/>
+                                <Button Grid.Column="0" Content="Salvar agendamento" Style="{StaticResource CommandButton}" Click="SaveAppointmentButton_Click"/>
                                 <Button Grid.Column="2" Content="Limpar" Style="{StaticResource GhostButton}" Click="ClearEditorButton_Click"/>
                             </Grid>
 
@@ -2295,17 +2528,19 @@
                                     <ColumnDefinition Width="8"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <Button Grid.Column="0" Content="Bloquear" Style="{StaticResource GhostButton}" Click="BlockTimeButton_Click"/>
-                                <Button Grid.Column="2" Content="Resumo" Style="{StaticResource GhostButton}" Click="CopySummaryButton_Click"/>
+                                <Button Grid.Column="0" Content="Bloquear horário" Style="{StaticResource GhostButton}" Click="BlockTimeButton_Click"/>
+                                <Button Grid.Column="2" Content="Copiar resumo" Style="{StaticResource GhostButton}" Click="CopySummaryButton_Click"/>
                             </Grid>
 
-                            <TextBlock Text="Ações" Foreground="{StaticResource Ink}" FontWeight="Bold" FontSize="15" Margin="0,2,0,7"/>
-                            <UniformGrid Columns="2" Rows="2">
-                                <Button Content="Cancelar" Style="{StaticResource DangerButton}" Click="CancelButton_Click" Margin="0,0,8,8"/>
-                                <Button Content="Faltou" Style="{StaticResource GhostButton}" Click="NoShowButton_Click" Margin="0,0,0,8"/>
-                                <Button Content="Duplicar" Style="{StaticResource GhostButton}" Click="DuplicateButton_Click" Margin="0,0,8,0"/>
-                                <Button Content="Excluir" Style="{StaticResource DangerButton}" Click="DeleteButton_Click"/>
-                            </UniformGrid>
+                            <StackPanel x:Name="ExistingAppointmentActionsPanel" Visibility="Collapsed">
+                                <TextBlock Text="Ações do agendamento" Foreground="{StaticResource Ink}" FontWeight="Bold" FontSize="15" Margin="0,4,0,8"/>
+                                <UniformGrid Columns="4">
+                                    <Button Content="Cancelar" Style="{StaticResource DangerButton}" Click="CancelButton_Click" Margin="0,0,8,0"/>
+                                    <Button Content="Faltou" Style="{StaticResource GhostButton}" Click="NoShowButton_Click" Margin="0,0,8,0"/>
+                                    <Button Content="Duplicar" Style="{StaticResource GhostButton}" Click="DuplicateButton_Click" Margin="0,0,8,0"/>
+                                    <Button Content="Excluir" Style="{StaticResource DangerButton}" Click="DeleteButton_Click"/>
+                                </UniformGrid>
+                            </StackPanel>
                         </StackPanel>
                     </ScrollViewer>
                     </Grid>
@@ -2443,6 +2678,74 @@
                                             <ColumnDefinition Width="40"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
+                                        <Border Width="34" Height="34" Background="#DCFCE7" CornerRadius="12">
+                                            <materialDesign:PackIcon Kind="Whatsapp" Foreground="#16A34A" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                            <TextBlock Text="WhatsApp automático" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                            <TextBlock x:Name="SettingsWhatsAppStatusText" Text="Não linkado" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <TextBlock x:Name="SettingsWhatsAppDetailText"
+                                               Text="Linke o WhatsApp da loja para confirmar horários, chamar clientes e ver mensagens no app."
+                                               Foreground="{StaticResource Muted}"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,12"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Button x:Name="SettingsWhatsAppConnectButton"
+                                                Grid.Column="0"
+                                                Content="Linkar WhatsApp"
+                                                Style="{StaticResource CommandButton}"
+                                                Click="LinkWhatsAppButton_Click"/>
+                                        <Button Grid.Column="2"
+                                                Content="Abrir painel"
+                                                Style="{StaticResource GhostButton}"
+                                                Click="OpenWhatsAppPanelButton_Click"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PanelCard}" Padding="16" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="40"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="34" Height="34" Background="#EAF2FF" CornerRadius="12">
+                                            <materialDesign:PackIcon Kind="CreditCard" Foreground="{StaticResource Accent}" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                            <TextBlock Text="Mercado Pago" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="Bold"/>
+                                            <TextBlock x:Name="SettingsMercadoPagoStatusText" Text="Desativado" Foreground="{StaticResource Muted}" FontSize="12" FontWeight="SemiBold" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <TextBlock x:Name="SettingsMercadoPagoDetailText"
+                                               Text="Ative para cobrar no cartao pela maquininha Point e registrar somente quando aprovado."
+                                               Foreground="{StaticResource Muted}"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,12"/>
+                                    <Button x:Name="SettingsMercadoPagoManageButton"
+                                            Content="Configurar Mercado Pago"
+                                            Style="{StaticResource GhostButton}"
+                                            Click="OpenMercadoPagoSettingsButton_Click"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource PanelCard}" Padding="16" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="40"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
                                         <Border Width="34" Height="34" Background="#EAF2FF" CornerRadius="12">
                                             <materialDesign:PackIcon Kind="ShieldAccount" Foreground="{StaticResource Accent}" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
@@ -2483,9 +2786,283 @@
             </ScrollViewer>
         </Grid>
 
-        <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="14,8">
-            <TextBlock x:Name="StatusTextBlock" Text="Agenda pronta." Foreground="{StaticResource Ink}" FontWeight="SemiBold"/>
+        <Border x:Name="WhatsAppFloatingPanel"
+                Grid.Row="1"
+                Panel.ZIndex="70"
+                Width="420"
+                MaxWidth="420"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch"
+                Margin="0,12,16,12"
+                Background="#FFFFFF"
+                BorderBrush="#D9E6DF"
+                BorderThickness="1"
+                CornerRadius="16"
+                Padding="0"
+                Visibility="Collapsed">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="30" ShadowDepth="6" Opacity="0.18" Color="#0F172A"/>
+            </Border.Effect>
+            <DockPanel LastChildFill="True">
+                <Border DockPanel.Dock="Top" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" CornerRadius="16,16,0,0" Padding="12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Width="34" Height="34" Background="#DCFCE7" CornerRadius="10">
+                            <materialDesign:PackIcon Kind="Whatsapp" Foreground="#16A34A" Width="20" Height="20" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel Grid.Column="1" Margin="10,0,8,0">
+                            <TextBlock Text="Conversas" Foreground="{StaticResource Ink}" FontSize="15" FontWeight="Bold"/>
+                            <TextBlock x:Name="WhatsAppFloatingStatusText" Text="Linke o WhatsApp da loja" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                        <Button Grid.Column="2"
+                                Width="30"
+                                Height="30"
+                                Padding="0"
+                                Background="#F8FAFC"
+                                Foreground="{StaticResource Ink}"
+                                BorderBrush="#E2E8F0"
+                                ToolTip="Fechar WhatsApp"
+                                Click="CloseWhatsAppPanelButton_Click">
+                            <materialDesign:PackIcon Kind="Close"
+                                                     Width="16"
+                                                     Height="16"
+                                                     Foreground="{StaticResource Ink}"
+                                                     HorizontalAlignment="Center"
+                                                     VerticalAlignment="Center"/>
+                        </Button>
+                    </Grid>
+                </Border>
+
+                <StackPanel DockPanel.Dock="Top" Margin="10,8,10,6">
+                    <Border x:Name="WhatsAppFloatingDetailCard" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="10" Padding="8" Margin="0,0,0,8">
+                        <StackPanel>
+                            <TextBlock x:Name="WhatsAppFloatingDetailText"
+                                       Text="Confirmações, retornos e mensagens aparecem aqui."
+                                       Foreground="{StaticResource Ink}"
+                                       FontSize="11.5"
+                                       FontWeight="SemiBold"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="Confirme agenda e responda clientes sem sair do sistema."
+                                       Foreground="{StaticResource Muted}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="0,4,0,0"
+                                       Visibility="Collapsed"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel x:Name="WhatsAppConversationListHeader" VerticalAlignment="Center">
+                            <TextBlock Text="Conversas recentes" Foreground="{StaticResource Ink}" FontSize="13" FontWeight="Bold"/>
+                            <TextBlock x:Name="WhatsAppConversationListCountText" Text="Toque em uma conversa para abrir" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <Grid x:Name="WhatsAppActiveConversationHeader" Visibility="Collapsed" VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="36"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="WhatsAppBackToConversationsButton"
+                                    Width="32"
+                                    Height="32"
+                                    Padding="0"
+                                    Background="#F8FAFC"
+                                    BorderBrush="#E2E8F0"
+                                    ToolTip="Voltar para conversas"
+                                    Click="BackToWhatsAppConversationsButton_Click">
+                                <materialDesign:PackIcon Kind="ArrowLeft"
+                                                         Width="17"
+                                                         Height="17"
+                                                         Foreground="{StaticResource Ink}"
+                                                         HorizontalAlignment="Center"
+                                                         VerticalAlignment="Center"/>
+                            </Button>
+                            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                <TextBlock x:Name="WhatsAppActiveConversationTitleText" Text="Conversa" Foreground="{StaticResource Ink}" FontSize="13" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock x:Name="WhatsAppActiveConversationPhoneText" Text="" Foreground="{StaticResource Muted}" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Grid>
+                        <Button x:Name="WhatsAppFloatingConnectButton"
+                                Grid.Column="2"
+                                Content="Linkar"
+                                Style="{StaticResource GhostButton}"
+                                Height="34"
+                                MinWidth="74"
+                                Padding="10,0"
+                                Click="LinkWhatsAppButton_Click"/>
+                    </Grid>
+                    <TextBox x:Name="WhatsAppStorePhoneTextBox"
+                             Height="1"
+                             Padding="0"
+                             BorderThickness="0"
+                             Visibility="Collapsed"/>
+
+                    <Border x:Name="WhatsAppQrPanel"
+                            Background="#FFFFFF"
+                            BorderBrush="#BBF7D0"
+                            BorderThickness="1"
+                            CornerRadius="12"
+                            Padding="10"
+                            Margin="0,10,0,0"
+                            Visibility="Collapsed">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="10"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Border Width="210" Height="210" Background="#F8FAFC" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" HorizontalAlignment="Center">
+                                <Image x:Name="WhatsAppQrImage"
+                                       Width="192"
+                                       Height="192"
+                                       Stretch="Uniform"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                            </Border>
+                            <StackPanel Grid.Row="2" VerticalAlignment="Center">
+                                <TextBlock Text="Escaneie o QR no celular da loja"
+                                           Foreground="{StaticResource Ink}"
+                                           FontSize="13"
+                                           FontWeight="Bold"
+                                           TextWrapping="Wrap"/>
+                                <TextBlock x:Name="WhatsAppQrHintText"
+                                           Text="Depois de escanear, clique em checar conexão."
+                                           Foreground="{StaticResource Muted}"
+                                           FontSize="11.5"
+                                           TextWrapping="Wrap"
+                                           Margin="0,5,0,8"/>
+                                <Button Content="Checar conexão"
+                                        Style="{StaticResource GhostButton}"
+                                        Height="32"
+                                        Click="CheckWhatsAppConnectionButton_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+
+                <Border x:Name="WhatsAppReplyPanel"
+                        DockPanel.Dock="Bottom"
+                        Background="#F8FAFC"
+                        BorderBrush="#E2E8F0"
+                        BorderThickness="1,1,1,0"
+                        CornerRadius="12"
+                        Padding="10"
+                        Margin="12,0,12,10"
+                        Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock x:Name="WhatsAppReplyTargetText"
+                                   Text="Selecione uma conversa para responder"
+                                   Foreground="{StaticResource Ink}"
+                                   FontSize="12"
+                                   FontWeight="Bold"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,7"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="42"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="WhatsAppReplyTextBox"
+                                     Height="38"
+                                     Padding="10,7"
+                                     BorderBrush="{StaticResource Line}"
+                                     Foreground="{StaticResource Ink}"
+                                     Tag="Digite a resposta"
+                                     PreviewKeyDown="WhatsAppReplyTextBox_PreviewKeyDown"/>
+                            <Button x:Name="WhatsAppReplySendButton"
+                                    Grid.Column="2"
+                                    Width="42"
+                                    Height="38"
+                                    Padding="0"
+                                    Background="#16A34A"
+                                    BorderBrush="#15803D"
+                                    ToolTip="Enviar resposta no WhatsApp"
+                                    Click="SendWhatsAppInlineReplyButton_Click">
+                                <materialDesign:PackIcon Kind="Send" Width="18" Height="18" Foreground="#FFFFFF"/>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <ScrollViewer x:Name="WhatsAppConversationScrollViewer"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              Margin="12,0,12,10">
+                    <StackPanel>
+                        <TextBlock x:Name="WhatsAppFloatingEmptyText"
+                                   Text="Nenhuma mensagem ainda. Quando um cliente for chamado pelo WhatsApp, o histórico aparece aqui."
+                                   Foreground="{StaticResource Muted}"
+                                   FontSize="12"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"
+                                   Margin="12,38,12,38"/>
+                        <ItemsControl x:Name="WhatsAppConversationCardsItemsControl"
+                                      ItemTemplate="{StaticResource WhatsAppConversationTemplate}"/>
+                        <ItemsControl x:Name="WhatsAppFloatingMessagesItemsControl"
+                                      ItemTemplate="{StaticResource WhatsAppMessageTemplate}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
         </Border>
+
+        <Button x:Name="WhatsAppFloatingButton"
+                Grid.Row="1"
+                Panel.ZIndex="60"
+                Width="58"
+                Height="58"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                Margin="0,0,32,28"
+                Background="Transparent"
+                BorderBrush="Transparent"
+                BorderThickness="0"
+                Foreground="#FFFFFF"
+                Padding="0"
+                Cursor="Hand"
+                ToolTip="WhatsApp: mensagens e conexão"
+                Click="ToggleWhatsAppPanelButton_Click">
+            <Grid Width="58" Height="58">
+                <Border Width="54"
+                        Height="54"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Background="#16A34A"
+                        BorderBrush="#FFFFFF"
+                        BorderThickness="2"
+                        CornerRadius="18">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="20" ShadowDepth="3" Opacity="0.18" Color="#0F172A"/>
+                    </Border.Effect>
+                    <materialDesign:PackIcon Kind="Whatsapp"
+                                             Width="28"
+                                             Height="28"
+                                             Foreground="#FFFFFF"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"/>
+                </Border>
+                <Border x:Name="WhatsAppFloatingBadge"
+                        Background="#22C55E"
+                        BorderBrush="#FFFFFF"
+                        BorderThickness="2"
+                        CornerRadius="8"
+                        Width="16"
+                        Height="16"
+                        Padding="0"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Top"
+                        Margin="0,3,3,0"
+                        Visibility="Collapsed"/>
+            </Grid>
+        </Button>
 
         <Grid x:Name="OnboardingOverlay"
               Grid.RowSpan="3"

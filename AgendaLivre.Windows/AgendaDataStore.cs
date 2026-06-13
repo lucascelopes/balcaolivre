@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -75,6 +76,7 @@ public sealed class AgendaDataStore
         data.ProductSales ??= [];
         data.ManualPayments ??= [];
         data.Expenses ??= [];
+        data.WhatsAppMessages ??= [];
         data.Settings.BusinessName ??= "Balcão Livre";
         data.Settings.BusinessDocument ??= "";
         data.Settings.BusinessPhone ??= "";
@@ -90,6 +92,14 @@ public sealed class AgendaDataStore
         data.Settings.AddressNumber ??= "";
         data.Settings.AddressComplement ??= "";
         data.Settings.AccountPasswordHash ??= "";
+        data.Settings.Resources ??= [];
+        foreach (var professional in data.Professionals)
+        {
+            professional.Segments ??= [];
+        }
+
+        RepairPersistedText(data);
+        NormalizeBusinessRules(data);
 
         if (data.Settings.Resources.Count == 0)
         {
@@ -163,6 +173,259 @@ public sealed class AgendaDataStore
         foreach (var expense in data.Expenses.Where(expense => string.IsNullOrWhiteSpace(expense.Id)))
         {
             expense.Id = Guid.NewGuid().ToString("N");
+        }
+
+        foreach (var message in data.WhatsAppMessages.Where(message => string.IsNullOrWhiteSpace(message.Id)))
+        {
+            message.Id = Guid.NewGuid().ToString("N");
+        }
+    }
+
+    private static void NormalizeBusinessRules(AgendaData data)
+    {
+        data.Settings.WorkdayStartHour = Math.Clamp(data.Settings.WorkdayStartHour, 0, 23);
+        data.Settings.WorkdayEndHour = Math.Clamp(data.Settings.WorkdayEndHour, 1, 24);
+        if (data.Settings.WorkdayEndHour <= data.Settings.WorkdayStartHour)
+        {
+            data.Settings.WorkdayStartHour = 8;
+            data.Settings.WorkdayEndHour = 20;
+        }
+
+        data.Settings.Resources = data.Settings.Resources
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(item => item)
+            .ToList();
+
+        foreach (var service in data.Services)
+        {
+            service.Name = string.IsNullOrWhiteSpace(service.Name) ? "Atendimento" : service.Name.Trim();
+            service.DurationMinutes = Math.Clamp(service.DurationMinutes, 5, 480);
+            service.PreparationMinutes = Math.Clamp(service.PreparationMinutes, 0, 240);
+            service.BufferMinutes = Math.Clamp(service.BufferMinutes, 0, 240);
+            service.Price = Math.Max(0, service.Price);
+            service.CommissionPercent = Math.Clamp(service.CommissionPercent, 0, 100);
+            service.DefaultResource = (service.DefaultResource ?? "").Trim();
+        }
+
+        foreach (var professional in data.Professionals)
+        {
+            professional.Name = string.IsNullOrWhiteSpace(professional.Name) ? "Profissional" : professional.Name.Trim();
+            professional.CommissionPercent = Math.Clamp(professional.CommissionPercent, 0, 100);
+            professional.Segments = professional.Segments
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        foreach (var customer in data.Customers)
+        {
+            customer.Name = (customer.Name ?? "").Trim();
+            customer.Phone = (customer.Phone ?? "").Trim();
+            customer.LastSeenAt = customer.LastSeenAt == DateTime.MinValue ? DateTime.Now : customer.LastSeenAt;
+        }
+
+        foreach (var appointment in data.Appointments)
+        {
+            appointment.CustomerName = string.IsNullOrWhiteSpace(appointment.CustomerName) ? "Cliente" : appointment.CustomerName.Trim();
+            appointment.DurationMinutes = Math.Clamp(appointment.DurationMinutes, 5, 480);
+            appointment.Price = Math.Max(0, appointment.Price);
+            appointment.ResourceName = (appointment.ResourceName ?? "").Trim();
+            appointment.CreatedAt = appointment.CreatedAt == DateTime.MinValue ? DateTime.Now : appointment.CreatedAt;
+            appointment.UpdatedAt = appointment.UpdatedAt == DateTime.MinValue ? appointment.CreatedAt : appointment.UpdatedAt;
+        }
+
+        foreach (var product in data.Products)
+        {
+            product.Name = string.IsNullOrWhiteSpace(product.Name) ? "Produto" : product.Name.Trim();
+            product.Price = Math.Max(0, product.Price);
+            product.CostPrice = Math.Max(0, product.CostPrice);
+            product.StockQuantity = Math.Max(0, product.StockQuantity);
+            product.MinimumStock = Math.Max(0, product.MinimumStock);
+        }
+
+        foreach (var sale in data.ProductSales)
+        {
+            sale.Quantity = Math.Max(1, sale.Quantity);
+            sale.UnitPrice = Math.Max(0, sale.UnitPrice);
+            sale.Discount = Math.Max(0, sale.Discount);
+        }
+
+        foreach (var payment in data.ManualPayments)
+        {
+            payment.Value = Math.Max(0, payment.Value);
+        }
+
+        foreach (var expense in data.Expenses)
+        {
+            expense.Value = Math.Max(0, expense.Value);
+        }
+    }
+
+    private static void RepairPersistedText(AgendaData data)
+    {
+        data.Settings.AccountFullName = RepairText(data.Settings.AccountFullName);
+        data.Settings.AccountPhone = RepairText(data.Settings.AccountPhone);
+        data.Settings.AccountEmail = RepairText(data.Settings.AccountEmail);
+        data.Settings.BusinessName = RepairText(data.Settings.BusinessName);
+        data.Settings.BusinessDocument = RepairText(data.Settings.BusinessDocument);
+        data.Settings.BusinessPhone = RepairText(data.Settings.BusinessPhone);
+        data.Settings.BusinessAddress = RepairText(data.Settings.BusinessAddress);
+        data.Settings.BusinessSegment = RepairText(data.Settings.BusinessSegment);
+        data.Settings.ClientLabel = RepairText(data.Settings.ClientLabel);
+        data.Settings.ClientDetailLabel = RepairText(data.Settings.ClientDetailLabel);
+        data.Settings.ResourceLabel = RepairText(data.Settings.ResourceLabel);
+        data.Settings.ProfessionalCountRange = RepairText(data.Settings.ProfessionalCountRange);
+        data.Settings.MainObjective = RepairText(data.Settings.MainObjective);
+        data.Settings.PostalCode = RepairText(data.Settings.PostalCode);
+        data.Settings.Neighborhood = RepairText(data.Settings.Neighborhood);
+        data.Settings.Street = RepairText(data.Settings.Street);
+        data.Settings.AddressNumber = RepairText(data.Settings.AddressNumber);
+        data.Settings.AddressComplement = RepairText(data.Settings.AddressComplement);
+        data.Settings.WhatsAppStorePhone = RepairText(data.Settings.WhatsAppStorePhone);
+        data.Settings.WhatsAppConnectedName = RepairText(data.Settings.WhatsAppConnectedName);
+        data.Settings.WhatsAppEvolutionBaseUrl = RepairText(data.Settings.WhatsAppEvolutionBaseUrl);
+        data.Settings.WhatsAppEvolutionApiKey = RepairText(data.Settings.WhatsAppEvolutionApiKey);
+        data.Settings.WhatsAppEvolutionInstanceName = RepairText(data.Settings.WhatsAppEvolutionInstanceName);
+        data.Settings.WhatsAppEvolutionState = RepairText(data.Settings.WhatsAppEvolutionState);
+        data.Settings.WhatsAppEvolutionQrBase64 = RepairText(data.Settings.WhatsAppEvolutionQrBase64);
+        data.Settings.MercadoPagoLicenseKey = RepairText(data.Settings.MercadoPagoLicenseKey);
+        data.Settings.MercadoPagoPaymentsApiUrl = RepairText(data.Settings.MercadoPagoPaymentsApiUrl);
+        data.Settings.MercadoPagoSellerUserId = RepairText(data.Settings.MercadoPagoSellerUserId);
+        data.Settings.MercadoPagoDefaultTerminalId = RepairText(data.Settings.MercadoPagoDefaultTerminalId);
+        data.Settings.MercadoPagoDefaultTerminalLabel = RepairText(data.Settings.MercadoPagoDefaultTerminalLabel);
+        data.Settings.MercadoPagoLastError = RepairText(data.Settings.MercadoPagoLastError);
+
+        if (string.IsNullOrWhiteSpace(data.Settings.MercadoPagoPaymentsApiUrl))
+        {
+            data.Settings.MercadoPagoPaymentsApiUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/payments";
+        }
+
+        for (var index = 0; index < data.Settings.Resources.Count; index++)
+        {
+            data.Settings.Resources[index] = RepairText(data.Settings.Resources[index]);
+        }
+
+        foreach (var service in data.Services)
+        {
+            service.Segment = RepairText(service.Segment);
+            service.Name = RepairText(service.Name);
+            service.Category = RepairText(service.Category);
+            service.Description = RepairText(service.Description);
+            service.DefaultResource = RepairText(service.DefaultResource);
+        }
+
+        foreach (var professional in data.Professionals)
+        {
+            professional.Name = RepairText(professional.Name);
+            professional.Role = RepairText(professional.Role);
+            professional.Phone = RepairText(professional.Phone);
+            professional.Email = RepairText(professional.Email);
+            professional.Document = RepairText(professional.Document);
+            professional.Notes = RepairText(professional.Notes);
+            for (var index = 0; index < professional.Segments.Count; index++)
+            {
+                professional.Segments[index] = RepairText(professional.Segments[index]);
+            }
+        }
+
+        foreach (var customer in data.Customers)
+        {
+            customer.Name = RepairText(customer.Name);
+            customer.Phone = RepairText(customer.Phone);
+            customer.Email = RepairText(customer.Email);
+            customer.Document = RepairText(customer.Document);
+            customer.Segment = RepairText(customer.Segment);
+            customer.Profile = RepairText(customer.Profile);
+            customer.Tags = RepairText(customer.Tags);
+            customer.Notes = RepairText(customer.Notes);
+        }
+
+        foreach (var appointment in data.Appointments)
+        {
+            appointment.Segment = RepairText(appointment.Segment);
+            appointment.CustomerName = RepairText(appointment.CustomerName);
+            appointment.CustomerPhone = RepairText(appointment.CustomerPhone);
+            appointment.CustomerProfile = RepairText(appointment.CustomerProfile);
+            appointment.ServiceId = RepairText(appointment.ServiceId);
+            appointment.ServiceName = RepairText(appointment.ServiceName);
+            appointment.ProfessionalId = RepairText(appointment.ProfessionalId);
+            appointment.ProfessionalName = RepairText(appointment.ProfessionalName);
+            appointment.ResourceName = RepairText(appointment.ResourceName);
+            appointment.Notes = RepairText(appointment.Notes);
+        }
+
+        foreach (var product in data.Products)
+        {
+            product.Name = RepairText(product.Name);
+            product.Category = RepairText(product.Category);
+            product.Sku = RepairText(product.Sku);
+            product.Supplier = RepairText(product.Supplier);
+            product.Notes = RepairText(product.Notes);
+        }
+
+        foreach (var sale in data.ProductSales)
+        {
+            sale.ProductId = RepairText(sale.ProductId);
+            sale.ProductName = RepairText(sale.ProductName);
+            sale.CustomerName = RepairText(sale.CustomerName);
+            sale.PaymentMethod = RepairText(sale.PaymentMethod);
+            sale.PaymentProvider = RepairText(sale.PaymentProvider);
+            sale.PaymentReference = RepairText(sale.PaymentReference);
+            sale.PaymentStatus = RepairText(sale.PaymentStatus);
+            sale.Notes = RepairText(sale.Notes);
+        }
+
+        foreach (var payment in data.ManualPayments)
+        {
+            payment.Description = RepairText(payment.Description);
+            payment.CustomerName = RepairText(payment.CustomerName);
+            payment.Category = RepairText(payment.Category);
+            payment.PaymentMethod = RepairText(payment.PaymentMethod);
+            payment.PaymentProvider = RepairText(payment.PaymentProvider);
+            payment.PaymentReference = RepairText(payment.PaymentReference);
+            payment.PaymentStatus = RepairText(payment.PaymentStatus);
+            payment.Notes = RepairText(payment.Notes);
+        }
+
+        foreach (var expense in data.Expenses)
+        {
+            expense.Description = RepairText(expense.Description);
+            expense.Category = RepairText(expense.Category);
+            expense.Supplier = RepairText(expense.Supplier);
+            expense.PaymentMethod = RepairText(expense.PaymentMethod);
+            expense.Notes = RepairText(expense.Notes);
+        }
+
+        foreach (var message in data.WhatsAppMessages)
+        {
+            message.CustomerName = RepairText(message.CustomerName);
+            message.Phone = RepairText(message.Phone);
+            message.Message = RepairText(message.Message);
+            message.Direction = RepairText(message.Direction);
+            message.Status = RepairText(message.Status);
+            message.Category = RepairText(message.Category);
+        }
+    }
+
+    private static string RepairText(string value)
+    {
+        if (string.IsNullOrEmpty(value) ||
+            (!value.Contains('Ã') && !value.Contains('Â') && !value.Contains('â')))
+        {
+            return value;
+        }
+
+        try
+        {
+            var bytes = value.Select(character => character <= byte.MaxValue ? (byte)character : (byte)'?').ToArray();
+            return Encoding.UTF8.GetString(bytes);
+        }
+        catch
+        {
+            return value;
         }
     }
 
