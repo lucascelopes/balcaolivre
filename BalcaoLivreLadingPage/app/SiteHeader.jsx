@@ -1,54 +1,54 @@
-import { sellers } from "./siteLinks";
+import { downloadUrl, sellers } from "./siteLinks";
 
 const navLinks = [
-  ["Produto", "/#produto"],
-  ["Instaladores", "/#instaladores"],
-  ["Demo PDV", "/#demo-pdv"],
-  ["Impressao", "/#impressao"],
-  ["Operacao", "/#operacao"],
+  ["Produto", "/#inicio"],
+  ["Recursos", "/#recursos"],
+  ["Segmentos", "/#segmentos"],
   ["Planos", "/#planos"],
-  ["Login", "https://pdv.balcaolivrepdv.com.br"]
+  ["Contato", "/#contato"]
 ];
+
+const whatsappHref = sellers[0]?.href || "https://wa.me/5527981267551";
 
 export default function SiteHeader({ id }) {
   return (
-    <header className="lpHeader" id={id}>
-      <a className="lpBrand" href="/#inicio" aria-label="Balcao Livre PDV">
-        <img className="lpBrandIcon" src="/brand/bl-modern-icon.png" alt="" aria-hidden="true" />
-        <span className="lpBrandText">
-          <strong>Balcao Livre</strong>
-          <small>PDV Para Restaurantes</small>
+    <header className="blSiteHeader" id={id}>
+      <a className="blHeaderBrand" href="/#inicio" aria-label="Balcão Livre PDV">
+        <img src="/brand/bl-modern-icon.png" alt="" aria-hidden="true" />
+        <span>
+          <strong>Balcão Livre</strong>
+          <small>PDV</small>
         </span>
       </a>
-      <nav className="lpNav" aria-label="Navegacao principal">
+
+      <nav className="blHeaderNav" aria-label="Navegação principal">
         {navLinks.map(([label, href]) => (
-          <a
-            key={label}
-            href={href}
-            data-analytics-action={href.includes("#planos") ? "plans_view_click" : undefined}
-            data-analytics-location={href.includes("#planos") ? "header_nav" : undefined}
-          >
+          <a key={label} href={href}>
             {label}
           </a>
         ))}
       </nav>
-      <div className="lpHeaderActions">
+
+      <div className="blHeaderActions">
+        <a className="blHeaderLogin" href="https://pdv.balcaolivrepdv.com.br">
+          Entrar
+        </a>
         <a
-          className="lpGhostButton"
-          href={sellers[0].href}
+          className="blHeaderTrial"
+          href={downloadUrl}
+          data-analytics-action="trial_download"
+          data-analytics-location="header"
+          data-analytics-plan="offline"
+        >
+          Testar grátis
+        </a>
+        <a
+          className="blHeaderWhatsapp"
+          href={whatsappHref}
           data-analytics-action="whatsapp_click"
-          data-analytics-seller={sellers[0].name}
           data-analytics-location="header"
         >
           WhatsApp
-        </a>
-        <a
-          className="lpSolidButton"
-          href="/#planos"
-          data-analytics-action="plans_view_click"
-          data-analytics-location="header"
-        >
-          Planos
         </a>
       </div>
     </header>

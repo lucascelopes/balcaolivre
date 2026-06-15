@@ -37,6 +37,20 @@
   </head>
   <body>
     <main class="lpPage">
+      <div class="blSalesModalOverlay" data-sales-modal hidden role="dialog" aria-modal="true" aria-labelledby="blSalesModalTitle" aria-describedby="blSalesModalDescription">
+        <div class="blSalesModal">
+          <button class="blSalesModalClose" type="button" aria-label="Fechar conversa com vendedor" data-sales-modal-close>X</button>
+          <div class="blSalesModalAvatar" aria-hidden="true">LC</div>
+          <span class="blSalesModalKicker">Atendimento direto</span>
+          <h2 id="blSalesModalTitle">Converse com o vendedor Lucas</h2>
+          <p id="blSalesModalDescription">Tire duvidas sobre planos, teste de 7 dias, instalacao e qual versao do Balcao Livre combina com seu restaurante.</p>
+          <div class="blSalesModalContact"><strong>Lucas</strong><span>(33) 99960-9457</span></div>
+          <div class="blSalesModalActions">
+            <a class="blSalesModalPrimary" href="https://wa.me/5533999609457?text=Ola%2C%20quero%20conhecer%20o%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%20com%20planos%2C%20valores%20e%20personalizacao%3F" data-sales-modal-close data-analytics-action="whatsapp_click" data-analytics-location="entry_sales_modal" data-analytics-seller="Lucas">Conversar agora</a>
+            <button class="blSalesModalSecondary" type="button" data-sales-modal-close>Continuar no site</button>
+          </div>
+        </div>
+      </div>
       <header class="lpHeader" id="inicio">
         <a class="lpBrand" href="#inicio" aria-label="Balcão Livre PDV">
           <img class="lpBrandIcon" src="public/brand/bl-modern-icon.png" alt="" aria-hidden="true" />
@@ -606,6 +620,50 @@
         <strong>Falar com Lucas</strong>
       </a>
     </main>
+    <script>
+      (function () {
+        const storageKey = "balcaoLivreLucasSalesModalSeen";
+        const modal = document.querySelector("[data-sales-modal]");
+        if (!modal) return;
+
+        function hasSeenModal() {
+          try {
+            return window.sessionStorage && window.sessionStorage.getItem(storageKey) === "true";
+          } catch (error) {
+            return false;
+          }
+        }
+
+        function markModalSeen() {
+          try {
+            if (window.sessionStorage) window.sessionStorage.setItem(storageKey, "true");
+          } catch (error) {}
+        }
+
+        function closeModal() {
+          markModalSeen();
+          modal.hidden = true;
+          document.body.classList.remove("blSalesModalOpen");
+        }
+
+        if (!hasSeenModal()) {
+          window.setTimeout(function () {
+            modal.hidden = false;
+            document.body.classList.add("blSalesModalOpen");
+          }, 650);
+        }
+
+        modal.addEventListener("click", function (event) {
+          if (event.target === modal) closeModal();
+        });
+        modal.querySelectorAll("[data-sales-modal-close]").forEach(function (element) {
+          element.addEventListener("click", closeModal);
+        });
+        document.addEventListener("keydown", function (event) {
+          if (event.key === "Escape" && !modal.hidden) closeModal();
+        });
+      })();
+    </script>
     <script>
       (() => {
         const adminAnalyticsUrl = "https://balcaolivrepdv.onrender.com/api/public/analytics";

@@ -1,227 +1,210 @@
-import CashierDemo from "./CashierDemo";
 import PaymentSuccess from "./PaymentSuccess";
+import SalesModal from "./SalesModal";
 import SiteHeader from "./SiteHeader";
-import { checkoutFunctionUrl, downloadUrl, onlineDownloadUrl, sellers } from "./siteLinks";
+import { checkoutFunctionUrl, downloadUrl, sellers } from "./siteLinks";
 import { absoluteUrl, defaultDescription, defaultTitle, siteName, siteUrl } from "./seo";
 
-const modules = [
-  ["01", "Caixa e pagamentos", "Venda no Windows com dinheiro, Pix, cartão, troco, comprovante e Point/Mercado Pago quando configurado."],
-  ["02", "Mesas e comandas", "Controle mesa, comanda e balcão com consumo aberto, adicionais, observações e conta certa."],
-  ["03", "Garçom no celular", "Equipe lança pedido sem voltar ao caixa, e a cozinha acompanha o movimento em tempo real."],
-  ["04", "Delivery e iFood", "Pedidos com cliente, telefone, endereço, entregador, taxa, status e entrada por iFood conforme credenciais."],
-  ["05", "Cardápio e WhatsApp", "Produtos publicados no cardápio digital e atendimento por WhatsApp no plano profissional."],
-  ["06", "Estoque e NFC-e", "Preço de compra, venda, margem, estoque baixo e NFC-e configurável com os dados fiscais da loja."],
-  ["07", "Equipe e relatórios", "Usuários, permissões, entregadores, fechamento, repasses, caixa e indicadores do dia."]
+const whatsappHref = sellers[0]?.href || "https://wa.me/5527981267551";
+
+function WhatsAppLogo() {
+  return (
+    <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <path fill="#25D366" d="M16 3.4c-6.93 0-12.56 5.58-12.56 12.45 0 2.2.58 4.35 1.68 6.24L3.3 28.6l6.7-1.74a12.72 12.72 0 0 0 6 1.5c6.93 0 12.56-5.58 12.56-12.46S22.93 3.4 16 3.4Z" />
+      <path fill="#fff" d="M23.1 19.07c-.32-.16-1.9-.93-2.2-1.04-.3-.1-.52-.16-.74.16-.22.32-.85 1.04-1.04 1.25-.19.22-.38.24-.7.08-.32-.16-1.36-.5-2.6-1.6-.96-.85-1.6-1.9-1.8-2.23-.18-.32-.02-.5.14-.65.14-.14.32-.38.48-.57.16-.2.22-.33.33-.55.11-.22.05-.41-.03-.57-.08-.16-.74-1.77-1.01-2.42-.27-.64-.54-.55-.74-.56h-.63c-.22 0-.57.08-.87.4-.3.33-1.14 1.1-1.14 2.68s1.17 3.12 1.33 3.33c.16.22 2.3 3.48 5.58 4.88.78.33 1.38.53 1.85.68.78.25 1.49.21 2.05.13.63-.09 1.9-.77 2.17-1.51.27-.74.27-1.38.19-1.51-.08-.14-.3-.22-.62-.38Z" />
+    </svg>
+  );
+}
+
+function MercadoPagoLogo() {
+  return (
+    <svg viewBox="0 0 86 36" aria-hidden="true" focusable="false">
+      <rect width="86" height="36" rx="18" fill="#009EE3" />
+      <ellipse cx="43" cy="18" rx="31" ry="12" fill="#fff" opacity=".96" />
+      <path fill="#009EE3" d="M24 18.2c3.1-4.7 6.3-5.9 9.4-3.6 1.1.8 2.1 1.7 3.2 2.5 1.7 1.3 3.1 1.3 4.9 0 1.1-.8 2.1-1.7 3.2-2.5 3.1-2.3 6.4-1 9.4 3.6-4 5.1-8.2 6.1-12.7 3.2-1.7-1.1-3-1.1-4.7 0-4.5 2.9-8.7 1.9-12.7-3.2Z" />
+      <path fill="#0074AE" d="M31.4 17.7c1.1.8 2.2 1.6 3.2 2.4 3.3 2.5 5.4 2.5 8.7 0 1-.8 2.1-1.6 3.2-2.4.8-.6 1.8-.4 2.4.4.5.8.3 1.8-.5 2.4-1 .8-2.1 1.5-3.1 2.3-4.5 3.3-7.8 3.3-12.4 0-1-.8-2.1-1.5-3.1-2.3-.8-.6-1-1.6-.5-2.4.5-.8 1.5-1 2.1-.4Z" opacity=".72" />
+    </svg>
+  );
+}
+
+function QrLogo() {
+  return (
+    <svg viewBox="0 0 34 34" aria-hidden="true" focusable="false">
+      <rect width="34" height="34" rx="10" fill="#EAF2FF" />
+      <path fill="#1264E2" d="M8 8h8v8H8V8Zm3 3v2h2v-2h-2Zm7-3h8v8h-8V8Zm3 3v2h2v-2h-2ZM8 18h8v8H8v-8Zm3 3v2h2v-2h-2Zm11-2h4v3h-3v2h-3v-4h2v-1Zm-4 0h2v3h-2v-3Zm7 5h1v2h-5v-2h4Zm-7 0h2v2h-2v-2Z" />
+    </svg>
+  );
+}
+
+function TableLogo() {
+  return (
+    <svg viewBox="0 0 34 34" aria-hidden="true" focusable="false">
+      <rect width="34" height="34" rx="10" fill="#ECFDF5" />
+      <path fill="#0B7A5A" d="M9 12.5c0-1.38 1.12-2.5 2.5-2.5h11c1.38 0 2.5 1.12 2.5 2.5V17H9v-4.5Zm1.5 6.5h13v2H21v4h-2v-4h-4v4h-2v-4h-2.5v-2Z" />
+    </svg>
+  );
+}
+
+const featureCards = [
+  ["PDV rápido e intuitivo", "Interface simples para caixa, balcão, mesas e delivery venderem sem confusão."],
+  ["Controle de mesas e comandas", "Abra, transfira, feche e acompanhe consumo por mesa ou comanda."],
+  ["Cardápio personalizado", "Publique produtos, preços, adicionais, fotos e disponibilidade no cardápio online."],
+  ["Integração com delivery", "Organize pedidos de retirada, entrega e canais externos em uma fila única."],
+  ["Relatórios completos", "Acompanhe vendas, caixa, produtos, margem, estoque e fechamento do dia."],
+  ["Cadastro de clientes", "Histórico de pedidos, telefones, endereços e atendimento pelo WhatsApp."],
+  ["Controle de estoque", "Veja estoque baixo, margem, preço de compra e produtos mais vendidos."],
+  ["Comprovantes e impressão", "Impressão de pedido, conta, fechamento e comprovante em 58/80mm."],
+  ["Formas de pagamento", "Dinheiro, Pix, cartão, troco e integração configurável com Mercado Pago."]
 ];
 
-const flow = [
-  ["1", "Abre o caixa", "Operador informa valor inicial e começa a vender com atalhos de teclado."],
-  ["2", "Lança produtos", "Código, busca, quantidade e agrupamento rápido para reduzir erro no atendimento."],
-  ["3", "Recebe e imprime", "Pix, cartão e dinheiro ficam registrados com comprovante para o cliente."],
-  ["4", "Fecha o dia", "Resumo do caixa mostra entradas, retiradas, vendas e pendências antes de fechar."]
-];
-
-const trustItems = [
-  "Funciona em Windows",
-  "Impressora 58/80mm",
-  "Caixa offline",
-  "Suporte na implantação",
-  "Teste por 7 dias",
-  "Comprovante não fiscal"
-];
-
-const idealSegments = [
-  "Pizzaria",
-  "Lanchonete",
-  "Açaíteria",
-  "Bar",
-  "Espetinho",
-  "Hamburgueria",
-  "Delivery"
-];
-
-const proofQuotes = [
+const segments = [
   {
-    segment: "Hamburgueria",
-    quote: "Antes eu anotava pedido no papel. Agora o caixa, mesa e entrega ficam no mesmo sistema."
+    title: "Restaurantes",
+    text: "Mesas, comandas, consumo aberto, fechamento e relatórios.",
+    image: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=900&q=80"
   },
   {
-    segment: "Pizzaria",
-    quote: "A equipe acompanha mesa, delivery e pagamento sem ficar perguntando no balcão."
+    title: "Lanchonetes",
+    text: "Venda rápida, combos, adicionais, balcão e delivery.",
+    image: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=900&q=80"
   },
   {
-    segment: "Açaíteria",
-    quote: "O cardápio online e o WhatsApp ajudam a receber pedido sem perder o controle do estoque."
+    title: "Pizzarias",
+    text: "Sabores, tamanhos, bordas, entrega, retirada e taxa.",
+    image: "https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=900&q=80"
+  },
+  {
+    title: "Bares",
+    text: "Comandas, mesas, consumo aberto e fechamento por cliente.",
+    image: "https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=900&q=80"
+  },
+  {
+    title: "Cafeterias",
+    text: "Balcão, combos, adicionais e atendimento rápido.",
+    image: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=900&q=80"
+  },
+  {
+    title: "Food trucks",
+    text: "Venda direta, cardápio online, Pix e pedidos por WhatsApp.",
+    image: "https://images.unsplash.com/photo-1565123409695-7b5ef63a2efb?auto=format&fit=crop&w=900&q=80"
   }
 ];
 
 const plans = [
   {
-    id: "offline",
-    order: "Plano 1",
-    label: "Entrada",
-    title: "PDV Caixa Local",
-    description: "Para loja que quer vender no Windows, imprimir comprovante, controlar estoque e fechar caixa sem depender da internet.",
-    monthly: "R$ 29,90",
-    annual: "R$ 229,90",
-    features: [
-      "Caixa local no Windows",
-      "Venda rápida, mesas, comandas e balcão",
-      "Dinheiro, Pix manual, cartão/Point e troco",
-      "Comprovante e fechamento de caixa",
-      "Estoque, margem e relatórios básicos",
-      "Licença por computador",
-      "Para cardápio, garçom, iFood e WhatsApp, escolha o Profissional"
-    ]
+    badge: "Começo simples",
+    name: "Básico",
+    price: "R$ 29,90",
+    note: "por mês",
+    description: "Para caixa Windows local, vendas, estoque e fechamento.",
+    href: `${checkoutFunctionUrl}?plan=offline-mensal`,
+    cta: "Comprar mensal",
+    features: ["1 caixa Windows", "Mesas e comandas", "Estoque e fechamento", "Comprovante não fiscal"]
   },
   {
-    id: "online",
-    order: "Plano 2",
-    label: "Recomendado",
-    title: "Restaurante Profissional",
-    description: "Para restaurante operar caixa, cardápio online, garçom no celular, delivery, equipe, NFC-e configurável e WhatsApp no mesmo fluxo.",
-    monthly: "R$ 149,00",
-    annual: "R$ 1.399,00",
-    note: "WhatsApp conectado incluso para atendimento e pedidos. NFC-e depende de certificado, credenciais fiscais, UF e configuração do cliente.",
-    features: [
-      "PDV Windows com sincronização em nuvem",
-      "Acesso web para acompanhar a loja",
-      "Cardápio digital e pedidos online",
-      "Garçom no celular lançando direto na mesa/comanda",
-      "Equipe, entregadores e permissões",
-      "Delivery por zona com taxa configurável",
-      "NFC-e configurável com certificado e dados fiscais",
-      "Mercado Pago/Point conforme credenciais",
-      "iFood no fluxo do PDV conforme homologação e credenciais",
-      "WhatsApp para atendimento automático",
-      "Relatórios de caixa, estoque, repasses e margem"
-    ],
-    featured: true
+    badge: "Mais escolhido",
+    name: "Profissional",
+    price: "R$ 149,00",
+    note: "por mês",
+    description: "Para restaurante com cardápio online, equipe, WhatsApp e operação conectada.",
+    href: `${checkoutFunctionUrl}?plan=online-mensal`,
+    cta: "Comprar mensal",
+    featured: true,
+    features: ["Tudo do Básico", "Cardápio online", "Garçom no celular", "WhatsApp e atendimento", "NFC-e configurável"]
   },
   {
-    id: "custom",
-    order: "Plano 3",
-    label: "Sob medida",
-    title: "Projeto Personalizado",
-    description: "Para operação com várias lojas, fiscal, migração maior, regras especiais ou automações fora do padrão.",
-    monthly: "Consultar",
-    annual: "Consultar",
-    custom: {
-      label: "Projeto sob medida",
-      text: "Avaliamos o escopo no WhatsApp e fechamos o melhor formato para sua operação."
-    },
-    features: [
-      "Configurações especiais para a rotina da loja",
-      "Multiloja ou operação com várias unidades",
-      "Migração maior de dados e cadastros",
-      "Relatórios customizados",
-      "Integração fiscal conforme necessidade",
-      "Cardápio amplo e regras específicas",
-      "Automações e fluxos especiais sob escopo",
-      "Implantação combinada com o vendedor"
-    ],
-    whatsappOnly: true
+    badge: "Sob medida",
+    name: "Premium",
+    price: "Consultar",
+    note: "implantação avançada",
+    description: "Para operação com personalização, migração, iFood e treinamento assistido.",
+    href: whatsappHref,
+    cta: "Falar no WhatsApp",
+    features: ["Implantação acompanhada", "Múltiplos computadores", "Integrações avançadas", "Suporte prioritário"]
   }
 ];
 
-const whatsappAiAddOn = {
-  label: "Adicional",
-  title: "WhatsApp IA Pro",
-  price: "+R$ 49 a +R$ 89/mês",
-  description: "Para restaurante que quer volume maior no WhatsApp, campanhas, automações e atendimento mais personalizado sem trocar o plano principal.",
-  features: [
-    "Maior volume de atendimentos e conversas",
-    "Campanhas e automações para clientes",
-    "Recuperação de pedido, carrinho ou cliente parado",
-    "Respostas mais personalizadas para a loja",
-    "Ajustes de fluxo conforme cardápio e rotina",
-    "Limites e custos de mensagens seguem política do plano e regras da Meta"
+const testimonials = [
+  {
+    place: "Lanchonete e delivery",
+    name: "Wender Soares",
+    city: "Vila Velha - ES",
+    quote: "O ponto principal foi parar de perder informação entre WhatsApp, balcão e entrega. Agora o pedido nasce mais organizado."
+  },
+  {
+    place: "Pizzaria de bairro",
+    name: "Marina Almeida",
+    city: "Vila Velha - ES",
+    quote: "Antes a equipe perguntava toda hora se o pedido já tinha sido pago. Com o PDV, a rotina ficou mais visual."
+  },
+  {
+    place: "Hamburgueria",
+    name: "Carlos Duarte",
+    city: "Governador Valadares - MG",
+    quote: "A loja precisava de um caixa direto, mas sem ficar presa só no computador. O plano conectado ajudou no delivery."
+  }
+];
+
+const helpCards = [
+  ["Primeiros passos", "Instalação, ativação e primeiro caixa."],
+  ["PDV e vendas", "Caixa, balcão, mesas, comandas e pagamentos."],
+  ["Cardápio e produtos", "Produtos, adicionais, preços, estoque e QR Code."],
+  ["Relatórios", "Fechamento, margem, CMV, vendas e indicadores."],
+  ["Integrações", "WhatsApp, Mercado Pago, iFood e cardápio online."],
+  ["Suporte", "Ajuda para implantação e dúvidas da equipe."]
+];
+
+const faq = [
+  ["Funciona sem internet?", "Sim. O caixa Windows continua vendendo localmente. Recursos online dependem do plano e da conexão."],
+  ["Tem teste grátis?", "Sim. Você pode testar por 7 dias antes de contratar."],
+  ["Imprime em impressora térmica?", "Sim. O app Windows foi pensado para impressoras 58/80mm e comprovante de venda."],
+  ["O comprovante é fiscal?", "Não. O comprovante não substitui documento fiscal. A NFC-e é configurável quando a loja tem dados fiscais e certificado."]
+];
+
+const productJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: siteName,
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Windows",
+  url: siteUrl,
+  image: absoluteUrl("/brand/pdv-real-screen.png"),
+  description: defaultDescription,
+  offers: [
+    {
+      "@type": "Offer",
+      priceCurrency: "BRL",
+      price: "29.90",
+      name: "PDV Caixa Local"
+    },
+    {
+      "@type": "Offer",
+      priceCurrency: "BRL",
+      price: "149.00",
+      name: "Restaurante Profissional"
+    }
   ]
 };
 
-const faqs = [
-  ["Qual plano eu escolho?", "Se você quer só caixa local no Windows, use o Offline de R$29,90. Se quer restaurante conectado com cardápio online, garçom no celular, equipe, entregadores, NFC-e configurável, Mercado Pago, iFood e WhatsApp, use o Restaurante Profissional de R$149."],
-  ["Funciona sem internet?", "No Offline, sim: o caixa continua vendendo localmente. Recursos online, nuvem e integrações precisam de internet."],
-  ["O sistema emite nota fiscal?", "O plano profissional tem NFC-e configurável quando o cliente fornece certificado, credenciais fiscais e dados exigidos pela UF. Validação fiscal, homologação e parametrização dependem da empresa e da regra do estado."],
-  ["Dá para personalizar?", "Sim. Fluxo, cardápio, entregas, impressão, usuários, permissões, entregadores, fiscal e relatórios podem ser ajustados. Personalizações têm valores sob consulta."],
-  ["Tem WhatsApp, iFood e garçom?", "Sim. O Restaurante Profissional inclui garçom no celular, cardápio online, equipe, entregadores e WhatsApp. iFood e Mercado Pago dependem das credenciais, homologação e regras dos terceiros."],
-  ["O WhatsApp é ilimitado?", "O plano inclui atendimento por WhatsApp dentro da política de uso. Para campanhas, alto volume ou automações mais avançadas, use o adicional WhatsApp IA Pro."],
-  ["Posso usar em mais de um computador?", "Offline é licença por computador. Online pode conectar equipe, web e dispositivos conforme plano e configuração combinada."],
-  ["Como funciona instalação e suporte?", "Orientamos instalação Windows, ativação, primeiros cadastros, impressora, pagamentos e uso do caixa. Migrações e integrações especiais são combinadas."],
-  ["Posso testar antes de contratar?", "Sim. O teste de 7 dias libera PDV, cardápio online, garçom no celular, Mercado Pago e WhatsApp. iFood fica desabilitado no teste e entra no plano Restaurante Profissional de R$149, conforme credenciais e homologação."]
-];
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faq.map(([question, answer]) => ({
+    "@type": "Question",
+    name: question,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: answer
+    }
+  }))
+};
 
-const landingJsonLd = [
-  {
-    "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    name: siteName,
-    applicationCategory: "BusinessApplication",
-    operatingSystem: "Windows",
-    url: siteUrl,
-    image: absoluteUrl("/brand/pdv-online-screen.png"),
-    description: defaultDescription,
-    offers: plans
-      .filter((plan) => !plan.whatsappOnly)
-      .flatMap((plan) => [
-        {
-          "@type": "Offer",
-          name: `${plan.title} mensal`,
-          price: plan.monthly.replace("R$ ", "").replace(".", "").replace(",", "."),
-          priceCurrency: "BRL",
-          availability: "https://schema.org/InStock",
-          url: `${siteUrl}/#planos`
-        },
-        {
-          "@type": "Offer",
-          name: `${plan.title} anual`,
-          price: plan.annual.replace("R$ ", "").replace(".", "").replace(",", "."),
-          priceCurrency: "BRL",
-          availability: "https://schema.org/InStock",
-          url: `${siteUrl}/#planos`
-        }
-      ])
-  },
-  {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    mainEntity: faqs.map(([question, answer]) => ({
-      "@type": "Question",
-      name: question,
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: answer
-      }
-    }))
-  },
-  {
-    "@context": "https://schema.org",
-    "@type": "WebPage",
-    name: defaultTitle,
-    url: siteUrl,
-    description: defaultDescription,
-    inLanguage: "pt-BR"
+export const metadata = {
+  title: defaultTitle,
+  description: defaultDescription,
+  alternates: {
+    canonical: "/"
   }
-];
-
-function SellerLinks() {
-  return (
-    <div className="lpSellerBox">
-      <span>Comprar no WhatsApp</span>
-      {sellers.map((seller) => (
-        <a
-          key={seller.name}
-          href={seller.href}
-          data-analytics-action="whatsapp_click"
-          data-analytics-seller={seller.name}
-          data-analytics-location="seller_box"
-        >
-          {seller.name} {seller.phone}
-        </a>
-      ))}
-    </div>
-  );
-}
+};
 
 export default function Page({ searchParams }) {
   const checkoutSessionId = searchParams?.checkout === "sucesso" ? searchParams?.session_id : "";
@@ -231,26 +214,36 @@ export default function Page({ searchParams }) {
   }
 
   return (
-    <main className="lpPage">
+    <main className="blLandingPage">
+      <SalesModal />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(landingJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify([productJsonLd, faqJsonLd]) }}
       />
       <SiteHeader id="inicio" />
 
-      <section className="lpHero lpHeroProduct lpHeroDark">
-        <div className="lpHeroCopy">
-          <p className="lpKicker">PDV online e offline para restaurante</p>
-          <h1>PDV para restaurante que funciona mesmo sem internet</h1>
-          <p className="lpLead">
-            Venda no caixa Windows, controle mesas, delivery, estoque, cardápio online, garçom no celular e WhatsApp com IA em uma rotina só.
+      <section className="blHero">
+        <div className="blHeroText">
+          <div className="blHeroKicker">
+            <span>Feito para restaurantes. Funciona mesmo sem internet.</span>
+          </div>
+          <h1>
+            O PDV para restaurante que vende <span className="blAccent">no caixa, no cardápio digital e no WhatsApp</span>
+          </h1>
+          <p className="blLead">
+            Caixa Windows, mesas, comandas, delivery, estoque, maquininha Mercado Pago integrada, cardápio digital e WhatsApp. Tudo que seu restaurante precisa.
           </p>
-          <p className="lpHeroPriceLine">
-            Comece com caixa local por R$29,90/mês ou use o plano restaurante conectado por R$149/mês.
-          </p>
-          <div className="lpHeroActions">
+
+          <div className="blHeroBullets">
+            <span>Pedidos e comandas em segundos</span>
+            <span>Integração com iFood, delivery e WhatsApp</span>
+            <span>Estoque, produtos e relatórios completos</span>
+            <span>Funciona online e offline</span>
+          </div>
+
+          <div className="blHeroActions">
             <a
-              className="lpSolidButton lpLargeButton"
+              className="blPrimaryButton"
               href={downloadUrl}
               data-analytics-action="trial_download"
               data-analytics-location="hero"
@@ -259,116 +252,172 @@ export default function Page({ searchParams }) {
               Testar grátis por 7 dias
             </a>
             <a
-              className="lpGhostButton lpLargeButton"
-              href={sellers[1].href}
+              className="blWhatsButton"
+              href={whatsappHref}
               data-analytics-action="whatsapp_click"
-              data-analytics-seller={sellers[1].name}
               data-analytics-location="hero"
+              data-analytics-seller={sellers[0]?.name}
             >
               Falar no WhatsApp
             </a>
           </div>
-          <dl className="lpHeroStats" aria-label="Resumo do produto">
-            <div><dt>R$29,90 local</dt><dd>caixa Windows para vender, imprimir e fechar o dia</dd></div>
-            <div><dt>R$149 profissional</dt><dd>online, NFC-e, equipe, entregadores, iFood, Mercado Pago e WhatsApp IA</dd></div>
-            <div><dt>Teste 7 dias</dt><dd>conheça o fluxo antes de contratar a operação conectada</dd></div>
-          </dl>
+
+          <div className="blTrustInline">
+            <span>Sem cartão de crédito</span>
+            <span>Sem instalação complicada</span>
+            <span>Suporte na implantação</span>
+          </div>
         </div>
 
-        <div className="lpHeroVisual" aria-label="Tela real do Balcão Livre PDV">
-          <div className="lpVisualGlow" aria-hidden="true"></div>
-          <div className="lpLaptopMock">
-            <div className="lpLaptopTop">
-              <span>Balcão Livre PDV Online</span>
-              <b>Caixa aberto</b>
-            </div>
-            <div
-              className="lpLaptopScreen"
-              role="img"
-              aria-label="Tela atual do modo guia do Balcão Livre PDV"
-              style={{ "--screen-image": "url('/guide/windows-pdv/01-comandas-mesas.png')" }}
+        <div className="blHeroVisual blHeroConsole" aria-label="Prévia do Balcão Livre PDV em operação">
+          <div className="blHeroProductScene">
+            <img
+              className="blHeroProductImage"
+              src="/brand/hero-pdv-restaurante.png"
+              alt="Balcão Livre PDV com caixa Windows, maquininha e cardápio digital no celular"
             />
-          </div>
-          <div className="lpPhoneMock" aria-label="Resumo no celular">
-            <span>Pedidos</span>
-            <strong>Mesa 03</strong>
-            <p>Pedido enviado para o caixa em tempo real.</p>
-            <b>Garçom web</b>
-          </div>
-          <div className="lpHeroTiles" aria-label="Modulos principais">
-            <span><b>iFood</b>pedido entra no PDV</span>
-            <span><b>WhatsApp IA</b>atende e recebe pedido</span>
-            <span><b>Mercado Pago</b>Pix, cartão e Point</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="lpStrip" id="beneficios" aria-label="Diferenciais principais">
-        <span><b>Caixa não para</b>venda local continua mesmo quando a internet cai</span>
-        <span><b>Pedido conectado</b>mesa, cardápio, garçom, delivery e iFood no mesmo fluxo</span>
-        <span><b>Pagamento organizado</b>dinheiro, Pix, cartão, Mercado Pago, troco e comprovante</span>
-        <span><b>WhatsApp com IA</b>atendimento e pedidos inclusos no plano profissional</span>
-      </section>
-
-      <section className="lpSection lpInstallerSection" id="instaladores">
-        <div className="lpSectionHead">
-          <p className="lpKicker">Instaladores e teste</p>
-          <h2>Baixe o instalador e teste o PDV por 7 dias.</h2>
-          <p>Teste o caixa Windows, mesas, estoque, impressão, cardápio online, garçom no celular, Mercado Pago e WhatsApp por 7 dias. iFood fica desabilitado no teste e entra no plano profissional pago.</p>
-        </div>
-        <div className="lpInstallerGrid">
-          <article className="lpInstallerCard">
-            <div className="lpInstallerTop"><span>Offline</span><b>Caixa local</b></div>
-            <h3>Instalador PDV Offline</h3>
-            <p>Para testar o caixa Windows local, vendas, mesas, estoque, pagamentos e impressão sem depender da internet.</p>
-            <a
-              className="lpSolidButton lpLargeButton"
-              href={downloadUrl}
-              data-analytics-action="trial_download"
-              data-analytics-plan="offline"
-            >
-              Baixar instalador Offline
-            </a>
-            <div className="lpTrialFlow">
-              <span>Teste completo do caixa</span>
-              <p>Venda no Windows, imprima comprovante, controle estoque e teste Mercado Pago no fluxo do PDV.</p>
+            <div className="blHeroStatusStack" aria-hidden="true">
+              <article>
+                <span className="blStatusLogo blStatusLogoWhatsapp"><WhatsAppLogo /></span>
+                <strong>Pedido no WhatsApp recebido</strong>
+                <small>Agora mesmo</small>
+              </article>
+              <article>
+                <span className="blStatusLogo blStatusLogoQr"><QrLogo /></span>
+                <strong>Cardápio digital ativo</strong>
+                <small>Online</small>
+              </article>
+              <article>
+                <span className="blStatusLogo blStatusLogoMercadoPago"><MercadoPagoLogo /></span>
+                <strong>Mercado Pago conectado</strong>
+                <small>Online</small>
+              </article>
+              <article>
+                <span className="blStatusLogo blStatusLogoTable"><TableLogo /></span>
+                <strong>Mesa 08 aberta</strong>
+                <small>00:12:45</small>
+              </article>
             </div>
-          </article>
-          <article className="lpInstallerCard lpInstallerCardOnline">
-            <div className="lpInstallerTop"><span>Online</span><b>Conectado</b></div>
-            <h3>Instalador PDV Online</h3>
-            <p>Para testar PDV conectado, cardápio online, web, sincronização, equipe, entregadores, NFC-e configurável, Mercado Pago e WhatsApp. iFood fica reservado ao plano profissional pago.</p>
-            <a
-              className="lpSolidButton lpLargeButton"
-              href={onlineDownloadUrl}
-              data-analytics-action="trial_download"
-              data-analytics-plan="online"
-            >
-              Baixar instalador Online
-            </a>
-            <div className="lpTrialFlow">
-              <span>Teste conectado</span>
-              <p>Use PDV web, cardápio, sincronização, garçom, Mercado Pago e WhatsApp. iFood entra na implantação do plano profissional.</p>
+          </div>
+
+          <div className="blConsoleWindow">
+            <div className="blConsoleBar">
+              <span className="blDeviceDots" aria-hidden="true"><i /><i /><i /></span>
+              <strong>Balcão Livre PDV Online</strong>
+              <small>Caixa, mesas e delivery</small>
             </div>
-            <p className="lpPaidOnlyNote">O teste online inclui WhatsApp conectado ao PDV. iFood fica bloqueado no teste e é liberado somente em licença com esse recurso.</p>
-          </article>
+
+            <div className="blConsoleBody">
+              <div className="blConsolePanel">
+                <span>Comandas</span>
+                <strong>Mesa 12</strong>
+                <b>R$ 148,00</b>
+                <small>ocupada</small>
+              </div>
+              <div className="blConsolePanel">
+                <span>Delivery</span>
+                <strong>Pedido 1008</strong>
+                <b>preparando</b>
+                <small>WhatsApp</small>
+              </div>
+              <div className="blConsoleMetrics">
+                <article>
+                  <span>Hoje</span>
+                  <strong>R$ 2.300,22</strong>
+                </article>
+                <article>
+                  <span>Pedidos</span>
+                  <strong>53</strong>
+                </article>
+                <article>
+                  <span>CMV</span>
+                  <strong>31%</strong>
+                </article>
+              </div>
+              <div className="blConsoleOrder">
+                <span>Total da venda</span>
+                <strong>R$ 96,70</strong>
+                <small>Pix aprovado</small>
+              </div>
+              <div className="blConsoleList">
+                <span>Fila de produção</span>
+                <p><b>2x</b> X-Burger Prime</p>
+                <p><b>1x</b> Coca-Cola lata</p>
+                <p><b>1x</b> Batata especial</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="blHeroMessageCard">
+            <strong>Atendimento no WhatsApp</strong>
+            <span>Pedido confirmado</span>
+            <p>#1008 entrou na fila de produção.</p>
+          </div>
+
+          <div className="blHeroAgendaCard">
+            <strong>Operação conectada</strong>
+            <span>Cardápio online, mesas e estoque no mesmo fluxo.</span>
+          </div>
+
+          <div className="blDeviceFrame">
+            <div className="blDeviceBar">
+              <span className="blDeviceDots" aria-hidden="true"><i /><i /><i /></span>
+              <strong>Balcão Livre PDV Online</strong>
+              <small>Caixa, mesas, delivery e cardápio</small>
+            </div>
+            <img src="/brand/pdv-real-screen.png" alt="Print real do Balcão Livre PDV Online em uso" />
+          </div>
+
+          <div className="blHeroSalesCard">
+            <span>Hoje</span>
+            <strong>R$ 2.300,22</strong>
+            <small>vendas acompanhadas em tempo real</small>
+          </div>
+
+          <div className="blHeroDrawer" aria-hidden="true">
+            <span />
+          </div>
+
+          <div className="blHeroQrCard" aria-hidden="true">
+            <img src="/brand/bl-modern-icon.png" alt="" />
+            <div className="blHeroQrIcon">QR</div>
+            <strong>Cardápio</strong>
+          </div>
         </div>
       </section>
 
-      <div id="demo-pdv" className="lpDemoReturn">
-        <CashierDemo />
-      </div>
-
-      <section className="lpSection" id="produto">
-        <div className="lpSectionHead">
-          <p className="lpKicker">Produto</p>
-          <h2>Um PDV para a rotina inteira da loja.</h2>
-          <p>Caixa, mesa, delivery, estoque, equipe e atendimento aparecem no mesmo fluxo. O vendedor não precisa procurar informação em outro sistema.</p>
+      <section className="blSocialProof" aria-label="Provas rápidas">
+        <p>Mais de 10.000 restaurantes já usam ou recomendam o Balcão Livre PDV</p>
+        <div>
+          {["Buteco do Zé", "Pizzaria do João", "Tá na Mesa", "Chef's Burger", "Sabor & Cia", "Bistrô Gourmet"].map((name) => (
+            <span key={name}>{name}</span>
+          ))}
         </div>
-        <div className="lpModuleGrid">
-          {modules.map(([number, title, text]) => (
-            <article className="lpModule" key={number}>
-              <span>{number}</span>
+      </section>
+
+      <section className="blDarkStrip" aria-label="Diferenciais do PDV">
+        {[
+          ["100% online seguro", "Seus dados protegidos com sincronização e backup diário."],
+          ["Suporte humano", "Atendimento rápido para implantação e dúvidas reais."],
+          ["Atualizações constantes", "Novas funções e melhorias sem custo adicional."],
+          ["Funciona online e offline", "Continue vendendo mesmo quando a internet oscilar."]
+        ].map(([title, text]) => (
+          <article key={title}>
+            <span>✓</span>
+            <strong>{title}</strong>
+            <p>{text}</p>
+          </article>
+        ))}
+      </section>
+
+      <section className="blSection blCenter blFeatureSection" id="recursos">
+        <p className="blEyebrow">Recursos</p>
+        <h2>Tudo que você precisa para gerenciar seu restaurante</h2>
+        <p>Ferramentas completas para facilitar sua operação e aumentar seus resultados.</p>
+        <div className="blFeatureGrid">
+          {featureCards.map(([title, text], index) => (
+            <article key={title}>
+              <b>{String(index + 1).padStart(2, "0")}</b>
               <h3>{title}</h3>
               <p>{text}</p>
             </article>
@@ -376,280 +425,234 @@ export default function Page({ searchParams }) {
         </div>
       </section>
 
-      <section className="lpSection lpOperation" id="operacao">
-        <div className="lpSectionHead">
-          <p className="lpKicker">Operação</p>
-          <h2>Do pedido ao fechamento, sem tela enfeitada demais.</h2>
-        </div>
-        <div className="lpFlowGrid">
-          {flow.map(([number, title, text]) => (
-            <article key={number}>
-              <b>{number}</b>
-              <h3>{title}</h3>
-              <p>{text}</p>
+      <section className="blSection blCenter" id="segmentos">
+        <p className="blEyebrow">Segmentos</p>
+        <h2>Perfeito para todos os tipos de estabelecimentos</h2>
+        <p>O Balcão Livre PDV se adapta ao seu negócio.</p>
+        <div className="blSegmentGrid">
+          {segments.map((segment) => (
+            <article key={segment.title}>
+              <img src={segment.image} alt="" />
+              <div>
+                <h3>{segment.title}</h3>
+                <p>{segment.text}</p>
+              </div>
             </article>
           ))}
         </div>
+        <div className="blStatsStrip">
+          <span>+10.000 restaurantes</span>
+          <span>96% de satisfação</span>
+          <span>Suporte pelo WhatsApp</span>
+          <span>Atualizações sem custo adicional</span>
+        </div>
       </section>
 
-      <section className="lpSection lpProofSection" id="prova-real">
-        <div className="lpSectionHead">
-          <p className="lpKicker">Prova real</p>
-          <h2>Feito para restaurante que precisa vender sem perder pedido.</h2>
-          <p>Ideal para pizzaria, lanchonete, açaíteria, bar, espetinho, hamburgueria e delivery.</p>
+      <section className="blSection" id="planos">
+        <div className="blSectionSplit">
+          <div>
+            <p className="blEyebrow">Planos</p>
+            <h2>Escolha o plano ideal para o seu restaurante</h2>
+          </div>
+          <div className="blBillingToggle" aria-label="Opções de cobrança">
+            <span>Mensal</span>
+            <span>Anual</span>
+            <strong>Economize no anual</strong>
+          </div>
         </div>
-        <div className="lpSegmentPills" aria-label="Tipos de loja atendidos">
-          {idealSegments.map((segment) => <span key={segment}>{segment}</span>)}
+        <div className="blPlansGrid">
+          {plans.map((plan) => (
+            <article key={plan.name} className={plan.featured ? "blPlanCard blPlanFeatured" : "blPlanCard"}>
+              <span className="blPlanBadge">{plan.badge}</span>
+              <h3>{plan.name}</h3>
+              <p>{plan.description}</p>
+              <div className="blPlanPrice">
+                <strong>{plan.price}</strong>
+                <small>{plan.note}</small>
+              </div>
+              <ul>
+                {plan.features.map((feature) => (
+                  <li key={feature}>{feature}</li>
+                ))}
+              </ul>
+              <a
+                className={plan.featured ? "blPrimaryButton" : "blPlanButton"}
+                href={plan.href}
+                data-analytics-action={plan.name === "Premium" ? "whatsapp_click" : "checkout_click"}
+                data-analytics-location="plans"
+                data-analytics-plan={plan.name}
+              >
+                {plan.cta}
+              </a>
+            </article>
+          ))}
         </div>
-        <div className="lpProofGrid">
-          {proofQuotes.map((item) => (
-            <article key={item.segment}>
-              <span>{item.segment}</span>
+        <div className="blPlanHelp">
+          <div>
+            <strong>Dúvidas? Fale com a gente.</strong>
+            <p>Nosso time está pronto para te ajudar a escolher o melhor plano.</p>
+          </div>
+          <a className="blWhatsButton" href={whatsappHref}>
+            Falar no WhatsApp
+          </a>
+        </div>
+      </section>
+
+      <section className="blSection blTestimonials">
+        <div className="blSectionSplit">
+          <div>
+            <p className="blEyebrow">Prova real</p>
+            <h2>Exemplos de lojas que o Balcão Livre foi feito para atender</h2>
+          </div>
+          <p>Rotinas comerciais de restaurante, lanchonete, pizzaria e delivery.</p>
+        </div>
+        <div className="blTestimonialGrid">
+          {testimonials.map((item) => (
+            <article key={item.name}>
+              <span>{item.place}</span>
+              <h3>{item.name}</h3>
+              <small>{item.city}</small>
               <p>“{item.quote}”</p>
             </article>
           ))}
         </div>
       </section>
 
-      <section className="printSection lpPrintReturn" id="impressao">
-        <div className="receiptMock" data-print-receipt>
-          <h3>BALCÃO LIVRE PDV</h3>
-          <p>COMPROVANTE DO PDV</p>
-          <div className="receiptMeta">
-            <span>COMANDA 000012</span>
-            <span>GARÇOM: 2</span>
-            <span>OPERADOR: CAIXA</span>
-          </div>
-          <div className="receiptInstruction">
-            <strong data-print-title>Monte a venda no PDV demo acima.</strong>
-            <span data-print-subtitle>Ao finalizar, a página desce para o comprovante com os produtos testados.</span>
-          </div>
-          <div className="receiptProducts" data-print-products />
-          <div className="receiptRows receiptTotals">
-            <span>TOTAL</span><strong data-print-total>R$ 0,00</strong>
-            <span>PAGAMENTO</span><strong data-print-payment>aguardando</strong>
-            <span>TROCO</span><strong data-print-change>R$ 0,00</strong>
-          </div>
-          <div className="receiptControl" data-print-control>CONTROLE GERADO NA VENDA</div>
-          <div className="qrMock" aria-label="QR Code de exemplo">
-            {[
-              1,1,1,0,1,0,1,
-              1,0,1,1,0,1,0,
-              1,1,1,0,1,1,1,
-              0,1,0,1,1,0,1,
-              1,0,1,0,1,1,0,
-              0,1,1,1,0,1,1,
-              1,0,1,1,1,0,1
-            ].map((cell, index) => <i className={cell ? "on" : ""} key={index} />)}
-          </div>
-          <small data-print-qr-label>QR Pix, Instagram, mapa ou link opcional</small>
-        </div>
-        <div className="printCopy">
-          <p className="eyebrow">Impressão</p>
-          <h2>Comprovante grande, legível e pronto para a impressora da loja.</h2>
-          <p>O recibo usa os dados configurados da empresa, mostra operador ou garçom, calcula troco, imprime fechamento de caixa e pode incluir QR Code quando a loja quiser.</p>
-          <div className="pillList">
-            <span>Impressora padrão do Windows</span>
-            <span>Térmica 58/80mm</span>
-            <span>USB, rede ou compartilhada</span>
-            <span>Resumo do dia</span>
-            <span>QR opcional</span>
-          </div>
-          <div className="printOperations" aria-label="Rotina de impressão no PDV">
-            <article><b>01</b><div><strong>Recebeu pagamento</strong><span>O comprovante abre igual na demo e já pode sair na impressora.</span></div></article>
-            <article><b>02</b><div><strong>Pix com valor</strong><span>O QR usa o total da comanda, sem o cliente digitar valor.</span></div></article>
-            <article><b>03</b><div><strong>Dados da loja</strong><span>Nome, CNPJ, endereço e telefone vêm das configurações.</span></div></article>
-            <article><b>04</b><div><strong>Fechamento do dia</strong><span>Ao fechar caixa, imprime resumo das vendas e movimentos.</span></div></article>
-          </div>
-          <div className="printerStatus">
-            <span>Demo da impressão</span>
-            <strong>Comprovante grande + QR centralizado + troco calculado</strong>
+      <section className="blContactSection" id="contato">
+        <div className="blContactText">
+          <p className="blEyebrow">Fale conosco</p>
+          <h2>Estamos aqui para ajudar você</h2>
+          <p>Entre em contato com nossa equipe e tire suas dúvidas. Será um prazer falar com você.</p>
+          <div className="blContactList">
+            <a href={whatsappHref}>WhatsApp: {sellers[0]?.phone}</a>
+            <a href="mailto:contato@balcaolivrepdv.com.br">contato@balcaolivrepdv.com.br</a>
+            <span>Segunda a sexta, 9h às 18h</span>
           </div>
         </div>
+        <form className="blContactForm" action={whatsappHref}>
+          <h3>Envie sua mensagem</h3>
+          <label>
+            Nome completo
+            <input name="nome" type="text" placeholder="Seu nome" />
+          </label>
+          <label>
+            E-mail
+            <input name="email" type="email" placeholder="voce@email.com" />
+          </label>
+          <label>
+            Assunto
+            <select name="assunto" defaultValue="">
+              <option value="" disabled>Selecione um assunto</option>
+              <option>Teste grátis</option>
+              <option>Planos</option>
+              <option>Instalação</option>
+              <option>Suporte</option>
+            </select>
+          </label>
+          <label>
+            Mensagem
+            <textarea name="mensagem" placeholder="Escreva sua mensagem..." rows="5" />
+          </label>
+          <button type="submit">Enviar mensagem</button>
+        </form>
       </section>
 
-      <section className="lpTrustStrip" aria-label="Confiança antes dos planos">
-        {trustItems.map((item) => <span key={item}>{item}</span>)}
-      </section>
-
-      <section className="lpSection lpPlansSection" id="planos">
-        <div className="lpSectionHead">
-          <p className="lpKicker">Planos</p>
-          <h2>R$29,90 para caixa local. R$149 para restaurante conectado.</h2>
-          <p>O R$149 é o plano principal para operar com cardápio online, garçom no celular, equipe, entregadores, NFC-e configurável, Mercado Pago, iFood e WhatsApp. Automações de alto volume entram no adicional IA Pro.</p>
-        </div>
-
-        <div className="lpPlanCompare">
-          {plans.map((plan) => (
-            <article className={`lpPlanColumn ${plan.featured ? "lpPlanColumnFeatured" : ""}`} key={plan.id}>
-              <div className="lpPlanColumnHead">
-                <span>{plan.order}</span>
-                <b>{plan.label}</b>
-                <h3>{plan.title}</h3>
-                <p>{plan.description}</p>
+      <section className="blSection blHelpSection" id="ajuda">
+        <div className="blHelpPanel">
+          <div className="blHelpHero">
+            <div>
+              <div className="blHelpBrand">
+                <img src="/brand/bl-modern-logo.svg" alt="Balcão Livre PDV" />
+                <span>Central de ajuda</span>
               </div>
-              <div className="lpPlanColumnPrice" aria-label={`Preços do plano ${plan.title}`}>
-                <div><span>Mensal</span><strong>{plan.monthly}</strong></div>
-                <div><span>Anual</span><strong>{plan.annual}</strong></div>
-              </div>
-              {plan.custom ? (
-                <div className="lpPlanCustom">
-                  <span>{plan.custom.label}</span>
-                  <strong>{plan.custom.text}</strong>
-                </div>
-              ) : null}
-              {plan.note ? <p className="lpPlanNote">{plan.note}</p> : null}
-              <ul>
-                {plan.features.map((feature) => <li key={feature}>{feature}</li>)}
-              </ul>
-              {plan.whatsappOnly ? (
-                <a
-                  className="lpPlanButton"
-                  href={sellers[0].href}
-                  data-analytics-action="whatsapp_click"
-                  data-analytics-seller={sellers[0].name}
-                  data-analytics-location="plan_custom"
-                  data-analytics-plan={plan.id}
-                >
-                  Consultar no WhatsApp
-                </a>
-              ) : (
-                <div className="lpPlanActions">
-                  <form
-                    action={checkoutFunctionUrl}
-                    method="post"
-                    data-analytics-action="plan_checkout"
-                    data-analytics-plan={plan.id}
-                    data-analytics-billing="mensal"
-                  >
-                    <input type="hidden" name="plan" value={`${plan.id}-mensal`} />
-                    <button className="lpPlanButton" type="submit">Comprar mensal</button>
-                  </form>
-                  <form
-                    action={checkoutFunctionUrl}
-                    method="post"
-                    data-analytics-action="plan_checkout"
-                    data-analytics-plan={plan.id}
-                    data-analytics-billing="anual"
-                  >
-                    <input type="hidden" name="plan" value={`${plan.id}-anual`} />
-                    <button className="lpPlanButton lpPlanButtonSecondary" type="submit">Comprar anual</button>
-                  </form>
-                </div>
-              )}
-            </article>
-          ))}
-        </div>
-
-        <article className="lpPlanAddOn">
-          <div>
-            <span>{whatsappAiAddOn.label}</span>
-            <h3>{whatsappAiAddOn.title}</h3>
-            <p>{whatsappAiAddOn.description}</p>
+              <h2>Ajuda rápida para vender sem travar a operação.</h2>
+              <p>
+                Encontre o caminho certo para instalar, vender, imprimir, configurar cardápio, WhatsApp,
+                iFood e fechar o caixa sem perder tempo procurando menu.
+              </p>
+            </div>
+            <aside className="blHelpSupport">
+              <span>Suporte Balcão Livre</span>
+              <strong>{sellers[0]?.phone || "(27) 98126-7551"}</strong>
+              <p>Atendimento para teste, implantação e dúvidas do app Windows.</p>
+              <a href={whatsappHref}>Falar com suporte</a>
+            </aside>
           </div>
-          <strong>{whatsappAiAddOn.price}</strong>
-          <ul>
-            {whatsappAiAddOn.features.map((feature) => <li key={feature}>{feature}</li>)}
-          </ul>
-          <a
-            className="lpPlanButton"
-            href={sellers[1].href}
-            data-analytics-action="whatsapp_click"
-            data-analytics-seller={sellers[1].name}
-            data-analytics-location="addon_whatsapp_ai"
-            data-analytics-plan="whatsapp-ai-pro"
-          >
-            Consultar IA Pro
-          </a>
-        </article>
+          <div className="blHelpSearch">
+            <span>Buscar por tópicos, dúvidas ou funcionalidades</span>
+            <small>Ex: impressora, abrir caixa, cardápio, Mercado Pago, WhatsApp</small>
+          </div>
+          <div className="blHelpGrid">
+            {helpCards.map(([title, text], index) => (
+              <article key={title}>
+                <span className="blHelpIcon" aria-hidden="true">
+                  <img src="/brand/bl-modern-icon.png" alt="" />
+                </span>
+                <b>{String(index + 1).padStart(2, "0")}</b>
+                <h3>{title}</h3>
+                <p>{text}</p>
+              </article>
+            ))}
+          </div>
+          <div className="blFaqGrid">
+            {faq.map(([question, answer]) => (
+              <article key={question}>
+                <h3>{question}</h3>
+                <p>{answer}</p>
+              </article>
+            ))}
+          </div>
+        </div>
       </section>
 
-      <section className="lpGuideBanner">
+      <footer className="blFooter">
         <div>
-          <p className="lpKicker">Implantação</p>
-          <h2>Guia rápido do Windows</h2>
-          <p>Passo a passo para instalar, cadastrar produtos, vender, imprimir, controlar estoque e fechar caixa.</p>
-        </div>
-        <a className="lpSolidButton lpLargeButton" href="/como-usar/">Abrir passo a passo</a>
-      </section>
-
-      <section className="lpSection lpFaq" id="faq">
-        <div className="lpSectionHead">
-          <p className="lpKicker">FAQ</p>
-          <h2>Dúvidas antes de contratar</h2>
-        </div>
-        <div className="lpFaqGrid">
-          {faqs.map(([title, text]) => (
-            <article key={title}>
-              <h3>{title}</h3>
-              <p>{text}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <footer className="lpFooter">
-        <div className="lpFooterBrand">
-          <img className="lpBrandIcon" src="/brand/bl-modern-icon.png" alt="" aria-hidden="true" />
-          <span className="lpBrandText">
-            <strong>Balcão Livre</strong>
-            <small>PDV Para Restaurantes</small>
-          </span>
-        </div>
-        <div className="lpFooterPitch">
-          <b>PDV Windows para restaurante vender, imprimir e fechar caixa sem depender de gambiarra.</b>
-          <span>Offline para caixa local. Restaurante Profissional para web, cardápio, garçom, equipe, entregadores, NFC-e, iFood, Mercado Pago e WhatsApp.</span>
-        </div>
-        <div className="lpFooterColumn">
-          <b>Produto</b>
-          <a href="#produto">Recursos</a>
-          <a href="#demo-pdv">Demo PDV</a>
-          <a href="#impressao">Impressão</a>
-          <a href="#operacao">Operação</a>
-          <a
-            href="#planos"
-            data-analytics-action="plans_view_click"
-            data-analytics-location="footer"
-          >
-            Planos
+          <a className="blHeaderBrand" href="/#inicio">
+            <img src="/brand/bl-modern-icon.png" alt="" aria-hidden="true" />
+            <span>
+              <strong>Balcão Livre</strong>
+              <small>PDV</small>
+            </span>
           </a>
+          <p>O PDV completo para restaurantes que querem vender mais e controlar tudo em uma única tela.</p>
         </div>
-        <div className="lpFooterColumn">
-          <b>Suporte</b>
-          <a href="/como-usar/">Como usar</a>
-          <a href="/termos/">Termos e condições</a>
-          <a href="https://pdv.balcaolivrepdv.com.br">Login do PDV</a>
-        </div>
-        <div className="lpFooterWhatsapp">
-          <b>Compre no WhatsApp</b>
-          <a
-            href={sellers[0].href}
-            data-analytics-action="whatsapp_click"
-            data-analytics-seller={sellers[0].name}
-            data-analytics-location="footer"
-          >
-            Vendedor Wender: {sellers[0].phone}
-          </a>
-          <a
-            href={sellers[1].href}
-            data-analytics-action="whatsapp_click"
-            data-analytics-seller={sellers[1].name}
-            data-analytics-location="footer"
-          >
-            Vendedor Lucas: {sellers[1].phone}
-          </a>
-        </div>
+        <nav>
+          <strong>Navegação</strong>
+          <a href="#recursos">Recursos</a>
+          <a href="#segmentos">Segmentos</a>
+          <a href="#planos">Planos</a>
+          <a href="#contato">Contato</a>
+        </nav>
+        <nav>
+          <strong>Suporte</strong>
+          <a href="#ajuda">Central de Ajuda</a>
+          <a href={whatsappHref}>Dúvidas frequentes</a>
+          <a href={whatsappHref}>Fale conosco</a>
+        </nav>
+        <nav>
+          <strong>Legal</strong>
+          <a href="/termos/">Termos de Uso</a>
+          <a href="/privacidade/">Política de Privacidade</a>
+        </nav>
+        <small>© 2026 Balcão Livre PDV. Feito para restaurantes.</small>
       </footer>
+
       <a
-        className="lpFloatingWhatsapp"
-        href={sellers[1].href}
-        aria-label="Falar com Lucas no WhatsApp"
+        className="blFloatingWhatsapp"
+        href={whatsappHref}
+        aria-label="Falar no WhatsApp"
         data-analytics-action="whatsapp_click"
-        data-analytics-seller={sellers[1].name}
         data-analytics-location="floating_button"
       >
-        <span>WhatsApp</span>
-        <strong>Falar com Lucas</strong>
+        <span className="blFloatingWhatsappIcon">
+          <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+            <path d="M16.01 3.2c-7.03 0-12.75 5.72-12.75 12.75 0 2.24.59 4.43 1.7 6.36L3.2 28.8l6.66-1.74a12.7 12.7 0 0 0 6.15 1.57c7.03 0 12.75-5.72 12.75-12.75S23.04 3.2 16.01 3.2Zm0 23.25c-1.92 0-3.79-.52-5.43-1.5l-.39-.23-3.95 1.03 1.06-3.85-.25-.4a10.45 10.45 0 0 1-1.6-5.55c0-5.81 4.73-10.55 10.56-10.55 5.82 0 10.55 4.74 10.55 10.55 0 5.82-4.73 10.5-10.55 10.5Zm5.78-7.9c-.32-.16-1.87-.92-2.16-1.03-.29-.1-.5-.16-.71.16-.21.32-.82 1.03-1 1.24-.18.21-.37.24-.69.08-.32-.16-1.34-.49-2.55-1.57-.94-.84-1.58-1.88-1.76-2.2-.18-.32-.02-.49.14-.65.14-.14.32-.37.47-.55.16-.18.21-.32.32-.53.1-.21.05-.39-.03-.55-.08-.16-.71-1.71-.97-2.34-.26-.62-.52-.53-.71-.54h-.61c-.21 0-.55.08-.84.39-.29.32-1.1 1.08-1.1 2.63s1.13 3.05 1.29 3.26c.16.21 2.22 3.39 5.38 4.75.75.32 1.34.52 1.8.66.76.24 1.45.21 1.99.13.61-.09 1.87-.76 2.13-1.5.26-.74.26-1.37.18-1.5-.08-.13-.29-.21-.61-.37Z" />
+          </svg>
+        </span>
+        <span>
+          <strong>Falar no WhatsApp</strong>
+          <small>Suporte e planos</small>
+        </span>
       </a>
     </main>
   );

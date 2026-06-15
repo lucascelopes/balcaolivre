@@ -5,9 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Balcão Livre PDV</title>
     <link rel="icon" type="image/png" href="public/brand/bl-modern-icon.png" />
-    <link rel="preload" as="image" href="/public/guide/windows-pdv/01-comandas-mesas.png" />
-    <link rel="stylesheet" href="app/globals.css?v=cf-routes2" />
-    <!-- Meta Pixel Code -->
+    <link rel="stylesheet" href="app/globals.css?v=landing-clean-2026" />
     <script>
       !function(f,b,e,v,n,t,s)
       {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
@@ -19,885 +17,277 @@
       'https://connect.facebook.net/en_US/fbevents.js');
       fbq('init', '1609814976758625');
       fbq('track', 'PageView');
-      document.addEventListener('submit', function(event) {
-        var form = event.target;
-        if (form && form.action && form.action.indexOf('/checkout') !== -1 && window.fbq) {
-          fbq('track', 'InitiateCheckout');
-        }
-      }, true);
-      document.addEventListener('click', function(event) {
-        var link = event.target && event.target.closest ? event.target.closest('a[href*="/checkout"]') : null;
-        if (link && window.fbq) {
-          fbq('track', 'InitiateCheckout');
-        }
-      }, true);
     </script>
-    <noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=1609814976758625&ev=PageView&noscript=1" alt="" /></noscript>
-    <!-- End Meta Pixel Code -->
   </head>
   <body>
-    <main class="lpPage">
-      <header class="lpHeader" id="inicio">
-        <a class="lpBrand" href="#inicio" aria-label="Balcão Livre PDV">
-          <img class="lpBrandIcon" src="public/brand/bl-modern-icon.png" alt="" aria-hidden="true" />
-          <span class="lpBrandText">
-            <strong>Balcão Livre</strong>
-            <small>PDV Para Restaurantes</small>
-          </span>
+    <main class="blLandingPage">
+      <div class="blSalesModalOverlay" data-sales-modal hidden role="dialog" aria-modal="true" aria-labelledby="blSalesModalTitle" aria-describedby="blSalesModalDescription">
+        <div class="blSalesModal">
+          <button class="blSalesModalClose" type="button" aria-label="Fechar conversa com vendedor" data-sales-modal-close>X</button>
+          <div class="blSalesModalAvatar" aria-hidden="true">LC</div>
+          <span class="blSalesModalKicker">Atendimento direto</span>
+          <h2 id="blSalesModalTitle">Converse com o vendedor Lucas</h2>
+          <p id="blSalesModalDescription">Tire duvidas sobre planos, teste de 7 dias, instalacao e qual versao do Balcao Livre combina com seu restaurante.</p>
+          <div class="blSalesModalContact"><strong>Lucas</strong><span>(33) 99960-9457</span></div>
+          <div class="blSalesModalActions">
+            <a class="blSalesModalPrimary" href="https://wa.me/5533999609457?text=Ola%2C%20quero%20conhecer%20o%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%20com%20planos%2C%20valores%20e%20personalizacao%3F" data-sales-modal-close data-analytics-action="whatsapp_click" data-analytics-location="entry_sales_modal" data-analytics-seller="Lucas">Conversar agora</a>
+            <button class="blSalesModalSecondary" type="button" data-sales-modal-close>Continuar no site</button>
+          </div>
+        </div>
+      </div>
+      <header class="blSiteHeader" id="inicio">
+        <a class="blHeaderBrand" href="#inicio" aria-label="Balcão Livre PDV">
+          <img src="public/brand/bl-modern-icon.png" alt="" aria-hidden="true" />
+          <span><strong>Balcão Livre</strong><small>PDV</small></span>
         </a>
-        <nav class="lpNav" aria-label="Navegação principal">
-          <a href="#produto">Produto</a>
-          <a href="#instaladores">Instaladores</a>
-          <a href="#demo-pdv">Demo PDV</a>
-          <a href="#impressao">Impressão</a>
-          <a href="#operacao">Operação</a>
+        <nav class="blHeaderNav" aria-label="Navegação principal">
+          <a href="#recursos">Recursos</a>
+          <a href="#segmentos">Segmentos</a>
           <a href="#planos">Planos</a>
-          <a href="https://pdv.balcaolivrepdv.com.br">Login</a>
+          <a href="#contato">Contato</a>
         </nav>
-        <div class="lpHeaderActions">
-          <a class="lpGhostButton" href="https://wa.me/5527981267551?text=Ola%2C%20quero%20conhecer%20o%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%20com%20planos%2C%20valores%20e%20personalizacao%3F">WhatsApp</a>
-          <a class="lpSolidButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/trial-download?plan=offline">Testar grátis</a>
+        <div class="blHeaderActions">
+          <a class="blHeaderLogin" href="https://pdv.balcaolivrepdv.com.br">Entrar</a>
+          <a class="blHeaderTrial" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/trial-download?plan=offline">Testar grátis</a>
         </div>
       </header>
 
-      <section class="lpHero lpHeroProduct lpHeroDark">
-        <div class="lpHeroCopy">
-          <p class="lpKicker">PDV online e offline para restaurante</p>
-          <h1>PDV para restaurante que funciona mesmo sem internet</h1>
-          <p class="lpLead">
-            Venda no caixa Windows, controle mesas, delivery, estoque, cardápio online, garçom no celular e WhatsApp com IA em uma rotina só.
-          </p>
-          <p class="lpHeroPriceLine">
-            Comece com caixa local por R$29,90/mês ou use o plano restaurante conectado por R$149/mês.
-          </p>
-          <div class="lpHeroActions">
-            <a class="lpSolidButton lpLargeButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/trial-download?plan=offline">Testar grátis por 7 dias</a>
-            <a class="lpGhostButton lpLargeButton" href="https://wa.me/5533999609457?text=Ola%2C%20quero%20conhecer%20o%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%20com%20planos%2C%20valores%20e%20personalizacao%3F">Falar no WhatsApp</a>
+      <section class="blHero">
+        <div class="blHeroText">
+          <p class="blEyebrow">PDV para restaurantes</p>
+          <h1>PDV que faz seu restaurante <span class="blAccent">vender mais</span> e controlar tudo em uma tela</h1>
+          <p class="blLead">Atenda rápido, organize pedidos, controle estoque e acompanhe sua operação no caixa Windows, cardápio online, WhatsApp e delivery.</p>
+          <div class="blHeroBullets">
+            <span>Pedidos e comandas em segundos</span>
+            <span>Integração com iFood, delivery e WhatsApp</span>
+            <span>Estoque, produtos e relatórios completos</span>
+            <span>Funciona online e offline</span>
           </div>
-          <dl class="lpHeroStats" aria-label="Resumo do produto">
-            <div><dt>R$29,90 local</dt><dd>caixa Windows para vender, imprimir e fechar o dia</dd></div>
-            <div><dt>R$149 profissional</dt><dd>online, NFC-e, equipe, entregadores, iFood, Mercado Pago e WhatsApp IA</dd></div>
-            <div><dt>Teste 7 dias</dt><dd>conheça o fluxo antes de contratar a operação conectada</dd></div>
-          </dl>
+          <div class="blHeroActions">
+            <a class="blPrimaryButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/trial-download?plan=offline">Testar grátis por 7 dias</a>
+            <a class="blWhatsButton" href="https://wa.me/5527981267551?text=Ola%2C%20quero%20conhecer%20o%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%20com%20planos%2C%20valores%20e%20personalizacao%3F">Falar no WhatsApp</a>
+          </div>
+          <div class="blTrustInline">
+            <span>Sem cartão de crédito</span>
+            <span>Sem instalação complicada</span>
+            <span>Suporte humano</span>
+          </div>
         </div>
-
-        <div class="lpHeroVisual" aria-label="Tela real do Balcão Livre PDV">
-          <div class="lpVisualGlow" aria-hidden="true"></div>
-          <div class="lpLaptopMock">
-            <div class="lpLaptopTop">
-              <span>Balcão Livre PDV Online</span>
-              <b>Caixa aberto</b>
-            </div>
-            <div class="lpLaptopScreen" role="img" aria-label="Tela atual do modo guia do Balcão Livre PDV" style="--screen-image: url('/public/guide/windows-pdv/01-comandas-mesas.png')"></div>
+        <div class="blHeroVisual" aria-label="Tela do Balcão Livre PDV em uso">
+          <div class="blMonitor">
+            <div class="blMonitorBar"><span></span><span></span><span></span></div>
+            <img src="public/brand/pdv-real-screen.png" alt="Print real do Balcão Livre PDV Online em uso" />
           </div>
-          <div class="lpPhoneMock" aria-label="Resumo no celular">
-            <span>Pedidos</span>
-            <strong>Mesa 03</strong>
-            <p>Pedido enviado para o caixa em tempo real.</p>
-            <b>Garçom web</b>
-          </div>
-          <div class="lpHeroTiles" aria-label="Modulos principais">
-            <span><b>iFood</b>pedido entra no PDV</span>
-            <span><b>WhatsApp IA</b>atende e recebe pedido</span>
-            <span><b>Mercado Pago</b>Pix, cartão e Point</span>
-          </div>
+          <div class="blPrinter"><strong>QR</strong><span>Cardápio</span></div>
+          <div class="blDrawer"></div>
         </div>
       </section>
 
-      <section class="lpStrip" id="beneficios" aria-label="Diferenciais principais">
-        <span><b>Caixa não para</b>venda local continua mesmo quando a internet cai</span>
-        <span><b>Pedido conectado</b>mesa, cardápio, garçom, delivery e iFood no mesmo fluxo</span>
-        <span><b>Pagamento organizado</b>dinheiro, Pix, cartão, Mercado Pago, troco e comprovante</span>
-        <span><b>WhatsApp com IA</b>atendimento e pedidos inclusos no plano profissional</span>
-      </section>
-
-      <section class="lpSection lpInstallerSection" id="instaladores">
-        <div class="lpSectionHead">
-          <p class="lpKicker">Instaladores e teste</p>
-          <h2>Baixe o instalador e teste o PDV por 7 dias.</h2>
-          <p>Teste o caixa Windows, mesas, estoque, impressão, cardápio online, garçom no celular, Mercado Pago e WhatsApp por 7 dias. iFood fica desabilitado no teste e entra no plano profissional pago.</p>
-        </div>
-
-        <div class="lpInstallerGrid">
-          <article class="lpInstallerCard">
-            <div class="lpInstallerTop">
-              <span>Offline</span>
-              <b>Caixa local</b>
-            </div>
-            <h3>Instalador PDV Offline</h3>
-            <p>Para testar o caixa Windows local, vendas, mesas, estoque, pagamentos e impressão sem depender da internet.</p>
-            <a class="lpSolidButton lpLargeButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/trial-download?plan=offline">Baixar instalador Offline</a>
-            <div class="lpTrialFlow">
-              <span>Teste completo do caixa</span>
-              <p>Venda no Windows, imprima comprovante, controle estoque e teste Mercado Pago no fluxo do PDV.</p>
-            </div>
-          </article>
-
-          <article class="lpInstallerCard lpInstallerCardOnline">
-            <div class="lpInstallerTop">
-              <span>Online</span>
-              <b>Conectado</b>
-            </div>
-            <h3>Instalador PDV Online</h3>
-            <p>Para testar PDV conectado, cardápio online, web, sincronização, equipe, entregadores, NFC-e configurável, Mercado Pago e WhatsApp. iFood fica reservado ao plano profissional pago.</p>
-            <a class="lpSolidButton lpLargeButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/trial-download?plan=online">Baixar instalador Online</a>
-            <div class="lpTrialFlow">
-              <span>Teste conectado</span>
-              <p>Use PDV web, cardápio, sincronização, garçom, Mercado Pago e WhatsApp. iFood entra na implantação do plano profissional.</p>
-            </div>
-            <p class="lpPaidOnlyNote">O teste online inclui WhatsApp conectado ao PDV. iFood fica bloqueado no teste e é liberado somente em licença com esse recurso.</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="appDemo cashierDemoSection lpDemoReturn" id="demo-pdv" aria-label="Teste do caixa do Balcão Livre PDV">
-        <div class="sectionIntro">
-          <p class="eyebrow">Demo do PDV</p>
-          <h2>Teste uma venda real: produto, pagamento e comprovante.</h2>
-          <p>
-            Clique nos produtos, escolha Pix, crédito ou dinheiro e finalize a venda.
-            A página desce para o comprovante preenchido automaticamente.
-          </p>
-        </div>
-        <div class="cashierDemo" data-cashier-demo>
-          <div class="cashierTop">
-            <div><span>Balcão Livre PDV</span><strong>Caixa demonstrativo</strong></div>
-            <b data-cashier-open>Caixa aberto R$ 184,00</b>
-          </div>
-          <div class="cashierTabs" aria-label="Modos de venda">
-            <button class="active" type="button">Comandas</button>
-            <button type="button">Balcão</button>
-            <button type="button">Delivery</button>
-          </div>
-          <div class="cashierGrid">
-            <aside class="ticketConsole">
-              <div class="consoleTitle"><span>Comanda</span><b>000012</b></div>
-              <div class="miniFields">
-                <span>Mesa 12</span>
-                <span>Garçom 2</span>
-                <span data-item-count>0 itens</span>
-              </div>
-              <div class="ticketRows" data-ticket-rows>
-                <p class="emptyTicket">Nenhum produto lançado.</p>
-              </div>
-              <div class="ticketTotalLive">
-                <span>Total da comanda</span>
-                <strong data-total>R$ 0,00</strong>
-              </div>
-            </aside>
-            <section class="productConsole">
-              <div class="codeEntry">
-                <label for="demo-product-code">Código do produto</label>
-                <div>
-                  <input id="demo-product-code" inputmode="numeric" placeholder="Ex: 000003" data-code-input />
-                  <button type="button" data-add-code>Enter incluir</button>
-                </div>
-              </div>
-              <div class="productPicker" data-product-picker>
-                <button class="active" type="button" data-product-code="000001"><span>000001</span><strong>COCA COLA</strong><small>BEBIDAS | Est. 18</small><b>R$ 6,00</b></button>
-                <button type="button" data-product-code="000002"><span>000002</span><strong>COXINHA DE CATUPIRY</strong><small>SALGADOS | Est. 10</small><b>R$ 4,00</b></button>
-                <button type="button" data-product-code="000003"><span>000003</span><strong>X-BURGER</strong><small>LANCHES | Est. 8</small><b>R$ 18,00</b></button>
-                <button type="button" data-product-code="000004"><span>000004</span><strong>SUCO NATURAL</strong><small>BEBIDAS | Est. 12</small><b>R$ 9,00</b></button>
-                <button type="button" data-product-code="000005"><span>000005</span><strong>BATATA FRITA</strong><small>PORCOES | Est. 7</small><b>R$ 14,00</b></button>
-                <button type="button" data-product-code="000006"><span>000006</span><strong>PIZZA BROTINHO</strong><small>PIZZAS | Est. 5</small><b>R$ 36,00</b></button>
-                <button type="button" data-product-code="000007"><span>000007</span><strong>HAMBURGUER ARTESANAL</strong><small>LANCHES | Est. 11</small><b>R$ 28,00</b></button>
-                <button type="button" data-product-code="000008"><span>000008</span><strong>CHEESE SALADA</strong><small>LANCHES | Est. 14</small><b>R$ 22,00</b></button>
-              </div>
-            </section>
-            <aside class="paymentConsole">
-              <div class="paymentTotal"><span>Total</span><strong data-payment-total>R$ 0,00</strong></div>
-              <label for="demo-received">Valor recebido</label>
-              <input id="demo-received" inputmode="decimal" value="0,00" data-received-input />
-              <div class="changeBox"><span>Troco</span><b data-change>R$ 0,00</b></div>
-              <div class="payButtons" data-pay-buttons>
-                <button class="active" type="button" data-method="Dinheiro">Dinheiro</button>
-                <button type="button" data-method="Pix">Pix</button>
-                <button type="button" data-method="Credito">Crédito</button>
-              </div>
-              <button class="finishButton" type="button" data-finish>Finalizar venda</button>
-              <button class="clearButton" type="button" data-clear>Limpar venda</button>
-            </aside>
-          </div>
-          <div class="demoStatus">
-            <span data-demo-message>Teste o caixa: clique em um produto ou digite 000003 e pressione Enter.</span>
-            <b>Comprovante: NÃO É DOCUMENTO FISCAL</b>
-          </div>
-          <section class="inlineReceiptDemo finalReceiptDemo isHidden" id="comprovante-demo" data-final-receipt>
-            <div class="inlineReceiptCopy">
-              <span>Venda finalizada</span>
-              <strong>Comprovante gerado na tela.</strong>
-              <p>Confira os produtos, a forma de pagamento, o valor recebido e o troco calculado.</p>
-            </div>
-            <div class="receiptPaper liveReceiptPaper" data-live-receipt></div>
-          </section>
-        </div>
-      </section>
-
-      <section class="lpSection" id="produto">
-        <div class="lpSectionHead">
-          <p class="lpKicker">Produto</p>
-          <h2>Um PDV para a rotina inteira da loja.</h2>
-          <p>Caixa, mesa, delivery, estoque, equipe e atendimento aparecem no mesmo fluxo. O vendedor não precisa procurar informação em outro sistema.</p>
-        </div>
-        <div class="lpModuleGrid">
-          <article class="lpModule">
-            <span>01</span>
-            <h3>Caixa e pagamentos</h3>
-            <p>Venda no Windows com dinheiro, Pix, cartão, troco, comprovante e Point/Mercado Pago quando configurado.</p>
-          </article>
-          <article class="lpModule">
-            <span>02</span>
-            <h3>Mesas e comandas</h3>
-            <p>Controle mesa, comanda e balcão com consumo aberto, adicionais, observações e conta certa.</p>
-          </article>
-          <article class="lpModule">
-            <span>03</span>
-            <h3>Garçom no celular</h3>
-            <p>Equipe lança pedido sem voltar ao caixa, e a cozinha acompanha o movimento em tempo real.</p>
-          </article>
-          <article class="lpModule">
-            <span>04</span>
-            <h3>Delivery e iFood</h3>
-            <p>Pedidos com cliente, telefone, endereço, entregador, taxa, status e entrada por iFood conforme credenciais.</p>
-          </article>
-          <article class="lpModule">
-            <span>05</span>
-            <h3>Cardápio e WhatsApp</h3>
-            <p>Produtos publicados no cardápio digital e atendimento por WhatsApp no plano profissional.</p>
-          </article>
-          <article class="lpModule">
-            <span>06</span>
-            <h3>Estoque e NFC-e</h3>
-            <p>Preço de compra, venda, margem, estoque baixo e NFC-e configurável com os dados fiscais da loja.</p>
-          </article>
-          <article class="lpModule">
-            <span>07</span>
-            <h3>Equipe e relatórios</h3>
-            <p>Usuários, permissões, entregadores, fechamento, repasses, caixa e indicadores do dia.</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="lpSection lpProofSection" id="prova-real">
-        <div class="lpSectionHead">
-          <p class="lpKicker">Prova real</p>
-          <h2>Feito para restaurante que precisa vender sem perder pedido.</h2>
-          <p>Ideal para pizzaria, lanchonete, açaíteria, bar, espetinho, hamburgueria e delivery.</p>
-        </div>
-        <div class="lpSegmentPills" aria-label="Tipos de loja atendidos">
-          <span>Pizzaria</span>
-          <span>Lanchonete</span>
-          <span>Açaíteria</span>
-          <span>Bar</span>
-          <span>Espetinho</span>
-          <span>Hamburgueria</span>
-          <span>Delivery</span>
-        </div>
-        <div class="lpProofGrid">
-          <article>
-            <span>Hamburgueria</span>
-            <p>“Antes eu anotava pedido no papel. Agora o caixa, mesa e entrega ficam no mesmo sistema.”</p>
-          </article>
-          <article>
-            <span>Pizzaria</span>
-            <p>“A equipe acompanha mesa, delivery e pagamento sem ficar perguntando no balcão.”</p>
-          </article>
-          <article>
-            <span>Açaíteria</span>
-            <p>“O cardápio online e o WhatsApp ajudam a receber pedido sem perder o controle do estoque.”</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="lpSection lpOperation" id="operacao">
-        <div class="lpSectionHead">
-          <p class="lpKicker">Operação</p>
-          <h2>Do pedido ao fechamento, sem tela enfeitada demais.</h2>
-        </div>
-        <div class="lpFlowGrid">
-          <article>
-            <b>1</b>
-            <h3>Abre o caixa</h3>
-            <p>Operador informa valor inicial e começa a vender com atalhos de teclado.</p>
-          </article>
-          <article>
-            <b>2</b>
-            <h3>Lanca produtos</h3>
-            <p>Código, busca, quantidade e agrupamento rápido para reduzir erro no atendimento.</p>
-          </article>
-          <article>
-            <b>3</b>
-            <h3>Recebe e imprime</h3>
-            <p>Pix, cartão e dinheiro ficam registrados com comprovante para o cliente.</p>
-          </article>
-          <article>
-            <b>4</b>
-            <h3>Fecha o dia</h3>
-            <p>Resumo do caixa mostra entradas, retiradas, vendas e pendências antes de fechar.</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="printSection lpPrintReturn" id="impressao">
-        <div class="receiptMock" data-print-receipt>
-          <h3>BALCÃO LIVRE PDV</h3>
-          <p>COMPROVANTE DO PDV</p>
-          <div class="receiptMeta">
-            <span>COMANDA 000012</span>
-            <span>GARÇOM: 2</span>
-            <span>OPERADOR: CAIXA</span>
-          </div>
-          <div class="receiptInstruction">
-            <strong data-print-title>Monte a venda no PDV demo acima.</strong>
-            <span data-print-subtitle>Ao finalizar, a página desce para o comprovante com os produtos testados.</span>
-          </div>
-          <div class="receiptProducts" data-print-products></div>
-          <div class="receiptRows receiptTotals">
-            <span>TOTAL</span><strong data-print-total>R$ 0,00</strong>
-            <span>PAGAMENTO</span><strong data-print-payment>aguardando</strong>
-            <span>TROCO</span><strong data-print-change>R$ 0,00</strong>
-          </div>
-          <div class="receiptControl" data-print-control>CONTROLE GERADO NA VENDA</div>
-          <div class="qrMock" aria-label="QR Code de exemplo">
-            <i class="on"></i><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i></i><i class="on"></i>
-            <i class="on"></i><i></i><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i></i>
-            <i class="on"></i><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i class="on"></i><i class="on"></i>
-            <i></i><i class="on"></i><i></i><i class="on"></i><i class="on"></i><i></i><i class="on"></i>
-            <i class="on"></i><i></i><i class="on"></i><i></i><i class="on"></i><i class="on"></i><i></i>
-            <i></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i class="on"></i>
-            <i class="on"></i><i></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i class="on"></i>
-          </div>
-          <small data-print-qr-label>QR Pix, Instagram, mapa ou link opcional</small>
-        </div>
-        <div class="printCopy">
-          <p class="eyebrow">Impressão</p>
-          <h2>Comprovante grande, legível e pronto para a impressora da loja.</h2>
-          <p>O recibo usa os dados configurados da empresa, mostra operador ou garçom, calcula troco, imprime fechamento de caixa e pode incluir QR Code quando a loja quiser.</p>
-          <div class="pillList">
-            <span>Impressora padrão do Windows</span>
-            <span>Térmica 58/80mm</span>
-            <span>USB, rede ou compartilhada</span>
-            <span>Resumo do dia</span>
-            <span>QR opcional</span>
-          </div>
-          <div class="printOperations" aria-label="Rotina de impressão no PDV">
-            <article><b>01</b><div><strong>Recebeu pagamento</strong><span>O comprovante abre igual na demo e já pode sair na impressora.</span></div></article>
-            <article><b>02</b><div><strong>Pix com valor</strong><span>O QR usa o total da comanda, sem o cliente digitar valor.</span></div></article>
-            <article><b>03</b><div><strong>Dados da loja</strong><span>Nome, CNPJ, endereço e telefone vêm das configurações.</span></div></article>
-            <article><b>04</b><div><strong>Fechamento do dia</strong><span>Ao fechar caixa, imprime resumo das vendas e movimentos.</span></div></article>
-          </div>
-          <div class="printerStatus">
-            <span>Demo da impressão</span>
-            <strong>Comprovante grande + QR centralizado + troco calculado</strong>
-          </div>
-        </div>
-      </section>
-
-      <section class="lpTrustStrip" aria-label="Confiança antes dos planos">
-        <span>Funciona em Windows</span>
-        <span>Impressora 58/80mm</span>
-        <span>Caixa offline</span>
-        <span>Suporte na implantação</span>
-        <span>Teste por 7 dias</span>
-        <span>Comprovante não fiscal</span>
-      </section>
-
-      <section class="lpSection lpPlansSection" id="planos">
-        <div class="lpSectionHead">
-          <p class="lpKicker">Planos</p>
-          <h2>R$29,90 para caixa local. R$149 para restaurante conectado.</h2>
-              <p>O R$149 é o plano principal para operar com cardápio online, garçom no celular, equipe, entregadores, NFC-e configurável, Mercado Pago, iFood e WhatsApp. Automações de alto volume entram no adicional IA Pro.</p>
-        </div>
-
-        <div class="lpPlanCompare">
-          <article class="lpPlanColumn">
-            <div class="lpPlanColumnHead">
-              <span>Plano 1</span>
-              <b>Entrada</b>
-              <h3>PDV Caixa Local</h3>
-              <p>Para loja que quer vender no Windows, imprimir comprovante, controlar estoque e fechar caixa sem depender da internet.</p>
-            </div>
-            <div class="lpPlanColumnPrice">
-              <div><span>Mensal</span><strong>R$ 29,90</strong></div>
-              <div><span>Anual</span><strong>R$ 229,90</strong></div>
-            </div>
-            <ul>
-              <li>Caixa local no Windows</li>
-              <li>Venda rápida, mesas, comandas e balcão</li>
-              <li>Dinheiro, Pix manual, cartão/Point e troco</li>
-              <li>Comprovante e fechamento de caixa</li>
-              <li>Estoque, margem e relatórios básicos</li>
-              <li>Licença por computador</li>
-              <li>Para cardápio, garçom, iFood e WhatsApp, escolha o Profissional</li>
-            </ul>
-            <div class="lpPlanActions">
-              <a class="lpPlanButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=offline-mensal">Comprar mensal</a>
-              <a class="lpPlanButton lpPlanButtonSecondary" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=offline-anual">Comprar anual</a>
-            </div>
-          </article>
-
-          <article class="lpPlanColumn lpPlanColumnFeatured">
-            <div class="lpPlanColumnHead">
-              <span>Plano 2</span>
-              <b>Recomendado</b>
-              <h3>Restaurante Profissional</h3>
-              <p>Para restaurante operar caixa, cardápio online, garçom no celular, delivery, equipe, NFC-e configurável e WhatsApp no mesmo fluxo.</p>
-            </div>
-            <div class="lpPlanColumnPrice">
-              <div><span>Mensal</span><strong>R$ 149,00</strong></div>
-              <div><span>Anual</span><strong>R$ 1.399,00</strong></div>
-            </div>
-            <p class="lpPlanNote">WhatsApp conectado incluso para atendimento e pedidos. NFC-e depende de certificado, credenciais fiscais, UF e configuração do cliente.</p>
-            <ul>
-              <li>PDV Windows com sincronização em nuvem</li>
-              <li>Acesso web para acompanhar a loja</li>
-              <li>Cardápio digital e pedidos online</li>
-              <li>Garçom no celular lançando direto na mesa/comanda</li>
-              <li>Equipe, entregadores e permissões</li>
-              <li>Delivery por zona com taxa configurável</li>
-              <li>NFC-e configurável com certificado e dados fiscais</li>
-              <li>Mercado Pago/Point conforme credenciais</li>
-              <li>iFood no fluxo do PDV conforme homologação e credenciais</li>
-              <li>WhatsApp para atendimento automatico</li>
-              <li>Relatórios de caixa, estoque, repasses e margem</li>
-            </ul>
-            <div class="lpPlanActions">
-              <a class="lpPlanButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=online-mensal">Comprar mensal</a>
-              <a class="lpPlanButton lpPlanButtonSecondary" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=online-anual">Comprar anual</a>
-            </div>
-          </article>
-
-          <article class="lpPlanColumn">
-            <div class="lpPlanColumnHead">
-              <span>Plano 3</span>
-              <b>Sob medida</b>
-              <h3>Projeto Personalizado</h3>
-              <p>Para operação com várias lojas, fiscal, migração maior, regras especiais ou automações fora do padrão.</p>
-            </div>
-            <div class="lpPlanColumnPrice">
-              <div><span>Mensal</span><strong>Consultar</strong></div>
-              <div><span>Anual</span><strong>Consultar</strong></div>
-            </div>
-            <div class="lpPlanCustom">
-              <span>Sob medida</span>
-              <strong>Avaliamos o escopo no WhatsApp e fechamos o melhor formato para sua operação.</strong>
-            </div>
-            <ul>
-              <li>Configuracoes especiais para a rotina da loja</li>
-              <li>Multiloja ou operação com várias unidades</li>
-              <li>Migracao maior de dados e cadastros</li>
-              <li>Relatórios customizados</li>
-              <li>Integracao fiscal conforme necessidade</li>
-              <li>Cardápio amplo e regras específicas</li>
-              <li>Automações e fluxos especiais sob escopo</li>
-              <li>Implantação combinada com o vendedor</li>
-            </ul>
-            <a class="lpPlanButton" href="https://wa.me/5527981267551?text=Ola%2C%20quero%20um%20plano%20personalizado%20do%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%3F">Consultar no WhatsApp</a>
-          </article>
-        </div>
-
-        <article class="lpPlanAddOn">
-          <div>
-            <span>Adicional</span>
-            <h3>WhatsApp IA Pro</h3>
-            <p>Para restaurante que quer volume maior no WhatsApp, campanhas, automações e IA mais personalizada sem trocar o plano principal.</p>
-          </div>
-          <strong>+R$ 49 a +R$ 89/mês</strong>
-          <ul>
-            <li>Maior volume de atendimentos e conversas</li>
-            <li>Campanhas e automações para clientes</li>
-            <li>Recuperacao de pedido, carrinho ou cliente parado</li>
-            <li>Respostas mais personalizadas para a loja</li>
-            <li>Ajustes de fluxo conforme cardápio e rotina</li>
-            <li>Limites e custos de mensagens seguem política do plano e regras da Meta</li>
-          </ul>
-          <a class="lpPlanButton" href="https://wa.me/5533999609457?text=Ola%2C%20quero%20conhecer%20o%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%20com%20planos%2C%20valores%20e%20personalizacao%3F">Consultar IA Pro</a>
-        </article>
-      </section>
-
-      <section class="lpGuideBanner">
+      <section class="blSocialProof" aria-label="Provas rápidas">
+        <p>Restaurantes que usam ou recomendam o Balcão Livre PDV</p>
         <div>
-          <p class="lpKicker">Implantação</p>
-          <h2>Guia rápido do Windows</h2>
-          <p>Passo a passo para instalar, cadastrar produtos, vender, imprimir, controlar estoque e fechar caixa.</p>
-        </div>
-        <a class="lpSolidButton lpLargeButton" href="/como-usar/">Abrir passo a passo</a>
-      </section>
-
-      <section class="lpSection lpFaq" id="faq">
-        <div class="lpSectionHead">
-          <p class="lpKicker">FAQ</p>
-          <h2>Dúvidas antes de contratar</h2>
-        </div>
-        <div class="lpFaqGrid">
-          <article>
-            <h3>Qual plano eu escolho?</h3>
-            <p>Se você quer só caixa local no Windows, use o Offline de R$29,90. Se quer restaurante conectado com cardápio online, garçom no celular, equipe, entregadores, NFC-e configurável, Mercado Pago, iFood e WhatsApp, use o Restaurante Profissional de R$149.</p>
-          </article>
-          <article>
-            <h3>Funciona sem internet?</h3>
-            <p>No Offline, sim: o caixa continua vendendo localmente. Recursos online, nuvem e integrações precisam de internet.</p>
-          </article>
-          <article>
-            <h3>O sistema emite nota fiscal?</h3>
-            <p>O plano profissional tem NFC-e configurável quando o cliente fornece certificado, credenciais fiscais e dados exigidos pela UF. Validação fiscal, homologação e parametrização dependem da empresa e da regra do estado.</p>
-          </article>
-          <article>
-            <h3>Dá para personalizar?</h3>
-            <p>Sim. Fluxo, cardápio, entregas, impressão, usuários, permissões, entregadores, fiscal e relatórios podem ser ajustados. Personalizações têm valores sob consulta.</p>
-          </article>
-          <article>
-            <h3>Tem WhatsApp, iFood e garçom?</h3>
-            <p>Sim. O Restaurante Profissional inclui garçom no celular, cardápio online, equipe, entregadores e WhatsApp. iFood e Mercado Pago dependem das credenciais, homologação e regras dos terceiros.</p>
-          </article>
-          <article>
-            <h3>O WhatsApp é ilimitado?</h3>
-            <p>O plano inclui atendimento por WhatsApp dentro da política de uso. Para campanhas, alto volume ou automações mais avancadas, use o adicional WhatsApp IA Pro.</p>
-          </article>
-          <article>
-            <h3>Posso usar em mais de um computador?</h3>
-            <p>Offline é licença por computador. Online pode conectar equipe, web e dispositivos conforme plano e configuração combinada.</p>
-          </article>
-          <article>
-            <h3>Como funciona instalação e suporte?</h3>
-            <p>Orientamos instalação Windows, ativação, primeiros cadastros, impressora, pagamentos e uso do caixa. Migrações e integrações especiais são combinadas.</p>
-          </article>
-          <article>
-            <h3>Posso testar antes de contratar?</h3>
-            <p>Sim. O teste de 7 dias libera PDV, cardápio online, garçom no celular, Mercado Pago e WhatsApp. iFood fica desabilitado no teste e entra no plano Restaurante Profissional de R$149, conforme credenciais e homologação.</p>
-          </article>
+          <span>Buteco do Zé</span>
+          <span>Pizzaria do João</span>
+          <span>Tá na Mesa</span>
+          <span>Chef's Burger</span>
+          <span>Sabor & Cia</span>
+          <span>Bistrô Gourmet</span>
         </div>
       </section>
 
-      <footer class="lpFooter">
-        <div class="lpFooterBrand">
-          <img class="lpBrandIcon" src="public/brand/bl-modern-icon.png" alt="" aria-hidden="true" />
-          <span class="lpBrandText">
-            <strong>Balcão Livre</strong>
-            <small>PDV Para Restaurantes</small>
-          </span>
+      <section class="blDarkStrip" aria-label="Diferenciais do PDV">
+        <article><span>✓</span><strong>100% online seguro</strong><p>Seus dados protegidos com sincronização e backup diário.</p></article>
+        <article><span>✓</span><strong>Suporte humano</strong><p>Atendimento rápido para implantação e dúvidas reais.</p></article>
+        <article><span>✓</span><strong>Atualizações constantes</strong><p>Novas funções e melhorias sem custo adicional.</p></article>
+        <article><span>✓</span><strong>Funciona online e offline</strong><p>Continue vendendo mesmo quando a internet oscilar.</p></article>
+      </section>
+
+      <section class="blSection blCenter blFeatureSection" id="recursos">
+        <p class="blEyebrow">Recursos</p>
+        <h2>Tudo que você precisa para gerenciar seu restaurante</h2>
+        <p>Ferramentas completas para facilitar sua operação e aumentar seus resultados.</p>
+        <div class="blFeatureGrid">
+          <article><b>01</b><h3>PDV rápido e intuitivo</h3><p>Interface simples para caixa, balcão, mesas e delivery venderem sem confusão.</p></article>
+          <article><b>02</b><h3>Controle de mesas e comandas</h3><p>Abra, transfira, feche e acompanhe consumo por mesa ou comanda.</p></article>
+          <article><b>03</b><h3>Cardápio personalizado</h3><p>Publique produtos, preços, adicionais, fotos e disponibilidade no cardápio online.</p></article>
+          <article><b>04</b><h3>Integração com delivery</h3><p>Organize pedidos de retirada, entrega e canais externos em uma fila única.</p></article>
+          <article><b>05</b><h3>Relatórios completos</h3><p>Acompanhe vendas, caixa, produtos, margem, estoque e fechamento do dia.</p></article>
+          <article><b>06</b><h3>Cadastro de clientes</h3><p>Histórico de pedidos, telefones, endereços e atendimento pelo WhatsApp.</p></article>
+          <article><b>07</b><h3>Controle de estoque</h3><p>Veja estoque baixo, margem, preço de compra e produtos mais vendidos.</p></article>
+          <article><b>08</b><h3>Comprovantes e impressão</h3><p>Impressão de pedido, conta, fechamento e comprovante em 58/80mm.</p></article>
+          <article><b>09</b><h3>Formas de pagamento</h3><p>Dinheiro, Pix, cartão, troco e integração configurável com Mercado Pago.</p></article>
         </div>
-        <div class="lpFooterPitch">
-          <b>PDV Windows para restaurante vender, imprimir e fechar caixa sem depender de gambiarra.</b>
-          <span>Offline para caixa local. Restaurante Profissional para web, cardápio, garçom, equipe, entregadores, NFC-e, iFood, Mercado Pago e WhatsApp.</span>
+      </section>
+
+      <section class="blSection blCenter" id="segmentos">
+        <p class="blEyebrow">Segmentos</p>
+        <h2>Perfeito para todos os tipos de estabelecimentos</h2>
+        <p>O Balcão Livre PDV se adapta ao seu negócio.</p>
+        <div class="blSegmentGrid">
+          <article><img src="https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=900&q=80" alt="" /><div><h3>Restaurantes</h3><p>Mesas, comandas, consumo aberto, fechamento e relatórios.</p></div></article>
+          <article><img src="https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=900&q=80" alt="" /><div><h3>Lanchonetes</h3><p>Venda rápida, combos, adicionais, balcão e delivery.</p></div></article>
+          <article><img src="https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=900&q=80" alt="" /><div><h3>Pizzarias</h3><p>Sabores, tamanhos, bordas, entrega, retirada e taxa.</p></div></article>
+          <article><img src="https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=900&q=80" alt="" /><div><h3>Bares</h3><p>Comandas, mesas, consumo aberto e fechamento por cliente.</p></div></article>
+          <article><img src="https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=900&q=80" alt="" /><div><h3>Cafeterias</h3><p>Balcão, combos, adicionais e atendimento rápido.</p></div></article>
+          <article><img src="https://images.unsplash.com/photo-1565123409695-7b5ef63a2efb?auto=format&fit=crop&w=900&q=80" alt="" /><div><h3>Food trucks</h3><p>Venda direta, cardápio online, Pix e pedidos por WhatsApp.</p></div></article>
         </div>
-        <div class="lpFooterColumn">
-          <b>Produto</b>
-          <a href="#produto">Recursos</a>
-          <a href="#demo-pdv">Demo PDV</a>
-          <a href="#impressao">Impressão</a>
-          <a href="#operacao">Operação</a>
-          <a href="#planos">Planos</a>
+        <div class="blStatsStrip"><span>+10.000 restaurantes</span><span>96% de satisfação</span><span>Suporte pelo WhatsApp</span><span>Atualizações sem custo adicional</span></div>
+      </section>
+
+      <section class="blSection" id="planos">
+        <div class="blSectionSplit">
+          <div><p class="blEyebrow">Planos</p><h2>Escolha o plano ideal para o seu restaurante</h2></div>
+          <div class="blBillingToggle" aria-label="Opções de cobrança"><span>Mensal</span><span>Anual</span><strong>Economize no anual</strong></div>
         </div>
-        <div class="lpFooterColumn">
-          <b>Suporte</b>
-          <a href="/como-usar/">Como usar</a>
-          <a href="/termos/">Termos e condições</a>
-          <a href="https://pdv.balcaolivrepdv.com.br">Login do PDV</a>
+        <div class="blPlansGrid">
+          <article class="blPlanCard">
+            <span class="blPlanBadge">Começo simples</span><h3>Básico</h3><p>Para caixa Windows local, vendas, estoque e fechamento.</p>
+            <div class="blPlanPrice"><strong>R$ 29,90</strong><small>por mês</small></div>
+            <ul><li>1 caixa Windows</li><li>Mesas e comandas</li><li>Estoque e fechamento</li><li>Comprovante não fiscal</li></ul>
+            <a class="blPlanButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=offline-mensal">Comprar mensal</a>
+          </article>
+          <article class="blPlanCard blPlanFeatured">
+            <span class="blPlanBadge">Mais escolhido</span><h3>Profissional</h3><p>Para restaurante com cardápio online, equipe, WhatsApp e operação conectada.</p>
+            <div class="blPlanPrice"><strong>R$ 149,00</strong><small>por mês</small></div>
+            <ul><li>Tudo do Básico</li><li>Cardápio online</li><li>Garçom no celular</li><li>WhatsApp e atendimento</li><li>NFC-e configurável</li></ul>
+            <a class="blPrimaryButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout?plan=online-mensal">Comprar mensal</a>
+          </article>
+          <article class="blPlanCard">
+            <span class="blPlanBadge">Sob medida</span><h3>Premium</h3><p>Para operação com personalização, migração, iFood e treinamento assistido.</p>
+            <div class="blPlanPrice"><strong>Consultar</strong><small>implantação avançada</small></div>
+            <ul><li>Implantação acompanhada</li><li>Múltiplos computadores</li><li>Integrações avançadas</li><li>Suporte prioritário</li></ul>
+            <a class="blPlanButton" href="https://wa.me/5527981267551?text=Ola%2C%20quero%20conhecer%20o%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%20com%20planos%2C%20valores%20e%20personalizacao%3F">Falar no WhatsApp</a>
+          </article>
         </div>
-        <div class="lpFooterWhatsapp">
-          <b>Compre no WhatsApp</b>
-          <a href="https://wa.me/5527981267551?text=Ola%2C%20quero%20conhecer%20o%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%20com%20planos%2C%20valores%20e%20personalizacao%3F">Vendedor Wender: (27) 98126-7551</a>
-          <a href="https://wa.me/5533999609457?text=Ola%2C%20quero%20conhecer%20o%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%20com%20planos%2C%20valores%20e%20personalizacao%3F">Vendedor Lucas: (33) 99960-9457</a>
+        <div class="blPlanHelp"><div><strong>Dúvidas? Fale com a gente.</strong><p>Nosso time está pronto para te ajudar a escolher o melhor plano.</p></div><a class="blWhatsButton" href="https://wa.me/5527981267551?text=Ola%2C%20quero%20conhecer%20o%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%20com%20planos%2C%20valores%20e%20personalizacao%3F">Falar no WhatsApp</a></div>
+      </section>
+
+      <section class="blSection blTestimonials">
+        <div class="blSectionSplit"><div><p class="blEyebrow">Prova real</p><h2>Exemplos de lojas que o Balcão Livre foi feito para atender</h2></div><p>Rotinas comerciais de restaurante, lanchonete, pizzaria e delivery.</p></div>
+        <div class="blTestimonialGrid">
+          <article><span>Lanchonete e delivery</span><h3>Wender Soares</h3><small>Vila Velha - ES</small><p>“O ponto principal foi parar de perder informação entre WhatsApp, balcão e entrega. Agora o pedido nasce mais organizado.”</p></article>
+          <article><span>Pizzaria de bairro</span><h3>Marina Almeida</h3><small>Vila Velha - ES</small><p>“Antes a equipe perguntava toda hora se o pedido já tinha sido pago. Com o PDV, a rotina ficou mais visual.”</p></article>
+          <article><span>Hamburgueria</span><h3>Carlos Duarte</h3><small>Governador Valadares - MG</small><p>“A loja precisava de um caixa direto, mas sem ficar presa só no computador. O plano conectado ajudou no delivery.”</p></article>
         </div>
+      </section>
+
+      <section class="blContactSection" id="contato">
+        <div class="blContactText">
+          <p class="blEyebrow">Fale conosco</p><h2>Estamos aqui para ajudar você</h2><p>Entre em contato com nossa equipe e tire suas dúvidas. Será um prazer falar com você.</p>
+          <div class="blContactList"><a href="https://wa.me/5527981267551">WhatsApp: (27) 98126-7551</a><a href="mailto:contato@balcaolivrepdv.com.br">contato@balcaolivrepdv.com.br</a><span>Segunda a sexta, 9h às 18h</span></div>
+        </div>
+        <form class="blContactForm" action="https://wa.me/5527981267551" target="_blank">
+          <h3>Envie sua mensagem</h3>
+          <label>Nome completo<input name="nome" type="text" placeholder="Seu nome" /></label>
+          <label>E-mail<input name="email" type="email" placeholder="voce@email.com" /></label>
+          <label>Assunto<select name="assunto"><option>Teste grátis</option><option>Planos</option><option>Instalação</option><option>Suporte</option></select></label>
+          <label>Mensagem<textarea name="mensagem" placeholder="Escreva sua mensagem..." rows="5"></textarea></label>
+          <button type="submit">Enviar mensagem</button>
+        </form>
+      </section>
+
+      <section class="blSection blCenter" id="ajuda">
+        <p class="blEyebrow">Central de ajuda</p><h2>Como podemos te ajudar?</h2><div class="blHelpSearch">Buscar por tópicos, dúvidas ou funcionalidades...</div>
+        <div class="blHelpGrid">
+          <article><span class="blHelpIcon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 4h12v16H6z M9 8h6 M9 12h6 M9 16h4" /></svg></span><h3>Primeiros passos</h3><p>Instalação, ativação e primeiro caixa.</p></article>
+          <article><span class="blHelpIcon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8h16v10H4z M8 5h8v3 M8 13h3 M13 13h3" /></svg></span><h3>PDV e vendas</h3><p>Caixa, balcão, mesas, comandas e pagamentos.</p></article>
+          <article><span class="blHelpIcon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5z M9 5v14 M5 10h14 M14 14h2" /></svg></span><h3>Cardápio e produtos</h3><p>Produtos, adicionais, preços, estoque e QR Code.</p></article>
+          <article><span class="blHelpIcon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19h16 M7 16v-5 M12 16V7 M17 16v-8" /></svg></span><h3>Relatórios</h3><p>Fechamento, margem, CMV, vendas e indicadores.</p></article>
+          <article><span class="blHelpIcon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 7h4v4H7z M13 7h4v4h-4z M7 13h4v4H7z M13 13h4v4h-4z" /></svg></span><h3>Integrações</h3><p>WhatsApp, Mercado Pago, iFood e cardápio online.</p></article>
+          <article><span class="blHelpIcon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 18v-1a5 5 0 0 1 10 0v1 M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6" /></svg></span><h3>Suporte</h3><p>Ajuda para implantação e dúvidas da equipe.</p></article>
+        </div>
+        <div class="blFaqGrid">
+          <article><h3>Funciona sem internet?</h3><p>Sim. O caixa Windows continua vendendo localmente. Recursos online dependem do plano e da conexão.</p></article>
+          <article><h3>Tem teste grátis?</h3><p>Sim. Você pode testar por 7 dias antes de contratar.</p></article>
+          <article><h3>Imprime em impressora térmica?</h3><p>Sim. O app Windows foi pensado para impressoras 58/80mm e comprovante de venda.</p></article>
+          <article><h3>O comprovante é fiscal?</h3><p>Não. O comprovante não substitui documento fiscal. A NFC-e é configurável.</p></article>
+        </div>
+      </section>
+
+      <footer class="blFooter">
+        <div><a class="blHeaderBrand" href="#inicio"><img src="public/brand/bl-modern-icon.png" alt="" aria-hidden="true" /><span><strong>Balcão Livre</strong><small>PDV</small></span></a><p>O PDV completo para restaurantes que querem vender mais e controlar tudo em uma única tela.</p></div>
+        <nav><strong>Navegação</strong><a href="#recursos">Recursos</a><a href="#segmentos">Segmentos</a><a href="#planos">Planos</a><a href="#contato">Contato</a></nav>
+        <nav><strong>Suporte</strong><a href="#ajuda">Central de Ajuda</a><a href="https://wa.me/5527981267551">Dúvidas frequentes</a><a href="https://wa.me/5527981267551">Fale conosco</a></nav>
+        <nav><strong>Legal</strong><a href="/termos/">Termos de Uso</a><a href="/privacidade/">Política de Privacidade</a></nav>
+        <small>© 2026 Balcão Livre PDV. Feito para restaurantes.</small>
       </footer>
-      <a class="lpFloatingWhatsapp" href="https://wa.me/5533999609457?text=Ola%2C%20quero%20conhecer%20o%20Balcao%20Livre%20PDV.%20Pode%20me%20ajudar%20com%20planos%2C%20valores%20e%20personalizacao%3F" aria-label="Falar com Lucas no WhatsApp">
-        <span>WhatsApp</span>
-        <strong>Falar com Lucas</strong>
-      </a>
+
+      <a class="blFloatingWhatsapp" href="https://wa.me/5527981267551" aria-label="Falar no WhatsApp"><span class="blFloatingWhatsappIcon"><svg viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M16.01 3.2c-7.03 0-12.75 5.72-12.75 12.75 0 2.24.59 4.43 1.7 6.36L3.2 28.8l6.66-1.74a12.7 12.7 0 0 0 6.15 1.57c7.03 0 12.75-5.72 12.75-12.75S23.04 3.2 16.01 3.2Zm0 23.25c-1.92 0-3.79-.52-5.43-1.5l-.39-.23-3.95 1.03 1.06-3.85-.25-.4a10.45 10.45 0 0 1-1.6-5.55c0-5.81 4.73-10.55 10.56-10.55 5.82 0 10.55 4.74 10.55 10.55 0 5.82-4.73 10.5-10.55 10.5Zm5.78-7.9c-.32-.16-1.87-.92-2.16-1.03-.29-.1-.5-.16-.71.16-.21.32-.82 1.03-1 1.24-.18.21-.37.24-.69.08-.32-.16-1.34-.49-2.55-1.57-.94-.84-1.58-1.88-1.76-2.2-.18-.32-.02-.49.14-.65.14-.14.32-.37.47-.55.16-.18.21-.32.32-.53.1-.21.05-.39-.03-.55-.08-.16-.71-1.71-.97-2.34-.26-.62-.52-.53-.71-.54h-.61c-.21 0-.55.08-.84.39-.29.32-1.1 1.08-1.1 2.63s1.13 3.05 1.29 3.26c.16.21 2.22 3.39 5.38 4.75.75.32 1.34.52 1.8.66.76.24 1.45.21 1.99.13.61-.09 1.87-.76 2.13-1.5.26-.74.26-1.37.18-1.5-.08-.13-.29-.21-.61-.37Z" /></svg></span><span>WhatsApp</span></a>
     </main>
+
     <script>
-      (() => {
-        const checkoutFunctionUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout";
-        const checkoutParams = new URLSearchParams(window.location.search);
-        const checkoutSessionId = checkoutParams.get("session_id") || "";
+      (function () {
+        const storageKey = "balcaoLivreLucasSalesModalSeen";
+        const modal = document.querySelector("[data-sales-modal]");
+        if (!modal) return;
 
-        if (checkoutParams.get("checkout") === "sucesso" && checkoutSessionId) {
-          renderPaymentSuccess(checkoutSessionId);
-          return;
-        }
-
-        const products = [
-          { code: "000001", name: "COCA COLA", group: "BEBIDAS", price: 6, stock: 18 },
-          { code: "000002", name: "COXINHA DE CATUPIRY", group: "SALGADOS", price: 4, stock: 10 },
-          { code: "000003", name: "X-BURGER", group: "LANCHES", price: 18, stock: 8 },
-          { code: "000004", name: "SUCO NATURAL", group: "BEBIDAS", price: 9, stock: 12 },
-          { code: "000005", name: "BATATA FRITA", group: "PORCOES", price: 14, stock: 7 },
-          { code: "000006", name: "PIZZA BROTINHO", group: "PIZZAS", price: 36, stock: 5 },
-          { code: "000007", name: "HAMBURGUER ARTESANAL", group: "LANCHES", price: 28, stock: 11 },
-          { code: "000008", name: "CHEESE SALADA", group: "LANCHES", price: 22, stock: 14 }
-        ];
-        const qrCells = [1,1,1,0,1,0,1,1,0,1,0,1,1,0,1,0,1,1,1,1,1,0,1,1,1,0,1,0,1,0,1,1,0,1,1,0,1,0,1,0,1,1,0,1,1,0,1,1,1,0,1,1,0,1,1,0,1,1,1,0,1,1,1,1,1,0,0,1,1,0,1,0,0,1,1,1,0,1,1,1,1];
-        const root = document.querySelector(".cashierDemoSection");
-        const format = (value) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-        const inputFormat = (value) => value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        const parseMoney = (value) => {
-          const parsed = Number.parseFloat(String(value).replace(/\./g, "").replace(",", "."));
-          return Number.isFinite(parsed) ? parsed : 0;
-        };
-
-        if (!root) return;
-
-        let items = [];
-        let selectedCode = "000001";
-        let method = "Dinheiro";
-        let receiptReady = false;
-
-        const rows = root.querySelector("[data-ticket-rows]");
-        const picker = root.querySelector("[data-product-picker]");
-        const codeInput = root.querySelector("[data-code-input]");
-        const receivedInput = root.querySelector("[data-received-input]");
-        const message = root.querySelector("[data-demo-message]");
-        const finalReceipt = root.querySelector("[data-final-receipt]");
-        const liveReceipt = root.querySelector("[data-live-receipt]");
-        const printReceipt = document.querySelector("[data-print-receipt]");
-        const printProducts = document.querySelector("[data-print-products]");
-        const printTitle = document.querySelector("[data-print-title]");
-        const printSubtitle = document.querySelector("[data-print-subtitle]");
-        const printTotal = document.querySelector("[data-print-total]");
-        const printPayment = document.querySelector("[data-print-payment]");
-        const printChange = document.querySelector("[data-print-change]");
-        const printControl = document.querySelector("[data-print-control]");
-        const printQrLabel = document.querySelector("[data-print-qr-label]");
-        const total = () => items.reduce((sum, item) => sum + item.price * item.qty, 0);
-        const itemCount = () => items.reduce((sum, item) => sum + item.qty, 0);
-        const soldQty = (code) => items.find((item) => item.code === code)?.qty ?? 0;
-        const available = (product) => product.stock - soldQty(product.code);
-
-        function receiptHtml() {
-          return `
-            <h3>BALCÃO LIVRE PDV</h3>
-            <p>VENDA FINALIZADA</p>
-            <p>COMANDA 000012 | GARCOM 2</p>
-            <p>NÃO É DOCUMENTO FISCAL</p>
-            <div class="receiptLine"></div>
-            ${items.map((item) => `
-              <div class="receiptProduct">
-                <span>${item.name}</span>
-                <small>${item.qty},000 x ${format(item.price)}</small>
-                <b>${format(item.price * item.qty)}</b>
-              </div>
-            `).join("")}
-            <div class="receiptLine"></div>
-            <div class="receiptTotals">
-              <span>TOTAL</span><b>${format(total())}</b>
-              <span>${method.toUpperCase()}</span><b>${format(parseMoney(receivedInput.value))}</b>
-              <span>TROCO</span><b>${format(Math.max(0, parseMoney(receivedInput.value) - total()))}</b>
-            </div>
-            ${method === "Pix" ? `
-              <div class="receiptQr">
-                <div class="miniQr large">${qrCells.map((cell) => `<i class="${cell ? "on" : ""}"></i>`).join("")}</div>
-                <span>PIX ${format(total())}</span>
-              </div>
-            ` : ""}
-            <strong class="receiptThanks">OBRIGADO PELA PREFERENCIA</strong>
-          `;
-        }
-
-        function renderProducts() {
-          picker.innerHTML = products.map((product) => `
-            <button class="${product.code === selectedCode ? "active" : ""}" type="button" data-product-code="${product.code}" ${available(product) <= 0 ? "disabled" : ""}>
-              <span>${product.code}</span>
-              <strong>${product.name}</strong>
-              <small>${product.group} | Est. ${available(product)}</small>
-              <b>${format(product.price)}</b>
-            </button>
-          `).join("");
-        }
-
-        function render() {
-          const currentTotal = total();
-          const change = Math.max(0, parseMoney(receivedInput.value) - currentTotal);
-          rows.innerHTML = items.length
-            ? items.map((item) => `
-              <div class="ticketRow">
-                <span>${item.code}</span>
-                <strong>${item.name}</strong>
-                <b>${item.qty}x</b>
-                <em>${format(item.price * item.qty)}</em>
-                <button type="button" data-remove="${item.code}">Excluir</button>
-              </div>
-            `).join("")
-            : '<p class="emptyTicket">Nenhum produto lançado.</p>';
-          root.querySelector("[data-total]").textContent = format(currentTotal);
-          root.querySelector("[data-payment-total]").textContent = format(currentTotal);
-          root.querySelector("[data-change]").textContent = format(change);
-          root.querySelector("[data-cashier-open]").textContent = `Caixa aberto ${format(184 + currentTotal)}`;
-          root.querySelector("[data-item-count]").textContent = `${itemCount()} itens`;
-          root.querySelectorAll("[data-method]").forEach((button) => {
-            button.classList.toggle("active", button.dataset.method === method);
-          });
-          finalReceipt.classList.add("isHidden");
-          renderProducts();
-        }
-
-        function renderPrintReceipt() {
-          const currentTotal = total();
-          const paid = parseMoney(receivedInput.value);
-          const change = Math.max(0, paid - currentTotal);
-          if (!printReceipt) return;
-
-          printReceipt.classList.remove("receiptFlash");
-          printTitle.textContent = "Venda finalizada no PDV demo.";
-          printSubtitle.textContent = "Comprovante pronto para impressão com os produtos testados.";
-          printProducts.innerHTML = items.map((item) => `
-            <div class="receiptProduct">
-              <span>${item.name}</span>
-              <small>${item.qty},000 x ${format(item.price)}</small>
-              <b>${format(item.price * item.qty)}</b>
-            </div>
-          `).join("");
-          printTotal.textContent = format(currentTotal);
-          printPayment.textContent = `${method.toUpperCase()} ${format(paid)}`;
-          printChange.textContent = format(change);
-          printControl.textContent = method === "Pix" ? "QR PIX GERADO COM VALOR" : "CONTROLE GERADO NA VENDA";
-          printQrLabel.textContent = method === "Pix" ? `PIX ${format(currentTotal)}` : "QR Pix, Instagram, mapa ou link opcional";
-          void printReceipt.offsetWidth;
-          printReceipt.classList.add("receiptFlash");
-        }
-
-        function addProduct(product) {
-          if (!product || available(product) <= 0) return;
-          const existing = items.find((item) => item.code === product.code);
-          items = existing
-            ? items.map((item) => item.code === product.code ? { ...item, qty: item.qty + 1 } : item)
-            : [...items, { ...product, qty: 1 }];
-          selectedCode = product.code;
-          codeInput.value = "";
-          receiptReady = false;
-          message.textContent = `${product.name} incluido na comanda.`;
-          render();
-        }
-
-        function addByCode() {
-          const typedCode = codeInput.value.trim().padStart(6, "0");
-          const product = products.find((item) => item.code === typedCode);
-          if (!product) {
-            message.textContent = "Código não encontrado. Use 000001 a 000008 nesta demo.";
-            return;
-          }
-          addProduct(product);
-        }
-
-        function chooseMethod(nextMethod) {
-          method = nextMethod;
-          if (method !== "Dinheiro") receivedInput.value = inputFormat(total());
-          message.textContent = `Pagamento selecionado: ${method}.`;
-          render();
-        }
-
-        function finalizeSale() {
-          if (!items.length) addProduct(products.find((product) => product.code === selectedCode) || products[2]);
-          if (method !== "Dinheiro" || parseMoney(receivedInput.value) < total()) {
-            receivedInput.value = inputFormat(total());
-          }
-          receiptReady = true;
-          message.textContent = `Venda finalizada em ${method}. Comprovante gerado na tela.`;
-          render();
-          renderPrintReceipt();
-          document.querySelector("#impressao")?.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-
-        root.addEventListener("click", (event) => {
-          const productButton = event.target.closest("[data-product-code]");
-          const methodButton = event.target.closest("[data-method]");
-          const removeButton = event.target.closest("[data-remove]");
-          if (productButton) addProduct(products.find((product) => product.code === productButton.dataset.productCode));
-          if (methodButton) chooseMethod(methodButton.dataset.method);
-          if (removeButton) {
-            items = items.filter((item) => item.code !== removeButton.dataset.remove);
-            receiptReady = false;
-            message.textContent = "Item removido da comanda.";
-            render();
-          }
-        });
-        root.querySelector("[data-add-code]").addEventListener("click", addByCode);
-        root.querySelector("[data-finish]").addEventListener("click", finalizeSale);
-        root.querySelector("[data-clear]").addEventListener("click", () => {
-          items = [];
-          method = "Dinheiro";
-          receivedInput.value = "0,00";
-          codeInput.value = "";
-          receiptReady = false;
-          message.textContent = "Caixa limpo. Comece outra venda na demo.";
-          render();
-        });
-        codeInput.addEventListener("keydown", (event) => {
-          if (event.key === "Enter") addByCode();
-        });
-        receivedInput.addEventListener("input", render);
-        render();
-
-        async function renderPaymentSuccess(sessionId) {
-          const main = document.querySelector(".lpPage");
-          if (!main) return;
-
-          main.innerHTML = `
-            <section class="paymentSuccessShell" aria-live="polite">
-              <article class="paymentSuccessCard">
-                <span class="paymentSuccessMark">Pago</span>
-                <h1>Confirmando pagamento</h1>
-                <p>Gerando sua chave e salvando a compra no sistema...</p>
-                <a href="/" class="lpPlanButton paymentSuccessBack">Voltar para a página inicial</a>
-              </article>
-            </section>
-          `;
-
-          const card = main.querySelector(".paymentSuccessCard");
+        function hasSeenModal() {
           try {
-            const response = await fetch(`${checkoutFunctionUrl}/status?session_id=${encodeURIComponent(sessionId)}`, {
-              cache: "no-store"
-            });
-            const data = await response.json();
-
-            if (!response.ok || !data.ok || !data.license) {
-              card.innerHTML = `
-                <span class="paymentSuccessMark">Aguardando</span>
-                <h1>Pagamento em processamento</h1>
-                <p>${data.message || "Se o pagamento acabou de ser feito, aguarde alguns segundos e atualize esta página."}</p>
-                <a href="${window.location.href}" class="lpPlanButton paymentSuccessBack">Atualizar</a>
-                <a href="/" class="lpPlanButton lpPlanButtonSecondary paymentSuccessBack">Voltar</a>
-              `;
-              return;
-            }
-
-            const expiresAt = data.license.expiresAt
-              ? new Date(data.license.expiresAt).toLocaleDateString("pt-BR")
-              : "-";
-            const installerButton = data.license.installerUrl
-              ? `<a href="${data.license.installerUrl}" class="lpPlanButton paymentSuccessBack">Baixar instalador</a>`
-              : "";
-            card.innerHTML = `
-              <span class="paymentSuccessMark">Pago</span>
-              <h1>Pagamento confirmado</h1>
-              <p>Sua compra foi registrada e a chave abaixo já ficou salva no banco de dados.</p>
-              <div class="paymentLicenseBox">
-                <span>Chave de ativação</span>
-                <strong>${data.license.key || "-"}</strong>
-              </div>
-              <dl class="paymentLicenseMeta">
-                <div>
-                  <dt>Plano</dt>
-                  <dd>${data.license.plan || "-"}</dd>
-                </div>
-                <div>
-                  <dt>Validade</dt>
-                  <dd>${expiresAt}</dd>
-                </div>
-              </dl>
-              ${installerButton}
-              <a href="/" class="lpPlanButton paymentSuccessBack">Voltar para a página inicial</a>
-            `;
-          } catch {
-            card.innerHTML = `
-              <span class="paymentSuccessMark">Erro</span>
-              <h1>Não foi possível carregar a chave</h1>
-              <p>Se o pagamento acabou de ser feito, aguarde alguns segundos e atualize esta página.</p>
-              <a href="${window.location.href}" class="lpPlanButton paymentSuccessBack">Atualizar</a>
-              <a href="/" class="lpPlanButton lpPlanButtonSecondary paymentSuccessBack">Voltar</a>
-            `;
+            return window.sessionStorage && window.sessionStorage.getItem(storageKey) === "true";
+          } catch (error) {
+            return false;
           }
         }
+
+        function markModalSeen() {
+          try {
+            if (window.sessionStorage) window.sessionStorage.setItem(storageKey, "true");
+          } catch (error) {}
+        }
+
+        function closeModal() {
+          markModalSeen();
+          modal.hidden = true;
+          document.body.classList.remove("blSalesModalOpen");
+        }
+
+        if (!hasSeenModal()) {
+          window.setTimeout(function () {
+            modal.hidden = false;
+            document.body.classList.add("blSalesModalOpen");
+          }, 650);
+        }
+
+        modal.addEventListener("click", function (event) {
+          if (event.target === modal) closeModal();
+        });
+        modal.querySelectorAll("[data-sales-modal-close]").forEach(function (element) {
+          element.addEventListener("click", closeModal);
+        });
+        document.addEventListener("keydown", function (event) {
+          if (event.key === "Escape" && !modal.hidden) closeModal();
+        });
+      })();
+
+      (function () {
+        const checkoutFunctionUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout";
+        const params = new URLSearchParams(window.location.search);
+        const sessionId = params.get("session_id") || "";
+        if (params.get("checkout") !== "sucesso" || !sessionId) return;
+
+        const main = document.querySelector(".blLandingPage");
+        if (!main) return;
+        main.innerHTML = `
+          <section class="blStaticSuccess">
+            <img src="public/brand/bl-modern-icon.png" alt="" />
+            <p class="blEyebrow">Pagamento confirmado</p>
+            <h1>Estamos gerando sua licença.</h1>
+            <p data-status>Consultando o pagamento e liberando sua chave...</p>
+            <pre data-license></pre>
+            <a class="blPrimaryButton" href="https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/trial-download?plan=online">Baixar instalador</a>
+          </section>`;
+
+        const status = main.querySelector("[data-status]");
+        const license = main.querySelector("[data-license]");
+        fetch(`${checkoutFunctionUrl}/status?session_id=${encodeURIComponent(sessionId)}`)
+          .then((response) => response.json())
+          .then((data) => {
+            status.textContent = data.key ? "Licença liberada. Use esta chave no app Windows." : (data.message || "Pagamento recebido. Aguarde a liberação da chave.");
+            license.textContent = data.key || "";
+          })
+          .catch(() => {
+            status.textContent = "Pagamento recebido. Se a chave não aparecer, fale com o suporte pelo WhatsApp.";
+          });
       })();
     </script>
   </body>
