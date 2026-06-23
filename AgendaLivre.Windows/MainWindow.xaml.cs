@@ -8,9 +8,13 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
@@ -21,13 +25,14 @@ namespace AgendaLivre.Windows;
 public partial class MainWindow : Window
 {
     private const string AllSegments = "Todos";
+    private const string PreviewAppointmentPrefix = "__preview_agenda_";
     private const string ReportChartAppointments = "Agendamentos por dia";
     private const string ReportChartRevenue = "Receita por dia";
     private const string ReportChartStatus = "Status dos atendimentos";
-    private const double ScheduleTimeColumnWidth = 72;
-    private const double ScheduleProfessionalColumnWidth = 250;
-    private const double ScheduleHeaderHeight = 64;
-    private const double ScheduleSlotHeight = 66;
+    private const double ScheduleTimeColumnWidth = 68;
+    private const double ScheduleProfessionalColumnWidth = 300;
+    private const double ScheduleHeaderHeight = 52;
+    private const double ScheduleSlotHeight = 38;
     private const string WhatsAppEvolutionDefaultBaseUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/evolution-proxy";
     private const string WhatsAppEvolutionLicenseSecret = "BalcaoLivrePDV-local-license-v1";
     private const string WhatsAppEvolutionLicenseExpires = "203512312359";
@@ -40,7 +45,7 @@ public partial class MainWindow : Window
     {
         PropertyNameCaseInsensitive = true
     };
-    private static readonly Brush AccentBrush = Solid("#2563EB");
+    private static readonly Brush AccentBrush = Solid("#0057C8");
     private static readonly Brush AccentSoftBrush = Solid("#EAF1FF");
     private static readonly Brush WarmSoftBrush = Solid("#DBEAFE");
     private static readonly Brush RedSoftBrush = Solid("#FEE2E2");
@@ -51,7 +56,7 @@ public partial class MainWindow : Window
     private static readonly Brush MutedBrush = Solid("#68758A");
     private static readonly Brush LineBrush = Solid("#E2E8F0");
     private static readonly Brush SidebarTextBrush = Solid("#EFF6FF");
-    private static readonly Brush SidebarActiveTextBrush = Solid("#0F172A");
+    private static readonly Brush SidebarActiveTextBrush = AccentBrush;
     private static readonly Brush[] ReportPalette =
     [
         AccentBrush,
@@ -76,6 +81,7 @@ public partial class MainWindow : Window
     private readonly AgendaDataStore _store = new();
     private readonly ObservableCollection<AppointmentRow> _dayRows = [];
     private readonly ObservableCollection<AppointmentRow> _weekRows = [];
+    private readonly ObservableCollection<WeekSummaryRow> _weekSummaryRows = [];
     private readonly ObservableCollection<MetricRow> _metrics = [];
     private readonly ObservableCollection<HomeMetricRow> _homeMetrics = [];
     private readonly ObservableCollection<HomeAgendaSummaryRow> _homeAgendaRows = [];
@@ -90,6 +96,17 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<EstablishmentListRow> _establishmentServices = [];
     private readonly ObservableCollection<EstablishmentListRow> _establishmentProducts = [];
     private readonly ObservableCollection<EstablishmentListRow> _establishmentSales = [];
+    private Popup? _appointmentInfoPopup;
+    private MouseButtonEventHandler? _appointmentInfoOutsideClickHandler;
+    private Popup? _appointmentQuickEditPopup;
+    private MouseButtonEventHandler? _appointmentQuickEditOutsideClickHandler;
+    private Popup? _customerInfoPopup;
+    private MouseButtonEventHandler? _customerInfoOutsideClickHandler;
+    private Popup? _professionalInfoPopup;
+    private MouseButtonEventHandler? _professionalInfoOutsideClickHandler;
+    private Popup? _serviceInfoPopup;
+    private MouseButtonEventHandler? _serviceInfoOutsideClickHandler;
+    private Popup? _financeChartInfoPopup;
     private readonly ObservableCollection<HomeFinanceBarRow> _financeEntries = [];
     private readonly ObservableCollection<EstablishmentListRow> _financePendingPayments = [];
     private readonly ObservableCollection<EstablishmentListRow> _financeExpenses = [];
@@ -160,9 +177,13 @@ public partial class MainWindow : Window
     private string _selectedObjective = "";
     private int _onboardingStep;
     private bool _loadingEditor;
+    private bool _formattingCustomerPhone;
+    private bool _formattingDialogText;
+    private bool _mainWindowInitialized;
     private bool _syncingSelection;
     private bool _sidebarCollapsed;
     private bool _configuringReportChart;
+    private int _agendaModeIndex;
     private Appointment? _homeNextAppointment;
 
     private enum MainPage
@@ -187,10 +208,28 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Loaded += MainWindow_Loaded;
+    }
 
+    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (_mainWindowInitialized)
+        {
+            return;
+        }
+
+        _mainWindowInitialized = true;
         _whatsAppPollTimer.Tick += async (_, _) => await PollWhatsAppEvolutionMessagesAsync();
 
         _data = _store.LoadOrCreate();
+        var dataChanged = false;
+        dataChanged |= PruneProfessionalsForSelectedCount();
+        dataChanged |= RemoveBlockedAppointments();
+        if (dataChanged)
+        {
+            _store.Save(_data);
+        }
+
         ConfigureOnboardingInputs();
         ConfigureInputs();
         ClearEditor();
@@ -249,6 +288,8 @@ public partial class MainWindow : Window
         RecentCustomerListBox.ItemsSource = _recentCustomers;
         DayAgendaList.ItemsSource = _dayRows;
         WeekAgendaList.ItemsSource = _weekRows;
+        WeekSummaryItemsControl.ItemsSource = _weekSummaryRows;
+        UpdateAgendaModeButtons();
 
         _selectedSegmentFilter = AllSegments;
         UpdateSegmentFilterButton();
@@ -275,7 +316,6 @@ public partial class MainWindow : Window
         var selected = ReportsChartTypeCombo.SelectedItem as string ?? ReportChartAppointments;
         _reportChartOptions.Clear();
         _reportChartOptions.Add(ReportChartAppointments);
-        _reportChartOptions.Add(ReportChartRevenue);
         _reportChartOptions.Add(ReportChartStatus);
 
         ReportsChartTypeCombo.ItemsSource = _reportChartOptions;
@@ -537,7 +577,8 @@ public partial class MainWindow : Window
             businessPhone,
             BuildOnboardingAddress(),
             template.StartHour,
-            template.EndHour);
+            template.EndHour,
+            ProfessionalTemplateLimit(professionalCount));
 
         _data.Settings.AccountFullName = InitialFullNameTextBox.Text.Trim();
         _data.Settings.AccountPhone = businessPhone;
@@ -604,8 +645,8 @@ public partial class MainWindow : Window
     private static void SetWizardContinueState(Button button, bool enabled)
     {
         button.IsEnabled = enabled;
-        button.Background = Solid(enabled ? "#2563EB" : "#F8FAFC");
-        button.BorderBrush = Solid(enabled ? "#2563EB" : "#DCE4F0");
+        button.Background = Solid(enabled ? "#0057C8" : "#F8FAFC");
+        button.BorderBrush = Solid(enabled ? "#0057C8" : "#DCE4F0");
         button.Foreground = Solid(enabled ? "#FFFFFF" : "#94A3B8");
         TextElement.SetForeground(button, Solid(enabled ? "#FFFFFF" : "#94A3B8"));
         button.Cursor = enabled ? Cursors.Hand : Cursors.Arrow;
@@ -619,8 +660,8 @@ public partial class MainWindow : Window
                              !string.IsNullOrWhiteSpace(selectedTag) &&
                              tag.Equals(selectedTag, StringComparison.OrdinalIgnoreCase);
             button.Background = Solid(isSelected ? "#EFF6FF" : "#FFFFFF");
-            button.BorderBrush = Solid(isSelected ? "#2563EB" : "#DCE4F0");
-            button.Foreground = Solid(isSelected ? "#1D4ED8" : "#626A73");
+            button.BorderBrush = Solid(isSelected ? "#0057C8" : "#DCE4F0");
+            button.Foreground = Solid(isSelected ? "#0049A8" : "#626A73");
             button.BorderThickness = new Thickness(isSelected ? 2 : 1);
         }
     }
@@ -913,7 +954,7 @@ public partial class MainWindow : Window
         });
     }
 
-    private void ApplyOnboardingTemplate(OnboardingTemplate template, string businessName, string businessDocument, string businessPhone, string businessAddress, int startHour, int endHour)
+    private void ApplyOnboardingTemplate(OnboardingTemplate template, string businessName, string businessDocument, string businessPhone, string businessAddress, int startHour, int endHour, int professionalLimit)
     {
         _data.Settings.BusinessName = string.IsNullOrWhiteSpace(businessName) ? template.DefaultBusinessName : businessName;
         _data.Settings.BusinessDocument = businessDocument;
@@ -942,7 +983,7 @@ public partial class MainWindow : Window
         }
 
         _data.Professionals.Clear();
-        foreach (var professional in template.Professionals)
+        foreach (var professional in template.Professionals.Take(Math.Max(1, professionalLimit)))
         {
             _data.Professionals.Add(new Professional
             {
@@ -958,9 +999,70 @@ public partial class MainWindow : Window
         _selectedDate = DateTime.Today;
     }
 
+    private bool PruneProfessionalsForSelectedCount()
+    {
+        if (ProfessionalTemplateLimit(_data.Settings.ProfessionalCountRange) > 1)
+        {
+            return false;
+        }
+
+        var appointmentProfessionalIds = _data.Appointments
+            .Select(item => item.ProfessionalId)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var appointmentProfessionalNames = _data.Appointments
+            .Select(item => item.ProfessionalName)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var removed = _data.Professionals.RemoveAll(professional =>
+        {
+            var name = professional.Name.Trim();
+            return IsAutoSecondProfessionalName(name) &&
+                   !appointmentProfessionalIds.Contains(professional.Id) &&
+                   !appointmentProfessionalNames.Contains(name);
+        });
+
+        return removed > 0;
+    }
+
+    private bool RemoveBlockedAppointments()
+    {
+        var removed = _data.Appointments.RemoveAll(IsBlockedAppointment);
+        if (_selectedAppointment is not null && IsBlockedAppointment(_selectedAppointment))
+        {
+            _selectedAppointment = null;
+        }
+
+        return removed > 0;
+    }
+
+    private static bool IsBlockedAppointment(Appointment appointment) =>
+        appointment.Status == AppointmentStatus.Blocked ||
+        appointment.ServiceName.Equals("Bloqueio interno", StringComparison.OrdinalIgnoreCase);
+
+    private static int ProfessionalTemplateLimit(string professionalCount) =>
+        professionalCount.Trim().StartsWith("2", StringComparison.OrdinalIgnoreCase) ? 2 : 1;
+
+    private static bool IsAutoSecondProfessionalName(string name) =>
+        name.Equals("Barbeiro 2", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Profissional 2", StringComparison.OrdinalIgnoreCase);
+
     private void ApplyBusinessLabels()
     {
-        AppTitleText.Text = BusinessDisplayName();
+        var displayName = BusinessDisplayName();
+        var accountName = string.IsNullOrWhiteSpace(_data.Settings.AccountFullName)
+            ? displayName
+            : _data.Settings.AccountFullName;
+
+        TopLogoText.Text = InitialsFor(accountName);
+        SidebarLogoText.Text = TopLogoText.Text;
+        SidebarUserNameText.Text = accountName;
+        SidebarUserRoleText.Text = string.IsNullOrWhiteSpace(_data.Settings.BusinessSegment)
+            ? "Proprietária"
+            : _data.Settings.BusinessSegment;
+
+        AppTitleText.Text = displayName;
 
         if (string.IsNullOrWhiteSpace(_data.Settings.BusinessSegment))
         {
@@ -1027,9 +1129,7 @@ public partial class MainWindow : Window
     {
         _dayRows.Clear();
 
-        foreach (var appointment in ApplyFilters(_data.Appointments.Where(item => item.Start.Date == _selectedDate.Date))
-                     .OrderBy(item => item.Start)
-                     .ThenBy(item => item.CustomerName))
+        foreach (var appointment in AgendaDisplayAppointments())
         {
             _dayRows.Add(new AppointmentRow(appointment));
         }
@@ -1042,20 +1142,167 @@ public partial class MainWindow : Window
         _weekRows.Clear();
         var startOfWeek = StartOfWeek(_selectedDate);
         var endOfWeek = startOfWeek.AddDays(7);
+        var weekAppointments = WeekDisplayAppointments(startOfWeek, endOfWeek);
 
-        foreach (var appointment in ApplyFilters(_data.Appointments.Where(item => item.Start >= startOfWeek && item.Start < endOfWeek))
-                     .OrderBy(item => item.Start)
-                     .ThenBy(item => item.CustomerName))
+        foreach (var appointment in weekAppointments)
         {
             _weekRows.Add(new AppointmentRow(appointment));
         }
+
+        RefreshWeekSummary(startOfWeek, weekAppointments);
+    }
+
+    private List<Appointment> WeekDisplayAppointments(DateTime startOfWeek, DateTime endOfWeek)
+    {
+        var realAppointments = ApplyFilters(_data.Appointments.Where(item => item.Start >= startOfWeek && item.Start < endOfWeek))
+            .Where(IsVisibleAgendaAppointment)
+            .OrderBy(item => item.Start)
+            .ThenBy(item => item.CustomerName)
+            .ToList();
+
+        return realAppointments.Count > 0 || !string.IsNullOrWhiteSpace(SearchTextBox.Text.Trim())
+            ? realAppointments
+            : CreatePreviewAppointments();
+    }
+
+    private void RefreshWeekSummary(DateTime startOfWeek, IReadOnlyCollection<Appointment> weekAppointments)
+    {
+        _weekSummaryRows.Clear();
+
+        var professionalCount = Math.Max(1, GetProfessionalsForCurrentFilter().Count());
+        var workdayMinutes = Math.Max(60, (_data.Settings.WorkdayEndHour - _data.Settings.WorkdayStartHour) * 60);
+        var dailyCapacity = Math.Max(60, workdayMinutes * professionalCount);
+
+        for (var index = 0; index < 7; index++)
+        {
+            var day = startOfWeek.AddDays(index);
+            var appointments = weekAppointments
+                .Where(item => item.Start.Date == day.Date)
+                .OrderBy(item => item.Start)
+                .ToList();
+
+            var activeAppointments = appointments.Where(IsOperationalStatus).ToList();
+            var count = appointments.Count;
+            var minutes = activeAppointments.Sum(item => Math.Max(15, item.DurationMinutes));
+            var percent = Math.Min(100d, minutes * 100d / dailyCapacity);
+            var revenue = appointments
+                .Where(item => item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
+                .Sum(item => item.Price);
+            var isSelected = day.Date == _selectedDate.Date;
+            var accent = count > 0 ? AccentBrush : MutedBrush;
+
+            _weekSummaryRows.Add(new WeekSummaryRow(
+                day.ToString("ddd", Brazil).TrimEnd('.'),
+                day.ToString("dd", Brazil),
+                day.ToString("dd/MM", Brazil),
+                count == 0 ? "0" : count.ToString(Brazil),
+                count == 0 ? "livre" : "ag.",
+                count == 0 ? "sem horários" : revenue.ToString("C0", Brazil),
+                percent,
+                accent,
+                count > 0 || isSelected ? Solid("#F8FBFF") : Solid("#F8FAFC"),
+                isSelected ? AccentBrush : LineBrush,
+                isSelected));
+        }
+
+        WeekSummaryRangeText.Text = $"{startOfWeek:dd/MM} - {startOfWeek.AddDays(6):dd/MM}";
+        var total = weekAppointments.Count;
+        var totalRevenue = weekAppointments
+            .Where(item => item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
+            .Sum(item => item.Price);
+        WeekSummaryTotalText.Text = $"{total} atendimento{(total == 1 ? "" : "s")} | {totalRevenue.ToString("C0", Brazil)} previsto";
+    }
+
+    private List<Appointment> AgendaDisplayAppointments()
+    {
+        var realAppointments = ApplyFilters(_data.Appointments.Where(item => item.Start.Date == _selectedDate.Date))
+            .Where(IsVisibleAgendaAppointment)
+            .OrderBy(item => item.Start)
+            .ThenBy(item => item.CustomerName)
+            .ToList();
+
+        return realAppointments.Count > 0 || !string.IsNullOrWhiteSpace(SearchTextBox.Text.Trim())
+            ? realAppointments
+            : CreatePreviewAppointments();
+    }
+
+    private static bool IsVisibleAgendaAppointment(Appointment appointment) =>
+        !IsBlockedAppointment(appointment);
+
+    private List<Appointment> CreatePreviewAppointments(DateTime? dateOverride = null)
+    {
+        var previewDate = (dateOverride ?? _selectedDate).Date;
+        var professionals = GetProfessionalsForCurrentFilter().Take(2).ToList();
+        if (professionals.Count == 0)
+        {
+            return [];
+        }
+
+        var segment = CurrentSegmentFilter() == AllSegments
+            ? _data.Settings.BusinessSegment
+            : CurrentSegmentFilter();
+        if (string.IsNullOrWhiteSpace(segment))
+        {
+            segment = professionals[0].Segments.FirstOrDefault()
+                ?? _data.Services.FirstOrDefault(item => item.IsActive)?.Segment
+                ?? "";
+        }
+
+        var services = _data.Services
+            .Where(item => item.IsActive && (string.IsNullOrWhiteSpace(segment) || item.Segment == segment))
+            .OrderBy(item => item.Name)
+            .ToList();
+
+        var samples = new[]
+        {
+            new { Time = 9.0, Customer = "Mariana Silva", Phone = "(33) 99800-7983", Status = AppointmentStatus.Confirmed },
+            new { Time = 10.5, Customer = "Juliana Costa", Phone = "(33) 99742-1180", Status = AppointmentStatus.Waiting },
+            new { Time = 13.5, Customer = "Camila Oliveira", Phone = "(33) 99680-4412", Status = AppointmentStatus.Scheduled },
+            new { Time = 15.0, Customer = "Fernanda Lima", Phone = "(33) 99518-2030", Status = AppointmentStatus.Confirmed }
+        };
+
+        var startHour = Math.Max(_data.Settings.WorkdayStartHour, 8);
+        var endHour = Math.Max(startHour + 1, _data.Settings.WorkdayEndHour);
+
+        return samples
+            .Select((sample, index) =>
+            {
+                var service = services.Count == 0 ? null : services[index % services.Count];
+                var professional = professionals[index % professionals.Count];
+                var hour = Math.Min(endHour - 1, Math.Max(startHour, sample.Time));
+                var wholeHour = (int)Math.Floor(hour);
+                var minute = (int)Math.Round((hour - wholeHour) * 60);
+
+                return new Appointment
+                {
+                    Id = $"{PreviewAppointmentPrefix}{previewDate:yyyyMMdd}_{index}",
+                    Segment = string.IsNullOrWhiteSpace(segment) ? professional.Segments.FirstOrDefault() ?? "" : segment,
+                    CustomerName = sample.Customer,
+                    CustomerPhone = sample.Phone,
+                    CustomerProfile = "Exemplo visual",
+                    ServiceId = service?.Id ?? "",
+                    ServiceName = service?.Name ?? "Serviço de exemplo",
+                    ProfessionalId = professional.Id,
+                    ProfessionalName = professional.Name,
+                    ResourceName = service?.DefaultResource ?? _data.Settings.Resources.FirstOrDefault() ?? "Sala 1",
+                    Start = previewDate.AddHours(wholeHour).AddMinutes(minute),
+                    DurationMinutes = service?.DurationMinutes ?? 60,
+                    Price = service?.Price ?? 120,
+                    Status = sample.Status,
+                    Notes = "Agendamento teste para visualizar a agenda.",
+                    CreatedAt = DateTime.Now,
+                    UpdatedAt = DateTime.Now
+                };
+            })
+            .OrderBy(item => item.Start)
+            .ToList();
     }
 
     private void RefreshMetrics()
     {
         _metrics.Clear();
 
-        var dayAppointments = ApplySegmentFilter(_data.Appointments.Where(item => item.Start.Date == _selectedDate.Date)).ToList();
+        var dayAppointments = AgendaDisplayAppointments();
         var active = dayAppointments.Where(IsOperationalStatus).ToList();
         var confirmed = dayAppointments.Count(item => item.Status is AppointmentStatus.Confirmed or AppointmentStatus.Waiting or AppointmentStatus.InService);
         var done = dayAppointments.Count(item => item.Status == AppointmentStatus.Done);
@@ -1073,17 +1320,19 @@ public partial class MainWindow : Window
             .Where(item => item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
             .Sum(item => item.Price);
 
-        _metrics.Add(new MetricRow("Atendimentos", active.Count.ToString(Brazil), "em aberto no dia", AccentSoftBrush));
-        _metrics.Add(new MetricRow("Confirmados", confirmed.ToString(Brazil), "chegou ou está confirmado", BlueSoftBrush));
-        _metrics.Add(new MetricRow("Horários livres", freeSlots.ToString(Brazil), "janelas de 30 min", GraySoftBrush));
-        _metrics.Add(new MetricRow("Caixa previsto", forecast.ToString("C0", Brazil), $"{done} finalizado(s) | {late} atraso(s)", WarmSoftBrush));
+        _metrics.Add(new MetricRow("Atendimentos", active.Count.ToString(Brazil), "em aberto no dia", AccentSoftBrush, PackIconKind.AccountGroup, AccentBrush));
+        _metrics.Add(new MetricRow("Confirmados", confirmed.ToString(Brazil), $"{PercentText(confirmed, Math.Max(1, dayAppointments.Count))} do total", Solid("#EAFBF2"), PackIconKind.CheckCircleOutline, Solid("#16A34A")));
+        _metrics.Add(new MetricRow("Horários livres", freeSlots.ToString(Brazil), "janelas de 30 min", Solid("#FFF7ED"), PackIconKind.ClockOutline, Solid("#F97316")));
+        _metrics.Add(new MetricRow("Caixa previsto", forecast.ToString("C0", Brazil), $"{done} finalizado(s) | {late} atraso(s)", Solid("#F3E8FF"), PackIconKind.WalletOutline, Solid("#7C3AED")));
     }
 
     private void RefreshProfessionals()
     {
         _professionalRows.Clear();
 
-        var dayAppointments = ApplySegmentFilter(_data.Appointments.Where(item => item.Start.Date == _selectedDate.Date)).ToList();
+        var dayAppointments = AgendaDisplayAppointments();
+        var workdayMinutes = Math.Max(60, (_data.Settings.WorkdayEndHour - _data.Settings.WorkdayStartHour) * 60);
+        var expectedAppointmentCount = Math.Max(1, workdayMinutes / 60);
 
         foreach (var professional in GetProfessionalsForCurrentFilter().OrderBy(item => item.Name))
         {
@@ -1092,13 +1341,34 @@ public partial class MainWindow : Window
                 .ToList();
 
             var minutes = professionalAppointments.Sum(item => item.DurationMinutes);
-            var brush = minutes >= 300 ? RedSoftBrush : minutes >= 180 ? YellowSoftBrush : AccentSoftBrush;
+            var percent = Math.Min(100d, minutes * 100d / workdayMinutes);
+            var accent = percent >= 85 ? Solid("#DC2626") : percent >= 60 ? Solid("#0057C8") : Solid("#16A34A");
+            var brush = percent >= 85 ? RedSoftBrush : percent >= 60 ? AccentSoftBrush : Solid("#ECFDF5");
 
             _professionalRows.Add(new ProfessionalDayRow(
                 professional.Name,
                 professional.SegmentLine,
-                $"{professionalAppointments.Count} ag.",
-                brush));
+                $"{percent:0}%",
+                $"{professionalAppointments.Count}/{expectedAppointmentCount} atendimentos",
+                percent,
+                brush,
+                accent,
+                InitialsFor(professional.Name),
+                professionalAppointments.Count > 0));
+        }
+
+        if (_professionalRows.Count == 0)
+        {
+            _professionalRows.Add(new ProfessionalDayRow(
+                "Nenhum profissional",
+                "Cadastre a equipe para montar a agenda",
+                "0%",
+                "0 atendimentos",
+                0,
+                GraySoftBrush,
+                MutedBrush,
+                "--",
+                false));
         }
     }
 
@@ -1117,11 +1387,42 @@ public partial class MainWindow : Window
                      .OrderByDescending(item => item.LastSeenAt)
                      .Take(8))
         {
-            var detailParts = new[] { customer.Segment, customer.Phone, customer.Profile }
-                .Where(part => !string.IsNullOrWhiteSpace(part));
-            _recentCustomers.Add(new RecentCustomerRow(customer.Name, string.Join(" | ", detailParts)));
+            var lastAppointment = _data.Appointments
+                .Where(item => CustomerMatches(item, customer))
+                .OrderByDescending(item => item.Start)
+                .FirstOrDefault();
+            var detail = lastAppointment?.ServiceName;
+            if (string.IsNullOrWhiteSpace(detail))
+            {
+                var detailParts = new[] { customer.Segment, customer.Profile }
+                    .Where(part => !string.IsNullOrWhiteSpace(part));
+                detail = string.Join(" | ", detailParts);
+            }
+
+            if (string.IsNullOrWhiteSpace(detail))
+            {
+                detail = "Cliente cadastrado";
+            }
+
+            var date = (lastAppointment?.Start ?? customer.LastSeenAt).ToString("dd/MM", Brazil);
+            _recentCustomers.Add(new RecentCustomerRow(customer.Name, detail, date, InitialsFor(customer.Name)));
+        }
+
+        if (_recentCustomers.Count == 0)
+        {
+            _recentCustomers.Add(new RecentCustomerRow(
+                "Nenhum cliente recente",
+                "Os próximos atendimentos aparecerão aqui.",
+                "",
+                "--"));
         }
     }
+
+    private static bool CustomerMatches(Appointment appointment, Customer customer) =>
+        appointment.CustomerName.Equals(customer.Name, StringComparison.OrdinalIgnoreCase) ||
+        (!string.IsNullOrWhiteSpace(customer.Phone) &&
+         !string.IsNullOrWhiteSpace(appointment.CustomerPhone) &&
+         appointment.CustomerPhone.Equals(customer.Phone, StringComparison.OrdinalIgnoreCase));
 
     private void RefreshTitles()
     {
@@ -1130,18 +1431,16 @@ public partial class MainWindow : Window
         SelectedDateTitleText.Text = dateText;
         var title = _selectedDate.Date == DateTime.Today ? "Agenda de hoje" : $"Agenda de {_selectedDate:dd/MM}";
         AgendaTitleText.Text = segment == AllSegments ? title : $"{title} - {segment}";
-        AgendaSubtitleText.Text = $"{dateText} | {_dayRows.Count} atendimento(s) visível(is)";
+        AgendaSubtitleText.Text = dateText;
+        AgendaBoardCountText.Text = $"{_dayRows.Count} atendimento{(_dayRows.Count == 1 ? "" : "s")}";
+        AgendaBoardRangeText.Text = $"{_data.Settings.WorkdayStartHour:00}:00-{_data.Settings.WorkdayEndHour:00}:00";
     }
 
     private void RefreshHomeDashboard()
     {
         var today = DateTime.Today;
         var now = DateTime.Now;
-        var dayAppointments = _data.Appointments
-            .Where(item => item.Start.Date == today)
-            .OrderBy(item => item.Start)
-            .ThenBy(item => item.CustomerName)
-            .ToList();
+        var dayAppointments = HomeDisplayAppointments(today);
         var confirmed = dayAppointments.Count(item => item.Status is AppointmentStatus.Confirmed or AppointmentStatus.Waiting or AppointmentStatus.InService);
         var activeNow = dayAppointments.Count(item => item.Status is AppointmentStatus.Waiting or AppointmentStatus.InService);
         var pending = dayAppointments.Count(item => item.Status == AppointmentStatus.Scheduled);
@@ -1160,10 +1459,10 @@ public partial class MainWindow : Window
             : _data.Settings.BusinessName;
 
         _homeMetrics.Clear();
-        _homeMetrics.Add(new HomeMetricRow("Agenda hoje", dayAppointments.Count.ToString(Brazil), $"{confirmed} confirmado(s)", AccentSoftBrush));
-        _homeMetrics.Add(new HomeMetricRow("Em atendimento", activeNow.ToString(Brazil), "chegou ou em servico", BlueSoftBrush));
-        _homeMetrics.Add(new HomeMetricRow("A confirmar", pending.ToString(Brazil), "precisa de WhatsApp", WarmSoftBrush));
-        _homeMetrics.Add(new HomeMetricRow("Caixa hoje", realizedToday.ToString("C0", Brazil), $"{done} finalizado(s) de {forecast.ToString("C0", Brazil)}", BlueSoftBrush));
+        _homeMetrics.Add(new HomeMetricRow("Agendamentos hoje", dayAppointments.Count.ToString(Brazil), $"{confirmed} confirmado(s)", AccentSoftBrush, PackIconKind.CalendarMonth, AccentBrush));
+        _homeMetrics.Add(new HomeMetricRow("Confirmados", confirmed.ToString(Brazil), $"{PercentText(confirmed, Math.Max(1, dayAppointments.Count))} do total", Solid("#EAFBF2"), PackIconKind.CheckCircleOutline, Solid("#16A34A")));
+        _homeMetrics.Add(new HomeMetricRow("A confirmar", pending.ToString(Brazil), "precisa de WhatsApp", Solid("#FFF7ED"), PackIconKind.ClockOutline, Solid("#F97316")));
+        _homeMetrics.Add(new HomeMetricRow("Caixa do dia", realizedToday.ToString("C0", Brazil), $"{done} finalizado(s)", Solid("#F3E8FF"), PackIconKind.WalletOutline, Solid("#7C3AED")));
 
         _homeNextAppointment = dayAppointments.FirstOrDefault(item =>
             item.Status is AppointmentStatus.Waiting or AppointmentStatus.InService)
@@ -1177,6 +1476,18 @@ public partial class MainWindow : Window
         RefreshHomeAlerts(dayAppointments, pending);
         RefreshHomeTopServices();
         RefreshHomeCustomers();
+    }
+
+    private List<Appointment> HomeDisplayAppointments(DateTime date)
+    {
+        var realAppointments = ApplySegmentFilter(_data.Appointments.Where(item => item.Start.Date == date.Date))
+            .OrderBy(item => item.Start)
+            .ThenBy(item => item.CustomerName)
+            .ToList();
+
+        return realAppointments.Count > 0
+            ? realAppointments
+            : CreatePreviewAppointments(date);
     }
 
     private void RefreshHomeNextAppointment()
@@ -1199,16 +1510,19 @@ public partial class MainWindow : Window
     private void RefreshHomeAgendaRows(IReadOnlyList<Appointment> dayAppointments, DateTime now)
     {
         _homeAgendaRows.Clear();
+        BuildHomeScheduleBoard(dayAppointments);
+
         var nextRows = dayAppointments
-            .Where(item => item.Start >= now || item.Status is AppointmentStatus.Waiting or AppointmentStatus.InService)
             .Where(item => item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
             .OrderBy(item => item.Start)
             .Take(6)
             .ToList();
 
+        HomeEmptyScheduleBoard.Visibility = Visibility.Visible;
+        HomeAgendaItemsControl.Visibility = Visibility.Collapsed;
+
         if (nextRows.Count == 0)
         {
-            _homeAgendaRows.Add(new HomeAgendaSummaryRow("--:--", "Sem próximos atendimentos", "Agenda livre", "Livre", GraySoftBrush, MutedBrush));
             return;
         }
 
@@ -1216,12 +1530,338 @@ public partial class MainWindow : Window
         {
             _homeAgendaRows.Add(new HomeAgendaSummaryRow(
                 appointment.Start.ToString("HH:mm", Brazil),
+                $"{appointment.DurationMinutes} min",
                 appointment.CustomerName,
                 appointment.ServiceName,
+                appointment.ProfessionalName,
                 StatusLabel(appointment.Status),
                 StatusBackground(appointment.Status),
                 StatusForeground(appointment.Status)));
         }
+    }
+
+    private void BuildHomeScheduleBoard(IReadOnlyList<Appointment> dayAppointments)
+    {
+        if (HomeScheduleBoardGrid is null)
+        {
+            return;
+        }
+
+        const double timeColumnWidth = 72;
+        const double headerHeight = 44;
+        const double rowHeight = 48;
+        const int visibleHourWindow = 9;
+        const string unassignedId = "__sem_profissional__";
+
+        var visibleAppointments = dayAppointments
+            .Where(item => item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
+            .OrderBy(item => item.Start)
+            .ThenBy(item => item.CustomerName)
+            .ToList();
+
+        var startHour = Math.Clamp(_data.Settings.WorkdayStartHour, 0, 23);
+        if (visibleAppointments.Count > 0)
+        {
+            startHour = Math.Min(startHour, visibleAppointments.Min(item => item.Start.Hour));
+        }
+
+        var configuredEndHour = Math.Clamp(_data.Settings.WorkdayEndHour, startHour + 1, 24);
+        var endHour = Math.Min(configuredEndHour, startHour + visibleHourWindow);
+        if (visibleAppointments.Count > 0)
+        {
+            var latestEndHour = visibleAppointments
+                .Select(item => Math.Min(24, (int)Math.Ceiling((item.End - item.End.Date).TotalHours)))
+                .DefaultIfEmpty(endHour)
+                .Max();
+            endHour = Math.Max(endHour, latestEndHour);
+        }
+        endHour = Math.Clamp(endHour, startHour + 1, 24);
+        var slotCount = Math.Max(1, endHour - startHour);
+
+        var columns = BuildHomeScheduleColumns(visibleAppointments, unassignedId);
+        var board = HomeScheduleBoardGrid;
+        board.Children.Clear();
+        board.ColumnDefinitions.Clear();
+        board.RowDefinitions.Clear();
+        board.MinHeight = headerHeight + rowHeight * slotCount;
+
+        board.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(timeColumnWidth) });
+        foreach (var _ in columns)
+        {
+            board.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        }
+
+        board.RowDefinitions.Add(new RowDefinition { Height = new GridLength(headerHeight) });
+        for (var row = 0; row < slotCount; row++)
+        {
+            board.RowDefinitions.Add(new RowDefinition { Height = new GridLength(rowHeight) });
+        }
+
+        AddHomeScheduleCorner(board);
+        AddHomeScheduleHeaders(board, columns);
+        var cells = AddHomeScheduleCells(board, columns, startHour, slotCount);
+
+        foreach (var appointment in visibleAppointments)
+        {
+            var row = Math.Clamp(appointment.Start.Hour - startHour, 0, slotCount - 1);
+            var column = columns.FindIndex(item =>
+                !string.IsNullOrWhiteSpace(appointment.ProfessionalId) &&
+                item.Id.Equals(appointment.ProfessionalId, StringComparison.OrdinalIgnoreCase));
+
+            if (column < 0 && string.IsNullOrWhiteSpace(appointment.ProfessionalId))
+            {
+                column = columns.FindIndex(item => item.Id == unassignedId);
+            }
+
+            if (column < 0)
+            {
+                column = 0;
+            }
+
+            if (cells.TryGetValue((row, column), out var stack))
+            {
+                stack.Children.Add(CreateHomeScheduleAppointmentCard(appointment));
+            }
+        }
+    }
+
+    private List<HomeScheduleColumn> BuildHomeScheduleColumns(IReadOnlyList<Appointment> appointments, string unassignedId)
+    {
+        const int maxColumns = 3;
+        var columns = new List<HomeScheduleColumn>();
+        var appointmentProfessionalIds = appointments
+            .Select(item => item.ProfessionalId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(maxColumns)
+            .ToList();
+
+        foreach (var professionalId in appointmentProfessionalIds)
+        {
+            var professional = _data.Professionals.FirstOrDefault(item => item.Id.Equals(professionalId, StringComparison.OrdinalIgnoreCase));
+            if (professional is not null)
+            {
+                columns.Add(new HomeScheduleColumn(professional.Id, professional.Name, professional.SegmentLine, InitialsFor(professional.Name)));
+                continue;
+            }
+
+            var appointment = appointments.First(item => item.ProfessionalId.Equals(professionalId, StringComparison.OrdinalIgnoreCase));
+            var name = string.IsNullOrWhiteSpace(appointment.ProfessionalName) ? "Profissional" : appointment.ProfessionalName;
+            columns.Add(new HomeScheduleColumn(professionalId, name, appointment.Segment, InitialsFor(name)));
+        }
+
+        if (appointments.Any(item => string.IsNullOrWhiteSpace(item.ProfessionalId)) && columns.Count < maxColumns)
+        {
+            columns.Add(new HomeScheduleColumn(unassignedId, "Sem profissional", "Agenda livre", "--"));
+        }
+
+        if (columns.Count == 0)
+        {
+            columns.AddRange(_data.Professionals
+                .Where(item => item.IsActive)
+                .OrderBy(item => item.Name)
+                .Take(2)
+                .Select(item => new HomeScheduleColumn(item.Id, item.Name, item.SegmentLine, InitialsFor(item.Name))));
+        }
+
+        if (columns.Count == 0)
+        {
+            columns.Add(new HomeScheduleColumn(unassignedId, "Agenda livre", "Horários disponíveis", "--"));
+        }
+
+        return columns;
+    }
+
+    private void AddHomeScheduleCorner(Grid board)
+    {
+        var corner = new Border
+        {
+            Background = Solid("#FAFCFF"),
+            BorderBrush = Solid("#E4ECF8"),
+            BorderThickness = new Thickness(0, 0, 1, 1),
+            Child = new TextBlock
+            {
+                Text = "Horário",
+                Foreground = InkBrush,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+        Grid.SetRow(corner, 0);
+        Grid.SetColumn(corner, 0);
+        board.Children.Add(corner);
+    }
+
+    private void AddHomeScheduleHeaders(Grid board, IReadOnlyList<HomeScheduleColumn> columns)
+    {
+        for (var index = 0; index < columns.Count; index++)
+        {
+            var column = columns[index];
+            var header = new Border
+            {
+                Background = Solid("#FAFCFF"),
+                BorderBrush = Solid("#E4ECF8"),
+                BorderThickness = new Thickness(0, 0, 1, 1),
+                Padding = new Thickness(10, 6, 10, 6),
+                Child = CreateHomeScheduleHeaderContent(column)
+            };
+
+            Grid.SetRow(header, 0);
+            Grid.SetColumn(header, index + 1);
+            board.Children.Add(header);
+        }
+    }
+
+    private Grid CreateHomeScheduleHeaderContent(HomeScheduleColumn column)
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        grid.Children.Add(new Border
+        {
+            Width = 28,
+            Height = 28,
+            CornerRadius = new CornerRadius(14),
+            Background = AccentSoftBrush,
+            Child = new TextBlock
+            {
+                Text = column.Initials,
+                Foreground = AccentBrush,
+                FontSize = 10,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+
+        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        info.Children.Add(new TextBlock
+        {
+            Text = column.Name,
+            Foreground = InkBrush,
+            FontSize = 12.5,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        info.Children.Add(new TextBlock
+        {
+            Text = column.Detail,
+            Foreground = MutedBrush,
+            FontSize = 10,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 1, 0, 0)
+        });
+        Grid.SetColumn(info, 1);
+        grid.Children.Add(info);
+
+        return grid;
+    }
+
+    private Dictionary<(int Row, int Column), StackPanel> AddHomeScheduleCells(
+        Grid board,
+        IReadOnlyList<HomeScheduleColumn> columns,
+        int startHour,
+        int slotCount)
+    {
+        var cells = new Dictionary<(int Row, int Column), StackPanel>();
+        for (var row = 0; row < slotCount; row++)
+        {
+            var hour = startHour + row;
+            var timeCell = new Border
+            {
+                Background = Solid("#FBFCFE"),
+                BorderBrush = Solid("#E7EDF6"),
+                BorderThickness = new Thickness(0, 0, 1, 1),
+                Child = new TextBlock
+                {
+                    Text = $"{hour:00}:00",
+                    Foreground = MutedBrush,
+                    FontSize = 12,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            };
+            Grid.SetRow(timeCell, row + 1);
+            Grid.SetColumn(timeCell, 0);
+            board.Children.Add(timeCell);
+
+            for (var column = 0; column < columns.Count; column++)
+            {
+                var stack = new StackPanel
+                {
+                    Margin = new Thickness(5, 4, 5, 2),
+                    VerticalAlignment = VerticalAlignment.Top
+                };
+                var cell = new Border
+                {
+                    Background = Solid("#FFFFFF"),
+                    BorderBrush = Solid("#E7EDF6"),
+                    BorderThickness = new Thickness(0, 0, 1, 1),
+                    Child = stack
+                };
+                Grid.SetRow(cell, row + 1);
+                Grid.SetColumn(cell, column + 1);
+                board.Children.Add(cell);
+                cells[(row, column)] = stack;
+            }
+        }
+
+        return cells;
+    }
+
+    private Border CreateHomeScheduleAppointmentCard(Appointment appointment)
+    {
+        var accent = ScheduleAccentFor(appointment.Status);
+        var card = new Border
+        {
+            Background = ScheduleCardBackground(appointment.Status),
+            BorderBrush = Solid("#FFFFFF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(8, 5, 8, 5),
+            Margin = new Thickness(0, 0, 0, 4),
+            MinHeight = 38,
+            Cursor = Cursors.Hand,
+            Tag = appointment,
+            ToolTip = $"{appointment.Start:HH:mm}-{appointment.End:HH:mm} | {appointment.CustomerName} | {appointment.ServiceName}"
+        };
+        card.PreviewMouseLeftButtonDown += ScheduleAppointment_MouseLeftButtonDown;
+
+        var layout = new Grid();
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4) });
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        layout.Children.Add(new Border
+        {
+            Background = accent,
+            CornerRadius = new CornerRadius(6),
+            Margin = new Thickness(-8, -5, 7, -5)
+        });
+
+        var text = new StackPanel();
+        Grid.SetColumn(text, 1);
+        text.Children.Add(new TextBlock
+        {
+            Text = $"{appointment.Start:HH:mm}  {appointment.ServiceName}",
+            Foreground = InkBrush,
+            FontSize = 11.5,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        text.Children.Add(new TextBlock
+        {
+            Text = $"{appointment.CustomerName} | {ScheduleStatusLabel(appointment.Status)}",
+            Foreground = MutedBrush,
+            FontSize = 10.2,
+            FontWeight = FontWeights.SemiBold,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 1, 0, 0)
+        });
+        layout.Children.Add(text);
+        card.Child = layout;
+        return card;
     }
 
     private void RefreshHomeFinance(DateTime today, decimal forecast, decimal realizedToday)
@@ -1243,6 +1883,7 @@ public partial class MainWindow : Window
         _homeFinanceBars.Add(new HomeFinanceBarRow("Faturamento do dia", realizedToday.ToString("C0", Brazil), Percent(realizedToday, max)));
         _homeFinanceBars.Add(new HomeFinanceBarRow("Faturamento da semana", realizedWeek.ToString("C0", Brazil), Percent(realizedWeek, max)));
         _homeFinanceBars.Add(new HomeFinanceBarRow("Faturamento do mês", realizedMonth.ToString("C0", Brazil), Percent(realizedMonth, max)));
+        HomeCashProgress.Value = Percent(realizedToday, Math.Max(1m, forecast));
     }
 
     private void RefreshHomeGoals(decimal realizedToday)
@@ -1281,7 +1922,7 @@ public partial class MainWindow : Window
             "Pagamentos pendentes",
             $"{paymentPending} atendimento(s) com valor ainda não finalizado.",
             PackIconKind.CashClock,
-            Solid("#1D4ED8"),
+            Solid("#0049A8"),
             Solid("#EFF6FF"),
             Solid("#BFDBFE")));
         _homeAlerts.Add(new HomeAlertRow(
@@ -1331,17 +1972,32 @@ public partial class MainWindow : Window
             var detail = lastAppointment is null
                 ? $"Último atendimento: {customer.LastSeenAt:dd/MM}"
                 : $"{lastAppointment.Start:dd/MM} | {lastAppointment.ServiceName}";
-            _homeRecentCustomers.Add(new HomeCustomerSummaryRow(customer.Name, detail));
+            _homeRecentCustomers.Add(new HomeCustomerSummaryRow(customer.Name, detail, InitialsFor(customer.Name)));
         }
 
-        if (_homeRecentCustomers.Count == 0)
+    }
+
+    private static string PercentText(int value, int total) =>
+        $"{Math.Round(value * 100d / Math.Max(1, total)):0}%";
+
+    private static string InitialsFor(string name)
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 0)
         {
-            _homeRecentCustomers.Add(new HomeCustomerSummaryRow("Nenhum cliente recente", "Os próximos atendimentos aparecerão aqui."));
+            return "--";
         }
+
+        var first = parts[0][0].ToString().ToUpper(Brazil);
+        var second = parts.Length > 1 ? parts[^1][0].ToString().ToUpper(Brazil) : "";
+        return first + second;
     }
 
     private void RefreshEstablishmentPage()
     {
+        CloseCustomerInfoPopup();
+        CloseProfessionalInfoPopup();
+        CloseServiceInfoPopup();
         EstablishmentBusinessText.Text = BusinessDisplayName();
 
         var now = DateTime.Now;
@@ -1351,22 +2007,37 @@ public partial class MainWindow : Window
             .Where(item => item.SoldAt >= monthStart && item.SoldAt < nextMonth)
             .ToList();
         var productRevenueThisMonth = productSalesThisMonth.Sum(item => item.Total);
-        var productsInStock = _data.Products.Sum(item => Math.Max(0, item.StockQuantity));
+        var appointmentsThisMonth = _data.Appointments
+            .Where(item => item.Start >= monthStart && item.Start < nextMonth && item.Status != AppointmentStatus.Blocked)
+            .ToList();
+        var appointmentRevenueThisMonth = appointmentsThisMonth
+            .Where(item => item.Status == AppointmentStatus.Done)
+            .Sum(item => item.Price);
+        var manualRevenueThisMonth = _data.ManualPayments
+            .Where(item => item.PaidAt >= monthStart && item.PaidAt < nextMonth)
+            .Sum(item => item.Value);
+        var totalRevenueThisMonth = appointmentRevenueThisMonth + productRevenueThisMonth + manualRevenueThisMonth;
+        var averageRevenue = appointmentsThisMonth.Count == 0
+            ? 0
+            : totalRevenueThisMonth / Math.Max(1, appointmentsThisMonth.Count);
 
         _establishmentMetrics.Clear();
-        _establishmentMetrics.Add(new EstablishmentMetricRow("Clientes", _data.Customers.Count.ToString(Brazil), "cadastros ativos", AccentSoftBrush));
-        _establishmentMetrics.Add(new EstablishmentMetricRow("Profissionais", _data.Professionals.Count.ToString(Brazil), "equipe cadastrada", BlueSoftBrush));
-        _establishmentMetrics.Add(new EstablishmentMetricRow("Serviços", _data.Services.Count.ToString(Brazil), "itens no catálogo", GraySoftBrush));
-        _establishmentMetrics.Add(new EstablishmentMetricRow("Produtos", _data.Products.Count.ToString(Brazil), $"{productsInStock} em estoque", AccentSoftBrush));
-        _establishmentMetrics.Add(new EstablishmentMetricRow("Vendas do mês", productSalesThisMonth.Count.ToString(Brazil), "produtos vendidos", WarmSoftBrush));
-        _establishmentMetrics.Add(new EstablishmentMetricRow("Receita produtos", productRevenueThisMonth.ToString("C0", Brazil), "faturamento no mês", BlueSoftBrush));
+        _establishmentMetrics.Add(new EstablishmentMetricRow("Clientes", _data.Customers.Count.ToString(Brazil), "cadastrados", AccentSoftBrush, PackIconKind.AccountGroup, AccentBrush));
+        _establishmentMetrics.Add(new EstablishmentMetricRow("Profissionais", _data.Professionals.Count(item => item.IsActive).ToString(Brazil), "ativos", Solid("#F3E8FF"), PackIconKind.AccountOutline, Solid("#7C3AED")));
+        _establishmentMetrics.Add(new EstablishmentMetricRow("Serviços", _data.Services.Count(item => item.IsActive).ToString(Brazil), "no catálogo", Solid("#ECFDF5"), PackIconKind.ClipboardText, Solid("#10B981")));
+        _establishmentMetrics.Add(new EstablishmentMetricRow("Receita do mês", totalRevenueThisMonth.ToString("C0", Brazil), "faturamento", WarmSoftBrush, PackIconKind.WalletOutline, Solid("#F97316")));
 
         _establishmentSections.Clear();
-        _establishmentSections.Add(new EstablishmentSectionRow("Clientes", $"{_data.Customers.Count} cadastrado(s)", "Acesse a base completa de clientes e acompanhe o último atendimento.", "Gerenciar", PackIconKind.AccountGroup, AccentBrush, AccentSoftBrush));
-        _establishmentSections.Add(new EstablishmentSectionRow("Profissionais", $"{_data.Professionals.Count} cadastrado(s)", "Controle equipe, funções e vínculo com os segmentos do negócio.", "Gerenciar", PackIconKind.AccountTie, AccentBrush, AccentSoftBrush));
-        _establishmentSections.Add(new EstablishmentSectionRow("Serviços", $"{_data.Services.Count} cadastrado(s)", "Organize serviços, duração, preço e recurso padrão.", "Gerenciar", PackIconKind.ClipboardText, AccentBrush, AccentSoftBrush));
-        _establishmentSections.Add(new EstablishmentSectionRow("Produtos", $"{_data.Products.Count} cadastrado(s)", "Cadastre itens de estoque para venda no balcão.", "Gerenciar", PackIconKind.PackageVariant, AccentBrush, AccentSoftBrush));
-        _establishmentSections.Add(new EstablishmentSectionRow("Venda de produtos", $"{productSalesThisMonth.Count} no mês", "Acompanhe vendas, quantidade e receita de produtos.", "Registrar", PackIconKind.Cart, AccentBrush, AccentSoftBrush));
+        _establishmentSections.Add(new EstablishmentSectionRow("Clientes", $"{_data.Customers.Count} cadastrado(s)", "Acesse cadastros e histórico de clientes.", "Gerenciar", PackIconKind.AccountGroup, AccentBrush, AccentSoftBrush));
+        _establishmentSections.Add(new EstablishmentSectionRow("Profissionais", $"{_data.Professionals.Count(item => item.IsActive)} ativo(s)", "Gerencie sua equipe de profissionais.", "Gerenciar", PackIconKind.AccountOutline, Solid("#7C3AED"), Solid("#F3E8FF")));
+        _establishmentSections.Add(new EstablishmentSectionRow("Serviços", $"{_data.Services.Count(item => item.IsActive)} no catálogo", "Cadastre e organize seus serviços.", "Gerenciar", PackIconKind.ClipboardText, Solid("#10B981"), Solid("#ECFDF5")));
+
+        EstablishmentMonthAppointmentsText.Text = appointmentsThisMonth.Count.ToString(Brazil);
+        EstablishmentAverageRevenueText.Text = averageRevenue.ToString("C", Brazil);
+        EstablishmentMonthlyRevenueText.Text = totalRevenueThisMonth.ToString("C0", Brazil);
+        EstablishmentClientsTotalText.Text = $"+{_data.Customers.Count.ToString(Brazil)} clientes no total";
+        EstablishmentProfessionalsTotalText.Text = $"{_data.Professionals.Count.ToString(Brazil)} profissionais no total";
+        EstablishmentServicesTotalText.Text = $"{_data.Services.Count.ToString(Brazil)} serviços no catálogo";
 
         RefreshEstablishmentClients();
         RefreshEstablishmentProfessionals();
@@ -1378,35 +2049,442 @@ public partial class MainWindow : Window
     private void RefreshEstablishmentClients()
     {
         _establishmentClients.Clear();
-        foreach (var customer in _data.Customers.OrderBy(item => item.Name))
+        var hasCustomers = _data.Customers.Count > 0;
+        EstablishmentClientsItemsControl.Visibility = hasCustomers ? Visibility.Visible : Visibility.Collapsed;
+        EstablishmentClientsEmptyPanel.Visibility = hasCustomers ? Visibility.Collapsed : Visibility.Visible;
+        EstablishmentClientsTotalText.Visibility = hasCustomers ? Visibility.Visible : Visibility.Collapsed;
+
+        foreach (var customer in _data.Customers.OrderByDescending(item => item.LastSeenAt).ThenBy(item => item.Name).Take(4))
         {
-            var detailParts = new[] { customer.Phone, customer.Email, customer.Tags, customer.Profile, customer.Segment }
-                .Where(part => !string.IsNullOrWhiteSpace(part));
+            var phoneLine = string.IsNullOrWhiteSpace(customer.Phone)
+                ? "Sem telefone cadastrado"
+                : FormatPhone(customer.Phone);
+            var contextLine = string.Join(" | ", new[] { customer.Profile, customer.Tags, customer.Segment, customer.Email }
+                .Where(part => !string.IsNullOrWhiteSpace(part))
+                .Take(2));
+            var detail = string.Join(Environment.NewLine, new[] { phoneLine, contextLine }
+                .Where(part => !string.IsNullOrWhiteSpace(part)));
             _establishmentClients.Add(new EstablishmentListRow(
                 customer.Name,
-                string.Join(" | ", detailParts.DefaultIfEmpty("Sem detalhes cadastrados")),
-                customer.LastSeenAt == DateTime.MinValue ? "novo" : customer.LastSeenAt.ToString("dd/MM", Brazil),
-                AccentSoftBrush,
-                AccentBrush));
+                FirstFilled(detail, "Sem detalhes cadastrados"),
+                customer.AcceptsWhatsApp ? "Ativa" : "Inativa",
+                customer.AcceptsWhatsApp ? Solid("#DCFCE7") : GraySoftBrush,
+                customer.AcceptsWhatsApp ? Solid("#16A34A") : MutedBrush,
+                customer.Id));
         }
 
-        if (_establishmentClients.Count == 0)
+    }
+
+    private void EstablishmentClientsItemsControl_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        var row = FindDataContext<EstablishmentListRow>(e.OriginalSource as DependencyObject);
+        if (row is null || string.IsNullOrWhiteSpace(row.Id))
         {
-            _establishmentClients.Add(EmptyEstablishmentRow("Nenhum cliente cadastrado", "Os clientes criados nos agendamentos aparecerão aqui.", "0"));
+            return;
         }
+
+        var customer = _data.Customers.FirstOrDefault(item => item.Id.Equals(row.Id, StringComparison.OrdinalIgnoreCase));
+        if (customer is null)
+        {
+            ShowStatus("Cliente não encontrado.");
+            return;
+        }
+
+        ShowCustomerInfoPopup(customer);
+        e.Handled = true;
+    }
+
+    private void ShowCustomerInfoPopup(Customer customer)
+    {
+        CloseCustomerInfoPopup();
+        CloseProfessionalInfoPopup();
+        CloseServiceInfoPopup();
+
+        var popup = new Popup
+        {
+            Placement = PlacementMode.MousePoint,
+            HorizontalOffset = 12,
+            VerticalOffset = 10,
+            AllowsTransparency = true,
+            PopupAnimation = PopupAnimation.Fade,
+            StaysOpen = true
+        };
+
+        popup.Child = CreateCustomerInfoPopupContent(customer);
+        _customerInfoPopup = popup;
+        popup.Closed += (_, _) => DetachCustomerInfoOutsideClickHandler();
+        popup.IsOpen = true;
+        AttachCustomerInfoOutsideClickHandler();
+    }
+
+    private void AttachCustomerInfoOutsideClickHandler()
+    {
+        DetachCustomerInfoOutsideClickHandler();
+
+        _customerInfoOutsideClickHandler = (_, args) =>
+        {
+            if (_customerInfoPopup?.Child is DependencyObject popupChild &&
+                IsDescendantOf(args.OriginalSource as DependencyObject, popupChild))
+            {
+                return;
+            }
+
+            CloseCustomerInfoPopup();
+        };
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_customerInfoPopup?.IsOpen == true && _customerInfoOutsideClickHandler is not null)
+            {
+                PreviewMouseDown += _customerInfoOutsideClickHandler;
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    private void DetachCustomerInfoOutsideClickHandler()
+    {
+        if (_customerInfoOutsideClickHandler is null)
+        {
+            return;
+        }
+
+        PreviewMouseDown -= _customerInfoOutsideClickHandler;
+        _customerInfoOutsideClickHandler = null;
+    }
+
+    private void CloseCustomerInfoPopup()
+    {
+        DetachCustomerInfoOutsideClickHandler();
+
+        if (_customerInfoPopup is null)
+        {
+            return;
+        }
+
+        var popup = _customerInfoPopup;
+        _customerInfoPopup = null;
+        popup.IsOpen = false;
+    }
+
+    private Border CreateCustomerInfoPopupContent(Customer customer)
+    {
+        var card = new Border
+        {
+            Width = 334,
+            Background = Brushes.White,
+            BorderBrush = Solid("#DDE7F4"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(14),
+            Effect = new DropShadowEffect
+            {
+                Color = Color.FromRgb(15, 23, 42),
+                BlurRadius = 22,
+                ShadowDepth = 5,
+                Opacity = 0.16
+            }
+        };
+
+        var body = new StackPanel();
+        var header = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        header.Children.Add(new Border
+        {
+            Width = 36,
+            Height = 36,
+            Background = customer.AcceptsWhatsApp ? Solid("#DCFCE7") : GraySoftBrush,
+            CornerRadius = new CornerRadius(12),
+            Margin = new Thickness(0, 0, 10, 0),
+            Child = new TextBlock
+            {
+                Text = InitialsFor(customer.Name),
+                Foreground = customer.AcceptsWhatsApp ? Solid("#16A34A") : MutedBrush,
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+
+        var titleStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = FirstFilled(customer.Name, "Cliente"),
+            Foreground = InkBrush,
+            FontSize = 16,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = customer.AcceptsWhatsApp ? "WhatsApp ativo" : "WhatsApp inativo",
+            Foreground = MutedBrush,
+            FontSize = 11.5,
+            Margin = new Thickness(0, 2, 0, 0)
+        });
+        Grid.SetColumn(titleStack, 1);
+        header.Children.Add(titleStack);
+
+        var closeButton = IconOnlyButton(PackIconKind.Close, 28);
+        closeButton.Click += (_, _) => CloseCustomerInfoPopup();
+        Grid.SetColumn(closeButton, 2);
+        header.Children.Add(closeButton);
+        body.Children.Add(header);
+
+        body.Children.Add(CreateAppointmentInfoRow(PackIconKind.AccountOutline, "Telefone", FirstFilled(FormatPhone(customer.Phone), "Sem telefone cadastrado")));
+        body.Children.Add(CreateAppointmentInfoRow(PackIconKind.ClipboardText, "E-mail", FirstFilled(customer.Email, "Sem e-mail cadastrado")));
+        body.Children.Add(CreateAppointmentInfoRow(PackIconKind.StorefrontOutline, "Segmento", FirstFilled(customer.Segment, _data.Settings.BusinessSegment, "Sem segmento")));
+        body.Children.Add(CreateAppointmentInfoRow(PackIconKind.AccountClock, "Perfil", FirstFilled(customer.Profile, customer.Tags, "Sem perfil ou tags")));
+
+        if (!string.IsNullOrWhiteSpace(customer.Document))
+        {
+            body.Children.Add(CreateAppointmentInfoRow(PackIconKind.ClipboardText, "Documento", customer.Document));
+        }
+
+        if (!string.IsNullOrWhiteSpace(customer.Notes))
+        {
+            body.Children.Add(CreateAppointmentInfoRow(PackIconKind.Pencil, "Observações", customer.Notes));
+        }
+
+        var appointments = _data.Appointments
+            .Where(item => CustomerMatches(item, customer))
+            .OrderByDescending(item => item.Start)
+            .Take(3)
+            .ToList();
+
+        body.Children.Add(new Border
+        {
+            Height = 1,
+            Background = LineBrush,
+            Margin = new Thickness(0, 4, 0, 10)
+        });
+
+        body.Children.Add(new TextBlock
+        {
+            Text = "Histórico recente",
+            Foreground = InkBrush,
+            FontSize = 12.5,
+            FontWeight = FontWeights.Bold,
+            Margin = new Thickness(0, 0, 0, 6)
+        });
+
+        if (appointments.Count == 0)
+        {
+            body.Children.Add(new TextBlock
+            {
+                Text = "Nenhum atendimento registrado ainda.",
+                Foreground = MutedBrush,
+                FontSize = 11.5,
+                TextWrapping = TextWrapping.Wrap
+            });
+        }
+        else
+        {
+            foreach (var appointment in appointments)
+            {
+                body.Children.Add(CreateCustomerHistoryRow(appointment));
+            }
+        }
+
+        body.Children.Add(CreateCustomerPopupActions(customer));
+
+        card.Child = body;
+        return card;
+    }
+
+    private Grid CreateCustomerPopupActions(Customer customer)
+    {
+        var actions = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var editIcon = new PackIcon
+        {
+            Kind = PackIconKind.Pencil,
+            Width = 15,
+            Height = 15,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 6, 0)
+        };
+        BindForegroundToButton(editIcon);
+
+        var editText = new TextBlock
+        {
+            Text = "Editar cliente",
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        BindForegroundToButton(editText);
+
+        var editButton = new Button
+        {
+            Style = (Style)FindResource("GhostButton"),
+            Height = 34,
+            Padding = new Thickness(10, 0, 10, 0),
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Children =
+                {
+                    editIcon,
+                    editText
+                }
+            }
+        };
+        editButton.Click += (_, _) =>
+        {
+            CloseCustomerInfoPopup();
+            EditCustomer(customer.Id);
+        };
+        actions.Children.Add(editButton);
+
+        var whatsAppButton = new Button
+        {
+            Style = (Style)FindResource("CommandButton"),
+            Height = 34,
+            Padding = new Thickness(10, 0, 10, 0),
+            Background = Solid("#16A34A"),
+            BorderBrush = Solid("#16A34A"),
+            Foreground = Brushes.White,
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Children =
+                {
+                    new PackIcon
+                    {
+                        Kind = PackIconKind.Whatsapp,
+                        Width = 15,
+                        Height = 15,
+                        Foreground = Brushes.White,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 6, 0)
+                    },
+                    new TextBlock
+                    {
+                        Text = "WhatsApp",
+                        Foreground = Brushes.White,
+                        FontSize = 12,
+                        FontWeight = FontWeights.SemiBold,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
+                }
+            }
+        };
+        whatsAppButton.Click += async (_, _) => await SendCustomerWhatsAppAsync(customer);
+        Grid.SetColumn(whatsAppButton, 2);
+        actions.Children.Add(whatsAppButton);
+
+        return actions;
+    }
+
+    private async Task SendCustomerWhatsAppAsync(Customer customer)
+    {
+        if (string.IsNullOrWhiteSpace(customer.Phone))
+        {
+            ShowStatus($"Telefone não cadastrado para {customer.Name}.");
+            return;
+        }
+
+        var phone = NormalizeBrazilPhone(customer.Phone);
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            ShowStatus($"Telefone inválido para {customer.Name}.");
+            return;
+        }
+
+        CloseCustomerInfoPopup();
+        var sent = await SendOrOpenWhatsAppAsync(customer.Name, phone, BuildCustomerWhatsAppMessage(customer), "Cliente");
+        ShowStatus(sent
+            ? $"WhatsApp enviado para {customer.Name}."
+            : $"WhatsApp aberto para {customer.Name}.");
+    }
+
+    private string BuildCustomerWhatsAppMessage(Customer customer)
+    {
+        var firstName = FirstName(customer.Name);
+        return $"Oi {firstName}, aqui é da {BusinessDisplayName()}. Tudo bem? Posso te ajudar com um horário ou alguma informação?";
+    }
+
+    private Border CreateCustomerHistoryRow(Appointment appointment)
+    {
+        var row = new Border
+        {
+            Background = Solid("#F8FAFC"),
+            BorderBrush = LineBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var textStack = new StackPanel();
+        textStack.Children.Add(new TextBlock
+        {
+            Text = $"{appointment.Start:dd/MM HH:mm} - {appointment.ServiceName}",
+            Foreground = InkBrush,
+            FontSize = 11.5,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        textStack.Children.Add(new TextBlock
+        {
+            Text = FirstFilled(appointment.ProfessionalName, appointment.ResourceName, "Sem profissional"),
+            Foreground = MutedBrush,
+            FontSize = 10.5,
+            Margin = new Thickness(0, 2, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        grid.Children.Add(textStack);
+
+        var status = new Border
+        {
+            Background = ScheduleCardBackground(appointment.Status),
+            BorderBrush = ScheduleAccentFor(appointment.Status),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(8, 3, 8, 3),
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = ScheduleStatusLabel(appointment.Status),
+                Foreground = ScheduleAccentFor(appointment.Status),
+                FontSize = 9.5,
+                FontWeight = FontWeights.Bold
+            }
+        };
+        Grid.SetColumn(status, 1);
+        grid.Children.Add(status);
+
+        row.Child = grid;
+        return row;
     }
 
     private void RefreshEstablishmentProfessionals()
     {
         _establishmentProfessionals.Clear();
-        foreach (var professional in _data.Professionals.OrderBy(item => item.Name))
+        foreach (var professional in _data.Professionals.Where(item => item.IsActive).OrderBy(item => item.Name).Take(4))
         {
             _establishmentProfessionals.Add(new EstablishmentListRow(
                 professional.Name,
                 professional.SegmentLine,
-                string.IsNullOrWhiteSpace(professional.Role) ? "equipe" : professional.Role,
-                AccentSoftBrush,
-                AccentBrush));
+                string.IsNullOrWhiteSpace(professional.Role) ? "Equipe" : professional.Role,
+                Solid("#FCE7F3"),
+                Solid("#DB2777"),
+                professional.Id,
+                PackIconKind.AccountTie));
         }
 
         if (_establishmentProfessionals.Count == 0)
@@ -1415,26 +2493,505 @@ public partial class MainWindow : Window
         }
     }
 
+    private void EstablishmentProfessionalsItemsControl_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        var row = FindDataContext<EstablishmentListRow>(e.OriginalSource as DependencyObject);
+        if (row is null || string.IsNullOrWhiteSpace(row.Id))
+        {
+            return;
+        }
+
+        var professional = _data.Professionals.FirstOrDefault(item => item.Id.Equals(row.Id, StringComparison.OrdinalIgnoreCase));
+        if (professional is null)
+        {
+            ShowStatus("Profissional não encontrado.");
+            return;
+        }
+
+        ShowProfessionalInfoPopup(professional);
+        e.Handled = true;
+    }
+
+    private void ShowProfessionalInfoPopup(Professional professional)
+    {
+        CloseProfessionalInfoPopup();
+        CloseCustomerInfoPopup();
+        CloseServiceInfoPopup();
+
+        var popup = new Popup
+        {
+            Placement = PlacementMode.MousePoint,
+            HorizontalOffset = 12,
+            VerticalOffset = 10,
+            AllowsTransparency = true,
+            PopupAnimation = PopupAnimation.Fade,
+            StaysOpen = true
+        };
+
+        popup.Child = CreateProfessionalInfoPopupContent(professional);
+        _professionalInfoPopup = popup;
+        popup.Closed += (_, _) => DetachProfessionalInfoOutsideClickHandler();
+        popup.IsOpen = true;
+        AttachProfessionalInfoOutsideClickHandler();
+    }
+
+    private void AttachProfessionalInfoOutsideClickHandler()
+    {
+        DetachProfessionalInfoOutsideClickHandler();
+
+        _professionalInfoOutsideClickHandler = (_, args) =>
+        {
+            if (_professionalInfoPopup?.Child is DependencyObject popupChild &&
+                IsDescendantOf(args.OriginalSource as DependencyObject, popupChild))
+            {
+                return;
+            }
+
+            CloseProfessionalInfoPopup();
+        };
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_professionalInfoPopup?.IsOpen == true && _professionalInfoOutsideClickHandler is not null)
+            {
+                PreviewMouseDown += _professionalInfoOutsideClickHandler;
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    private void DetachProfessionalInfoOutsideClickHandler()
+    {
+        if (_professionalInfoOutsideClickHandler is null)
+        {
+            return;
+        }
+
+        PreviewMouseDown -= _professionalInfoOutsideClickHandler;
+        _professionalInfoOutsideClickHandler = null;
+    }
+
+    private void CloseProfessionalInfoPopup()
+    {
+        DetachProfessionalInfoOutsideClickHandler();
+
+        if (_professionalInfoPopup is null)
+        {
+            return;
+        }
+
+        var popup = _professionalInfoPopup;
+        _professionalInfoPopup = null;
+        popup.IsOpen = false;
+    }
+
+    private Border CreateProfessionalInfoPopupContent(Professional professional)
+    {
+        var today = DateTime.Today;
+        var tomorrow = today.AddDays(1);
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        var nextMonth = monthStart.AddMonths(1);
+        var appointments = _data.Appointments.Where(item => ProfessionalMatches(item, professional)).ToList();
+        var todayAppointments = appointments.Count(item => item.Start >= today && item.Start < tomorrow && item.Status != AppointmentStatus.Blocked);
+        var monthAppointments = appointments.Count(item => item.Start >= monthStart && item.Start < nextMonth && item.Status != AppointmentStatus.Blocked);
+        var monthRevenue = appointments
+            .Where(item => item.Start >= monthStart && item.Start < nextMonth && item.Status == AppointmentStatus.Done)
+            .Sum(item => item.Price);
+
+        var card = new Border
+        {
+            Width = 352,
+            Background = Brushes.White,
+            BorderBrush = Solid("#DDE7F4"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(14),
+            Effect = new DropShadowEffect
+            {
+                Color = Color.FromRgb(15, 23, 42),
+                BlurRadius = 22,
+                ShadowDepth = 5,
+                Opacity = 0.16
+            }
+        };
+
+        var body = new StackPanel();
+        var header = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        header.Children.Add(new Border
+        {
+            Width = 40,
+            Height = 40,
+            Background = Solid("#FCE7F3"),
+            CornerRadius = new CornerRadius(13),
+            Margin = new Thickness(0, 0, 10, 0),
+            Child = new TextBlock
+            {
+                Text = InitialsFor(professional.Name),
+                Foreground = Solid("#DB2777"),
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+
+        var titleStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = FirstFilled(professional.Name, "Profissional"),
+            Foreground = InkBrush,
+            FontSize = 16,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = $"{FirstFilled(professional.Role, "Equipe")} | {FirstFilled(string.Join(", ", professional.Segments), _data.Settings.BusinessSegment, "Sem segmento")}",
+            Foreground = MutedBrush,
+            FontSize = 11.5,
+            Margin = new Thickness(0, 2, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        Grid.SetColumn(titleStack, 1);
+        header.Children.Add(titleStack);
+
+        var closeButton = IconOnlyButton(PackIconKind.Close, 28);
+        closeButton.Click += (_, _) => CloseProfessionalInfoPopup();
+        Grid.SetColumn(closeButton, 2);
+        header.Children.Add(closeButton);
+        body.Children.Add(header);
+
+        var stats = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        stats.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        stats.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        stats.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        stats.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        stats.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        stats.Children.Add(CreateProfessionalStatCard("Hoje", todayAppointments.ToString(Brazil), PackIconKind.CalendarClock));
+        var monthCard = CreateProfessionalStatCard("Mês", monthAppointments.ToString(Brazil), PackIconKind.AccountClock);
+        Grid.SetColumn(monthCard, 2);
+        stats.Children.Add(monthCard);
+        var revenueCard = CreateProfessionalStatCard("Receita", monthRevenue.ToString("C0", Brazil), PackIconKind.Cash);
+        Grid.SetColumn(revenueCard, 4);
+        stats.Children.Add(revenueCard);
+        body.Children.Add(stats);
+
+        body.Children.Add(CreateAppointmentInfoRow(PackIconKind.AccountOutline, "Telefone", FirstFilled(FormatPhone(professional.Phone), "Sem telefone cadastrado")));
+        body.Children.Add(CreateAppointmentInfoRow(PackIconKind.ClipboardText, "E-mail", FirstFilled(professional.Email, "Sem e-mail cadastrado")));
+        body.Children.Add(CreateAppointmentInfoRow(PackIconKind.CashMultiple, "Comissão", $"{professional.CommissionPercent:N2}%"));
+
+        if (!string.IsNullOrWhiteSpace(professional.Document))
+        {
+            body.Children.Add(CreateAppointmentInfoRow(PackIconKind.ClipboardText, "Documento", professional.Document));
+        }
+
+        if (!string.IsNullOrWhiteSpace(professional.Notes))
+        {
+            body.Children.Add(CreateAppointmentInfoRow(PackIconKind.Pencil, "Observações", professional.Notes));
+        }
+
+        body.Children.Add(new Border
+        {
+            Height = 1,
+            Background = LineBrush,
+            Margin = new Thickness(0, 4, 0, 10)
+        });
+
+        body.Children.Add(new TextBlock
+        {
+            Text = "Próximos horários",
+            Foreground = InkBrush,
+            FontSize = 12.5,
+            FontWeight = FontWeights.Bold,
+            Margin = new Thickness(0, 0, 0, 6)
+        });
+
+        var upcoming = appointments
+            .Where(item => item.Start >= DateTime.Now && item.Status != AppointmentStatus.Blocked)
+            .OrderBy(item => item.Start)
+            .Take(3)
+            .ToList();
+
+        if (upcoming.Count == 0)
+        {
+            body.Children.Add(new TextBlock
+            {
+                Text = "Nenhum horário futuro para este profissional.",
+                Foreground = MutedBrush,
+                FontSize = 11.5,
+                TextWrapping = TextWrapping.Wrap
+            });
+        }
+        else
+        {
+            foreach (var appointment in upcoming)
+            {
+                body.Children.Add(CreateProfessionalAppointmentRow(appointment));
+            }
+        }
+
+        body.Children.Add(CreateProfessionalPopupActions(professional));
+        card.Child = body;
+        return card;
+    }
+
+    private Border CreateProfessionalStatCard(string label, string value, PackIconKind icon)
+    {
+        var card = new Border
+        {
+            Background = Solid("#F8FAFC"),
+            BorderBrush = LineBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(9, 8, 9, 8)
+        };
+
+        var stack = new StackPanel();
+        stack.Children.Add(new PackIcon
+        {
+            Kind = icon,
+            Width = 15,
+            Height = 15,
+            Foreground = AccentBrush,
+            Margin = new Thickness(0, 0, 0, 5)
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = value,
+            Foreground = InkBrush,
+            FontSize = 13,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = label,
+            Foreground = MutedBrush,
+            FontSize = 10,
+            Margin = new Thickness(0, 1, 0, 0)
+        });
+        card.Child = stack;
+        return card;
+    }
+
+    private Border CreateProfessionalAppointmentRow(Appointment appointment)
+    {
+        var row = new Border
+        {
+            Background = Solid("#F8FAFC"),
+            BorderBrush = LineBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var textStack = new StackPanel();
+        textStack.Children.Add(new TextBlock
+        {
+            Text = $"{appointment.Start:dd/MM HH:mm} - {appointment.CustomerName}",
+            Foreground = InkBrush,
+            FontSize = 11.5,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        textStack.Children.Add(new TextBlock
+        {
+            Text = FirstFilled(appointment.ServiceName, appointment.ResourceName, "Atendimento"),
+            Foreground = MutedBrush,
+            FontSize = 10.5,
+            Margin = new Thickness(0, 2, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        grid.Children.Add(textStack);
+
+        var status = new Border
+        {
+            Background = ScheduleCardBackground(appointment.Status),
+            BorderBrush = ScheduleAccentFor(appointment.Status),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(8, 3, 8, 3),
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = ScheduleStatusLabel(appointment.Status),
+                Foreground = ScheduleAccentFor(appointment.Status),
+                FontSize = 9.5,
+                FontWeight = FontWeights.Bold
+            }
+        };
+        Grid.SetColumn(status, 1);
+        grid.Children.Add(status);
+
+        row.Child = grid;
+        return row;
+    }
+
+    private Grid CreateProfessionalPopupActions(Professional professional)
+    {
+        var actions = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var editIcon = new PackIcon
+        {
+            Kind = PackIconKind.Pencil,
+            Width = 15,
+            Height = 15,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 6, 0)
+        };
+        BindForegroundToButton(editIcon);
+
+        var editText = new TextBlock
+        {
+            Text = "Editar",
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        BindForegroundToButton(editText);
+
+        var editButton = new Button
+        {
+            Style = (Style)FindResource("GhostButton"),
+            Height = 34,
+            Padding = new Thickness(10, 0, 10, 0),
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Children =
+                {
+                    editIcon,
+                    editText
+                }
+            }
+        };
+        editButton.Click += (_, _) =>
+        {
+            CloseProfessionalInfoPopup();
+            EditProfessional(professional.Id);
+        };
+        actions.Children.Add(editButton);
+
+        var whatsAppButton = new Button
+        {
+            Style = (Style)FindResource("CommandButton"),
+            Height = 34,
+            Padding = new Thickness(10, 0, 10, 0),
+            Background = Solid("#16A34A"),
+            BorderBrush = Solid("#16A34A"),
+            Foreground = Brushes.White,
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Children =
+                {
+                    new PackIcon
+                    {
+                        Kind = PackIconKind.Whatsapp,
+                        Width = 15,
+                        Height = 15,
+                        Foreground = Brushes.White,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 6, 0)
+                    },
+                    new TextBlock
+                    {
+                        Text = "WhatsApp",
+                        Foreground = Brushes.White,
+                        FontSize = 12,
+                        FontWeight = FontWeights.SemiBold,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
+                }
+            }
+        };
+        whatsAppButton.Click += async (_, _) => await SendProfessionalWhatsAppAsync(professional);
+        Grid.SetColumn(whatsAppButton, 2);
+        actions.Children.Add(whatsAppButton);
+
+        return actions;
+    }
+
+    private async Task SendProfessionalWhatsAppAsync(Professional professional)
+    {
+        if (string.IsNullOrWhiteSpace(professional.Phone))
+        {
+            ShowStatus($"Telefone não cadastrado para {professional.Name}.");
+            return;
+        }
+
+        var phone = NormalizeBrazilPhone(professional.Phone);
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            ShowStatus($"Telefone inválido para {professional.Name}.");
+            return;
+        }
+
+        CloseProfessionalInfoPopup();
+        var sent = await SendOrOpenWhatsAppAsync(professional.Name, phone, BuildProfessionalWhatsAppMessage(professional), "Equipe");
+        ShowStatus(sent
+            ? $"WhatsApp enviado para {professional.Name}."
+            : $"WhatsApp aberto para {professional.Name}.");
+    }
+
+    private string BuildProfessionalWhatsAppMessage(Professional professional)
+    {
+        var firstName = FirstName(professional.Name);
+        return $"Oi {firstName}, aqui é da {BusinessDisplayName()}. Tudo bem? Preciso falar com você sobre a agenda.";
+    }
+
+    private static bool ProfessionalMatches(Appointment appointment, Professional professional) =>
+        (!string.IsNullOrWhiteSpace(professional.Id) &&
+         !string.IsNullOrWhiteSpace(appointment.ProfessionalId) &&
+         appointment.ProfessionalId.Equals(professional.Id, StringComparison.OrdinalIgnoreCase)) ||
+        (!string.IsNullOrWhiteSpace(professional.Name) &&
+         appointment.ProfessionalName.Equals(professional.Name, StringComparison.OrdinalIgnoreCase));
+
+    private static void BindForegroundToButton(PackIcon icon) =>
+        icon.SetBinding(Control.ForegroundProperty, new Binding(nameof(Control.Foreground))
+        {
+            RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(Button), 1)
+        });
+
+    private static void BindForegroundToButton(TextBlock textBlock) =>
+        textBlock.SetBinding(TextBlock.ForegroundProperty, new Binding(nameof(Control.Foreground))
+        {
+            RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(Button), 1)
+        });
+
     private void RefreshEstablishmentServices()
     {
         _establishmentServices.Clear();
-        foreach (var service in _data.Services.OrderBy(item => item.Name))
+        foreach (var service in _data.Services
+            .Select((item, index) => new { item, index })
+            .Where(row => row.item.IsActive)
+            .OrderByDescending(row => row.index)
+            .Take(4)
+            .Select(row => row.item))
         {
-            var detailParts = new[]
-            {
-                service.Segment,
-                service.Category,
-                $"{service.DurationMinutes} min",
-                service.Price > 0 ? service.Price.ToString("C", Brazil) : "",
-                service.DefaultResource
-            }.Where(part => !string.IsNullOrWhiteSpace(part));
-
             _establishmentServices.Add(new EstablishmentListRow(
                 service.Name,
-                string.Join(" | ", detailParts),
-                service.Price.ToString("C0", Brazil),
+                $"{service.DurationMinutes} min",
+                service.Price.ToString("C", Brazil),
                 AccentSoftBrush,
-                AccentBrush));
+                AccentBrush,
+                service.Id,
+                Icon: PackIconKind.ClipboardText));
         }
 
         if (_establishmentServices.Count == 0)
@@ -1442,6 +2999,361 @@ public partial class MainWindow : Window
             _establishmentServices.Add(EmptyEstablishmentRow("Nenhum serviço cadastrado", "Crie serviços para montar os agendamentos.", "0"));
         }
     }
+
+    private void EstablishmentServicesItemsControl_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        var row = FindDataContext<EstablishmentListRow>(e.OriginalSource as DependencyObject);
+        if (row is null || string.IsNullOrWhiteSpace(row.Id))
+        {
+            return;
+        }
+
+        var service = _data.Services.FirstOrDefault(item => item.Id.Equals(row.Id, StringComparison.OrdinalIgnoreCase));
+        if (service is null)
+        {
+            ShowStatus("Serviço não encontrado.");
+            return;
+        }
+
+        ShowServiceInfoPopup(service);
+        e.Handled = true;
+    }
+
+    private void ShowServiceInfoPopup(ServiceItem service)
+    {
+        CloseServiceInfoPopup();
+        CloseCustomerInfoPopup();
+        CloseProfessionalInfoPopup();
+
+        var popup = new Popup
+        {
+            Placement = PlacementMode.MousePoint,
+            HorizontalOffset = 12,
+            VerticalOffset = 10,
+            AllowsTransparency = true,
+            PopupAnimation = PopupAnimation.Fade,
+            StaysOpen = true
+        };
+
+        popup.Child = CreateServiceInfoPopupContent(service);
+        _serviceInfoPopup = popup;
+        popup.Closed += (_, _) => DetachServiceInfoOutsideClickHandler();
+        popup.IsOpen = true;
+        AttachServiceInfoOutsideClickHandler();
+    }
+
+    private void AttachServiceInfoOutsideClickHandler()
+    {
+        DetachServiceInfoOutsideClickHandler();
+
+        _serviceInfoOutsideClickHandler = (_, args) =>
+        {
+            if (_serviceInfoPopup?.Child is DependencyObject popupChild &&
+                IsDescendantOf(args.OriginalSource as DependencyObject, popupChild))
+            {
+                return;
+            }
+
+            CloseServiceInfoPopup();
+        };
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_serviceInfoPopup?.IsOpen == true && _serviceInfoOutsideClickHandler is not null)
+            {
+                PreviewMouseDown += _serviceInfoOutsideClickHandler;
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    private void DetachServiceInfoOutsideClickHandler()
+    {
+        if (_serviceInfoOutsideClickHandler is null)
+        {
+            return;
+        }
+
+        PreviewMouseDown -= _serviceInfoOutsideClickHandler;
+        _serviceInfoOutsideClickHandler = null;
+    }
+
+    private void CloseServiceInfoPopup()
+    {
+        DetachServiceInfoOutsideClickHandler();
+
+        if (_serviceInfoPopup is null)
+        {
+            return;
+        }
+
+        var popup = _serviceInfoPopup;
+        _serviceInfoPopup = null;
+        popup.IsOpen = false;
+    }
+
+    private Border CreateServiceInfoPopupContent(ServiceItem service)
+    {
+        var today = DateTime.Today;
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        var nextMonth = monthStart.AddMonths(1);
+        var appointments = _data.Appointments.Where(item => ServiceMatches(item, service)).ToList();
+        var monthAppointments = appointments.Count(item => item.Start >= monthStart && item.Start < nextMonth && item.Status != AppointmentStatus.Blocked);
+        var doneRevenue = appointments
+            .Where(item => item.Start >= monthStart && item.Start < nextMonth && item.Status == AppointmentStatus.Done)
+            .Sum(item => item.Price);
+
+        var card = new Border
+        {
+            Width = 352,
+            Background = Brushes.White,
+            BorderBrush = Solid("#DDE7F4"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(14),
+            Effect = new DropShadowEffect
+            {
+                Color = Color.FromRgb(15, 23, 42),
+                BlurRadius = 22,
+                ShadowDepth = 5,
+                Opacity = 0.16
+            }
+        };
+
+        var body = new StackPanel();
+        var header = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        header.Children.Add(new Border
+        {
+            Width = 40,
+            Height = 40,
+            Background = AccentSoftBrush,
+            CornerRadius = new CornerRadius(13),
+            Margin = new Thickness(0, 0, 10, 0),
+            Child = new PackIcon
+            {
+                Kind = PackIconKind.ClipboardText,
+                Width = 20,
+                Height = 20,
+                Foreground = AccentBrush,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+
+        var titleStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = FirstFilled(service.Name, "Serviço"),
+            Foreground = InkBrush,
+            FontSize = 16,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = $"{FirstFilled(service.Category, "Atendimento")} | {FirstFilled(service.Segment, _data.Settings.BusinessSegment, "Sem segmento")}",
+            Foreground = MutedBrush,
+            FontSize = 11.5,
+            Margin = new Thickness(0, 2, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        Grid.SetColumn(titleStack, 1);
+        header.Children.Add(titleStack);
+
+        var closeButton = IconOnlyButton(PackIconKind.Close, 28);
+        closeButton.Click += (_, _) => CloseServiceInfoPopup();
+        Grid.SetColumn(closeButton, 2);
+        header.Children.Add(closeButton);
+        body.Children.Add(header);
+
+        var stats = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        stats.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        stats.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        stats.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        stats.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        stats.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        stats.Children.Add(CreateProfessionalStatCard("Duração", $"{service.DurationMinutes} min", PackIconKind.ClockOutline));
+        var priceCard = CreateProfessionalStatCard("Preço", service.Price.ToString("C0", Brazil), PackIconKind.Cash);
+        Grid.SetColumn(priceCard, 2);
+        stats.Children.Add(priceCard);
+        var monthCard = CreateProfessionalStatCard("Mês", monthAppointments.ToString(Brazil), PackIconKind.CalendarClock);
+        Grid.SetColumn(monthCard, 4);
+        stats.Children.Add(monthCard);
+        body.Children.Add(stats);
+
+        body.Children.Add(CreateAppointmentInfoRow(PackIconKind.CashMultiple, "Receita finalizada no mês", doneRevenue.ToString("C", Brazil)));
+        body.Children.Add(CreateAppointmentInfoRow(PackIconKind.Seat, "Local padrão", FirstFilled(service.DefaultResource, "Sem local padrão")));
+        body.Children.Add(CreateAppointmentInfoRow(PackIconKind.ClockOutline, "Preparação e intervalo", $"{service.PreparationMinutes} min antes | {service.BufferMinutes} min após"));
+        body.Children.Add(CreateAppointmentInfoRow(PackIconKind.CashCheck, "Comissão padrão", $"{service.CommissionPercent:N2}%"));
+
+        if (!string.IsNullOrWhiteSpace(service.Description))
+        {
+            body.Children.Add(CreateAppointmentInfoRow(PackIconKind.Pencil, "Descrição", service.Description));
+        }
+
+        body.Children.Add(new Border
+        {
+            Height = 1,
+            Background = LineBrush,
+            Margin = new Thickness(0, 4, 0, 10)
+        });
+
+        body.Children.Add(new TextBlock
+        {
+            Text = "Próximos atendimentos",
+            Foreground = InkBrush,
+            FontSize = 12.5,
+            FontWeight = FontWeights.Bold,
+            Margin = new Thickness(0, 0, 0, 6)
+        });
+
+        var upcoming = appointments
+            .Where(item => item.Start >= DateTime.Now && item.Status != AppointmentStatus.Blocked)
+            .OrderBy(item => item.Start)
+            .Take(3)
+            .ToList();
+
+        if (upcoming.Count == 0)
+        {
+            body.Children.Add(new TextBlock
+            {
+                Text = "Nenhum atendimento futuro com este serviço.",
+                Foreground = MutedBrush,
+                FontSize = 11.5,
+                TextWrapping = TextWrapping.Wrap
+            });
+        }
+        else
+        {
+            foreach (var appointment in upcoming)
+            {
+                body.Children.Add(CreateServiceAppointmentRow(appointment));
+            }
+        }
+
+        body.Children.Add(CreateServicePopupActions(service));
+        card.Child = body;
+        return card;
+    }
+
+    private Border CreateServiceAppointmentRow(Appointment appointment)
+    {
+        var row = new Border
+        {
+            Background = Solid("#F8FAFC"),
+            BorderBrush = LineBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var textStack = new StackPanel();
+        textStack.Children.Add(new TextBlock
+        {
+            Text = $"{appointment.Start:dd/MM HH:mm} - {appointment.CustomerName}",
+            Foreground = InkBrush,
+            FontSize = 11.5,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        textStack.Children.Add(new TextBlock
+        {
+            Text = FirstFilled(appointment.ProfessionalName, appointment.ResourceName, "Sem profissional"),
+            Foreground = MutedBrush,
+            FontSize = 10.5,
+            Margin = new Thickness(0, 2, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        grid.Children.Add(textStack);
+
+        var status = new Border
+        {
+            Background = ScheduleCardBackground(appointment.Status),
+            BorderBrush = ScheduleAccentFor(appointment.Status),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(8, 3, 8, 3),
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = ScheduleStatusLabel(appointment.Status),
+                Foreground = ScheduleAccentFor(appointment.Status),
+                FontSize = 9.5,
+                FontWeight = FontWeights.Bold
+            }
+        };
+        Grid.SetColumn(status, 1);
+        grid.Children.Add(status);
+
+        row.Child = grid;
+        return row;
+    }
+
+    private Grid CreateServicePopupActions(ServiceItem service)
+    {
+        var actions = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var editIcon = new PackIcon
+        {
+            Kind = PackIconKind.Pencil,
+            Width = 15,
+            Height = 15,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 6, 0)
+        };
+        BindForegroundToButton(editIcon);
+
+        var editText = new TextBlock
+        {
+            Text = "Editar serviço",
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        BindForegroundToButton(editText);
+
+        var editButton = new Button
+        {
+            Style = (Style)FindResource("GhostButton"),
+            Height = 34,
+            Padding = new Thickness(10, 0, 10, 0),
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Children =
+                {
+                    editIcon,
+                    editText
+                }
+            }
+        };
+        editButton.Click += (_, _) =>
+        {
+            CloseServiceInfoPopup();
+            EditService(service.Id);
+        };
+        actions.Children.Add(editButton);
+        return actions;
+    }
+
+    private static bool ServiceMatches(Appointment appointment, ServiceItem service) =>
+        (!string.IsNullOrWhiteSpace(service.Id) &&
+         !string.IsNullOrWhiteSpace(appointment.ServiceId) &&
+         appointment.ServiceId.Equals(service.Id, StringComparison.OrdinalIgnoreCase)) ||
+        (!string.IsNullOrWhiteSpace(service.Name) &&
+         appointment.ServiceName.Equals(service.Name, StringComparison.OrdinalIgnoreCase));
 
     private void RefreshEstablishmentProducts()
     {
@@ -1522,18 +3434,18 @@ public partial class MainWindow : Window
         var monthBalance = receivedMonth - monthExpenses;
         var pendingLabel = pending.Count == 1 ? "1 atendimento em aberto" : $"{pending.Count} atendimentos em aberto";
 
-        FinanceBalanceText.Text = monthBalance.ToString("C0", Brazil);
+        FinanceBalanceText.Text = monthBalance.ToString("C", Brazil);
         FinanceBalanceText.Foreground = monthBalance >= 0 ? Solid("#166534") : Solid("#991B1B");
         FinanceBalanceHintText.Text = monthBalance >= 0
-            ? "Mes fechando acima das despesas"
-            : "Despesas acima do dinheiro recebido";
-        FinanceBalanceBadgeText.Text = monthBalance >= 0 ? "positivo" : "negativo";
+            ? "Acima das despesas"
+            : "Despesas acima das entradas";
+        FinanceBalanceBadgeText.Text = monthBalance >= 0 ? "Positivo" : "Negativo";
         FinanceBalanceBadgeText.Foreground = monthBalance >= 0 ? Solid("#166534") : Solid("#991B1B");
         FinanceBalanceBadgeBorder.Background = monthBalance >= 0 ? Solid("#DCFCE7") : Solid("#FEE2E2");
         FinanceBalanceAccentBorder.Background = monthBalance >= 0 ? Solid("#16A34A") : Solid("#DC2626");
-        FinanceReceivedMonthText.Text = receivedMonth.ToString("C0", Brazil);
-        FinanceExpensesMonthText.Text = monthExpenses.ToString("C0", Brazil);
-        FinancePendingTotalText.Text = pendingValue.ToString("C0", Brazil);
+        FinanceReceivedMonthText.Text = receivedMonth.ToString("C", Brazil);
+        FinanceExpensesMonthText.Text = monthExpenses.ToString("C", Brazil);
+        FinancePendingTotalText.Text = pendingValue.ToString("C", Brazil);
         FinancePendingHintText.Text = pendingLabel;
         FinanceMercadoPagoText.Text = IsMercadoPagoPointReady()
             ? MercadoPagoTerminalLabel()
@@ -1542,14 +3454,14 @@ public partial class MainWindow : Window
             ? Solid("#166534")
             : _data.Settings.MercadoPagoEnabled ? Solid("#B45309") : MutedBrush;
         FinanceMercadoPagoHintText.Text = IsMercadoPagoPointReady()
-            ? "Credito e debito podem ir direto para a maquininha."
-            : "Ative em Configuracoes para liberar cartao na maquininha.";
+            ? "Crédito e débito podem ir direto para a maquininha."
+            : "Ative em Configurações para liberar cartão na maquininha.";
 
         _financeEntries.Clear();
         var maxEntry = Math.Max(1m, Math.Max(serviceMonth, Math.Max(productMonth, manualMonth)));
-        _financeEntries.Add(new HomeFinanceBarRow("Servicos finalizados", serviceMonth.ToString("C0", Brazil), Percent(serviceMonth, maxEntry)));
-        _financeEntries.Add(new HomeFinanceBarRow("Produtos vendidos", productMonth.ToString("C0", Brazil), Percent(productMonth, maxEntry)));
-        _financeEntries.Add(new HomeFinanceBarRow("Recebimentos avulsos", manualMonth.ToString("C0", Brazil), Percent(manualMonth, maxEntry)));
+        _financeEntries.Add(new HomeFinanceBarRow("Serviços finalizados", serviceMonth.ToString("C", Brazil), Percent(serviceMonth, maxEntry)));
+        _financeEntries.Add(new HomeFinanceBarRow("Produtos vendidos", productMonth.ToString("C", Brazil), Percent(productMonth, maxEntry)));
+        _financeEntries.Add(new HomeFinanceBarRow("Recebimentos avulsos", manualMonth.ToString("C", Brazil), Percent(manualMonth, maxEntry)));
 
         RefreshFinancePendingPayments(pending);
         RefreshFinanceExpenses();
@@ -1564,14 +3476,21 @@ public partial class MainWindow : Window
             _financePendingPayments.Add(new EstablishmentListRow(
                 appointment.CustomerName,
                 $"{appointment.Start:dd/MM HH:mm} | {appointment.ServiceName}",
-                appointment.Price.ToString("C0", Brazil),
+                appointment.Price.ToString("C", Brazil),
                 YellowSoftBrush,
-                InkBrush));
+                InkBrush,
+                Icon: PackIconKind.AccountOutline));
         }
 
         if (_financePendingPayments.Count == 0)
         {
-            _financePendingPayments.Add(EmptyEstablishmentRow("Nada para cobrar agora", "Quando um atendimento ficar aberto, ele aparece aqui.", "R$ 0"));
+            _financePendingPayments.Add(new EstablishmentListRow(
+                "Sem cobrança pendente",
+                "Tudo certo no caixa.",
+                0m.ToString("C", Brazil),
+                AccentSoftBrush,
+                AccentBrush,
+                Icon: PackIconKind.AccountOutline));
         }
     }
 
@@ -1585,14 +3504,21 @@ public partial class MainWindow : Window
             _financeExpenses.Add(new EstablishmentListRow(
                 expense.Description,
                 $"{expense.Date:dd/MM} | {category} | {status}",
-                expense.Value.ToString("C0", Brazil),
+                expense.Value.ToString("C", Brazil),
                 RedSoftBrush,
-                InkBrush));
+                InkBrush,
+                Icon: PackIconKind.ReceiptText));
         }
 
         if (_financeExpenses.Count == 0)
         {
-            _financeExpenses.Add(EmptyEstablishmentRow("Nenhum gasto lancado", "Aluguel, insumos e marketing aparecem aqui.", "R$ 0"));
+            _financeExpenses.Add(new EstablishmentListRow(
+                "Sem gastos lançados",
+                "Despesas aparecerão aqui.",
+                0m.ToString("C", Brazil),
+                RedSoftBrush,
+                Solid("#DC2626"),
+                Icon: PackIconKind.ReceiptText));
         }
     }
 
@@ -1604,10 +3530,14 @@ public partial class MainWindow : Window
             .Select(day => new
             {
                 Day = day,
-                Value = SumReceivedRevenue(day, day.AddDays(1))
+                Value = SumReceivedRevenue(day, day.AddDays(1)),
+                Payments = ReceivedPaymentRows(day, day.AddDays(1))
             })
             .ToList();
         var max = Math.Max(1m, days.Max(item => item.Value));
+        var total = days.Sum(item => item.Value);
+        var average = days.Count > 0 ? total / days.Count : 0m;
+        var best = days.Count > 0 ? days.Max(item => item.Value) : 0m;
 
         foreach (var day in days)
         {
@@ -1616,6 +3546,251 @@ public partial class MainWindow : Window
                 day.Value.ToString("C0", Brazil),
                 Percent(day.Value, max)));
         }
+
+        const double chartWidth = 600d;
+        const double chartBaseY = 52d;
+        const double chartUsableHeight = 42d;
+        var points = new PointCollection();
+        CloseFinanceChartInfoPopup();
+        FinanceChartPointLayer.Children.Clear();
+        for (var index = 0; index < days.Count; index++)
+        {
+            var x = days.Count <= 1 ? 0d : index * chartWidth / (days.Count - 1);
+            var y = chartBaseY - Math.Min(100d, Percent(days[index].Value, max)) / 100d * chartUsableHeight;
+            points.Add(new Point(x, y));
+            AddFinanceChartCustomerLabel(x, y, days[index].Value, days[index].Payments);
+        }
+
+        FinanceChartLine.Points = points;
+        FinanceChartTotalText.Text = total.ToString("C", Brazil);
+        FinanceChartAverageText.Text = average.ToString("C", Brazil);
+        FinanceChartBestText.Text = best.ToString("C", Brazil);
+    }
+
+    private IReadOnlyList<FinanceChartPaymentRow> ReceivedPaymentRows(DateTime start, DateTime end)
+    {
+        var payments = _data.Appointments
+            .Where(item => item.Start >= start && item.Start < end && item.Status == AppointmentStatus.Done && item.Price > 0)
+            .Select(item => new FinanceChartPaymentRow(
+                ToNameCase(FirstFilled(item.CustomerName, "Cliente")),
+                FirstFilled(item.ServiceName, "Atendimento finalizado"),
+                item.Price))
+            .Concat(_data.ProductSales
+                .Where(item => item.SoldAt >= start && item.SoldAt < end && item.Total > 0)
+                .Select(item => new FinanceChartPaymentRow(
+                    ToNameCase(FirstFilled(item.CustomerName, "Cliente")),
+                    FirstFilled(item.ProductName, "Produto vendido"),
+                    item.Total)))
+            .Concat(_data.ManualPayments
+                .Where(item => item.PaidAt >= start && item.PaidAt < end && item.Value > 0)
+                .Select(item => new FinanceChartPaymentRow(
+                    ToNameCase(FirstFilled(item.CustomerName, "Recebimento avulso")),
+                    FirstFilled(item.Description, item.Category, "Recebimento avulso"),
+                    item.Value)))
+            .OrderByDescending(item => item.Value)
+            .ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+        return payments;
+    }
+
+    private void AddFinanceChartCustomerLabel(double x, double y, decimal value, IReadOnlyList<FinanceChartPaymentRow> payments)
+    {
+        if (value <= 0 || payments.Count == 0)
+        {
+            return;
+        }
+
+        var hoverTarget = new Ellipse
+        {
+            Width = 28,
+            Height = 28,
+            Fill = Brushes.Transparent,
+            Cursor = Cursors.Hand
+        };
+        hoverTarget.MouseEnter += (_, _) => ShowFinanceChartInfoPopup(hoverTarget, value, payments);
+        hoverTarget.MouseLeave += (_, _) => CloseFinanceChartInfoPopup();
+        hoverTarget.Unloaded += (_, _) => CloseFinanceChartInfoPopup();
+        Canvas.SetLeft(hoverTarget, x - 14);
+        Canvas.SetTop(hoverTarget, y - 14);
+        Panel.SetZIndex(hoverTarget, 3);
+        FinanceChartPointLayer.Children.Add(hoverTarget);
+
+        var marker = new Ellipse
+        {
+            Width = 9,
+            Height = 9,
+            Fill = AccentBrush,
+            Stroke = Brushes.White,
+            StrokeThickness = 2,
+            IsHitTestVisible = false
+        };
+        Canvas.SetLeft(marker, x - 4.5);
+        Canvas.SetTop(marker, y - 4.5);
+        Panel.SetZIndex(marker, 4);
+        FinanceChartPointLayer.Children.Add(marker);
+    }
+
+    private void ShowFinanceChartInfoPopup(
+        FrameworkElement placementTarget,
+        decimal total,
+        IReadOnlyList<FinanceChartPaymentRow> payments)
+    {
+        CloseFinanceChartInfoPopup();
+
+        var popup = new Popup
+        {
+            PlacementTarget = placementTarget,
+            Placement = PlacementMode.Right,
+            HorizontalOffset = 10,
+            VerticalOffset = -10,
+            AllowsTransparency = true,
+            PopupAnimation = PopupAnimation.Fade,
+            StaysOpen = true,
+            IsHitTestVisible = false
+        };
+
+        popup.Child = CreateFinanceChartInfoPopupContent(total, payments);
+        _financeChartInfoPopup = popup;
+        popup.IsOpen = true;
+    }
+
+    private Border CreateFinanceChartInfoPopupContent(decimal total, IReadOnlyList<FinanceChartPaymentRow> payments)
+    {
+        var card = new Border
+        {
+            Width = 250,
+            Background = Brushes.White,
+            BorderBrush = Solid("#D7E3F3"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(12),
+            IsHitTestVisible = false,
+            Effect = new DropShadowEffect
+            {
+                Color = Color.FromRgb(15, 23, 42),
+                BlurRadius = 20,
+                ShadowDepth = 4,
+                Opacity = 0.16
+            }
+        };
+
+        var body = new StackPanel();
+        var header = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        header.Children.Add(new TextBlock
+        {
+            Text = "Pagamentos do dia",
+            Foreground = InkBrush,
+            FontSize = 12,
+            FontWeight = FontWeights.Bold
+        });
+
+        var totalText = new TextBlock
+        {
+            Text = total.ToString("C", Brazil),
+            Foreground = Solid("#15803D"),
+            FontSize = 12,
+            FontWeight = FontWeights.Bold,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        Grid.SetColumn(totalText, 1);
+        header.Children.Add(totalText);
+        body.Children.Add(header);
+
+        foreach (var payment in payments.Take(5))
+        {
+            body.Children.Add(CreateFinanceChartPaymentPopupRow(payment));
+        }
+
+        if (payments.Count > 5)
+        {
+            body.Children.Add(new TextBlock
+            {
+                Text = $"+ {payments.Count - 5} pagamento(s)",
+                Foreground = MutedBrush,
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 6, 0, 0)
+            });
+        }
+
+        card.Child = body;
+        return card;
+    }
+
+    private Grid CreateFinanceChartPaymentPopupRow(FinanceChartPaymentRow payment)
+    {
+        var row = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        row.Children.Add(new Border
+        {
+            Width = 18,
+            Height = 18,
+            Background = Solid("#DCFCE7"),
+            CornerRadius = new CornerRadius(9),
+            VerticalAlignment = VerticalAlignment.Top,
+            Child = new PackIcon
+            {
+                Kind = PackIconKind.CashCheck,
+                Width = 11,
+                Height = 11,
+                Foreground = Solid("#16A34A"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+
+        var textStack = new StackPanel();
+        textStack.Children.Add(new TextBlock
+        {
+            Text = payment.Name,
+            Foreground = InkBrush,
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        textStack.Children.Add(new TextBlock
+        {
+            Text = payment.Detail,
+            Foreground = MutedBrush,
+            FontSize = 10,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 1, 0, 0)
+        });
+        Grid.SetColumn(textStack, 1);
+        row.Children.Add(textStack);
+
+        var valueText = new TextBlock
+        {
+            Text = payment.Value.ToString("C", Brazil),
+            Foreground = InkBrush,
+            FontSize = 11,
+            FontWeight = FontWeights.Bold,
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(valueText, 2);
+        row.Children.Add(valueText);
+
+        return row;
+    }
+
+    private void CloseFinanceChartInfoPopup()
+    {
+        if (_financeChartInfoPopup is null)
+        {
+            return;
+        }
+
+        var popup = _financeChartInfoPopup;
+        _financeChartInfoPopup = null;
+        popup.IsOpen = false;
     }
 
     private IEnumerable<Appointment> PendingPaymentAppointments() =>
@@ -1651,10 +3826,7 @@ public partial class MainWindow : Window
         var periodEnd = today.AddDays(1);
         ReportsPeriodText.Text = $"{periodStart:dd/MM} a {today:dd/MM}";
 
-        var appointments = _data.Appointments
-            .Where(item => item.Start >= periodStart && item.Start < periodEnd)
-            .Where(item => item.Status != AppointmentStatus.Blocked)
-            .ToList();
+        var appointments = ReportPeriodAppointments(periodStart, periodEnd);
         var finalizados = appointments.Count(item => item.Status == AppointmentStatus.Done);
         var canceladosFaltas = appointments.Count(item => item.Status is AppointmentStatus.Cancelled or AppointmentStatus.NoShow);
         var receitaServicos = SumServiceRevenue(periodStart, periodEnd);
@@ -1663,17 +3835,47 @@ public partial class MainWindow : Window
         var taxaConclusao = appointments.Count > 0 ? finalizados * 100m / appointments.Count : 0m;
 
         _reportsMetrics.Clear();
-        _reportsMetrics.Add(new EstablishmentMetricRow("Agendamentos", appointments.Count.ToString(Brazil), "total do período", AccentSoftBrush));
-        _reportsMetrics.Add(new EstablishmentMetricRow("Finalizados", finalizados.ToString(Brazil), "atendimentos concluídos", BlueSoftBrush));
-        _reportsMetrics.Add(new EstablishmentMetricRow("Cancelados/faltas", canceladosFaltas.ToString(Brazil), "perdas no período", canceladosFaltas > 0 ? RedSoftBrush : GraySoftBrush));
-        _reportsMetrics.Add(new EstablishmentMetricRow("Receita", receita.ToString("C0", Brazil), "serviços, produtos e pagamentos", WarmSoftBrush));
-        _reportsMetrics.Add(new EstablishmentMetricRow("Ticket médio", ticketMedio.ToString("C0", Brazil), "por atendimento finalizado", AccentSoftBrush));
-        _reportsMetrics.Add(new EstablishmentMetricRow("Conclusão", $"{taxaConclusao:N0}%", "finalizados sobre o total", taxaConclusao >= 70 ? BlueSoftBrush : YellowSoftBrush));
+        _reportsMetrics.Add(new EstablishmentMetricRow("Agendamentos", appointments.Count.ToString(Brazil), "total do período", AccentSoftBrush, PackIconKind.CalendarMonth, AccentBrush));
+        _reportsMetrics.Add(new EstablishmentMetricRow("Finalizados", finalizados.ToString(Brazil), "concluídos", BlueSoftBrush, PackIconKind.CheckCircleOutline, Solid("#16A34A")));
+        _reportsMetrics.Add(new EstablishmentMetricRow("Cancelados/faltas", canceladosFaltas.ToString(Brazil), "perdas", canceladosFaltas > 0 ? RedSoftBrush : GraySoftBrush, PackIconKind.AlertCircleOutline, Solid("#DC2626")));
+        _reportsMetrics.Add(new EstablishmentMetricRow("Receita", receita.ToString("C0", Brazil), "entradas", WarmSoftBrush, PackIconKind.WalletOutline, Solid("#F97316")));
+        _reportsMetrics.Add(new EstablishmentMetricRow("Ticket médio", ticketMedio.ToString("C0", Brazil), "por finalizado", Solid("#F3E8FF"), PackIconKind.CashMultiple, Solid("#7C3AED")));
+        _reportsMetrics.Add(new EstablishmentMetricRow("Conclusão", $"{taxaConclusao:N0}%", "sobre o total", YellowSoftBrush, PackIconKind.ChartDonut, Solid("#F59E0B")));
 
         RefreshReportsInsights(periodStart, periodEnd, appointments, ticketMedio, taxaConclusao);
         RefreshReportsChart(periodStart, today, appointments);
-        RefreshReportsServices(periodStart, periodEnd);
-        RefreshReportsProfessionals(periodStart, periodEnd);
+        RefreshReportsServices(appointments);
+        RefreshReportsProfessionals(appointments);
+    }
+
+    private List<Appointment> ReportPeriodAppointments(DateTime periodStart, DateTime periodEnd)
+    {
+        var realAppointments = _data.Appointments
+            .Where(item => item.Start >= periodStart && item.Start < periodEnd)
+            .Where(item => item.Status != AppointmentStatus.Blocked)
+            .OrderBy(item => item.Start)
+            .ThenBy(item => item.CustomerName)
+            .ToList();
+
+        if (realAppointments.Count > 0 || !string.IsNullOrWhiteSpace(SearchTextBox.Text.Trim()))
+        {
+            return realAppointments;
+        }
+
+        var previewDate = DateTime.Today;
+        if (previewDate < periodStart || previewDate >= periodEnd)
+        {
+            previewDate = _selectedDate >= periodStart && _selectedDate < periodEnd
+                ? _selectedDate.Date
+                : periodEnd.AddDays(-1).Date;
+        }
+
+        return CreatePreviewAppointments(previewDate)
+            .Where(item => item.Start >= periodStart && item.Start < periodEnd)
+            .Where(item => item.Status != AppointmentStatus.Blocked)
+            .OrderBy(item => item.Start)
+            .ThenBy(item => item.CustomerName)
+            .ToList();
     }
 
     private void RefreshReportsChart(DateTime periodStart, DateTime today, IReadOnlyList<Appointment> appointments)
@@ -1765,37 +3967,43 @@ public partial class MainWindow : Window
             bestDay is null ? "Sem movimento no período" : $"{bestDay.Count} agendamento(s) | {bestDay.Revenue.ToString("C0", Brazil)}",
             bestDay is null ? "-" : bestDay.Day.ToString("ddd", Brazil),
             AccentSoftBrush,
-            AccentBrush));
+            AccentBrush,
+            Icon: PackIconKind.CalendarMonth));
         _reportsInsights.Add(new EstablishmentListRow(
             "Ocupação estimada",
             $"{busyMinutes / 60:N0}h ocupada(s) em {professionalCount} profissional(is)",
             $"{occupancy:N0}%",
             BlueSoftBrush,
-            AccentBrush));
+            AccentBrush,
+            Icon: PackIconKind.AccountTie));
         _reportsInsights.Add(new EstablishmentListRow(
             "Clientes atendidos",
             "Clientes únicos com atendimento finalizado",
             customersServed.ToString(Brazil),
             GraySoftBrush,
-            InkBrush));
+            InkBrush,
+            Icon: PackIconKind.AccountGroup));
         _reportsInsights.Add(new EstablishmentListRow(
             "Produtos vendidos",
             $"{productSales.Count} venda(s) no período",
             productSales.Sum(item => item.Total).ToString("C0", Brazil),
             WarmSoftBrush,
-            AccentBrush));
+            AccentBrush,
+            Icon: PackIconKind.PackageVariant));
         _reportsInsights.Add(new EstablishmentListRow(
             "Pagamentos avulsos",
             $"{manualPayments.Count} recebimento(s) manual(is)",
             manualPayments.Sum(item => item.Value).ToString("C0", Brazil),
             AccentSoftBrush,
-            AccentBrush));
+            AccentBrush,
+            Icon: PackIconKind.WalletOutline));
         _reportsInsights.Add(new EstablishmentListRow(
             "Saúde da operação",
             $"Ticket médio {ticketMedio.ToString("C0", Brazil)} | conclusão {taxaConclusao:N0}%",
             taxaConclusao >= 70 ? "Boa" : "Atenção",
             taxaConclusao >= 70 ? BlueSoftBrush : YellowSoftBrush,
-            taxaConclusao >= 70 ? AccentBrush : InkBrush));
+            taxaConclusao >= 70 ? AccentBrush : InkBrush,
+            Icon: PackIconKind.CheckCircleOutline));
     }
 
     private string CurrentReportChartOption() =>
@@ -1833,8 +4041,32 @@ public partial class MainWindow : Window
         }
 
         _activeReportChartRows = chartRows;
+        UpdateReportsChartSummary(style, chartRows);
         ApplyReportChartStyle(style, chartRows);
         UpdateReportChartModeButtons();
+    }
+
+    private void UpdateReportsChartSummary(ReportChartStyle style, IReadOnlyList<ReportChartRow> rows)
+    {
+        var total = rows.Sum(item => item.Value);
+        var divisor = Math.Max(1, rows.Count);
+
+        switch (style)
+        {
+            case ReportChartStyle.Line:
+                ReportsChartTotalText.Text = $"Receita no período: {total.ToString("C0", Brazil)}";
+                ReportsChartAverageText.Text = $"Média diária: {(total / divisor).ToString("C0", Brazil)}";
+                break;
+            case ReportChartStyle.Donut:
+                var top = rows.OrderByDescending(item => item.Value).FirstOrDefault();
+                ReportsChartTotalText.Text = $"Total por status: {total:N0}";
+                ReportsChartAverageText.Text = top is null ? "Maior grupo: -" : $"Maior grupo: {top.Label}";
+                break;
+            default:
+                ReportsChartTotalText.Text = $"Total de agendamentos no período: {total:N0}";
+                ReportsChartAverageText.Text = $"Média diária: {(total / divisor):N0}";
+                break;
+        }
     }
 
     private void ApplyReportChartStyle(ReportChartStyle style, IReadOnlyList<ReportChartRow> rows)
@@ -2098,12 +4330,11 @@ public partial class MainWindow : Window
         return new Point(centerX + radius * Math.Cos(angle), centerY + radius * Math.Sin(angle));
     }
 
-    private void RefreshReportsServices(DateTime start, DateTime end)
+    private void RefreshReportsServices(IReadOnlyCollection<Appointment> appointments)
     {
         _reportsServices.Clear();
-        var rows = _data.Appointments
-            .Where(item => item.Start >= start && item.Start < end &&
-                           item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
+        var rows = appointments
+            .Where(item => item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
             .Where(item => !string.IsNullOrWhiteSpace(item.ServiceName))
             .GroupBy(item => item.ServiceName)
             .OrderByDescending(group => group.Count())
@@ -2119,21 +4350,27 @@ public partial class MainWindow : Window
                 $"{group.Count()} atendimento(s) no período",
                 revenue.ToString("C0", Brazil),
                 AccentSoftBrush,
-                AccentBrush));
+                AccentBrush,
+                Icon: PackIconKind.ClipboardText));
         }
 
         if (_reportsServices.Count == 0)
         {
-            _reportsServices.Add(EmptyEstablishmentRow("Nenhum serviço no período", "Os serviços realizados aparecerão aqui.", "0"));
+            _reportsServices.Add(new EstablishmentListRow(
+                "Nenhum serviço no período",
+                "Os serviços realizados aparecerão aqui quando houver atendimentos.",
+                "",
+                GraySoftBrush,
+                MutedBrush,
+                Icon: PackIconKind.ClipboardText));
         }
     }
 
-    private void RefreshReportsProfessionals(DateTime start, DateTime end)
+    private void RefreshReportsProfessionals(IReadOnlyCollection<Appointment> appointments)
     {
         _reportsProfessionals.Clear();
-        var rows = _data.Appointments
-            .Where(item => item.Start >= start && item.Start < end &&
-                           item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
+        var rows = appointments
+            .Where(item => item.Status is not AppointmentStatus.Cancelled and not AppointmentStatus.NoShow and not AppointmentStatus.Blocked)
             .Where(item => !string.IsNullOrWhiteSpace(item.ProfessionalName))
             .GroupBy(item => item.ProfessionalName)
             .OrderByDescending(group => group.Count())
@@ -2150,12 +4387,19 @@ public partial class MainWindow : Window
                 $"{done} finalizado(s) | {group.Count()} atendimento(s)",
                 revenue.ToString("C0", Brazil),
                 AccentSoftBrush,
-                AccentBrush));
+                AccentBrush,
+                Icon: PackIconKind.AccountTie));
         }
 
         if (_reportsProfessionals.Count == 0)
         {
-            _reportsProfessionals.Add(EmptyEstablishmentRow("Nenhum profissional no período", "Os atendimentos da equipe aparecerão aqui.", "0"));
+            _reportsProfessionals.Add(new EstablishmentListRow(
+                "Nenhum profissional no período",
+                "Os atendimentos da equipe aparecerão aqui quando houver movimentações.",
+                "",
+                GraySoftBrush,
+                MutedBrush,
+                Icon: PackIconKind.AccountOutline));
         }
     }
 
@@ -2274,19 +4518,19 @@ public partial class MainWindow : Window
     private void RefreshMarketingMessages()
     {
         _marketingMessages.Clear();
-        _marketingMessages.Add(new EstablishmentListRow("Promoção", "Texto para divulgar oferta, desconto ou pacote especial.", "oferta", AccentSoftBrush, AccentBrush));
-        _marketingMessages.Add(new EstablishmentListRow("Confirmação", "Mensagem curta para confirmar presença antes do horário.", "agenda", BlueSoftBrush, AccentBrush));
-        _marketingMessages.Add(new EstablishmentListRow("Pós-atendimento", "Agradeça o cliente e incentive retorno ou avaliação.", "retorno", GraySoftBrush, InkBrush));
-        _marketingMessages.Add(new EstablishmentListRow("Cliente sumido", "Convide clientes sem atendimento recente para voltar.", "30 dias", YellowSoftBrush, InkBrush));
+        _marketingMessages.Add(new EstablishmentListRow("Promoção", "Texto para divulgar oferta, desconto ou pacote especial.", "oferta", Solid("#F3E8FF"), Solid("#7C3AED"), Icon: PackIconKind.Bullhorn));
+        _marketingMessages.Add(new EstablishmentListRow("Confirmação", "Mensagem curta para confirmar presença antes do horário.", "agenda", AccentSoftBrush, AccentBrush, Icon: PackIconKind.CalendarMonth));
+        _marketingMessages.Add(new EstablishmentListRow("Pós-atendimento", "Agradeça o cliente e incentive retorno ou avaliação.", "retorno", Solid("#DCFCE7"), Solid("#16A34A"), Icon: PackIconKind.CheckCircleOutline));
+        _marketingMessages.Add(new EstablishmentListRow("Cliente sumido", "Convide clientes sem atendimento recente para voltar.", "30 dias", YellowSoftBrush, InkBrush, Icon: PackIconKind.AccountOutline));
     }
 
     private void RefreshMarketingCampaigns(int staleCustomers, int noShows, int pendingConfirmations)
     {
         _marketingCampaigns.Clear();
-        _marketingCampaigns.Add(new EstablishmentListRow("Volta para agenda", $"{staleCustomers} cliente(s) sem retorno para chamar.", "WhatsApp", AccentSoftBrush, AccentBrush));
-        _marketingCampaigns.Add(new EstablishmentListRow("Confirmar horários", $"{pendingConfirmations} agendamento(s) aguardando confirmação.", "Hoje", BlueSoftBrush, AccentBrush));
-        _marketingCampaigns.Add(new EstablishmentListRow("Recuperar faltas", $"{noShows} falta(s) recente(s) para remarcar.", "Retorno", RedSoftBrush, InkBrush));
-        _marketingCampaigns.Add(new EstablishmentListRow("Oferta da semana", PromotionOfferTextBox.Text.Trim(), "Promo", YellowSoftBrush, InkBrush));
+        _marketingCampaigns.Add(new EstablishmentListRow("Volta para agenda", $"{staleCustomers} cliente(s) sem retorno para chamar.", "WhatsApp", Solid("#DCFCE7"), Solid("#16A34A"), Icon: PackIconKind.AccountOutline));
+        _marketingCampaigns.Add(new EstablishmentListRow("Confirmar horários", $"{pendingConfirmations} agendamento(s) aguardando confirmação.", "Hoje", AccentSoftBrush, AccentBrush, Icon: PackIconKind.CalendarMonth));
+        _marketingCampaigns.Add(new EstablishmentListRow("Recuperar faltas", $"{noShows} falta(s) recente(s) para remarcar.", "Retorno", RedSoftBrush, Solid("#DC2626"), Icon: PackIconKind.AlertCircleOutline));
+        _marketingCampaigns.Add(new EstablishmentListRow("Oferta da semana", PromotionOfferTextBox.Text.Trim(), "Promoção", YellowSoftBrush, InkBrush, Icon: PackIconKind.Bullhorn));
     }
 
     private void RefreshMarketingPreview()
@@ -2383,10 +4627,10 @@ public partial class MainWindow : Window
             : hasQr ? "Aguardando leitura do QR" : "Não linkado";
         SettingsWhatsAppStatusText.Foreground = linked ? Solid("#16A34A") : MutedBrush;
         SettingsWhatsAppDetailText.Text = linked
-            ? $"Pronto para confirmar horários, chamar clientes e acompanhar conversas. Último evento: {LastWhatsAppEventText()}."
+            ? "Confirmações e mensagens ativas."
             : hasQr
-                ? "Escaneie o QR no painel flutuante para ativar confirmações e mensagens no app."
-                : "Linke o WhatsApp da loja para confirmar horários, chamar clientes e ver mensagens no app.";
+                ? "QR pronto no painel."
+                : "Confirme horários e chame clientes pelo app.";
         SettingsWhatsAppConnectButton.Content = linked ? "Deslinkar" : hasQr ? "Novo QR" : "Linkar WhatsApp";
 
         WhatsAppFloatingStatusText.Text = linked
@@ -4288,7 +6532,7 @@ public partial class MainWindow : Window
 
         if (date.Date == today.AddDays(1))
         {
-            return $"AmanhÃ£, {date:dd/MM}";
+            return $"Amanhã, {date:dd/MM}";
         }
 
         if (date.Date == today.AddDays(-1))
@@ -4323,9 +6567,7 @@ public partial class MainWindow : Window
         ScheduleBoardGrid.ColumnDefinitions.Clear();
         ScheduleBoardGrid.RowDefinitions.Clear();
 
-        var dayAppointments = ApplyFilters(_data.Appointments.Where(item => item.Start.Date == _selectedDate.Date))
-            .OrderBy(item => item.Start)
-            .ToList();
+        var dayAppointments = AgendaDisplayAppointments();
 
         var professionals = GetBoardProfessionals(dayAppointments).ToList();
         if (professionals.Count == 0)
@@ -4349,11 +6591,17 @@ public partial class MainWindow : Window
         var dayEnd = _selectedDate.Date.AddHours(_data.Settings.WorkdayEndHour);
         var slotCount = Math.Max(1, (int)Math.Ceiling((dayEnd - dayStart).TotalMinutes / 30));
 
-        ScheduleBoardGrid.MinWidth = ScheduleTimeColumnWidth + professionals.Count * ScheduleProfessionalColumnWidth;
+        ScheduleBoardGrid.MinWidth = Math.Max(620, ScheduleTimeColumnWidth + professionals.Count * ScheduleProfessionalColumnWidth);
         ScheduleBoardGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ScheduleTimeColumnWidth) });
+        var stretchColumns = professionals.Count <= 2;
         foreach (var _ in professionals)
         {
-            ScheduleBoardGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ScheduleProfessionalColumnWidth) });
+            ScheduleBoardGrid.ColumnDefinitions.Add(new ColumnDefinition
+            {
+                Width = stretchColumns
+                    ? new GridLength(1, GridUnitType.Star)
+                    : new GridLength(ScheduleProfessionalColumnWidth)
+            });
         }
 
         ScheduleBoardGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(ScheduleHeaderHeight) });
@@ -4366,6 +6614,11 @@ public partial class MainWindow : Window
         AddScheduleHeaders(professionals);
         AddScheduleCells(dayStart, slotCount, professionals);
         AddScheduleAppointments(dayStart, slotCount, professionals, dayAppointments);
+
+        if (!dayAppointments.Any(IsOperationalStatus))
+        {
+            AddScheduleEmptyState(slotCount, professionals.Count);
+        }
     }
 
     private IEnumerable<Professional> GetBoardProfessionals(IReadOnlyCollection<Appointment> dayAppointments)
@@ -4391,29 +6644,18 @@ public partial class MainWindow : Window
     {
         var corner = new Border
         {
-            Background = Solid("#F6F9FC"),
-            BorderBrush = LineBrush,
+            Background = Solid("#FAFCFF"),
+            BorderBrush = Solid("#E4ECF8"),
             BorderThickness = new Thickness(0, 0, 1, 1),
-            Padding = new Thickness(10),
-            Child = new StackPanel
+            Padding = new Thickness(10, 0, 10, 0),
+            Child = new TextBlock
             {
-                Children =
-                {
-                    new TextBlock
-                    {
-                        Text = dayStart.ToString("ddd", Brazil).ToUpper(Brazil),
-                        Foreground = MutedBrush,
-                        FontSize = 11,
-                        FontWeight = FontWeights.Bold
-                    },
-                    new TextBlock
-                    {
-                        Text = dayStart.ToString("dd/MM", Brazil),
-                        Foreground = InkBrush,
-                        FontSize = 16,
-                        FontWeight = FontWeights.Bold
-                    }
-                }
+                Text = "Horário",
+                Foreground = InkBrush,
+                FontSize = 12.5,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center
             }
         };
 
@@ -4429,29 +6671,55 @@ public partial class MainWindow : Window
             var professional = professionals[index];
             var header = new Border
             {
-                Background = Solid("#FFFFFF"),
-                BorderBrush = LineBrush,
+                Background = Solid("#FAFCFF"),
+                BorderBrush = Solid("#E4ECF8"),
                 BorderThickness = new Thickness(0, 0, 1, 1),
-                Padding = new Thickness(12, 9, 12, 8),
+                Padding = new Thickness(12, 6, 12, 6),
                 Child = new StackPanel
                 {
+                    Orientation = Orientation.Horizontal,
+                    VerticalAlignment = VerticalAlignment.Center,
                     Children =
                     {
-                        new TextBlock
+                        new Border
                         {
-                            Text = professional.Name,
-                            Foreground = InkBrush,
-                            FontSize = 14,
-                            FontWeight = FontWeights.Bold,
-                            TextTrimming = TextTrimming.CharacterEllipsis
+                            Width = 30,
+                            Height = 30,
+                            Background = Solid("#EAF2FF"),
+                            CornerRadius = new CornerRadius(15),
+                            Margin = new Thickness(0, 0, 9, 0),
+                            Child = new TextBlock
+                            {
+                                Text = InitialsFor(professional.Name),
+                                Foreground = AccentBrush,
+                                FontSize = 10.5,
+                                FontWeight = FontWeights.Bold,
+                                HorizontalAlignment = HorizontalAlignment.Center,
+                                VerticalAlignment = VerticalAlignment.Center
+                            }
                         },
-                        new TextBlock
+                        new StackPanel
                         {
-                            Text = professional.SegmentLine,
-                            Foreground = MutedBrush,
-                            FontSize = 11,
-                            TextTrimming = TextTrimming.CharacterEllipsis,
-                            Margin = new Thickness(0, 2, 0, 0)
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Children =
+                            {
+                                new TextBlock
+                                {
+                                    Text = professional.Name,
+                                    Foreground = InkBrush,
+                                    FontSize = 12.5,
+                                    FontWeight = FontWeights.Bold,
+                                    TextTrimming = TextTrimming.CharacterEllipsis
+                                },
+                                new TextBlock
+                                {
+                                    Text = professional.SegmentLine,
+                                    Foreground = MutedBrush,
+                                    FontSize = 10,
+                                    TextTrimming = TextTrimming.CharacterEllipsis,
+                                    Margin = new Thickness(0, 2, 0, 0)
+                                }
+                            }
                         }
                     }
                 }
@@ -4470,16 +6738,16 @@ public partial class MainWindow : Window
             var slotStart = dayStart.AddMinutes(row * 30);
             var timeCell = new Border
             {
-                Background = row % 2 == 0 ? Solid("#F7FAFC") : Solid("#EEF3F7"),
-                BorderBrush = LineBrush,
+                Background = Solid("#FBFCFE"),
+                BorderBrush = Solid("#E7EDF6"),
                 BorderThickness = new Thickness(0, 0, 1, 1),
-                Padding = new Thickness(8, 7, 8, 0),
+                Padding = new Thickness(7, 7, 10, 0),
                 Child = new TextBlock
                 {
                     Text = slotStart.ToString("HH:mm", Brazil),
                     Foreground = MutedBrush,
-                    FontSize = 12,
-                    FontWeight = FontWeights.SemiBold,
+                    FontSize = 11.5,
+                    FontWeight = FontWeights.Normal,
                     HorizontalAlignment = HorizontalAlignment.Right
                 }
             };
@@ -4493,8 +6761,8 @@ public partial class MainWindow : Window
                 var professional = professionals[column];
                 var cell = new Border
                 {
-                    Background = row % 2 == 0 ? Solid("#FFFFFF") : Solid("#FAFCFD"),
-                    BorderBrush = LineBrush,
+                    Background = Solid("#FFFFFF"),
+                    BorderBrush = Solid("#E7EDF6"),
                     BorderThickness = new Thickness(0, 0, 1, 1),
                     Cursor = Cursors.Hand,
                     Tag = new ScheduleSlot(professional, slotStart)
@@ -4544,39 +6812,151 @@ public partial class MainWindow : Window
         }
     }
 
+    private void AddScheduleEmptyState(int slotCount, int professionalCount)
+    {
+        var action = new Button
+        {
+            Content = "+ Agendar horário",
+            Height = 34,
+            MinWidth = 128,
+            Padding = new Thickness(12, 0, 12, 0),
+            Style = (Style)FindResource("CommandButton"),
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+        action.Click += NewButton_Click;
+
+        var empty = new Border
+        {
+            Background = Solid("#F8FBFF"),
+            BorderBrush = Solid("#DDE7F4"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(18),
+            MaxWidth = 420,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 20, 0, 0),
+            Child = new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Children =
+                {
+                    new Border
+                    {
+                        Width = 42,
+                        Height = 42,
+                        Background = AccentSoftBrush,
+                        CornerRadius = new CornerRadius(12),
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Child = new PackIcon
+                        {
+                            Kind = PackIconKind.CalendarPlus,
+                            Foreground = AccentBrush,
+                            Width = 22,
+                            Height = 22,
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                            VerticalAlignment = VerticalAlignment.Center
+                        }
+                    },
+                    new TextBlock
+                    {
+                        Text = "Agenda livre nesta data",
+                        Foreground = InkBrush,
+                        FontSize = 16,
+                        FontWeight = FontWeights.Bold,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Margin = new Thickness(0, 12, 0, 0)
+                    },
+                    new TextBlock
+                    {
+                        Text = "Clique em um horário no quadro ou use o botão abaixo para criar o primeiro atendimento.",
+                        Foreground = MutedBrush,
+                        FontSize = 12.5,
+                        TextWrapping = TextWrapping.Wrap,
+                        TextAlignment = TextAlignment.Center,
+                        MaxWidth = 330,
+                        Margin = new Thickness(0, 5, 0, 0)
+                    },
+                    action
+                }
+            }
+        };
+
+        Grid.SetRow(empty, Math.Min(2, slotCount));
+        Grid.SetColumn(empty, 1);
+        Grid.SetColumnSpan(empty, Math.Max(1, professionalCount));
+        Panel.SetZIndex(empty, 10);
+        ScheduleBoardGrid.Children.Add(empty);
+    }
+
     private Border CreateScheduleAppointmentCard(Appointment appointment, int rowSpan)
     {
-        var statusBrush = StatusBackground(appointment.Status);
-        var accentBrush = AccentFor(appointment.Status);
+        var statusBrush = ScheduleCardBackground(appointment.Status);
+        var accentBrush = ScheduleAccentFor(appointment.Status);
+        var compact = rowSpan <= 1;
+        var visualHeight = compact
+            ? Math.Max(32, ScheduleSlotHeight - 4)
+            : Math.Min(rowSpan * ScheduleSlotHeight - 6, Math.Max(50, rowSpan * 26));
         var card = new Border
         {
-            Margin = new Thickness(4),
-            Padding = new Thickness(8),
+            Margin = compact ? new Thickness(7, 2, 7, 2) : new Thickness(7, 3, 7, 3),
+            Height = visualHeight,
+            Padding = new Thickness(0),
             Background = statusBrush,
-            BorderBrush = accentBrush,
+            BorderBrush = Solid("#FFFFFF"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(7),
             ClipToBounds = true,
             Cursor = Cursors.Hand,
+            VerticalAlignment = VerticalAlignment.Top,
+            RenderTransform = new ScaleTransform(1, 1),
+            RenderTransformOrigin = new Point(0.5, 0.5),
             Tag = appointment,
-            ToolTip = $"{appointment.Start:HH:mm}-{appointment.End:HH:mm} | {appointment.CustomerName} | {appointment.ServiceName}"
+            ToolTip = $"{appointment.Start:HH:mm}-{appointment.End:HH:mm} | {appointment.CustomerName} | {appointment.ServiceName}",
+            Effect = new DropShadowEffect
+            {
+                Color = Color.FromRgb(15, 23, 42),
+                BlurRadius = 6,
+                ShadowDepth = 1,
+                Opacity = 0.04
+            }
         };
         card.PreviewMouseLeftButtonDown += ScheduleAppointment_MouseLeftButtonDown;
+        card.MouseEnter += (_, _) => AnimateScheduleCard(card, 1.012);
+        card.MouseLeave += (_, _) => AnimateScheduleCard(card, 1.0);
 
-        var stack = new StackPanel
+        var grid = new Grid
         {
             ClipToBounds = true
         };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        var header = new Grid { Margin = new Thickness(0, 0, 0, 3) };
+        var stripe = new Border
+        {
+            Background = accentBrush,
+            CornerRadius = new CornerRadius(7, 0, 0, 7)
+        };
+        Grid.SetColumn(stripe, 0);
+        grid.Children.Add(stripe);
+
+        var stack = new StackPanel
+        {
+            ClipToBounds = true,
+            Margin = compact ? new Thickness(8, 1, 7, 1) : new Thickness(9, 4, 8, 4),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(stack, 1);
+
+        var header = new Grid { Margin = compact ? new Thickness(0) : new Thickness(0, 0, 0, 2) };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         header.Children.Add(new TextBlock
         {
-            Text = appointment.Start.ToString("HH:mm", Brazil),
-            Foreground = StatusForeground(appointment.Status),
-            FontSize = 11,
+            Text = appointment.ServiceName,
+            Foreground = InkBrush,
+            FontSize = compact ? 10 : 11.2,
             FontWeight = FontWeights.Bold,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center
@@ -4585,15 +6965,16 @@ public partial class MainWindow : Window
         var badge = new Border
         {
             Background = Solid("#FFFFFF"),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(7, 2, 7, 3),
-            MaxWidth = 92,
+            CornerRadius = new CornerRadius(9),
+            Padding = compact ? new Thickness(4, 1, 4, 1) : new Thickness(5, 1, 5, 1),
+            MaxWidth = compact ? 66 : 78,
             VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(6, 0, 0, 0),
             Child = new TextBlock
             {
-                Text = StatusLabel(appointment.Status),
-                Foreground = StatusForeground(appointment.Status),
-                FontSize = 9.5,
+                Text = ScheduleStatusLabel(appointment.Status),
+                Foreground = accentBrush,
+                FontSize = compact ? 7.3 : 8.2,
                 FontWeight = FontWeights.Bold,
                 TextTrimming = TextTrimming.CharacterEllipsis
             }
@@ -4605,41 +6986,75 @@ public partial class MainWindow : Window
         stack.Children.Add(new TextBlock
         {
             Text = appointment.CustomerName,
-            Foreground = InkBrush,
-            FontSize = 13.5,
-            FontWeight = FontWeights.Bold,
+            Foreground = MutedBrush,
+            FontSize = compact ? 8.5 : 9.4,
+            FontWeight = FontWeights.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Margin = new Thickness(0, 1, 0, 0)
+            Margin = new Thickness(0, 0, 0, 0)
         });
-
-        if (rowSpan > 1)
-        {
-            stack.Children.Add(new TextBlock
-            {
-                Text = appointment.ServiceName,
-                Foreground = MutedBrush,
-                FontSize = 11.5,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                Margin = new Thickness(0, 3, 0, 0)
-            });
-        }
 
         if (rowSpan > 1 && !string.IsNullOrWhiteSpace(appointment.ResourceName))
         {
             stack.Children.Add(new TextBlock
             {
                 Text = appointment.ResourceName,
-                Foreground = AccentBrush,
-                FontSize = 11.5,
+                Foreground = accentBrush,
+                FontSize = 8.8,
                 FontWeight = FontWeights.SemiBold,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(0, 3, 0, 0)
             });
         }
 
-        card.Child = stack;
+        grid.Children.Add(stack);
+        card.Child = grid;
         return card;
     }
+
+    private static void AnimateScheduleCard(Border card, double scale)
+    {
+        if (card.RenderTransform is not ScaleTransform transform)
+        {
+            return;
+        }
+
+        var animation = new DoubleAnimation
+        {
+            To = scale,
+            Duration = TimeSpan.FromMilliseconds(110),
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+        };
+
+        transform.BeginAnimation(ScaleTransform.ScaleXProperty, animation);
+        transform.BeginAnimation(ScaleTransform.ScaleYProperty, animation);
+    }
+
+    private static Brush ScheduleCardBackground(AppointmentStatus status) => status switch
+    {
+        AppointmentStatus.Scheduled => Solid("#FFF7ED"),
+        AppointmentStatus.Confirmed => Solid("#EEF4FF"),
+        AppointmentStatus.Waiting => Solid("#F5F3FF"),
+        AppointmentStatus.InService => Solid("#ECFDF5"),
+        AppointmentStatus.Done => Solid("#ECFDF5"),
+        AppointmentStatus.Cancelled or AppointmentStatus.NoShow => Solid("#FEF2F2"),
+        AppointmentStatus.Blocked => Solid("#F1F5F9"),
+        _ => Solid("#EEF4FF")
+    };
+
+    private static Brush ScheduleAccentFor(AppointmentStatus status) => status switch
+    {
+        AppointmentStatus.Scheduled => Solid("#F97316"),
+        AppointmentStatus.Confirmed => Solid("#0057C8"),
+        AppointmentStatus.Waiting => Solid("#8B5CF6"),
+        AppointmentStatus.InService => Solid("#10B981"),
+        AppointmentStatus.Done => Solid("#16A34A"),
+        AppointmentStatus.Cancelled or AppointmentStatus.NoShow => Solid("#DC2626"),
+        AppointmentStatus.Blocked => Solid("#64748B"),
+        _ => AccentBrush
+    };
+
+    private static string ScheduleStatusLabel(AppointmentStatus status) =>
+        status == AppointmentStatus.Scheduled ? "Pendente" : StatusLabel(status);
 
     private IEnumerable<Appointment> ApplyFilters(IEnumerable<Appointment> source)
     {
@@ -4674,14 +7089,18 @@ public partial class MainWindow : Window
             : _data.Professionals.Where(item => item.IsActive && item.Segments.Contains(segment));
     }
 
+    private static bool IsPreviewAppointment(Appointment appointment) =>
+        appointment.Id.StartsWith(PreviewAppointmentPrefix, StringComparison.Ordinal);
+
     private string CurrentSegmentFilter() => _selectedSegmentFilter;
 
     private void UpdateAppointmentOptions(string? segment)
     {
         segment = string.IsNullOrWhiteSpace(segment) ? GetAvailableSegments()[0] : segment;
+        var selectedService = ServiceCombo.SelectedItem as ServiceItem;
 
         _filteredServices.Clear();
-        foreach (var serviceItem in _data.Services.Where(item => item.Segment == segment && item.IsActive).OrderBy(item => item.Name))
+        foreach (var serviceItem in ServicesForEditor(segment))
         {
             _filteredServices.Add(serviceItem);
         }
@@ -4729,6 +7148,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (selectedService is not null)
+        {
+            ServiceCombo.SelectedItem =
+                _filteredServices.FirstOrDefault(item => !string.IsNullOrWhiteSpace(selectedService.Id) &&
+                                                         item.Id.Equals(selectedService.Id, StringComparison.OrdinalIgnoreCase)) ??
+                _filteredServices.FirstOrDefault(item => item.Name.Equals(selectedService.Name, StringComparison.OrdinalIgnoreCase));
+        }
+
         if (ServiceCombo.SelectedItem is not ServiceItem)
         {
             ServiceCombo.SelectedItem = _filteredServices.FirstOrDefault();
@@ -4743,6 +7170,61 @@ public partial class MainWindow : Window
         {
             ApplyServiceDefaults(service);
         }
+    }
+
+    private IEnumerable<ServiceItem> ServicesForEditor(string segment)
+    {
+        var singleSegmentAccount = GetAvailableSegments().Count <= 1;
+        var rows = new Dictionary<string, ServiceItem>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var service in _data.Services
+                     .Where(item => item.IsActive)
+                     .Where(item => singleSegmentAccount || item.Segment.Equals(segment, StringComparison.OrdinalIgnoreCase))
+                     .OrderBy(item => item.Name))
+        {
+            if (!string.IsNullOrWhiteSpace(service.Name))
+            {
+                rows.TryAdd(service.Name.Trim(), service);
+            }
+        }
+
+        foreach (var appointment in _data.Appointments
+                     .Where(item => !IsPreviewAppointment(item))
+                     .Where(item => item.Status != AppointmentStatus.Blocked)
+                     .Where(item => singleSegmentAccount || item.Segment.Equals(segment, StringComparison.OrdinalIgnoreCase))
+                     .Where(item => !string.IsNullOrWhiteSpace(item.ServiceName))
+                     .OrderByDescending(item => item.UpdatedAt))
+        {
+            var serviceName = appointment.ServiceName.Trim();
+            if (serviceName.Equals("Bloqueio interno", StringComparison.OrdinalIgnoreCase) || rows.ContainsKey(serviceName))
+            {
+                continue;
+            }
+
+            rows[serviceName] = new ServiceItem
+            {
+                Id = string.IsNullOrWhiteSpace(appointment.ServiceId)
+                    ? $"saved_{StableHash(serviceName)}"
+                    : appointment.ServiceId,
+                Segment = string.IsNullOrWhiteSpace(appointment.Segment) ? segment : appointment.Segment,
+                Name = serviceName,
+                Category = "Atendimento",
+                DurationMinutes = Math.Clamp(appointment.DurationMinutes, 5, 480),
+                Price = appointment.Price,
+                DefaultResource = appointment.ResourceName,
+                IsActive = true
+            };
+        }
+
+        return rows.Values
+            .OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(item => item.DurationMinutes);
+    }
+
+    private static string StableHash(string value)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value.Trim().ToUpperInvariant()));
+        return Convert.ToHexString(bytes, 0, 6).ToLowerInvariant();
     }
 
     private void ClearEditor()
@@ -5103,6 +7585,24 @@ public partial class MainWindow : Window
                 _data.Customers.Count(item => item.LastSeenAt.Date <= DateTime.Today.AddDays(-30)),
                 _data.Appointments.Count(item => item.Status == AppointmentStatus.NoShow && item.Start.Date >= DateTime.Today.AddDays(-60)),
                 _data.Appointments.Count(item => item.Status == AppointmentStatus.Scheduled && item.Start.Date >= DateTime.Today));
+        }
+    }
+
+    private void MarketingInput_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is TextBox textBox)
+        {
+            textBox.SelectAll();
+        }
+    }
+
+    private void MarketingInput_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is TextBox { IsKeyboardFocusWithin: false } textBox)
+        {
+            e.Handled = true;
+            textBox.Focus();
+            textBox.SelectAll();
         }
     }
 
@@ -5888,6 +8388,10 @@ public partial class MainWindow : Window
         MarketingView.Visibility = showMarketing ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = showSettings ? Visibility.Visible : Visibility.Collapsed;
         AgendaWorkspaceView.Visibility = showAgenda ? Visibility.Visible : Visibility.Collapsed;
+        if (showAgenda)
+        {
+            ResetAgendaWorkspaceScroll();
+        }
 
         HomeSidebarButton.Style = (Style)FindResource(showHome ? "SidebarMenuButtonActive" : "SidebarMenuButton");
         EstablishmentSidebarButton.Style = (Style)FindResource(showEstablishment ? "SidebarMenuButtonActive" : "SidebarMenuButton");
@@ -5946,6 +8450,7 @@ public partial class MainWindow : Window
         if (showFinance)
         {
             RefreshFinancePage();
+            Dispatcher.BeginInvoke(() => FinanceView.ScrollToTop(), DispatcherPriority.Background);
         }
 
         if (showReports)
@@ -5967,27 +8472,499 @@ public partial class MainWindow : Window
     private void ToggleSidebarButton_Click(object sender, RoutedEventArgs e)
     {
         _sidebarCollapsed = !_sidebarCollapsed;
-        SidebarColumn.Width = new GridLength(_sidebarCollapsed ? 72 : 230);
+        SidebarColumn.Width = new GridLength(_sidebarCollapsed ? 72 : 260);
         SidebarExpandedPanel.Visibility = _sidebarCollapsed ? Visibility.Collapsed : Visibility.Visible;
         SidebarCollapsedPanel.Visibility = _sidebarCollapsed ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void OpenOnboardingFromSettingsButton_Click(object sender, RoutedEventArgs e)
+    private void EditRegistrationButton_Click(object sender, RoutedEventArgs e)
     {
-        ShowOnboarding();
+        var form = ShowRegistrationEditorDialog();
+        if (form is null)
+        {
+            return;
+        }
+
+        ApplyRegistrationEditorForm(form);
+        ShowStatus("Cadastro atualizado.");
+    }
+
+    private RegistrationEditorForm? ShowRegistrationEditorDialog()
+    {
+        var initialName = FirstFilled(_data.Settings.AccountFullName, BusinessDisplayName());
+        var initialPhone = FirstFilled(_data.Settings.AccountPhone, _data.Settings.BusinessPhone);
+        var initialSegment = FirstFilled(_data.Settings.BusinessSegment, "Barbearia");
+
+        var dialog = new Window
+        {
+            Title = "Editar cadastro",
+            Owner = this,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.NoResize,
+            Width = 760,
+            Height = 680,
+            Background = Brushes.White
+        };
+        dialog.PreviewKeyDown += AppointmentEditorForm_PreviewKeyDown;
+
+        var content = new DockPanel { LastChildFill = true, Background = Solid("#F8FAFC") };
+        var header = CreateRegistrationDialogHeader();
+        DockPanel.SetDock(header, Dock.Top);
+        content.Children.Add(header);
+
+        var footerErrorText = new TextBlock
+        {
+            Foreground = Solid("#DC2626"),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 16, 0)
+        };
+        var cancelButton = new Button
+        {
+            Content = "Cancelar",
+            Style = (Style)FindResource("GhostButton"),
+            Height = 40,
+            MinWidth = 112,
+            IsCancel = true,
+            Margin = new Thickness(0, 0, 10, 0)
+        };
+        var saveButton = new Button
+        {
+            Content = "Salvar cadastro",
+            Style = (Style)FindResource("CommandButton"),
+            Height = 40,
+            MinWidth = 150,
+            IsDefault = true
+        };
+        var footerGrid = new Grid();
+        footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var footerActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Children = { cancelButton, saveButton }
+        };
+        Grid.SetColumn(footerActions, 1);
+        footerGrid.Children.Add(footerErrorText);
+        footerGrid.Children.Add(footerActions);
+        var footer = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = LineBrush,
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(22, 14, 22, 16),
+            Child = footerGrid
+        };
+        DockPanel.SetDock(footer, Dock.Bottom);
+        content.Children.Add(footer);
+
+        var body = new StackPanel { Margin = new Thickness(22, 20, 22, 20) };
+        var cardsGrid = new Grid { Margin = new Thickness(0, 0, 0, 14) };
+        cardsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        cardsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var ownerBody = new StackPanel();
+        var ownerNameBox = AddRegistrationTextField(ownerBody, "Nome completo", initialName, "Ex: Isabella Gomes");
+        var ownerPhoneBox = AddRegistrationTextField(ownerBody, "Celular / WhatsApp", FormatCustomerPhoneInput(initialPhone), "Ex: (33) 99800-7983");
+        var emailBox = AddRegistrationTextField(ownerBody, "E-mail", _data.Settings.AccountEmail, "Ex: contato@empresa.com");
+        var ownerCard = CreateRegistrationCard("Responsável", "Quem administra a agenda.", PackIconKind.AccountCircleOutline, Solid("#EAF1FF"), AccentBrush, ownerBody);
+        ownerCard.Margin = new Thickness(0, 0, 8, 0);
+        cardsGrid.Children.Add(ownerCard);
+
+        var businessBody = new StackPanel();
+        var businessNameBox = AddRegistrationTextField(businessBody, "Nome do negócio", BusinessDisplayName(), "Ex: Marquinho Barbearia");
+        var segmentBox = AddRegistrationComboField(businessBody, "Segmento", BusinessRegistrationSegmentOptions(), initialSegment, editable: false);
+        var documentBox = AddRegistrationTextField(businessBody, "CPF / CNPJ", FormatDocumentInput(_data.Settings.BusinessDocument), "Ex: 123.456.789-00");
+        var businessCard = CreateRegistrationCard("Estabelecimento", "Dados exibidos no sistema.", PackIconKind.StorefrontOutline, Solid("#EAFBF2"), Solid("#16A34A"), businessBody);
+        businessCard.Margin = new Thickness(8, 0, 0, 0);
+        Grid.SetColumn(businessCard, 1);
+        cardsGrid.Children.Add(businessCard);
+        body.Children.Add(cardsGrid);
+
+        var addressBody = new StackPanel();
+        var addressBox = AddRegistrationTextField(addressBody, "Endereço do negócio", _data.Settings.BusinessAddress, "Rua, número, bairro e cidade", multiline: true);
+        body.Children.Add(CreateRegistrationCard("Localização", "Endereço de referência do negócio.", PackIconKind.MapMarkerOutline, Solid("#F3E8FF"), Solid("#7C3AED"), addressBody));
+
+        content.Children.Add(new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = body
+        });
+        dialog.Content = content;
+
+        foreach (var control in new Control[] { ownerNameBox, ownerPhoneBox, emailBox, businessNameBox, segmentBox, documentBox, addressBox })
+        {
+            control.GotKeyboardFocus += (_, _) => footerErrorText.Visibility = Visibility.Collapsed;
+        }
+
+        ownerNameBox.LostFocus += (_, _) => ownerNameBox.Text = ToNameCase(ownerNameBox.Text);
+        businessNameBox.LostFocus += (_, _) => businessNameBox.Text = ToNameCase(businessNameBox.Text);
+        ownerPhoneBox.TextChanged += DialogPhoneTextBox_TextChanged;
+        ownerPhoneBox.LostFocus += DialogPhoneTextBox_LostFocus;
+        documentBox.TextChanged += DialogDocumentTextBox_TextChanged;
+        documentBox.LostFocus += DialogDocumentTextBox_LostFocus;
+
+        RegistrationEditorForm? result = null;
+        saveButton.Click += (_, _) =>
+        {
+            var ownerName = ToNameCase(ownerNameBox.Text);
+            if (string.IsNullOrWhiteSpace(ownerName))
+            {
+                SetDialogError(footerErrorText, "Informe o nome completo do responsável.");
+                ownerNameBox.Focus();
+                return;
+            }
+
+            var businessName = ToNameCase(businessNameBox.Text);
+            if (string.IsNullOrWhiteSpace(businessName))
+            {
+                SetDialogError(footerErrorText, "Informe o nome do negócio.");
+                businessNameBox.Focus();
+                return;
+            }
+
+            if (!TryNormalizeCustomerPhone(ownerPhoneBox.Text, out var phone, out var phoneError))
+            {
+                SetDialogError(footerErrorText, phoneError);
+                ownerPhoneBox.Focus();
+                return;
+            }
+
+            var email = emailBox.Text.Trim();
+            if (!string.IsNullOrWhiteSpace(email) && !LooksLikeEmail(email))
+            {
+                SetDialogError(footerErrorText, "Informe um e-mail válido ou deixe em branco.");
+                emailBox.Focus();
+                return;
+            }
+
+            if (!TryFormatBusinessDocument(documentBox.Text, out var document, out var documentError))
+            {
+                SetDialogError(footerErrorText, documentError);
+                documentBox.Focus();
+                return;
+            }
+
+            var segment = DialogComboText(segmentBox, initialSegment);
+            if (string.IsNullOrWhiteSpace(segment))
+            {
+                SetDialogError(footerErrorText, "Selecione o segmento do negócio.");
+                segmentBox.Focus();
+                return;
+            }
+
+            result = new RegistrationEditorForm(
+                ownerName,
+                phone,
+                email,
+                businessName,
+                segment,
+                document,
+                addressBox.Text.Trim());
+            dialog.DialogResult = true;
+        };
+
+        ownerNameBox.Focus();
+        return dialog.ShowDialog() == true ? result : null;
+    }
+
+    private Border CreateRegistrationDialogHeader()
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        grid.Children.Add(new Border
+        {
+            Width = 48,
+            Height = 48,
+            Background = AccentBrush,
+            CornerRadius = new CornerRadius(14),
+            Margin = new Thickness(0, 0, 14, 0),
+            Child = new PackIcon
+            {
+                Kind = PackIconKind.AccountEditOutline,
+                Foreground = Brushes.White,
+                Width = 25,
+                Height = 25,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+
+        var titleStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = "Editar cadastro",
+            Foreground = InkBrush,
+            FontSize = 23,
+            FontWeight = FontWeights.Bold
+        });
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = "Atualize os dados salvos sem voltar para as páginas iniciais.",
+            Foreground = MutedBrush,
+            FontSize = 12.5,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 3, 0, 0)
+        });
+        Grid.SetColumn(titleStack, 1);
+        grid.Children.Add(titleStack);
+
+        var badge = new Border
+        {
+            Background = Solid("#EFF6FF"),
+            BorderBrush = Solid("#BBD7FF"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(18),
+            Padding = new Thickness(12, 6, 12, 6),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = "Sem reiniciar",
+                Foreground = AccentBrush,
+                FontSize = 12,
+                FontWeight = FontWeights.Bold
+            }
+        };
+        Grid.SetColumn(badge, 2);
+        grid.Children.Add(badge);
+
+        return new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = LineBrush,
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(22, 18, 22, 18),
+            Child = grid
+        };
+    }
+
+    private Border CreateRegistrationCard(string title, string subtitle, PackIconKind icon, Brush iconBackground, Brush iconForeground, UIElement content)
+    {
+        var card = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = Solid("#E4ECF8"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(16),
+            Effect = new DropShadowEffect
+            {
+                BlurRadius = 18,
+                ShadowDepth = 5,
+                Opacity = 0.06,
+                Color = Color.FromRgb(15, 23, 42)
+            }
+        };
+
+        var stack = new StackPanel();
+        var header = new Grid { Margin = new Thickness(0, 0, 0, 14) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.Children.Add(new Border
+        {
+            Width = 38,
+            Height = 38,
+            Background = iconBackground,
+            CornerRadius = new CornerRadius(12),
+            Margin = new Thickness(0, 0, 10, 0),
+            Child = new PackIcon
+            {
+                Kind = icon,
+                Foreground = iconForeground,
+                Width = 20,
+                Height = 20,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+
+        var headerText = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        headerText.Children.Add(new TextBlock
+        {
+            Text = title,
+            Foreground = InkBrush,
+            FontSize = 16,
+            FontWeight = FontWeights.Bold
+        });
+        headerText.Children.Add(new TextBlock
+        {
+            Text = subtitle,
+            Foreground = MutedBrush,
+            FontSize = 11.5,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 2, 0, 0)
+        });
+        Grid.SetColumn(headerText, 1);
+        header.Children.Add(headerText);
+        stack.Children.Add(header);
+        stack.Children.Add(content);
+        card.Child = stack;
+        return card;
+    }
+
+    private TextBox AddRegistrationTextField(StackPanel body, string label, string value, string hint, bool multiline = false)
+    {
+        body.Children.Add(new TextBlock
+        {
+            Text = label,
+            Foreground = MutedBrush,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 5)
+        });
+
+        var input = new TextBox
+        {
+            Text = value,
+            Tag = hint,
+            Style = (Style)FindResource(multiline ? "AppointmentMessageBox" : "AppointmentInputBox"),
+            Height = multiline ? 70 : 39,
+            MinWidth = 220,
+            BorderBrush = Solid("#D8E4F2"),
+            Foreground = InkBrush,
+            TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
+            AcceptsReturn = multiline,
+            Margin = new Thickness(0, 0, 0, 11)
+        };
+        body.Children.Add(input);
+        return input;
+    }
+
+    private ComboBox AddRegistrationComboField<T>(StackPanel body, string label, IEnumerable<T> items, object? selected, bool editable)
+    {
+        body.Children.Add(new TextBlock
+        {
+            Text = label,
+            Foreground = MutedBrush,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 5)
+        });
+
+        var combo = new ComboBox
+        {
+            ItemsSource = items.ToList(),
+            SelectedItem = selected,
+            IsEditable = editable,
+            Height = 39,
+            MinWidth = 220,
+            Padding = new Thickness(12, 0, 12, 0),
+            BorderBrush = Solid("#D8E4F2"),
+            Foreground = InkBrush,
+            Margin = new Thickness(0, 0, 0, 11)
+        };
+        if (selected is string selectedText && editable)
+        {
+            combo.Text = selectedText;
+        }
+
+        body.Children.Add(combo);
+        return combo;
+    }
+
+    private void ApplyRegistrationEditorForm(RegistrationEditorForm form)
+    {
+        var previousSegment = _data.Settings.BusinessSegment;
+        var template = ResolveBusinessTemplate(form.BusinessSegment);
+        var nextSegment = template.Segment;
+
+        _data.Settings.AccountFullName = form.OwnerName;
+        _data.Settings.AccountPhone = form.Phone;
+        _data.Settings.AccountEmail = form.Email;
+        _data.Settings.BusinessName = form.BusinessName;
+        _data.Settings.BusinessPhone = form.Phone;
+        _data.Settings.BusinessDocument = form.Document;
+        _data.Settings.BusinessAddress = form.Address;
+        _data.Settings.BusinessSegment = nextSegment;
+        _data.Settings.ClientLabel = template.ClientLabel;
+        _data.Settings.ClientDetailLabel = template.ClientDetailLabel;
+        _data.Settings.ResourceLabel = template.ResourceLabel;
+        _data.Settings.OnboardingCompleted = true;
+
+        if (_data.Settings.Resources.Count == 0)
+        {
+            _data.Settings.Resources = [.. template.Resources];
+        }
+
+        if (!string.IsNullOrWhiteSpace(previousSegment) &&
+            !previousSegment.Equals(nextSegment, StringComparison.OrdinalIgnoreCase))
+        {
+            RenameSegmentForExistingData(previousSegment, nextSegment);
+            _selectedSegmentFilter = AllSegments;
+        }
+
+        _store.Save(_data);
+        ConfigureOnboardingInputs();
+        ConfigureInputs();
+        ApplyBusinessLabels();
+        RefreshAll();
+        ShowMainPage(MainPage.Settings);
+    }
+
+    private IEnumerable<string> BusinessRegistrationSegmentOptions()
+    {
+        var options = new List<string>
+        {
+            "Barbearia",
+            "Salão de Beleza",
+            "Centro de Estética",
+            "Esmalteria",
+            "Podologia",
+            "Spa",
+            "Clínica médica",
+            "Petshop",
+            "Oficina",
+            "Outro segmento"
+        };
+
+        if (!string.IsNullOrWhiteSpace(_data.Settings.BusinessSegment) &&
+            !options.Any(item => item.Equals(_data.Settings.BusinessSegment, StringComparison.OrdinalIgnoreCase)))
+        {
+            options.Insert(0, _data.Settings.BusinessSegment);
+        }
+
+        return options;
+    }
+
+    private void RenameSegmentForExistingData(string previousSegment, string nextSegment)
+    {
+        foreach (var service in _data.Services.Where(item => item.Segment.Equals(previousSegment, StringComparison.OrdinalIgnoreCase)))
+        {
+            service.Segment = nextSegment;
+        }
+
+        foreach (var professional in _data.Professionals)
+        {
+            for (var index = 0; index < professional.Segments.Count; index++)
+            {
+                if (professional.Segments[index].Equals(previousSegment, StringComparison.OrdinalIgnoreCase))
+                {
+                    professional.Segments[index] = nextSegment;
+                }
+            }
+        }
+
+        foreach (var customer in _data.Customers.Where(item => item.Segment.Equals(previousSegment, StringComparison.OrdinalIgnoreCase)))
+        {
+            customer.Segment = nextSegment;
+        }
+
+        foreach (var appointment in _data.Appointments.Where(item => item.Segment.Equals(previousSegment, StringComparison.OrdinalIgnoreCase)))
+        {
+            appointment.Segment = nextSegment;
+        }
     }
 
     private void ExitCurrentSystemButton_Click(object sender, RoutedEventArgs e)
     {
-        var result = MessageBox.Show(
-            this,
-            "Você vai sair da agenda atual e voltar para a configuração inicial.\n\nOs dados atuais continuam salvos neste computador. Eles só serão substituídos se você criar outra agenda.",
-            "Sair do sistema",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning,
-            MessageBoxResult.No);
-
-        if (result != MessageBoxResult.Yes)
+        if (!ShowExitSystemConfirmation())
         {
             return;
         }
@@ -6039,6 +9016,161 @@ public partial class MainWindow : Window
         ShowStatus("Você saiu do sistema atual. Escolha um setor para iniciar outra agenda.");
     }
 
+    private bool ShowExitSystemConfirmation()
+    {
+        var dialog = new Window
+        {
+            Owner = this,
+            Title = "Sair do sistema",
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            WindowStyle = WindowStyle.None,
+            AllowsTransparency = true,
+            ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            Background = Brushes.Transparent
+        };
+
+        var cancelButton = new Button
+        {
+            Content = "Cancelar",
+            Style = (Style)FindResource("GhostButton"),
+            Height = 40,
+            MinWidth = 128,
+            IsCancel = true,
+            Margin = new Thickness(0, 0, 10, 0)
+        };
+
+        var confirmButton = new Button
+        {
+            Content = "Sair agora",
+            Style = (Style)FindResource("ExitButton"),
+            Height = 40,
+            MinWidth = 128,
+            IsDefault = true
+        };
+
+        cancelButton.Click += (_, _) => dialog.DialogResult = false;
+        confirmButton.Click += (_, _) => dialog.DialogResult = true;
+
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 18, 0, 0),
+            Children = { cancelButton, confirmButton }
+        };
+
+        var content = new Border
+        {
+            Width = 500,
+            Background = Brushes.White,
+            BorderBrush = LineBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(18),
+            Padding = new Thickness(22),
+            Effect = new DropShadowEffect
+            {
+                BlurRadius = 30,
+                ShadowDepth = 8,
+                Opacity = 0.18,
+                Color = Color.FromRgb(15, 23, 42)
+            },
+            Child = new StackPanel
+            {
+                Children =
+                {
+                    new Grid
+                    {
+                        ColumnDefinitions =
+                        {
+                            new ColumnDefinition { Width = new GridLength(56) },
+                            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }
+                        },
+                        Children =
+                        {
+                            new Border
+                            {
+                                Width = 44,
+                                Height = 44,
+                                Background = Solid("#FEE2E2"),
+                                CornerRadius = new CornerRadius(12),
+                                VerticalAlignment = VerticalAlignment.Top,
+                                Child = new PackIcon
+                                {
+                                    Kind = PackIconKind.Logout,
+                                    Width = 24,
+                                    Height = 24,
+                                    Foreground = Solid("#DC2626"),
+                                    HorizontalAlignment = HorizontalAlignment.Center,
+                                    VerticalAlignment = VerticalAlignment.Center
+                                }
+                            },
+                            new StackPanel
+                            {
+                                Margin = new Thickness(4, 0, 0, 0),
+                                Children =
+                                {
+                                    new TextBlock
+                                    {
+                                        Text = "Sair do sistema?",
+                                        Foreground = InkBrush,
+                                        FontSize = 22,
+                                        FontWeight = FontWeights.Bold
+                                    },
+                                    new TextBlock
+                                    {
+                                        Text = "Você vai voltar para a configuração inicial.",
+                                        Foreground = MutedBrush,
+                                        FontSize = 13,
+                                        TextWrapping = TextWrapping.Wrap,
+                                        Margin = new Thickness(0, 4, 0, 0)
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    new Border
+                    {
+                        Background = Solid("#F8FAFC"),
+                        BorderBrush = LineBrush,
+                        BorderThickness = new Thickness(1),
+                        CornerRadius = new CornerRadius(12),
+                        Padding = new Thickness(14, 12, 14, 12),
+                        Margin = new Thickness(0, 18, 0, 0),
+                        Child = new StackPanel
+                        {
+                            Children =
+                            {
+                                new TextBlock
+                                {
+                                    Text = "Seus dados continuam salvos neste computador.",
+                                    Foreground = InkBrush,
+                                    FontSize = 14,
+                                    FontWeight = FontWeights.Bold,
+                                    TextWrapping = TextWrapping.Wrap
+                                },
+                                new TextBlock
+                                {
+                                    Text = "Eles só serão substituídos se você criar outra agenda.",
+                                    Foreground = MutedBrush,
+                                    FontSize = 12.5,
+                                    TextWrapping = TextWrapping.Wrap,
+                                    Margin = new Thickness(0, 4, 0, 0)
+                                }
+                            }
+                        }
+                    },
+                    actions
+                }
+            }
+        };
+
+        Grid.SetColumn((FrameworkElement)((Grid)((StackPanel)content.Child).Children[0]).Children[1], 1);
+        dialog.Content = content;
+        return dialog.ShowDialog() == true;
+    }
+
     private void RefreshSettingsSummary()
     {
         var businessParts = new[]
@@ -6050,9 +9182,9 @@ public partial class MainWindow : Window
         }.Where(part => !string.IsNullOrWhiteSpace(part));
 
         SettingsBusinessText.Text = string.Join(" | ", businessParts);
-        ServicesCountText.Text = $"{_data.Services.Count} serviÃ§o(s) cadastrados";
+        ServicesCountText.Text = $"{_data.Services.Count} serviço(s) cadastrados";
         ProfessionalsCountText.Text = $"{_data.Professionals.Count} profissional(is) cadastrados";
-        ResourcesCountText.Text = $"{_data.Settings.Resources.Count} sala(s) ou recurso(s)";
+        ResourcesCountText.Text = $"{_data.Settings.WorkdayStartHour:00}:00 às {_data.Settings.WorkdayEndHour:00}:00";
         RefreshMercadoPagoSettingsSummary();
     }
 
@@ -6063,7 +9195,7 @@ public partial class MainWindow : Window
         {
             SettingsMercadoPagoStatusText.Text = "Desativado";
             SettingsMercadoPagoStatusText.Foreground = MutedBrush;
-            SettingsMercadoPagoDetailText.Text = "Ative em Configurações para liberar crédito/débito pela maquininha no registro de pagamento.";
+            SettingsMercadoPagoDetailText.Text = "Ative cartão na maquininha.";
             return;
         }
 
@@ -6071,7 +9203,7 @@ public partial class MainWindow : Window
         {
             SettingsMercadoPagoStatusText.Text = "Ativado, falta conectar";
             SettingsMercadoPagoStatusText.Foreground = Solid("#D97706");
-            SettingsMercadoPagoDetailText.Text = "Mercado Pago ativado, mas a conta da loja ainda precisa ser conectada para cobrar na Point.";
+            SettingsMercadoPagoDetailText.Text = "Conecte a conta da loja.";
             return;
         }
 
@@ -6079,13 +9211,13 @@ public partial class MainWindow : Window
         {
             SettingsMercadoPagoStatusText.Text = "Conectado, sem Point";
             SettingsMercadoPagoStatusText.Foreground = Solid("#D97706");
-            SettingsMercadoPagoDetailText.Text = "Conta conectada. Escolha uma maquininha Point para liberar cartão no financeiro.";
+            SettingsMercadoPagoDetailText.Text = "Escolha a Point da loja.";
             return;
         }
 
         SettingsMercadoPagoStatusText.Text = "Maquininha pronta";
         SettingsMercadoPagoStatusText.Foreground = Solid("#16A34A");
-        SettingsMercadoPagoDetailText.Text = $"Cartão será enviado para {terminal}. O pagamento só registra quando o Mercado Pago aprovar.";
+        SettingsMercadoPagoDetailText.Text = $"Point: {terminal}.";
     }
 
     private void OpenMercadoPagoSettingsButton_Click(object sender, RoutedEventArgs e)
@@ -6690,7 +9822,7 @@ public partial class MainWindow : Window
         {
             ServiceCombo.SelectedItem = existing;
             RefreshSettingsSummary();
-            ShowStatus($"ServiÃ§o jÃ¡ existia e foi selecionado: {existing.Name}.");
+            ShowStatus($"Serviço já existia e foi selecionado: {existing.Name}.");
             return;
         }
 
@@ -6717,7 +9849,7 @@ public partial class MainWindow : Window
         ApplyServiceDefaults(service);
         RefreshSettingsSummary();
         RefreshAll();
-        ShowStatus($"ServiÃ§o criado: {service.Name}.");
+        ShowStatus($"Serviço criado: {service.Name}.");
     }
 
     private void CreateProfessionalButton_Click(object sender, RoutedEventArgs e)
@@ -6783,6 +9915,51 @@ public partial class MainWindow : Window
         ResourceCombo.SelectedItem = _resourceOptions.FirstOrDefault(item => item.Equals(resourceName, StringComparison.OrdinalIgnoreCase));
         RefreshSettingsSummary();
         ShowStatus($"Recurso criado: {resourceName}.");
+    }
+
+    private void OpenBusinessHoursButton_Click(object sender, RoutedEventArgs e)
+    {
+        var shell = CreateEditorDialog("Horários de atendimento", "Configure o horário padrão usado para montar a agenda.", "Salvar horários");
+        shell.Dialog.Width = 620;
+
+        AddDialogSection(shell.Body, "Funcionamento", "Esses horários definem as janelas livres exibidas na agenda.");
+        var hourOptions = Enumerable.Range(6, 18)
+            .Select(hour => $"{hour:00}:00")
+            .ToList();
+        var columns = AddDialogColumns(shell.Body);
+        var startBox = AddDialogComboField(columns.Left, "Abre", hourOptions, $"{_data.Settings.WorkdayStartHour:00}:00", editable: false);
+        var endBox = AddDialogComboField(columns.Right, "Fecha", hourOptions, $"{_data.Settings.WorkdayEndHour:00}:00", editable: false);
+
+        shell.PrimaryButton.Click += (_, _) =>
+        {
+            var start = ParseHourOption(startBox.SelectedItem?.ToString() ?? startBox.Text);
+            var end = ParseHourOption(endBox.SelectedItem?.ToString() ?? endBox.Text);
+            if (start < 0 || end < 0 || end <= start)
+            {
+                SetDialogError(shell.ErrorText, "O horário de fechamento precisa ser depois da abertura.");
+                return;
+            }
+
+            _data.Settings.WorkdayStartHour = start;
+            _data.Settings.WorkdayEndHour = end;
+            _store.Save(_data);
+            RefreshAll();
+            shell.Dialog.DialogResult = true;
+            ShowStatus($"Horários atualizados: {start:00}:00 às {end:00}:00.");
+        };
+
+        shell.Dialog.ShowDialog();
+    }
+
+    private static int ParseHourOption(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return -1;
+        }
+
+        var hourPart = value.Trim().Split(':')[0];
+        return int.TryParse(hourPart, NumberStyles.Integer, Brazil, out var hour) ? hour : -1;
     }
 
     private string CurrentEditorSegment()
@@ -6859,6 +10036,19 @@ public partial class MainWindow : Window
         method.Equals(MercadoPagoCreditMethod, StringComparison.OrdinalIgnoreCase) ||
         method.Equals(MercadoPagoDebitMethod, StringComparison.OrdinalIgnoreCase);
 
+    private IEnumerable<string> CustomerTagOptions()
+    {
+        var savedTags = _data.Customers
+            .SelectMany(customer => (customer.Tags ?? "")
+                .Split([',', ';', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Where(tag => !string.IsNullOrWhiteSpace(tag));
+
+        return savedTags
+            .Concat(["VIP", "Recorrente", "Primeira visita", "Retorno", "Pós-venda", "Preferencial", "Aniversariante", "Fiado", "Atrasado", "Não chamar"])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(tag => tag);
+    }
+
     private static string MercadoPagoPointMethodCode(string method) =>
         method.Equals(MercadoPagoDebitMethod, StringComparison.OrdinalIgnoreCase) ? "DEBITO" : "CREDITO";
 
@@ -6888,23 +10078,54 @@ public partial class MainWindow : Window
             existing is null ? "Criar cliente" : "Editar cliente",
             "Cadastro completo para agenda, WhatsApp e histórico.",
             existing is null ? "Salvar cliente" : "Salvar alterações");
-        shell.Dialog.Width = 820;
-        AddDialogSection(shell.Body, "Dados do cliente", "Informações usadas na agenda, histórico e WhatsApp.");
+        shell.Dialog.Width = 640;
+        shell.Dialog.MaxHeight = 690;
+        shell.Body.MinWidth = 0;
+        shell.Body.Width = 562;
+        shell.Body.Margin = new Thickness(18, 0, 18, 0);
+        shell.PrimaryButton.Height = 38;
+        shell.PrimaryButton.MinWidth = 154;
+
+        AddCustomerEditorSummary(shell.Body, initialName, initialPhone, initialSegment, existing?.AcceptsWhatsApp ?? true);
+        AddDialogInlineSection(shell.Body, PackIconKind.AccountOutline, "Dados do cliente", "Contato usado na agenda, histórico e WhatsApp.");
         var identityRow = AddDialogColumns(shell.Body);
         var nameBox = AddDialogTextField(identityRow.Left, "Nome do cliente", initialName, "Ex: Maria Silva");
-        var phoneBox = AddDialogTextField(identityRow.Right, "WhatsApp principal", initialPhone, "Ex: (27) 99999-0000");
+        var phoneBox = AddDialogTextField(identityRow.Right, "WhatsApp principal", FormatCustomerPhoneInput(initialPhone), "Ex: (27) 99999-0000");
 
         var contactRow = AddDialogColumns(shell.Body);
         var emailBox = AddDialogTextField(contactRow.Left, "E-mail", existing?.Email ?? "", "Ex: cliente@email.com");
-        var documentBox = AddDialogTextField(contactRow.Right, "CPF / documento", existing?.Document ?? "", "Ex: 123.456.789-00");
+        var documentBox = AddDialogTextField(contactRow.Right, "CPF / documento", FormatDocumentInput(existing?.Document ?? ""), "Ex: 123.456.789-00");
 
-        AddDialogSection(shell.Body, "Atendimento", "Preferências e observações para a equipe.");
+        AddDialogInlineSection(shell.Body, PackIconKind.CalendarClock, "Atendimento", "Preferências rápidas para reconhecer o cliente no atendimento.");
         var segmentRow = AddDialogColumns(shell.Body);
         var segmentCombo = AddDialogComboField(segmentRow.Left, "Segmento", GetAvailableSegments(), initialSegment, editable: false);
-        var tagsBox = AddDialogTextField(segmentRow.Right, "Tags", existing?.Tags ?? "", "Ex: VIP, recorrente, pós-venda");
+        var tagsBox = AddDialogComboField(segmentRow.Right, "Tags", CustomerTagOptions(), existing?.Tags ?? "", editable: true);
         var profileBox = AddDialogTextField(shell.Body, _data.Settings.ClientDetailLabel, initialProfile, "Preferência, observação, paciente, pet ou veículo", multiline: true);
         var notesBox = AddDialogTextField(shell.Body, "Observações internas", existing?.Notes ?? "", "Ex: horário preferido, restrições, combinado financeiro", multiline: true);
         var whatsAppCheck = AddDialogCheckBox(shell.Body, "Pode receber confirmação e retorno pelo WhatsApp", existing?.AcceptsWhatsApp ?? true);
+
+        foreach (var control in new Control[] { nameBox, phoneBox, emailBox, documentBox, segmentCombo, tagsBox })
+        {
+            control.Height = 36;
+            control.FontSize = 12.5;
+            control.Margin = new Thickness(0, 3, 0, 9);
+        }
+
+        profileBox.Height = 56;
+        profileBox.FontSize = 12.5;
+        profileBox.Padding = new Thickness(10, 7, 10, 7);
+        profileBox.Margin = new Thickness(0, 3, 0, 9);
+        notesBox.Height = 56;
+        notesBox.FontSize = 12.5;
+        notesBox.Padding = new Thickness(10, 7, 10, 7);
+        notesBox.Margin = new Thickness(0, 3, 0, 9);
+        whatsAppCheck.Margin = new Thickness(0, 0, 0, 6);
+        whatsAppCheck.FontSize = 12.5;
+
+        phoneBox.TextChanged += DialogPhoneTextBox_TextChanged;
+        phoneBox.LostFocus += DialogPhoneTextBox_LostFocus;
+        documentBox.TextChanged += DialogDocumentTextBox_TextChanged;
+        documentBox.LostFocus += DialogDocumentTextBox_LostFocus;
 
         CustomerEditorForm? result = null;
         shell.PrimaryButton.Click += (_, _) =>
@@ -6917,14 +10138,28 @@ public partial class MainWindow : Window
                 return;
             }
 
+            if (!TryNormalizeCustomerPhone(phoneBox.Text, out var formattedPhone, out var phoneError))
+            {
+                SetDialogError(shell.ErrorText, phoneError);
+                phoneBox.Focus();
+                return;
+            }
+
+            if (!TryFormatBusinessDocument(documentBox.Text, out var formattedDocument, out var documentError))
+            {
+                SetDialogError(shell.ErrorText, documentError);
+                documentBox.Focus();
+                return;
+            }
+
             result = new CustomerEditorForm(
                 customerName,
-                phoneBox.Text.Trim(),
+                formattedPhone,
                 emailBox.Text.Trim(),
-                documentBox.Text.Trim(),
+                formattedDocument,
                 DialogComboText(segmentCombo, initialSegment),
                 profileBox.Text.Trim(),
-                tagsBox.Text.Trim(),
+                DialogComboText(tagsBox, ""),
                 notesBox.Text.Trim(),
                 whatsAppCheck.IsChecked == true);
             shell.Dialog.DialogResult = true;
@@ -6942,31 +10177,69 @@ public partial class MainWindow : Window
         var initialCategory = string.IsNullOrWhiteSpace(existing?.Category)
             ? categoryOptions.FirstOrDefault() ?? ""
             : existing.Category;
+        var initialName = existing?.Name ?? "";
+        var initialDuration = existing?.DurationMinutes ?? ReadCurrentDurationOrDefault();
+        var initialPrice = (existing?.Price ?? 0) > 0 ? existing!.Price.ToString("N2", Brazil) : PriceTextBox.Text.Trim();
+        var initialResource = existing?.DefaultResource ?? CurrentResourceText();
+        var initialIsActive = existing?.IsActive ?? true;
         var shell = CreateEditorDialog(
             existing is null ? "Criar serviço" : "Editar serviço",
             "Defina como o serviço aparece na agenda e no atendimento.",
             existing is null ? "Salvar serviço" : "Salvar alterações");
-        shell.Dialog.Width = 840;
-        AddDialogSection(shell.Body, "Catálogo", "Como o serviço aparece na criação de agendamentos.");
+        shell.Dialog.Width = 640;
+        shell.Dialog.MaxHeight = 700;
+        shell.Body.MinWidth = 0;
+        shell.Body.Width = 562;
+        shell.Body.Margin = new Thickness(18, 0, 18, 0);
+        shell.PrimaryButton.Height = 38;
+        shell.PrimaryButton.MinWidth = 140;
+
+        AddServiceEditorSummary(shell.Body, initialName, initialCategory, initialSegment, initialDuration, initialPrice, initialIsActive);
+        AddDialogInlineSection(shell.Body, PackIconKind.ClipboardText, "Catálogo", "Como o serviço aparece na criação de agendamentos.");
         var catalogRow = AddDialogColumns(shell.Body);
         var segmentCombo = AddDialogComboField(catalogRow.Left, "Tipo de atendimento", GetAvailableSegments(), initialSegment, editable: false);
         var categoryCombo = AddDialogComboField(catalogRow.Right, "Categoria", categoryOptions, initialCategory, editable: true);
-        var nameBox = AddDialogTextField(shell.Body, "Nome do serviço", existing?.Name ?? "", "Ex: Corte masculino, consulta, revisão");
+        var nameBox = AddDialogTextField(shell.Body, "Nome do serviço", initialName, "Ex: Corte masculino, consulta, revisão");
         var descriptionBox = AddDialogTextField(shell.Body, "Descrição para a equipe", existing?.Description ?? "", "Ex: inclui lavagem, avaliação inicial ou checklist", multiline: true);
 
-        AddDialogSection(shell.Body, "Tempo e agenda", "Duração real do atendimento e bloqueios automáticos.");
+        AddDialogInlineSection(shell.Body, PackIconKind.ClockOutline, "Tempo e agenda", "Duração real do atendimento e bloqueios automáticos.");
         var timeRow = AddDialogColumns(shell.Body);
-        var durationBox = AddDialogTextField(timeRow.Left, "Duração em minutos", (existing?.DurationMinutes ?? ReadCurrentDurationOrDefault()).ToString(Brazil), "Ex: 30");
+        var durationBox = AddDialogTextField(timeRow.Left, "Duração em minutos", initialDuration.ToString(Brazil), "Ex: 30");
         var preparationBox = AddDialogTextField(timeRow.Right, "Preparação antes (min)", (existing?.PreparationMinutes ?? 0).ToString(Brazil), "Ex: 5");
         var flowRow = AddDialogColumns(shell.Body);
         var bufferBox = AddDialogTextField(flowRow.Left, "Intervalo após (min)", (existing?.BufferMinutes ?? 0).ToString(Brazil), "Ex: 10");
-        var resourceCombo = AddDialogComboField(flowRow.Right, "Sala, cadeira ou recurso padrão", _data.Settings.Resources, existing?.DefaultResource ?? CurrentResourceText(), editable: true);
+        var resourceCombo = AddDialogComboField(flowRow.Right, "Sala, cadeira ou recurso padrão", _data.Settings.Resources, initialResource, editable: true);
 
-        AddDialogSection(shell.Body, "Preço e equipe", "Valor cobrado e comissão padrão deste serviço.");
+        AddDialogInlineSection(shell.Body, PackIconKind.CashMultiple, "Preço e equipe", "Valor cobrado e comissão padrão deste serviço.");
         var moneyRow = AddDialogColumns(shell.Body);
-        var priceBox = AddDialogTextField(moneyRow.Left, "Valor de venda", (existing?.Price ?? 0) > 0 ? existing!.Price.ToString("N2", Brazil) : PriceTextBox.Text.Trim(), "Ex: 45,00");
+        var priceBox = AddDialogTextField(moneyRow.Left, "Valor de venda", initialPrice, "Ex: 45,00");
         var commissionBox = AddDialogTextField(moneyRow.Right, "Comissão (%)", (existing?.CommissionPercent ?? 0).ToString("N2", Brazil), "Ex: 40");
-        var activeCheck = AddDialogCheckBox(shell.Body, "Serviço ativo para novos agendamentos", existing?.IsActive ?? true);
+        var activeCheck = AddDialogCheckBox(shell.Body, "Serviço ativo para novos agendamentos", initialIsActive);
+
+        foreach (var control in new Control[]
+        {
+            segmentCombo,
+            categoryCombo,
+            nameBox,
+            durationBox,
+            preparationBox,
+            bufferBox,
+            resourceCombo,
+            priceBox,
+            commissionBox
+        })
+        {
+            control.Height = 36;
+            control.FontSize = 12.5;
+            control.Margin = new Thickness(0, 3, 0, 9);
+        }
+
+        descriptionBox.Height = 56;
+        descriptionBox.FontSize = 12.5;
+        descriptionBox.Padding = new Thickness(10, 7, 10, 7);
+        descriptionBox.Margin = new Thickness(0, 3, 0, 9);
+        activeCheck.FontSize = 12.5;
+        activeCheck.Margin = new Thickness(0, 0, 0, 6);
 
         ServiceEditorForm? result = null;
         shell.PrimaryButton.Click += (_, _) =>
@@ -7036,27 +10309,62 @@ public partial class MainWindow : Window
     private ProfessionalEditorForm? ShowProfessionalEditorDialog(string segment, Professional? existing = null)
     {
         var initialSegment = existing?.Segments.FirstOrDefault() ?? segment;
+        var initialName = existing?.Name ?? "";
+        var initialRole = string.IsNullOrWhiteSpace(existing?.Role) ? DefaultRoleForSegment(initialSegment) : existing.Role;
+        var initialPhone = string.IsNullOrWhiteSpace(existing?.Phone) ? "" : FormatCustomerPhoneInput(existing.Phone);
+        var initialDocument = string.IsNullOrWhiteSpace(existing?.Document) ? "" : FormatDocumentInput(existing.Document);
+        var initialIsActive = existing?.IsActive ?? true;
         var shell = CreateEditorDialog(
             existing is null ? "Criar profissional" : "Editar profissional",
             "Cadastre quem atende e em qual agenda ele aparece.",
             existing is null ? "Salvar profissional" : "Salvar alterações");
-        shell.Dialog.Width = 820;
-        AddDialogSection(shell.Body, "Identificação", "Dados usados na agenda e no cadastro da equipe.");
+        shell.Dialog.Width = 640;
+        shell.Dialog.MaxHeight = 690;
+        shell.Body.MinWidth = 0;
+        shell.Body.Width = 562;
+        shell.Body.Margin = new Thickness(18, 0, 18, 0);
+        shell.PrimaryButton.Height = 38;
+        shell.PrimaryButton.MinWidth = 168;
+
+        AddProfessionalEditorSummary(shell.Body, initialName, initialRole, initialPhone, initialSegment, initialIsActive);
+        AddDialogInlineSection(shell.Body, PackIconKind.AccountTie, "Identificação", "Dados usados na agenda e no cadastro da equipe.");
         var identityRow = AddDialogColumns(shell.Body);
-        var nameBox = AddDialogTextField(identityRow.Left, "Nome do profissional", existing?.Name ?? "", "Ex: Lucas");
-        var roleBox = AddDialogTextField(identityRow.Right, "Função", string.IsNullOrWhiteSpace(existing?.Role) ? DefaultRoleForSegment(initialSegment) : existing.Role, "Ex: Barbeiro, mecânico, dentista");
+        var nameBox = AddDialogTextField(identityRow.Left, "Nome do profissional", initialName, "Ex: Lucas");
+        var roleBox = AddDialogTextField(identityRow.Right, "Função", initialRole, "Ex: Barbeiro, mecânico, dentista");
 
         var contactRow = AddDialogColumns(shell.Body);
-        var phoneBox = AddDialogTextField(contactRow.Left, "Telefone / WhatsApp", existing?.Phone ?? "", "Ex: (27) 99999-0000");
+        var phoneBox = AddDialogTextField(contactRow.Left, "Telefone / WhatsApp", initialPhone, "Ex: (27) 99999-0000");
         var emailBox = AddDialogTextField(contactRow.Right, "E-mail", existing?.Email ?? "", "Ex: profissional@email.com");
 
-        AddDialogSection(shell.Body, "Agenda e financeiro", "Segmento atendido, documento e comissão padrão.");
+        AddDialogInlineSection(shell.Body, PackIconKind.CashMultiple, "Agenda e financeiro", "Segmento atendido, documento e comissão padrão.");
         var agendaRow = AddDialogColumns(shell.Body);
         var segmentCombo = AddDialogComboField(agendaRow.Left, "Segmento atendido", GetAvailableSegments(), initialSegment, editable: false);
-        var documentBox = AddDialogTextField(agendaRow.Right, "CPF / documento", existing?.Document ?? "", "Ex: 123.456.789-00");
-        var commissionBox = AddDialogTextField(shell.Body, "Comissão padrão (%)", (existing?.CommissionPercent ?? 0).ToString("N2", Brazil), "Ex: 40");
+        var documentBox = AddDialogTextField(agendaRow.Right, "CPF / documento", initialDocument, "Ex: 123.456.789-00");
+
+        var financeRow = AddDialogColumns(shell.Body);
+        var commissionBox = AddDialogTextField(financeRow.Left, "Comissão padrão (%)", (existing?.CommissionPercent ?? 0).ToString("N2", Brazil), "Ex: 40");
+        var activeCheck = AddDialogCheckBox(financeRow.Right, "Profissional ativo na agenda", initialIsActive);
         var notesBox = AddDialogTextField(shell.Body, "Observações internas", existing?.Notes ?? "", "Ex: folgas, especialidades, restrições de horário", multiline: true);
-        var activeCheck = AddDialogCheckBox(shell.Body, "Profissional ativo na agenda", existing?.IsActive ?? true);
+
+        foreach (var control in new Control[] { nameBox, roleBox, phoneBox, emailBox, segmentCombo, documentBox, commissionBox })
+        {
+            control.Height = 36;
+            control.FontSize = 12.5;
+            control.Margin = new Thickness(0, 3, 0, 9);
+        }
+
+        notesBox.Height = 56;
+        notesBox.FontSize = 12.5;
+        notesBox.Padding = new Thickness(10, 7, 10, 7);
+        notesBox.Margin = new Thickness(0, 3, 0, 9);
+        activeCheck.FontSize = 12.5;
+        activeCheck.Margin = new Thickness(0, 28, 0, 9);
+
+        phoneBox.TextChanged += DialogPhoneTextBox_TextChanged;
+        phoneBox.LostFocus += DialogPhoneTextBox_LostFocus;
+        documentBox.TextChanged += DialogDocumentTextBox_TextChanged;
+        documentBox.LostFocus += DialogDocumentTextBox_LostFocus;
+        commissionBox.LostFocus += DialogPercentTextBox_LostFocus;
 
         ProfessionalEditorForm? result = null;
         shell.PrimaryButton.Click += (_, _) =>
@@ -7069,7 +10377,21 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (!TryReadDialogMoney(commissionBox, allowZero: true, out var commission) || commission > 100)
+            if (!TryNormalizeCustomerPhone(phoneBox.Text, out var phone, out var phoneError))
+            {
+                SetDialogError(shell.ErrorText, phoneError);
+                phoneBox.Focus();
+                return;
+            }
+
+            if (!TryFormatBusinessDocument(documentBox.Text, out var document, out var documentError))
+            {
+                SetDialogError(shell.ErrorText, documentError);
+                documentBox.Focus();
+                return;
+            }
+
+            if (!TryReadDialogPercent(commissionBox, out var commission))
             {
                 SetDialogError(shell.ErrorText, "Informe uma comissão entre 0 e 100%.");
                 commissionBox.Focus();
@@ -7079,9 +10401,9 @@ public partial class MainWindow : Window
             result = new ProfessionalEditorForm(
                 professionalName,
                 string.IsNullOrWhiteSpace(roleBox.Text) ? DefaultRoleForSegment(initialSegment) : roleBox.Text.Trim(),
-                phoneBox.Text.Trim(),
+                phone,
                 emailBox.Text.Trim(),
-                documentBox.Text.Trim(),
+                document,
                 commission,
                 DialogComboText(segmentCombo, initialSegment),
                 notesBox.Text.Trim(),
@@ -7212,7 +10534,14 @@ public partial class MainWindow : Window
     private PaymentEditorForm? ShowPaymentEditorDialog()
     {
         var shell = CreateEditorDialog("Registrar pagamento", "Lance um recebimento avulso no financeiro.", "Registrar pagamento");
-        shell.Dialog.Width = 760;
+        shell.Dialog.Width = 640;
+        shell.Dialog.MaxHeight = 720;
+        shell.Body.MinWidth = 0;
+        shell.Body.Width = 580;
+        shell.Body.Margin = new Thickness(20, 0, 20, 0);
+        shell.PrimaryButton.Height = 38;
+        shell.PrimaryButton.MinWidth = 154;
+
         AddDialogSection(shell.Body, "Recebimento", "Identifique de onde veio o valor.");
         var mainRow = AddDialogColumns(shell.Body);
         var descriptionBox = AddDialogTextField(mainRow.Left, "Descrição", "Pagamento avulso", "Ex: Sinal de agendamento");
@@ -7221,9 +10550,29 @@ public partial class MainWindow : Window
         var paymentRow = AddDialogColumns(shell.Body);
         var categoryBox = AddDialogComboField(paymentRow.Left, "Categoria", new[] { "Agendamento", "Produto", "Sinal", "Mensalidade", "Ajuste", "Outro" }, "Agendamento", editable: true);
         var methodBox = AddDialogComboField(paymentRow.Right, "Forma de pagamento", PaymentMethodOptions(), "Pix", editable: true);
-        AddDialogInfoCard(shell.Body, "Mercado Pago na maquininha", MercadoPagoPaymentHintText(), IsMercadoPagoPointReady() ? "#DCFCE7" : "#FFF7ED", IsMercadoPagoPointReady() ? "#16A34A" : "#D97706");
-        var valueBox = AddDialogTextField(shell.Body, "Valor recebido", "0,00", "Ex: 80,00");
+
+        var moneyRow = AddDialogColumns(shell.Body);
+        var valueBox = AddDialogTextField(moneyRow.Left, "Valor recebido", "0,00", "Ex: 80,00");
+        AddDialogInfoCard(moneyRow.Right, "Maquininha", MercadoPagoPaymentHintText(), IsMercadoPagoPointReady() ? "#DCFCE7" : "#FFF7ED", IsMercadoPagoPointReady() ? "#16A34A" : "#D97706");
         var notesBox = AddDialogTextField(shell.Body, "Observações", "", "Ex: pago antecipado, comprovante enviado, ajuste manual", multiline: true);
+
+        foreach (var control in new Control[] { descriptionBox, customerBox, categoryBox, methodBox })
+        {
+            control.Height = 38;
+            control.FontSize = 13;
+            control.Margin = new Thickness(0, 3, 0, 10);
+        }
+
+        descriptionBox.Padding = new Thickness(10, 6, 10, 6);
+        valueBox.Height = 48;
+        valueBox.FontSize = 18;
+        valueBox.FontWeight = FontWeights.Bold;
+        valueBox.Padding = new Thickness(12, 8, 12, 8);
+        valueBox.Margin = new Thickness(0, 3, 0, 10);
+        notesBox.Height = 66;
+        notesBox.FontSize = 13;
+        notesBox.Padding = new Thickness(10, 7, 10, 7);
+        notesBox.Margin = new Thickness(0, 3, 0, 8);
 
         PaymentEditorForm? result = null;
         shell.PrimaryButton.Click += async (_, _) =>
@@ -7530,7 +10879,7 @@ public partial class MainWindow : Window
 
         var scroll = new ScrollViewer
         {
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Content = new StackPanel
             {
@@ -7550,15 +10899,14 @@ public partial class MainWindow : Window
         {
             Text = value,
             Tag = hint,
-            Height = multiline ? 88 : 42,
+            Style = (Style)FindResource(multiline ? "AppointmentMessageBox" : "AppointmentInputBox"),
+            Height = multiline ? 76 : 40,
             MinWidth = 240,
-            Padding = new Thickness(12, multiline ? 9 : 7, 12, 7),
             BorderBrush = LineBrush,
             Foreground = InkBrush,
             TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
             AcceptsReturn = multiline,
-            VerticalContentAlignment = multiline ? VerticalAlignment.Top : VerticalAlignment.Center,
-            Margin = new Thickness(0, 4, 0, 12)
+            Margin = new Thickness(0, 5, 0, 12)
         };
         body.Children.Add(input);
         return input;
@@ -7601,6 +10949,301 @@ public partial class MainWindow : Window
         grid.Children.Add(right);
         body.Children.Add(grid);
         return (left, right);
+    }
+
+    private void AddCustomerEditorSummary(StackPanel body, string name, string phone, string segment, bool acceptsWhatsApp)
+    {
+        var displayName = FirstFilled(name, "Novo cliente");
+        var displayPhone = FirstFilled(FormatCustomerPhoneInput(phone), "WhatsApp não informado");
+        var displaySegment = FirstFilled(segment, _data.Settings.BusinessSegment, "Cliente");
+
+        var card = new Border
+        {
+            Background = Solid("#F8FBFF"),
+            BorderBrush = Solid("#D7E3F3"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(14),
+            Margin = new Thickness(0, 0, 0, 14)
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        grid.Children.Add(new Border
+        {
+            Width = 44,
+            Height = 44,
+            Background = acceptsWhatsApp ? Solid("#DCFCE7") : AccentSoftBrush,
+            CornerRadius = new CornerRadius(14),
+            Margin = new Thickness(0, 0, 12, 0),
+            Child = new TextBlock
+            {
+                Text = InitialsFor(displayName),
+                Foreground = acceptsWhatsApp ? Solid("#16A34A") : AccentBrush,
+                FontSize = 13,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+
+        var textStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        textStack.Children.Add(new TextBlock
+        {
+            Text = displayName,
+            Foreground = InkBrush,
+            FontSize = 15,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        textStack.Children.Add(new TextBlock
+        {
+            Text = $"{displayPhone}  |  {displaySegment}",
+            Foreground = MutedBrush,
+            FontSize = 11.5,
+            Margin = new Thickness(0, 3, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        Grid.SetColumn(textStack, 1);
+        grid.Children.Add(textStack);
+
+        var status = new Border
+        {
+            Background = acceptsWhatsApp ? Solid("#DCFCE7") : GraySoftBrush,
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(9, 4, 9, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = acceptsWhatsApp ? "WhatsApp ativo" : "Sem retorno",
+                Foreground = acceptsWhatsApp ? Solid("#16A34A") : MutedBrush,
+                FontSize = 10.5,
+                FontWeight = FontWeights.Bold
+            }
+        };
+        Grid.SetColumn(status, 2);
+        grid.Children.Add(status);
+
+        card.Child = grid;
+        body.Children.Add(card);
+    }
+
+    private void AddProfessionalEditorSummary(StackPanel body, string name, string role, string phone, string segment, bool isActive)
+    {
+        var displayName = FirstFilled(name, "Novo profissional");
+        var displayRole = FirstFilled(role, DefaultRoleForSegment(segment), "Equipe");
+        var displayPhone = FirstFilled(FormatCustomerPhoneInput(phone), "WhatsApp não informado");
+        var displaySegment = FirstFilled(segment, _data.Settings.BusinessSegment, "Agenda");
+
+        var card = new Border
+        {
+            Background = Solid("#FFF7FB"),
+            BorderBrush = Solid("#FBCFE8"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(14),
+            Margin = new Thickness(0, 0, 0, 14)
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        grid.Children.Add(new Border
+        {
+            Width = 44,
+            Height = 44,
+            Background = Solid("#FCE7F3"),
+            CornerRadius = new CornerRadius(14),
+            Margin = new Thickness(0, 0, 12, 0),
+            Child = new TextBlock
+            {
+                Text = InitialsFor(displayName),
+                Foreground = Solid("#DB2777"),
+                FontSize = 13,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+
+        var textStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        textStack.Children.Add(new TextBlock
+        {
+            Text = displayName,
+            Foreground = InkBrush,
+            FontSize = 15,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        textStack.Children.Add(new TextBlock
+        {
+            Text = $"{displayRole}  |  {displaySegment}  |  {displayPhone}",
+            Foreground = MutedBrush,
+            FontSize = 11.5,
+            Margin = new Thickness(0, 3, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        Grid.SetColumn(textStack, 1);
+        grid.Children.Add(textStack);
+
+        var status = new Border
+        {
+            Background = isActive ? Solid("#DCFCE7") : GraySoftBrush,
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(9, 4, 9, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = isActive ? "Ativo" : "Inativo",
+                Foreground = isActive ? Solid("#16A34A") : MutedBrush,
+                FontSize = 10.5,
+                FontWeight = FontWeights.Bold
+            }
+        };
+        Grid.SetColumn(status, 2);
+        grid.Children.Add(status);
+
+        card.Child = grid;
+        body.Children.Add(card);
+    }
+
+    private void AddServiceEditorSummary(
+        StackPanel body,
+        string name,
+        string category,
+        string segment,
+        int durationMinutes,
+        string price,
+        bool isActive)
+    {
+        var displayName = FirstFilled(name, "Novo serviço");
+        var displayCategory = FirstFilled(category, "Atendimento");
+        var displaySegment = FirstFilled(segment, _data.Settings.BusinessSegment, "Agenda");
+        var displayPrice = FirstFilled(price, "0,00");
+
+        var card = new Border
+        {
+            Background = Solid("#F8FBFF"),
+            BorderBrush = Solid("#D7E3F3"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(14),
+            Margin = new Thickness(0, 0, 0, 14)
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        grid.Children.Add(new Border
+        {
+            Width = 44,
+            Height = 44,
+            Background = AccentSoftBrush,
+            CornerRadius = new CornerRadius(14),
+            Margin = new Thickness(0, 0, 12, 0),
+            Child = new PackIcon
+            {
+                Kind = PackIconKind.ClipboardText,
+                Width = 20,
+                Height = 20,
+                Foreground = AccentBrush,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+
+        var textStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        textStack.Children.Add(new TextBlock
+        {
+            Text = displayName,
+            Foreground = InkBrush,
+            FontSize = 15,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        textStack.Children.Add(new TextBlock
+        {
+            Text = $"{displayCategory}  |  {displaySegment}  |  {durationMinutes} min  |  R$ {displayPrice}",
+            Foreground = MutedBrush,
+            FontSize = 11.5,
+            Margin = new Thickness(0, 3, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        Grid.SetColumn(textStack, 1);
+        grid.Children.Add(textStack);
+
+        var status = new Border
+        {
+            Background = isActive ? Solid("#DCFCE7") : GraySoftBrush,
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(9, 4, 9, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = isActive ? "Ativo" : "Inativo",
+                Foreground = isActive ? Solid("#16A34A") : MutedBrush,
+                FontSize = 10.5,
+                FontWeight = FontWeights.Bold
+            }
+        };
+        Grid.SetColumn(status, 2);
+        grid.Children.Add(status);
+
+        card.Child = grid;
+        body.Children.Add(card);
+    }
+
+    private static void AddDialogInlineSection(StackPanel body, PackIconKind icon, string title, string subtitle)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 6, 0, 10) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        grid.Children.Add(new Border
+        {
+            Width = 30,
+            Height = 30,
+            Background = AccentSoftBrush,
+            CornerRadius = new CornerRadius(10),
+            Margin = new Thickness(0, 0, 10, 0),
+            Child = new PackIcon
+            {
+                Kind = icon,
+                Width = 16,
+                Height = 16,
+                Foreground = AccentBrush,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+
+        var textStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        textStack.Children.Add(new TextBlock
+        {
+            Text = title,
+            Foreground = InkBrush,
+            FontSize = 14,
+            FontWeight = FontWeights.Bold
+        });
+        textStack.Children.Add(new TextBlock
+        {
+            Text = subtitle,
+            Foreground = MutedBrush,
+            FontSize = 11.5,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 1, 0, 0)
+        });
+        Grid.SetColumn(textStack, 1);
+        grid.Children.Add(textStack);
+
+        body.Children.Add(grid);
     }
 
     private static void AddDialogSection(StackPanel body, string title, string subtitle)
@@ -7710,6 +11353,28 @@ public partial class MainWindow : Window
 
     private static bool TryReadDialogMoney(TextBox textBox, bool allowZero, out decimal value) =>
         TryParseMoney(textBox.Text, out value) && (allowZero ? value >= 0 : value > 0);
+
+    private static bool TryReadDialogPercent(TextBox textBox, out decimal value)
+    {
+        value = 0;
+        var text = (textBox.Text ?? "").Trim().Replace("%", "", StringComparison.Ordinal);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return true;
+        }
+
+        var parsed =
+            decimal.TryParse(text, NumberStyles.Number, Brazil, out value) ||
+            decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out value);
+        if (!parsed || value < 0 || value > 100)
+        {
+            value = 0;
+            return false;
+        }
+
+        value = Math.Round(value, 2, MidpointRounding.AwayFromZero);
+        return true;
+    }
 
     private static bool TryReadDialogInt(TextBox textBox, int min, int max, out int value) =>
         int.TryParse(textBox.Text.Trim(), NumberStyles.Integer, Brazil, out value) && value >= min && value <= max;
@@ -8216,6 +11881,192 @@ public partial class MainWindow : Window
         return false;
     }
 
+    private void PhoneTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_formattingCustomerPhone || sender is not TextBox textBox)
+        {
+            return;
+        }
+
+        var original = textBox.Text ?? "";
+        var digitCaret = OnlyDigits(original[..Math.Min(textBox.CaretIndex, original.Length)]).Length;
+        var formatted = FormatCustomerPhoneInput(original);
+        if (formatted == original)
+        {
+            return;
+        }
+
+        _formattingCustomerPhone = true;
+        textBox.Text = formatted;
+        textBox.CaretIndex = CaretIndexAfterDigits(formatted, digitCaret);
+        _formattingCustomerPhone = false;
+    }
+
+    private void PhoneTextBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is not TextBox textBox ||
+            !TryNormalizeCustomerPhone(textBox.Text, out var formatted, out _) ||
+            formatted == textBox.Text)
+        {
+            return;
+        }
+
+        _formattingCustomerPhone = true;
+        textBox.Text = formatted;
+        textBox.CaretIndex = textBox.Text.Length;
+        _formattingCustomerPhone = false;
+    }
+
+    private void DialogPhoneTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_formattingDialogText || sender is not TextBox textBox)
+        {
+            return;
+        }
+
+        var original = textBox.Text ?? "";
+        var digitCaret = OnlyDigits(original[..Math.Min(textBox.CaretIndex, original.Length)]).Length;
+        var formatted = FormatCustomerPhoneInput(original);
+        if (formatted == original)
+        {
+            return;
+        }
+
+        _formattingDialogText = true;
+        textBox.Text = formatted;
+        textBox.CaretIndex = CaretIndexAfterDigits(formatted, digitCaret);
+        _formattingDialogText = false;
+    }
+
+    private void DialogPhoneTextBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is not TextBox textBox ||
+            !TryNormalizeCustomerPhone(textBox.Text, out var formatted, out _) ||
+            formatted == textBox.Text)
+        {
+            return;
+        }
+
+        _formattingDialogText = true;
+        textBox.Text = formatted;
+        textBox.CaretIndex = textBox.Text.Length;
+        _formattingDialogText = false;
+    }
+
+    private void DialogDocumentTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_formattingDialogText || sender is not TextBox textBox)
+        {
+            return;
+        }
+
+        var original = textBox.Text ?? "";
+        var digitCaret = OnlyDigits(original[..Math.Min(textBox.CaretIndex, original.Length)]).Length;
+        var formatted = FormatDocumentInput(original);
+        if (formatted == original)
+        {
+            return;
+        }
+
+        _formattingDialogText = true;
+        textBox.Text = formatted;
+        textBox.CaretIndex = CaretIndexAfterDigits(formatted, digitCaret);
+        _formattingDialogText = false;
+    }
+
+    private void DialogDocumentTextBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is not TextBox textBox ||
+            !TryFormatBusinessDocument(textBox.Text, out var formatted, out _) ||
+            formatted == textBox.Text)
+        {
+            return;
+        }
+
+        _formattingDialogText = true;
+        textBox.Text = formatted;
+        textBox.CaretIndex = textBox.Text.Length;
+        _formattingDialogText = false;
+    }
+
+    private void DialogPercentTextBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is TextBox textBox && TryReadDialogPercent(textBox, out var value))
+        {
+            textBox.Text = value.ToString("N2", Brazil);
+            textBox.CaretIndex = textBox.Text.Length;
+        }
+    }
+
+    private static string FormatCustomerPhoneInput(string text)
+    {
+        var digits = OnlyDigits(text ?? "");
+        if (digits.StartsWith("55", StringComparison.Ordinal) && digits.Length > 11)
+        {
+            digits = digits[2..];
+        }
+
+        if (digits.Length > 11)
+        {
+            digits = digits[..11];
+        }
+
+        return digits.Length switch
+        {
+            0 => "",
+            <= 2 => digits,
+            <= 6 => $"({digits[..2]}) {digits[2..]}",
+            <= 10 => $"({digits[..2]}) {digits.Substring(2, 4)}-{digits[6..]}",
+            _ => $"({digits[..2]}) {digits.Substring(2, 5)}-{digits[7..]}"
+        };
+    }
+
+    private static string FormatDocumentInput(string text)
+    {
+        var digits = OnlyDigits(text ?? "");
+        if (digits.Length > 14)
+        {
+            digits = digits[..14];
+        }
+
+        return digits.Length switch
+        {
+            0 => "",
+            <= 3 => digits,
+            <= 6 => $"{digits[..3]}.{digits[3..]}",
+            <= 9 => $"{digits[..3]}.{digits.Substring(3, 3)}.{digits[6..]}",
+            <= 11 => $"{digits[..3]}.{digits.Substring(3, 3)}.{digits.Substring(6, 3)}-{digits[9..]}",
+            <= 12 => $"{digits[..2]}.{digits.Substring(2, 3)}.{digits.Substring(5, 3)}/{digits[8..]}",
+            <= 14 => $"{digits[..2]}.{digits.Substring(2, 3)}.{digits.Substring(5, 3)}/{digits.Substring(8, 4)}-{digits[12..]}",
+            _ => digits
+        };
+    }
+
+    private static int CaretIndexAfterDigits(string text, int digitCount)
+    {
+        if (digitCount <= 0)
+        {
+            return 0;
+        }
+
+        var seen = 0;
+        for (var index = 0; index < text.Length; index++)
+        {
+            if (!char.IsDigit(text[index]))
+            {
+                continue;
+            }
+
+            seen++;
+            if (seen >= digitCount)
+            {
+                return index + 1;
+            }
+        }
+
+        return text.Length;
+    }
+
     private bool TryReadDuration(out int duration)
     {
         duration = 0;
@@ -8261,8 +12112,7 @@ public partial class MainWindow : Window
         appointment.Status is AppointmentStatus.Scheduled
             or AppointmentStatus.Confirmed
             or AppointmentStatus.Waiting
-            or AppointmentStatus.InService
-            or AppointmentStatus.Blocked;
+            or AppointmentStatus.InService;
 
     private void ShowConflict(IReadOnlyCollection<Appointment> conflicts)
     {
@@ -8318,23 +12168,39 @@ public partial class MainWindow : Window
         _syncingSelection = true;
         var dayRow = _dayRows.FirstOrDefault(item => item.Appointment.Id == appointmentId);
         var weekRow = _weekRows.FirstOrDefault(item => item.Appointment.Id == appointmentId);
+        var selectedRow = dayRow ?? weekRow;
 
         DayAgendaList.SelectedItem = dayRow;
         WeekAgendaList.SelectedItem = dayRow is null ? weekRow : null;
         _syncingSelection = false;
+
+        if (selectedRow is null && _selectedAppointment?.Id == appointmentId)
+        {
+            _selectedAppointment = null;
+            SelectedAppointmentCard.Visibility = Visibility.Collapsed;
+        }
     }
 
     private void DateFilterButton_Click(object sender, RoutedEventArgs e)
     {
-        var menu = new ContextMenu();
+        var menu = new ContextMenu
+        {
+            MinWidth = 168,
+            Padding = new Thickness(4),
+            Background = Brushes.White,
+            BorderBrush = LineBrush,
+            BorderThickness = new Thickness(1)
+        };
         var today = DateTime.Today;
-        for (var offset = -2; offset <= 21; offset++)
+        for (var offset = -1; offset <= 7; offset++)
         {
             var date = today.AddDays(offset);
             var item = new MenuItem
             {
                 Header = DateShortcutLabel(date),
-                FontWeight = date.Date == _selectedDate.Date ? FontWeights.Bold : FontWeights.Normal
+                FontWeight = date.Date == _selectedDate.Date ? FontWeights.Bold : FontWeights.Normal,
+                FontSize = 13,
+                Padding = new Thickness(12, 8, 12, 8)
             };
             item.Click += (_, _) => SelectDate(date);
             menu.Items.Add(item);
@@ -8403,12 +12269,19 @@ public partial class MainWindow : Window
 
     private void ScheduleAppointment_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (sender is not FrameworkElement { Tag: Appointment appointment })
+        if (sender is not FrameworkElement target || target.Tag is not Appointment appointment)
         {
             return;
         }
 
         e.Handled = true;
+        if (IsPreviewAppointment(appointment))
+        {
+            ShowAppointmentInfoPopup(target, appointment);
+            ShowStatus("Agendamento de exemplo aberto para visualização.");
+            return;
+        }
+
         _selectedAppointment = appointment;
 
         _syncingSelection = true;
@@ -8416,9 +12289,748 @@ public partial class MainWindow : Window
         WeekAgendaList.SelectedItem = null;
         _syncingSelection = false;
 
-        LoadEditor(appointment);
-        OpenAppointmentEditorModal();
-        ShowStatus($"{appointment.CustomerName} selecionado no quadro.");
+        ShowAppointmentInfoPopup(target, appointment);
+        ShowStatus($"{appointment.CustomerName} aberto no quadro.");
+    }
+
+    private void ShowAppointmentInfoPopup(FrameworkElement placementTarget, Appointment appointment)
+    {
+        CloseAppointmentInfoPopup();
+
+        var popup = new Popup
+        {
+            PlacementTarget = placementTarget,
+            Placement = PlacementMode.MousePoint,
+            HorizontalOffset = 12,
+            VerticalOffset = 10,
+            AllowsTransparency = true,
+            PopupAnimation = PopupAnimation.Fade,
+            StaysOpen = true
+        };
+
+        popup.Child = CreateAppointmentInfoPopupContent(appointment, popup);
+        _appointmentInfoPopup = popup;
+        popup.Closed += (_, _) => DetachAppointmentInfoOutsideClickHandler();
+        popup.IsOpen = true;
+        AttachAppointmentInfoOutsideClickHandler();
+    }
+
+    private void AttachAppointmentInfoOutsideClickHandler()
+    {
+        DetachAppointmentInfoOutsideClickHandler();
+
+        _appointmentInfoOutsideClickHandler = (_, args) =>
+        {
+            if (_appointmentInfoPopup?.Child is DependencyObject popupChild &&
+                IsDescendantOf(args.OriginalSource as DependencyObject, popupChild))
+            {
+                return;
+            }
+
+            CloseAppointmentInfoPopup();
+        };
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_appointmentInfoPopup?.IsOpen == true && _appointmentInfoOutsideClickHandler is not null)
+            {
+                PreviewMouseDown += _appointmentInfoOutsideClickHandler;
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    private void DetachAppointmentInfoOutsideClickHandler()
+    {
+        if (_appointmentInfoOutsideClickHandler is null)
+        {
+            return;
+        }
+
+        PreviewMouseDown -= _appointmentInfoOutsideClickHandler;
+        _appointmentInfoOutsideClickHandler = null;
+    }
+
+    private void CloseAppointmentInfoPopup()
+    {
+        DetachAppointmentInfoOutsideClickHandler();
+
+        if (_appointmentInfoPopup is null)
+        {
+            return;
+        }
+
+        var popup = _appointmentInfoPopup;
+        _appointmentInfoPopup = null;
+        popup.IsOpen = false;
+    }
+
+    private Border CreateAppointmentInfoPopupContent(Appointment appointment, Popup popup)
+    {
+        var isPreview = IsPreviewAppointment(appointment);
+        var statusAccent = ScheduleAccentFor(appointment.Status);
+        var card = new Border
+        {
+            Width = 306,
+            Background = Brushes.White,
+            BorderBrush = Solid("#DDE7F4"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(14),
+            Effect = new DropShadowEffect
+            {
+                Color = Color.FromRgb(15, 23, 42),
+                BlurRadius = 22,
+                ShadowDepth = 5,
+                Opacity = 0.16
+            }
+        };
+
+        var body = new StackPanel();
+        var header = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        header.Children.Add(new Border
+        {
+            Width = 38,
+            Height = 38,
+            Background = AccentSoftBrush,
+            CornerRadius = new CornerRadius(12),
+            Margin = new Thickness(0, 0, 10, 0),
+            Child = new PackIcon
+            {
+                Kind = PackIconKind.CalendarClock,
+                Width = 19,
+                Height = 19,
+                Foreground = AccentBrush,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+
+        var titleStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = appointment.CustomerName,
+            Foreground = InkBrush,
+            FontSize = 16,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = isPreview ? "Agendamento de exemplo" : "Informações do atendimento",
+            Foreground = MutedBrush,
+            FontSize = 11.5,
+            Margin = new Thickness(0, 2, 0, 0)
+        });
+        Grid.SetColumn(titleStack, 1);
+        header.Children.Add(titleStack);
+
+        var closeButton = new Button
+        {
+            Width = 28,
+            Height = 28,
+            Padding = new Thickness(0),
+            BorderThickness = new Thickness(0),
+            Background = Solid("#F8FAFC"),
+            Cursor = Cursors.Hand,
+            Content = new PackIcon
+            {
+                Kind = PackIconKind.Close,
+                Width = 15,
+                Height = 15,
+                Foreground = MutedBrush
+            }
+        };
+        closeButton.Click += (_, _) => CloseAppointmentInfoPopup();
+        Grid.SetColumn(closeButton, 2);
+        header.Children.Add(closeButton);
+        body.Children.Add(header);
+
+        body.Children.Add(CreateAppointmentInfoRow(PackIconKind.AccountOutline, "Cliente", ClientPopupText(appointment)));
+        body.Children.Add(CreateAppointmentInfoRow(PackIconKind.ContentCut, "Serviço", appointment.ServiceName));
+        body.Children.Add(CreateAppointmentInfoRow(PackIconKind.ClockOutline, "Horário", $"{appointment.Start:HH:mm} - {appointment.End:HH:mm} | {appointment.DurationMinutes} min"));
+        body.Children.Add(CreateAppointmentInfoRow(PackIconKind.Cash, "Valor", appointment.Price.ToString("C", Brazil)));
+
+        if (!string.IsNullOrWhiteSpace(appointment.ResourceName))
+        {
+            body.Children.Add(CreateAppointmentInfoRow(PackIconKind.Seat, "Local", appointment.ResourceName));
+        }
+
+        var footer = new Grid { Margin = new Thickness(0, 12, 0, 0) };
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        footer.Children.Add(new Border
+        {
+            Background = ScheduleCardBackground(appointment.Status),
+            BorderBrush = statusAccent,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(10, 5, 10, 5),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Child = new TextBlock
+            {
+                Text = ScheduleStatusLabel(appointment.Status),
+                Foreground = statusAccent,
+                FontSize = 11,
+                FontWeight = FontWeights.Bold
+            }
+        });
+
+        var editPill = new Border
+        {
+            Background = AccentSoftBrush,
+            BorderBrush = AccentBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(10, 5, 10, 5),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Cursor = Cursors.Hand,
+            Child = new TextBlock
+            {
+                Text = "Editar",
+                Foreground = AccentBrush,
+                FontSize = 11,
+                FontWeight = FontWeights.Bold
+            }
+        };
+        editPill.MouseLeftButtonDown += (_, args) =>
+        {
+            args.Handled = true;
+            OpenAppointmentEditorFromInfoPopup(appointment);
+        };
+        Grid.SetColumn(editPill, 1);
+        footer.Children.Add(editPill);
+
+        body.Children.Add(footer);
+        card.Child = body;
+        return card;
+    }
+
+    private void OpenAppointmentEditorFromInfoPopup(Appointment appointment)
+    {
+        CloseAppointmentInfoPopup();
+        OpenAppointmentQuickEditPopup(appointment);
+    }
+
+    private void OpenAppointmentQuickEditPopup(Appointment appointment)
+    {
+        CloseAppointmentQuickEditPopup();
+
+        var segment = string.IsNullOrWhiteSpace(appointment.Segment)
+            ? GetAvailableSegments()[0]
+            : appointment.Segment;
+        var services = ServicesForEditor(segment).ToList();
+        var selectedService = services.FirstOrDefault(item => !string.IsNullOrWhiteSpace(appointment.ServiceId) &&
+                                                             item.Id.Equals(appointment.ServiceId, StringComparison.OrdinalIgnoreCase))
+                              ?? services.FirstOrDefault(item => item.Name.Equals(appointment.ServiceName, StringComparison.OrdinalIgnoreCase));
+        if (selectedService is null && !string.IsNullOrWhiteSpace(appointment.ServiceName))
+        {
+            selectedService = new ServiceItem
+            {
+                Id = $"quick_{StableHash(appointment.ServiceName)}",
+                Segment = segment,
+                Name = appointment.ServiceName,
+                Category = "Atendimento",
+                DurationMinutes = Math.Clamp(appointment.DurationMinutes, 5, 480),
+                Price = appointment.Price,
+                DefaultResource = appointment.ResourceName,
+                IsActive = true
+            };
+            services.Add(selectedService);
+        }
+
+        var popup = new Popup
+        {
+            Placement = PlacementMode.MousePoint,
+            HorizontalOffset = 12,
+            VerticalOffset = 8,
+            AllowsTransparency = true,
+            PopupAnimation = PopupAnimation.Fade,
+            StaysOpen = true
+        };
+
+        popup.Child = CreateAppointmentQuickEditContent(appointment, popup, services, selectedService);
+        _appointmentQuickEditPopup = popup;
+        popup.Closed += (_, _) => DetachAppointmentQuickEditOutsideClickHandler();
+        popup.IsOpen = true;
+        AttachAppointmentQuickEditOutsideClickHandler();
+    }
+
+    private Border CreateAppointmentQuickEditContent(
+        Appointment appointment,
+        Popup popup,
+        IReadOnlyList<ServiceItem> services,
+        ServiceItem? selectedService)
+    {
+        var isPreview = IsPreviewAppointment(appointment);
+        var card = new Border
+        {
+            Width = 430,
+            Background = Brushes.White,
+            BorderBrush = Solid("#DDE7F4"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(14),
+            Effect = new DropShadowEffect
+            {
+                Color = Color.FromRgb(15, 23, 42),
+                BlurRadius = 22,
+                ShadowDepth = 5,
+                Opacity = 0.16
+            }
+        };
+
+        var body = new StackPanel();
+        var header = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        header.Children.Add(new Border
+        {
+            Width = 34,
+            Height = 34,
+            Background = AccentSoftBrush,
+            CornerRadius = new CornerRadius(10),
+            Margin = new Thickness(0, 0, 10, 0),
+            Child = new PackIcon
+            {
+                Kind = PackIconKind.Pencil,
+                Width = 18,
+                Height = 18,
+                Foreground = AccentBrush,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+
+        var titleStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = "Editar atendimento",
+            Foreground = InkBrush,
+            FontSize = 16,
+            FontWeight = FontWeights.Bold
+        });
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = $"{appointment.CustomerName} | {appointment.Start:HH:mm}",
+            Foreground = MutedBrush,
+            FontSize = 11.5,
+            Margin = new Thickness(0, 2, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        Grid.SetColumn(titleStack, 1);
+        header.Children.Add(titleStack);
+
+        var closeButton = IconOnlyButton(PackIconKind.Close, 28);
+        closeButton.Click += (_, _) => CloseAppointmentQuickEditPopup();
+        Grid.SetColumn(closeButton, 2);
+        header.Children.Add(closeButton);
+        body.Children.Add(header);
+
+        var serviceBox = new ComboBox
+        {
+            ItemsSource = services,
+            SelectedItem = selectedService,
+            DisplayMemberPath = nameof(ServiceItem.DisplayName),
+            Style = (Style)FindResource("OnboardingComboBox"),
+            Height = 36,
+            FontSize = 12.5,
+            Margin = new Thickness(0, 3, 0, 10)
+        };
+        body.Children.Add(FieldBlock("Serviço", serviceBox));
+
+        var row = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(104) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+
+        var datePicker = new DatePicker
+        {
+            SelectedDate = appointment.Start.Date,
+            Height = 36,
+            FontSize = 12.5,
+            Margin = new Thickness(0, 3, 0, 0)
+        };
+        row.Children.Add(FieldBlock("Data", datePicker));
+
+        var timeBox = new ComboBox
+        {
+            ItemsSource = _timeOptions,
+            Text = appointment.Start.ToString("HH:mm", Brazil),
+            IsEditable = true,
+            Style = (Style)FindResource("OnboardingComboBox"),
+            Height = 36,
+            FontSize = 12.5,
+            Margin = new Thickness(0, 3, 0, 0)
+        };
+        Grid.SetColumn(timeBox, 2);
+        row.Children.Add(FieldBlock("Hora", timeBox, 2));
+
+        var durationBox = new ComboBox
+        {
+            ItemsSource = _durationOptions,
+            SelectedItem = _durationOptions.Contains(appointment.DurationMinutes) ? appointment.DurationMinutes : null,
+            Text = appointment.DurationMinutes.ToString(Brazil),
+            IsEditable = true,
+            Style = (Style)FindResource("OnboardingComboBox"),
+            Height = 36,
+            FontSize = 12.5,
+            Margin = new Thickness(0, 3, 0, 0)
+        };
+        Grid.SetColumn(durationBox, 4);
+        row.Children.Add(FieldBlock("Duração", durationBox, 4));
+        body.Children.Add(row);
+
+        var priceBox = new TextBox
+        {
+            Text = appointment.Price.ToString("N2", Brazil),
+            Style = (Style)FindResource("AppointmentInputBox"),
+            Height = 36,
+            FontSize = 12.5,
+            Margin = new Thickness(0, 3, 0, 0)
+        };
+        body.Children.Add(FieldBlock("Valor", priceBox));
+
+        var errorText = new TextBlock
+        {
+            Foreground = Solid("#DC2626"),
+            FontSize = 11.5,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        body.Children.Add(errorText);
+
+        serviceBox.SelectionChanged += (_, _) =>
+        {
+            if (serviceBox.SelectedItem is not ServiceItem service)
+            {
+                return;
+            }
+
+            if (_durationOptions.Contains(service.DurationMinutes))
+            {
+                durationBox.SelectedItem = service.DurationMinutes;
+            }
+            else
+            {
+                durationBox.Text = service.DurationMinutes.ToString(Brazil);
+            }
+
+            priceBox.Text = service.Price.ToString("N2", Brazil);
+        };
+
+        var actions = new Grid { Margin = new Thickness(0, 14, 0, 0) };
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var cancelButton = new Button
+        {
+            Content = "Cancelar",
+            Style = (Style)FindResource("GhostButton"),
+            Height = 34,
+            MinWidth = 84,
+            Padding = new Thickness(10, 0, 10, 0)
+        };
+        cancelButton.Click += (_, _) => CloseAppointmentQuickEditPopup();
+        Grid.SetColumn(cancelButton, 1);
+        actions.Children.Add(cancelButton);
+
+        var saveButton = new Button
+        {
+            Content = isPreview ? "Criar" : "Salvar",
+            Style = (Style)FindResource("CommandButton"),
+            Height = 34,
+            MinWidth = 92,
+            Padding = new Thickness(12, 0, 12, 0)
+        };
+        saveButton.Click += (_, _) => SaveAppointmentQuickEdit(
+            appointment,
+            isPreview,
+            serviceBox,
+            datePicker,
+            timeBox,
+            durationBox,
+            priceBox,
+            errorText);
+        Grid.SetColumn(saveButton, 3);
+        actions.Children.Add(saveButton);
+        body.Children.Add(actions);
+
+        card.Child = body;
+        return card;
+    }
+
+    private StackPanel FieldBlock(string label, Control field, int gridColumn = 0)
+    {
+        var stack = new StackPanel();
+        stack.Children.Add(new TextBlock
+        {
+            Text = label,
+            Foreground = MutedBrush,
+            FontSize = 11.5,
+            FontWeight = FontWeights.SemiBold
+        });
+        stack.Children.Add(field);
+        Grid.SetColumn(stack, gridColumn);
+        return stack;
+    }
+
+    private Button IconOnlyButton(PackIconKind icon, double size)
+    {
+        return new Button
+        {
+            Width = size,
+            Height = size,
+            Padding = new Thickness(0),
+            BorderThickness = new Thickness(0),
+            Background = Solid("#F8FAFC"),
+            Cursor = Cursors.Hand,
+            Content = new PackIcon
+            {
+                Kind = icon,
+                Width = 15,
+                Height = 15,
+                Foreground = MutedBrush
+            }
+        };
+    }
+
+    private void SaveAppointmentQuickEdit(
+        Appointment source,
+        bool isPreview,
+        ComboBox serviceBox,
+        DatePicker datePicker,
+        ComboBox timeBox,
+        ComboBox durationBox,
+        TextBox priceBox,
+        TextBlock errorText)
+    {
+        errorText.Visibility = Visibility.Collapsed;
+
+        if (serviceBox.SelectedItem is not ServiceItem service)
+        {
+            ShowQuickEditError(errorText, "Escolha um serviço.");
+            return;
+        }
+
+        if (datePicker.SelectedDate is not DateTime date)
+        {
+            ShowQuickEditError(errorText, "Informe a data.");
+            return;
+        }
+
+        if (!TryParseTime(timeBox.Text, out var time))
+        {
+            ShowQuickEditError(errorText, "Informe a hora no formato 08:30.");
+            return;
+        }
+
+        if (!TryReadQuickDuration(durationBox, out var duration))
+        {
+            ShowQuickEditError(errorText, "Informe duração válida.");
+            return;
+        }
+
+        if (!TryParseMoney(priceBox.Text, out var price) || price < 0)
+        {
+            ShowQuickEditError(errorText, "Informe um valor válido.");
+            return;
+        }
+
+        var start = date.Date.Add(time);
+        var end = start.AddMinutes(duration);
+        var workdayStart = date.Date.AddHours(_data.Settings.WorkdayStartHour);
+        var workdayEnd = date.Date.AddHours(_data.Settings.WorkdayEndHour);
+        if (start < workdayStart || end > workdayEnd)
+        {
+            ShowQuickEditError(errorText, $"Use um horário entre {workdayStart:HH:mm} e {workdayEnd:HH:mm}.");
+            return;
+        }
+
+        var resourceName = string.IsNullOrWhiteSpace(source.ResourceName)
+            ? service.DefaultResource
+            : source.ResourceName;
+        var draft = new AppointmentDraft(
+            string.IsNullOrWhiteSpace(source.Segment) ? service.Segment : source.Segment,
+            source.CustomerName,
+            source.CustomerPhone,
+            source.CustomerProfile,
+            service.Id,
+            service.Name,
+            source.ProfessionalId,
+            source.ProfessionalName,
+            resourceName,
+            start,
+            duration,
+            price,
+            source.Notes);
+
+        var target = isPreview ? null : source;
+        var conflicts = FindConflicts(draft, target?.Id).ToList();
+        if (conflicts.Count > 0)
+        {
+            ShowQuickEditError(errorText, "Já existe atendimento nesse horário.");
+            return;
+        }
+
+        if (target is null)
+        {
+            target = new Appointment
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.Now,
+                Status = source.Status == AppointmentStatus.Blocked ? AppointmentStatus.Scheduled : source.Status
+            };
+            _data.Appointments.Add(target);
+        }
+
+        ApplyDraft(target, draft, target.Status == AppointmentStatus.Blocked ? AppointmentStatus.Scheduled : target.Status);
+        UpsertCustomer(target);
+        CloseAppointmentQuickEditPopup();
+        SaveAndRefresh(target.Id, $"{target.CustomerName} atualizado para {target.Start:HH:mm}.");
+    }
+
+    private static bool TryReadQuickDuration(ComboBox durationBox, out int duration)
+    {
+        duration = 0;
+        if (durationBox.SelectedItem is int selected)
+        {
+            duration = selected;
+            return duration is >= 5 and <= 480;
+        }
+
+        return int.TryParse(durationBox.Text, NumberStyles.Integer, Brazil, out duration) &&
+               duration is >= 5 and <= 480;
+    }
+
+    private static void ShowQuickEditError(TextBlock errorText, string message)
+    {
+        errorText.Text = message;
+        errorText.Visibility = Visibility.Visible;
+    }
+
+    private void AttachAppointmentQuickEditOutsideClickHandler()
+    {
+        DetachAppointmentQuickEditOutsideClickHandler();
+
+        _appointmentQuickEditOutsideClickHandler = (_, args) =>
+        {
+            if (_appointmentQuickEditPopup?.Child is DependencyObject popupChild &&
+                IsDescendantOf(args.OriginalSource as DependencyObject, popupChild))
+            {
+                return;
+            }
+
+            CloseAppointmentQuickEditPopup();
+        };
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_appointmentQuickEditPopup?.IsOpen == true && _appointmentQuickEditOutsideClickHandler is not null)
+            {
+                PreviewMouseDown += _appointmentQuickEditOutsideClickHandler;
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    private void DetachAppointmentQuickEditOutsideClickHandler()
+    {
+        if (_appointmentQuickEditOutsideClickHandler is null)
+        {
+            return;
+        }
+
+        PreviewMouseDown -= _appointmentQuickEditOutsideClickHandler;
+        _appointmentQuickEditOutsideClickHandler = null;
+    }
+
+    private void CloseAppointmentQuickEditPopup()
+    {
+        DetachAppointmentQuickEditOutsideClickHandler();
+
+        if (_appointmentQuickEditPopup is null)
+        {
+            return;
+        }
+
+        var popup = _appointmentQuickEditPopup;
+        _appointmentQuickEditPopup = null;
+        popup.IsOpen = false;
+    }
+
+    private Grid CreateAppointmentInfoRow(PackIconKind icon, string label, string value)
+    {
+        var row = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        row.Children.Add(new Border
+        {
+            Width = 28,
+            Height = 28,
+            Background = Solid("#F3F7FF"),
+            CornerRadius = new CornerRadius(9),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Child = new PackIcon
+            {
+                Kind = icon,
+                Width = 15,
+                Height = 15,
+                Foreground = AccentBrush,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        });
+
+        var stack = new StackPanel();
+        stack.Children.Add(new TextBlock
+        {
+            Text = label,
+            Foreground = MutedBrush,
+            FontSize = 10.5,
+            FontWeight = FontWeights.SemiBold
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = value,
+            Foreground = InkBrush,
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 1, 0, 0)
+        });
+        Grid.SetColumn(stack, 1);
+        row.Children.Add(stack);
+
+        return row;
+    }
+
+    private static string ClientPopupText(Appointment appointment)
+    {
+        var parts = new List<string> { appointment.CustomerName };
+        if (!string.IsNullOrWhiteSpace(appointment.CustomerPhone))
+        {
+            parts.Add(appointment.CustomerPhone);
+        }
+        if (!string.IsNullOrWhiteSpace(appointment.CustomerProfile))
+        {
+            parts.Add(appointment.CustomerProfile);
+        }
+
+        return string.Join(" | ", parts);
     }
 
     private void ScheduleEmptySlot_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -8466,6 +13078,13 @@ public partial class MainWindow : Window
         }
         _syncingSelection = false;
 
+        if (IsPreviewAppointment(row.Appointment))
+        {
+            list.SelectedItem = null;
+            ShowStatus("Este é um agendamento de exemplo para visualizar o layout.");
+            return;
+        }
+
         LoadEditor(row.Appointment);
         OpenAppointmentEditorModal();
         ShowStatus($"{row.CustomerName} selecionado.");
@@ -8492,10 +13111,159 @@ public partial class MainWindow : Window
         }
     }
 
+    private void AgendaModeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string rawTag } || !int.TryParse(rawTag, out var selectedIndex))
+        {
+            return;
+        }
+
+        _agendaModeIndex = Math.Clamp(selectedIndex, 0, 2);
+        UpdateAgendaModeButtons();
+    }
+
+    private void UpdateAgendaModeButtons()
+    {
+        if (AgendaBoardModeButton is null ||
+            AgendaListModeButton is null ||
+            AgendaWeekModeButton is null ||
+            ScheduleBoardPane is null ||
+            DayAgendaList is null ||
+            WeekAgendaPane is null ||
+            WeekAgendaList is null)
+        {
+            return;
+        }
+
+        AgendaBoardModeButton.Style = (Style)FindResource(_agendaModeIndex == 0 ? "ScheduleModeButtonActive" : "ScheduleModeButton");
+        AgendaListModeButton.Style = (Style)FindResource(_agendaModeIndex == 1 ? "ScheduleModeButtonActive" : "ScheduleModeButton");
+        AgendaWeekModeButton.Style = (Style)FindResource(_agendaModeIndex == 2 ? "ScheduleModeButtonActive" : "ScheduleModeButton");
+
+        SetAgendaPaneVisibility(ScheduleBoardPane, _agendaModeIndex == 0);
+        SetAgendaPaneVisibility(DayAgendaList, _agendaModeIndex == 1);
+        SetAgendaPaneVisibility(WeekAgendaPane, _agendaModeIndex == 2);
+        ResetAgendaWorkspaceScroll();
+    }
+
+    private void ResetAgendaWorkspaceScroll()
+    {
+        Dispatcher.BeginInvoke(() => AgendaWorkspaceView.ScrollToTop(), DispatcherPriority.Background);
+    }
+
+    private void AgendaWorkspaceView_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (_agendaModeIndex == 0 && IsDescendantOf(e.OriginalSource as DependencyObject, ScheduleBoardPane))
+        {
+            return;
+        }
+
+        var targetOffset = Math.Clamp(
+            AgendaWorkspaceView.VerticalOffset - e.Delta * 0.85,
+            0,
+            AgendaWorkspaceView.ScrollableHeight);
+        AgendaWorkspaceView.ScrollToVerticalOffset(targetOffset);
+        e.Handled = true;
+    }
+
+    private void ScheduleBoardScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is not ScrollViewer viewer)
+        {
+            return;
+        }
+
+        var targetOffset = Math.Clamp(
+            viewer.VerticalOffset - e.Delta * 0.72,
+            0,
+            viewer.ScrollableHeight);
+        viewer.ScrollToVerticalOffset(targetOffset);
+        e.Handled = true;
+    }
+
+    private void AgendaWorkspaceView_RequestBringIntoView(object sender, RequestBringIntoViewEventArgs e)
+    {
+        e.Handled = true;
+    }
+
+    private static bool IsDescendantOf(DependencyObject? source, DependencyObject? ancestor)
+    {
+        while (source is not null)
+        {
+            if (ReferenceEquals(source, ancestor))
+            {
+                return true;
+            }
+
+            source = ParentOf(source);
+        }
+
+        return false;
+    }
+
+    private static T? FindDataContext<T>(DependencyObject? source)
+        where T : class
+    {
+        while (source is not null)
+        {
+            if (source is FrameworkElement { DataContext: T dataContext })
+            {
+                return dataContext;
+            }
+
+            source = ParentOf(source);
+        }
+
+        return null;
+    }
+
+    private static DependencyObject? ParentOf(DependencyObject source)
+    {
+        if (source is FrameworkElement { Parent: DependencyObject frameworkParent })
+        {
+            return frameworkParent;
+        }
+
+        if (source is FrameworkContentElement { Parent: DependencyObject contentParent })
+        {
+            return contentParent;
+        }
+
+        try
+        {
+            return VisualTreeHelper.GetParent(source);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static void SetAgendaPaneVisibility(UIElement element, bool isVisible)
+    {
+        element.BeginAnimation(OpacityProperty, null);
+
+        if (!isVisible)
+        {
+            element.Opacity = 0;
+            element.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        element.Visibility = Visibility.Visible;
+        element.Opacity = 0;
+        element.BeginAnimation(
+            OpacityProperty,
+            new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            });
+    }
+
     private void NewButton_Click(object sender, RoutedEventArgs e)
     {
         ClearEditor();
-        AgendaTabs.SelectedIndex = 0;
+        _agendaModeIndex = 0;
+        UpdateAgendaModeButtons();
         OpenAppointmentEditorModal();
         ShowStatus("Novo agendamento iniciado.");
     }
@@ -8511,60 +13279,6 @@ public partial class MainWindow : Window
         var summary = BuildSummaryText();
         Clipboard.SetText(summary);
         ShowStatus("Resumo do dia copiado para a Ã¡rea de transferÃªncia.");
-    }
-
-    private void CopyReportButton_Click(object sender, RoutedEventArgs e)
-    {
-        RefreshReportsPage();
-        Clipboard.SetText(BuildReportSummaryText());
-        ShowStatus("Relatório copiado para a área de transferência.");
-    }
-
-    private void ExportReportButton_Click(object sender, RoutedEventArgs e)
-    {
-        RefreshReportsPage();
-        Clipboard.SetText(BuildReportSummaryText());
-        ShowStatus("Relatório exportado como texto para a área de transferência.");
-    }
-
-    private void PrintReportButton_Click(object sender, RoutedEventArgs e)
-    {
-        RefreshReportsPage();
-
-        var document = new FlowDocument
-        {
-            PagePadding = new Thickness(40),
-            FontFamily = new FontFamily("Segoe UI"),
-            FontSize = 12
-        };
-
-        document.Blocks.Add(new Paragraph(new Run($"{BusinessDisplayName()} - Relatórios"))
-        {
-            FontSize = 22,
-            FontWeight = FontWeights.Bold,
-            Margin = new Thickness(0, 0, 0, 8)
-        });
-
-        document.Blocks.Add(new Paragraph(new Run($"Período: {ReportsPeriodText.Text}"))
-        {
-            Foreground = MutedBrush,
-            Margin = new Thickness(0, 0, 0, 16)
-        });
-
-        AddReportSection(document, "Resumo do período", _reportsMetrics.Select(item => $"{item.Label}: {item.Value} - {item.Hint}"));
-        AddReportSection(document, "Leituras rápidas", _reportsInsights.Select(ReportListLine));
-        AddReportSection(document, $"Gráfico - {CurrentReportChartOption()}", _activeReportChartRows.Select(item => $"{item.Label}: {item.ValueText}"));
-        AddReportSection(document, "Serviços mais realizados", _reportsServices.Select(ReportListLine));
-        AddReportSection(document, "Profissionais", _reportsProfessionals.Select(ReportListLine));
-
-        var printDialog = new PrintDialog();
-        if (printDialog.ShowDialog() == true)
-        {
-            document.PageHeight = printDialog.PrintableAreaHeight;
-            document.PageWidth = printDialog.PrintableAreaWidth;
-            printDialog.PrintDocument(((IDocumentPaginatorSource)document).DocumentPaginator, "Relatórios - Balcão Livre");
-            ShowStatus("Relatório enviado para impressão.");
-        }
     }
 
     private void CopyReportButton_Click(object sender, RoutedEventArgs e)
@@ -8897,6 +13611,15 @@ public partial class MainWindow : Window
         Brush BubbleBackground,
         Brush BorderBrush);
 
+    private sealed record RegistrationEditorForm(
+        string OwnerName,
+        string Phone,
+        string Email,
+        string BusinessName,
+        string BusinessSegment,
+        string Document,
+        string Address);
+
     private sealed record CustomerEditorForm(
         string Name,
         string Phone,
@@ -8970,6 +13693,8 @@ public partial class MainWindow : Window
         string PaymentProvider,
         string PaymentReference,
         string PaymentStatus);
+
+    private sealed record FinanceChartPaymentRow(string Name, string Detail, decimal Value);
 
     private sealed record ExpenseEditorForm(
         string Description,
@@ -9135,15 +13860,30 @@ public partial class MainWindow : Window
         public Brush OutlineBrush => LineBrush;
     }
 
-    public sealed record MetricRow(string Label, string Value, string Hint, Brush Background);
+    public sealed record WeekSummaryRow(
+        string WeekDayName,
+        string DayNumber,
+        string DateText,
+        string CountText,
+        string RevenueText,
+        string BusyText,
+        double Percent,
+        Brush AccentBrush,
+        Brush BackgroundBrush,
+        Brush BorderBrush,
+        bool IsSelected);
 
-    public sealed record HomeMetricRow(string Label, string Value, string Hint, Brush Background);
+    public sealed record MetricRow(string Label, string Value, string Hint, Brush Background, PackIconKind Icon, Brush AccentBrush);
 
-    public sealed record HomeAgendaSummaryRow(string Time, string CustomerName, string ServiceName, string StatusText, Brush StatusBackground, Brush StatusForeground);
+    public sealed record HomeMetricRow(string Label, string Value, string Hint, Brush Background, PackIconKind Icon, Brush AccentBrush);
+
+    public sealed record HomeAgendaSummaryRow(string Time, string DurationText, string CustomerName, string ServiceName, string ProfessionalName, string StatusText, Brush StatusBackground, Brush StatusForeground);
+
+    private sealed record HomeScheduleColumn(string Id, string Name, string Detail, string Initials);
 
     public sealed record HomeServiceRow(string Name, string CountText);
 
-    public sealed record HomeCustomerSummaryRow(string Name, string Detail);
+    public sealed record HomeCustomerSummaryRow(string Name, string Detail, string Initials);
 
     public sealed record HomeAlertRow(string Title, string Detail, PackIconKind Icon, Brush AccentBrush, Brush Background, Brush BorderBrush);
 
@@ -9157,7 +13897,13 @@ public partial class MainWindow : Window
         Brush AccentBrush,
         Brush BackgroundBrush);
 
-    public sealed record EstablishmentMetricRow(string Label, string Value, string Hint, Brush Background);
+    public sealed record EstablishmentMetricRow(
+        string Label,
+        string Value,
+        string Hint,
+        Brush Background,
+        PackIconKind Icon,
+        Brush AccentBrush);
 
     public sealed record EstablishmentSectionRow(
         string Title,
@@ -9174,7 +13920,8 @@ public partial class MainWindow : Window
         string BadgeText,
         Brush BadgeBackground,
         Brush BadgeForeground,
-        string Id = "");
+        string Id = "",
+        PackIconKind Icon = PackIconKind.AccountCircleOutline);
 
     public sealed record MarketingContactRow(
         string Name,
@@ -9185,9 +13932,18 @@ public partial class MainWindow : Window
         Brush BadgeBackground,
         Brush BadgeForeground);
 
-    public sealed record ProfessionalDayRow(string Name, string SegmentLine, string LoadText, Brush LoadBrush);
+    public sealed record ProfessionalDayRow(
+        string Name,
+        string SegmentLine,
+        string LoadText,
+        string CountText,
+        double Percent,
+        Brush LoadBrush,
+        Brush AccentBrush,
+        string Initials,
+        bool HasLoad);
 
-    public sealed record RecentCustomerRow(string Name, string Detail);
+    public sealed record RecentCustomerRow(string Name, string Detail, string DateText, string Initials);
 
     private sealed record ScheduleSlot(Professional Professional, DateTime Start);
 
