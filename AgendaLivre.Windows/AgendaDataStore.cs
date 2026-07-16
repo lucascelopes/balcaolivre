@@ -16,9 +16,12 @@ public sealed class AgendaDataStore
 
     public AgendaDataStore()
     {
-        DataRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "AgendaLivre.Windows");
+        var configuredRoot = Environment.GetEnvironmentVariable("AGENDA_LIVRE_DATA_ROOT");
+        DataRoot = string.IsNullOrWhiteSpace(configuredRoot)
+            ? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "AgendaLivre.Windows")
+            : Path.GetFullPath(configuredRoot);
 
         DataPath = Path.Combine(DataRoot, "agenda-data.json");
     }
@@ -62,7 +65,17 @@ public sealed class AgendaDataStore
     {
         Directory.CreateDirectory(DataRoot);
         EnsureUsableData(data);
-        File.WriteAllText(DataPath, JsonSerializer.Serialize(data, JsonOptions));
+        var serialized = JsonSerializer.Serialize(data, JsonOptions);
+        var temporaryPath = $"{DataPath}.tmp";
+        var backupPath = $"{DataPath}.bak";
+
+        File.WriteAllText(temporaryPath, serialized, new UTF8Encoding(false));
+        if (File.Exists(DataPath))
+        {
+            File.Copy(DataPath, backupPath, overwrite: true);
+        }
+
+        File.Move(temporaryPath, DataPath, overwrite: true);
     }
 
     private static void EnsureUsableData(AgendaData data)
@@ -81,6 +94,7 @@ public sealed class AgendaDataStore
         data.Settings.BusinessDocument ??= "";
         data.Settings.BusinessPhone ??= "";
         data.Settings.BusinessAddress ??= "";
+        data.Settings.ThemeId ??= "";
         data.Settings.AccountFullName ??= "";
         data.Settings.AccountPhone ??= "";
         data.Settings.AccountEmail ??= "";
@@ -91,6 +105,16 @@ public sealed class AgendaDataStore
         data.Settings.Street ??= "";
         data.Settings.AddressNumber ??= "";
         data.Settings.AddressComplement ??= "";
+        data.Settings.WhatsAppEvolutionBaseUrl ??= "";
+        data.Settings.WhatsAppEvolutionInstanceName ??= "";
+        data.Settings.WhatsAppEvolutionState ??= "";
+        data.Settings.WhatsAppEvolutionQrBase64 ??= "";
+        data.Settings.InstagramApiUrl ??= "";
+        data.Settings.InstagramUsername ??= "";
+        data.Settings.InstagramDisplayName ??= "";
+        data.Settings.InstagramAccountId ??= "";
+        data.Settings.InstagramState ??= "";
+        data.Settings.InstagramLastError ??= "";
         data.Settings.AccountPasswordHash ??= "";
         data.Settings.Resources ??= [];
         foreach (var professional in data.Professionals)
@@ -119,20 +143,6 @@ public sealed class AgendaDataStore
         if (string.IsNullOrWhiteSpace(data.Settings.ResourceLabel))
         {
             data.Settings.ResourceLabel = "Sala, box ou cadeira";
-        }
-
-        if (data.Services.Count == 0 || data.Professionals.Count == 0)
-        {
-            var seeded = CreateSeedData();
-            if (data.Services.Count == 0)
-            {
-                data.Services.AddRange(seeded.Services);
-            }
-
-            if (data.Professionals.Count == 0)
-            {
-                data.Professionals.AddRange(seeded.Professionals);
-            }
         }
 
         foreach (var service in data.Services.Where(service => string.IsNullOrWhiteSpace(service.Id)))
@@ -179,6 +189,41 @@ public sealed class AgendaDataStore
         {
             message.Id = Guid.NewGuid().ToString("N");
         }
+
+        BackfillCustomersFromAppointments(data);
+    }
+
+    private static void BackfillCustomersFromAppointments(AgendaData data)
+    {
+        foreach (var appointment in data.Appointments
+                     .Where(item => item.Status != AppointmentStatus.Blocked)
+                     .Where(item => !string.IsNullOrWhiteSpace(item.CustomerName)))
+        {
+            var customer = data.Customers.FirstOrDefault(item =>
+                item.Name.Equals(appointment.CustomerName, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(item.Phone) &&
+                 !string.IsNullOrWhiteSpace(appointment.CustomerPhone) &&
+                 item.Phone.Equals(appointment.CustomerPhone, StringComparison.OrdinalIgnoreCase)));
+
+            if (customer is null)
+            {
+                data.Customers.Add(new Customer
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Name = appointment.CustomerName.Trim(),
+                    Phone = (appointment.CustomerPhone ?? "").Trim(),
+                    Segment = appointment.Segment,
+                    Profile = appointment.CustomerProfile,
+                    LastSeenAt = appointment.Start
+                });
+                continue;
+            }
+
+            if (appointment.Start > customer.LastSeenAt)
+            {
+                customer.LastSeenAt = appointment.Start;
+            }
+        }
     }
 
     private static void NormalizeBusinessRules(AgendaData data)
@@ -189,6 +234,28 @@ public sealed class AgendaDataStore
         {
             data.Settings.WorkdayStartHour = 8;
             data.Settings.WorkdayEndHour = 20;
+        }
+
+        data.Settings.Workdays ??= [1, 2, 3, 4, 5, 6];
+        data.Settings.Workdays = data.Settings.Workdays
+            .Where(day => day is >= 0 and <= 6)
+            .Distinct()
+            .OrderBy(day => day == 0 ? 7 : day)
+            .ToList();
+        if (data.Settings.Workdays.Count == 0)
+        {
+            data.Settings.Workdays = [1, 2, 3, 4, 5, 6];
+        }
+
+        data.Settings.WorkdayBreakStartHour = Math.Clamp(data.Settings.WorkdayBreakStartHour, 0, 23);
+        data.Settings.WorkdayBreakEndHour = Math.Clamp(data.Settings.WorkdayBreakEndHour, 1, 24);
+        if (data.Settings.WorkdayBreakEndHour <= data.Settings.WorkdayBreakStartHour ||
+            data.Settings.WorkdayBreakStartHour < data.Settings.WorkdayStartHour ||
+            data.Settings.WorkdayBreakEndHour > data.Settings.WorkdayEndHour)
+        {
+            data.Settings.WorkdayBreakEnabled = false;
+            data.Settings.WorkdayBreakStartHour = Math.Clamp(12, data.Settings.WorkdayStartHour, data.Settings.WorkdayEndHour - 1);
+            data.Settings.WorkdayBreakEndHour = Math.Min(data.Settings.WorkdayEndHour, data.Settings.WorkdayBreakStartHour + 1);
         }
 
         data.Settings.Resources = data.Settings.Resources
@@ -274,6 +341,7 @@ public sealed class AgendaDataStore
         data.Settings.BusinessPhone = RepairText(data.Settings.BusinessPhone);
         data.Settings.BusinessAddress = RepairText(data.Settings.BusinessAddress);
         data.Settings.BusinessSegment = RepairText(data.Settings.BusinessSegment);
+        data.Settings.ThemeId = RepairText(data.Settings.ThemeId);
         data.Settings.ClientLabel = RepairText(data.Settings.ClientLabel);
         data.Settings.ClientDetailLabel = RepairText(data.Settings.ClientDetailLabel);
         data.Settings.ResourceLabel = RepairText(data.Settings.ResourceLabel);
@@ -291,12 +359,32 @@ public sealed class AgendaDataStore
         data.Settings.WhatsAppEvolutionInstanceName = RepairText(data.Settings.WhatsAppEvolutionInstanceName);
         data.Settings.WhatsAppEvolutionState = RepairText(data.Settings.WhatsAppEvolutionState);
         data.Settings.WhatsAppEvolutionQrBase64 = RepairText(data.Settings.WhatsAppEvolutionQrBase64);
+        data.Settings.InstagramApiUrl = RepairText(data.Settings.InstagramApiUrl);
+        data.Settings.InstagramUsername = RepairText(data.Settings.InstagramUsername);
+        data.Settings.InstagramDisplayName = RepairText(data.Settings.InstagramDisplayName);
+        data.Settings.InstagramAccountId = RepairText(data.Settings.InstagramAccountId);
+        data.Settings.InstagramState = RepairText(data.Settings.InstagramState);
+        data.Settings.InstagramLastError = RepairText(data.Settings.InstagramLastError);
         data.Settings.MercadoPagoLicenseKey = RepairText(data.Settings.MercadoPagoLicenseKey);
         data.Settings.MercadoPagoPaymentsApiUrl = RepairText(data.Settings.MercadoPagoPaymentsApiUrl);
         data.Settings.MercadoPagoSellerUserId = RepairText(data.Settings.MercadoPagoSellerUserId);
         data.Settings.MercadoPagoDefaultTerminalId = RepairText(data.Settings.MercadoPagoDefaultTerminalId);
         data.Settings.MercadoPagoDefaultTerminalLabel = RepairText(data.Settings.MercadoPagoDefaultTerminalLabel);
         data.Settings.MercadoPagoLastError = RepairText(data.Settings.MercadoPagoLastError);
+
+        if (string.IsNullOrWhiteSpace(data.Settings.WhatsAppEvolutionBaseUrl)
+            || data.Settings.WhatsAppEvolutionBaseUrl.Contains("/evolution-proxy", StringComparison.OrdinalIgnoreCase))
+        {
+            data.Settings.WhatsAppEvolutionBaseUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/whatsapp";
+            data.Settings.WhatsAppEvolutionState = "";
+            data.Settings.WhatsAppEvolutionQrBase64 = "";
+            data.Settings.WhatsAppLinked = false;
+        }
+
+        if (string.IsNullOrWhiteSpace(data.Settings.InstagramApiUrl))
+        {
+            data.Settings.InstagramApiUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/instagram";
+        }
 
         if (string.IsNullOrWhiteSpace(data.Settings.MercadoPagoPaymentsApiUrl))
         {
@@ -412,8 +500,29 @@ public sealed class AgendaDataStore
 
     private static string RepairText(string value)
     {
-        if (string.IsNullOrEmpty(value) ||
-            (!value.Contains('Ã') && !value.Contains('Â') && !value.Contains('â')))
+        if (string.IsNullOrEmpty(value))
+        {
+            return value;
+        }
+
+        // Older seed files were once written with a replacement character in
+        // these domain labels. The original accent cannot be inferred in the
+        // general case, so repair only the known persisted values.
+        value = value
+            .Replace("Mec�nica", "Mecânica", StringComparison.Ordinal)
+            .Replace("Mec�nico", "Mecânico", StringComparison.Ordinal)
+            .Replace("â€“", "–", StringComparison.Ordinal)
+            .Replace("â€”", "—", StringComparison.Ordinal)
+            .Replace("â€™", "’", StringComparison.Ordinal)
+            .Replace("â€œ", "“", StringComparison.Ordinal)
+            .Replace("â€�", "”", StringComparison.Ordinal)
+            .Replace("â€¢", "•", StringComparison.Ordinal)
+            .Replace("â†’", "→", StringComparison.Ordinal)
+            .Replace("âœ“", "✓", StringComparison.Ordinal);
+
+        // A plain "â" is valid Portuguese (for example, "Mecânica").
+        // Only the leading bytes below are reliable mojibake indicators.
+        if (!value.Contains('Ã') && !value.Contains('Â'))
         {
             return value;
         }

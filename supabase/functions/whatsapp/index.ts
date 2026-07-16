@@ -1,4 +1,23 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  connectEvolutionInstance,
+  createOnboardingStateKey,
+  createEvolutionInstance,
+  decodeEvolutionQrImage,
+  disconnectEvolutionInstance,
+  evolutionConnectionState,
+  evolutionHealth,
+  evolutionInstanceName,
+  extractEvolutionMessages,
+  extractEvolutionQr,
+  findEvolutionMessages,
+  normalizeEvolutionMessageLimit,
+  onboardingProviderFromState,
+  resolveWhatsAppProvider,
+  sendEvolutionText,
+  type EvolutionConfig,
+  type EvolutionQrImage,
+} from "./evolution.ts";
 
 const DEFAULT_GRAPH_VERSION = "v25.0";
 const DEFAULT_ADMIN_BUCKET = "balcao-livre-admin";
@@ -36,12 +55,17 @@ type WhatsAppActivationPayload = ClientPayload & {
 };
 
 type WhatsAppSendPayload = WhatsAppActivationPayload & {
+  messageId?: string;
   customerName?: string;
   customerPhone?: string;
   message?: string;
   boardKind?: string;
   boardNumber?: string;
   total?: number;
+};
+
+type WhatsAppMessagesPayload = ClientPayload & {
+  limit?: unknown;
 };
 
 type WhatsAppStoreConnection = {
@@ -74,6 +98,7 @@ type AdminStore = {
   licenses?: AdminLicense[];
   events?: AdminEvent[];
   whatsAppProcessedMessageIds?: string[];
+  whatsAppProcessedSendIds?: string[];
   whatsAppMetaToken?: string;
 };
 
@@ -178,7 +203,7 @@ type PublicOrderBotSnapshot = {
   updated_at?: string;
 };
 
-Deno.serve(async (req) => {
+Deno.serve((req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -223,6 +248,14 @@ Deno.serve(async (req) => {
       return sendMessage(req);
     }
 
+    if (route === "/messages") {
+      return listMessages(req);
+    }
+
+    if (route === "/disconnect") {
+      return disconnectStorePhone(req);
+    }
+
     return json({ ok: false, message: "Rota WhatsApp nao encontrada." }, 404);
   } catch (error) {
     return json({ ok: false, message: messageFromError(error) }, 500);
@@ -263,7 +296,23 @@ async function receiveWebhook(req: Request) {
   });
 }
 
-async function startOnboarding(url: URL) {
+function startOnboarding(url: URL) {
+  const state = String(url.searchParams.get("state") ?? "").trim();
+  if (onboardingProviderFromState(state) !== "evolution") {
+    return startMetaOnboarding(url);
+  }
+
+  const provider = resolveWhatsAppProvider();
+  if (provider.kind === "invalid") {
+    return text(provider.message, 503);
+  }
+  if (provider.kind !== "evolution") {
+    return text("Evolution nao esta configurada no Supabase.", 503);
+  }
+  return startEvolutionOnboarding(url, provider.config);
+}
+
+async function startMetaOnboarding(url: URL) {
   const state = String(url.searchParams.get("state") ?? "").trim();
   if (!state) {
     return text("Link invalido. Abra a conexao pelo botao WhatsApp dentro do PDV.", 400);
@@ -368,7 +417,17 @@ async function finishOnboarding(stateKey: string, code: string, sessionInfo: Rec
   } };
 }
 
-async function activateStorePhone(req: Request) {
+function activateStorePhone(req: Request) {
+  const provider = resolveWhatsAppProvider();
+  if (provider.kind === "invalid") {
+    return json(fail(provider.message), 503);
+  }
+  return provider.kind === "evolution"
+    ? activateEvolutionStorePhone(req, provider.config)
+    : activateMetaStorePhone(req);
+}
+
+async function activateMetaStorePhone(req: Request) {
   const payload = await readJson(req) as WhatsAppActivationPayload;
   const storePhone = normalizePhone(payload.storePhone);
   if (!storePhone) {
@@ -407,7 +466,39 @@ async function activateStorePhone(req: Request) {
   return json(pending("Abra a conexao Meta para liberar o WhatsApp desse restaurante.", storePhone, onboarding.url));
 }
 
-async function sendMessage(req: Request) {
+function sendMessage(req: Request) {
+  const provider = resolveWhatsAppProvider();
+  if (provider.kind === "invalid") {
+    return json(fail(provider.message), 503);
+  }
+  return provider.kind === "evolution"
+    ? sendEvolutionMessage(req, provider.config)
+    : sendMetaMessage(req);
+}
+
+function listMessages(req: Request) {
+  const provider = resolveWhatsAppProvider();
+  if (provider.kind === "invalid") {
+    return privateJson(fail(provider.message), 503);
+  }
+  if (provider.kind !== "evolution") {
+    return privateJson(fail("Consulta de mensagens disponivel apenas com Evolution."), 503);
+  }
+  return listEvolutionMessages(req, provider.config);
+}
+
+function disconnectStorePhone(req: Request) {
+  const provider = resolveWhatsAppProvider();
+  if (provider.kind === "invalid") {
+    return privateJson(fail(provider.message), 503);
+  }
+  if (provider.kind !== "evolution") {
+    return privateJson(fail("Desconexao disponivel apenas com Evolution."), 503);
+  }
+  return disconnectEvolutionStorePhone(req, provider.config);
+}
+
+async function sendMetaMessage(req: Request) {
   const payload = await readJson(req) as WhatsAppSendPayload;
   const customerPhone = normalizePhone(payload.customerPhone);
   const message = String(payload.message ?? "").trim();
@@ -453,7 +544,17 @@ async function sendMessage(req: Request) {
     : json(fail(sent.message), 502);
 }
 
-async function storeStatus(req: Request) {
+function storeStatus(req: Request) {
+  const provider = resolveWhatsAppProvider();
+  if (provider.kind === "invalid") {
+    return json(fail(provider.message), 503);
+  }
+  return provider.kind === "evolution"
+    ? evolutionStoreStatus(req, provider.config)
+    : metaStoreStatus(req);
+}
+
+async function metaStoreStatus(req: Request) {
   const payload = await readJson(req) as WhatsAppActivationPayload;
   const context = await loadValidatedLicense(payload);
   if (!context.ok) {
@@ -475,6 +576,40 @@ async function storeStatus(req: Request) {
 }
 
 async function health() {
+  const provider = resolveWhatsAppProvider();
+  if (provider.kind === "invalid") {
+    return json({
+      ok: false,
+      provider: "evolution",
+      configured: false,
+      message: provider.message,
+    }, 503);
+  }
+
+  if (provider.kind === "evolution") {
+    const result = await evolutionHealth(provider.config);
+    return result.ok
+      ? json({
+        ok: true,
+        provider: "evolution",
+        configured: true,
+        origin: true,
+        status: result.status,
+      })
+      : json({
+        ok: false,
+        provider: "evolution",
+        configured: true,
+        origin: false,
+        status: result.status,
+        message: result.message,
+      }, 502);
+  }
+
+  return metaHealth();
+}
+
+async function metaHealth() {
   return json({
     ok: true,
     provider: "meta",
@@ -482,6 +617,373 @@ async function health() {
     tokenConfigured: await hasMetaAccessToken(),
     onboardingConfigured: Boolean(metaAppId() && metaAppSecret() && embeddedSignupConfigId()),
   });
+}
+
+async function activateEvolutionStorePhone(req: Request, config: EvolutionConfig) {
+  const payload = await readJson(req) as WhatsAppActivationPayload;
+  const storePhone = normalizePhone(payload.storePhone);
+  if (!storePhone) {
+    return json(fail("Informe o numero do WhatsApp da loja com DDD."), 400);
+  }
+
+  const context = await loadValidatedLicense(payload);
+  if (!context.ok) {
+    return json(fail(context.message), context.status);
+  }
+
+  const instanceName = await evolutionInstanceName(context.licenseKey);
+  const instance = await ensureEvolutionInstance(config, instanceName);
+  if (!instance.ok) {
+    await saveEvolutionError(context, payload, instance.message, "whatsapp.evolution.activate_failed");
+    return json(fail(instance.message), 502);
+  }
+
+  if (instance.state === "open") {
+    const registeredPhone = normalizePhone(context.license.whatsAppPhone);
+    if (!phoneNumbersMatch(registeredPhone, storePhone)) {
+      return json(fail(
+        `Esta licenca ja esta conectada ao WhatsApp ${maskPhone(registeredPhone)}. Desconecte a sessao atual antes de trocar o numero.`,
+      ), 409);
+    }
+    applyEvolutionActive(context.license, storePhone, instanceName);
+    appendEvent(context.store, payload, "whatsapp.evolution.active",
+      `WhatsApp Evolution conectado: ${maskPhone(storePhone)}`);
+    await saveAdminStore(context.store);
+    return json(active("WhatsApp conectado pela Evolution.", storePhone));
+  }
+
+  const onboarding = await createEvolutionOnboardingSession(req, payload, storePhone);
+  applyEvolutionPending(context.license, storePhone, instanceName, onboarding.ok ? "" : onboarding.message);
+  appendEvent(context.store, payload, "whatsapp.evolution.onboarding_required",
+    onboarding.ok
+      ? `WhatsApp aguardando QR Code Evolution: ${maskPhone(storePhone)}`
+      : `WhatsApp Evolution pendente: ${onboarding.message}`);
+  await saveAdminStore(context.store);
+
+  if (!onboarding.ok) {
+    return json(pending(onboarding.message, storePhone), 503);
+  }
+
+  return json(pending(
+    "Abra o QR Code e conecte o WhatsApp desse restaurante.",
+    storePhone,
+    onboarding.url,
+  ));
+}
+
+async function evolutionStoreStatus(req: Request, config: EvolutionConfig) {
+  const payload = await readJson(req) as WhatsAppActivationPayload;
+  const context = await loadValidatedLicense(payload);
+  if (!context.ok) {
+    return json(fail(context.message), context.status);
+  }
+
+  const requestedPhone = normalizePhone(payload.storePhone);
+  const registeredPhone = normalizePhone(context.license.whatsAppPhone);
+  const storePhone = registeredPhone || requestedPhone;
+  const instanceName = await evolutionInstanceName(context.licenseKey);
+  const state = await evolutionConnectionState(config, instanceName);
+  if (state.ok && state.data.state === "open") {
+    if (!phoneNumbersMatch(registeredPhone, requestedPhone)) {
+      return json(fail(
+        `Esta licenca esta conectada ao WhatsApp ${maskPhone(registeredPhone)}.`,
+      ), 409);
+    }
+    applyEvolutionActive(context.license, storePhone, instanceName);
+    appendEvent(context.store, payload, "whatsapp.evolution.active", "WhatsApp Evolution conectado.");
+    await saveAdminStore(context.store);
+    return json(active("WhatsApp conectado pela Evolution.", storePhone));
+  }
+
+  if (!state.ok && !state.notFound) {
+    return json(fail(state.message), 502);
+  }
+
+  const onboarding = storePhone
+    ? await createEvolutionOnboardingSession(req, payload, storePhone)
+    : null;
+  return json(pending(
+    storePhone
+      ? "WhatsApp ainda precisa ser conectado pelo QR Code."
+      : "Informe o numero da loja para conectar WhatsApp.",
+    storePhone,
+    onboarding?.ok ? onboarding.url : "",
+  ));
+}
+
+async function sendEvolutionMessage(req: Request, config: EvolutionConfig) {
+  const payload = await readJson(req) as WhatsAppSendPayload;
+  const customerPhone = normalizePhone(payload.customerPhone);
+  const message = String(payload.message ?? "").trim();
+  if (!customerPhone) {
+    return json(fail("Cliente sem telefone valido para WhatsApp."), 400);
+  }
+  if (!message) {
+    return json(fail("Mensagem do WhatsApp vazia."), 400);
+  }
+
+  const context = await loadValidatedLicense(payload);
+  if (!context.ok) {
+    return json(fail(context.message), context.status);
+  }
+
+  const storePhone = normalizePhone(context.license.whatsAppPhone || payload.storePhone);
+  const instanceName = await evolutionInstanceName(context.licenseKey);
+  const sendId = evolutionSendId(context.licenseKey, payload.messageId);
+  if (sendId && hasProcessedEvolutionSend(context.store, sendId)) {
+    return json(active("WhatsApp ja havia sido enviado.", storePhone));
+  }
+
+  const sent = await sendEvolutionText(config, instanceName, customerPhone, message);
+  if (!sent.ok) {
+    if (sent.status !== 502) {
+      const state = await evolutionConnectionState(config, instanceName);
+      if ((state.ok && state.data.state !== "open") || (!state.ok && state.notFound)) {
+        const onboarding = storePhone
+          ? await createEvolutionOnboardingSession(req, payload, storePhone)
+          : null;
+        applyEvolutionPending(
+          context.license,
+          storePhone,
+          instanceName,
+          "Numero da loja ainda nao conectado na Evolution.",
+        );
+        appendEvent(context.store, payload, "whatsapp.evolution.onboarding_required",
+          `WhatsApp nao enviado. Conecte o QR Code antes de enviar para ${maskPhone(customerPhone)}`);
+        await saveAdminStore(context.store);
+        return json(pending(
+          "Conecte o WhatsApp pelo QR Code antes de enviar mensagens.",
+          storePhone,
+          onboarding?.ok ? onboarding.url : "",
+        ), 428);
+      }
+    }
+
+    await saveEvolutionError(context, payload, sent.message, "whatsapp.evolution.send_failed");
+    return json(fail(sent.message), 502);
+  }
+
+  if (sendId) markProcessedEvolutionSend(context.store, sendId);
+  applyEvolutionActive(context.license, storePhone, instanceName);
+  appendEvent(context.store, payload, "whatsapp.evolution.sent",
+    `WhatsApp enviado para ${maskPhone(customerPhone)}`);
+  await saveAdminStoreAfterSend(context.store);
+  return json(active("WhatsApp enviado.", storePhone));
+}
+
+async function listEvolutionMessages(req: Request, config: EvolutionConfig) {
+  const payload = await readJson(req) as WhatsAppMessagesPayload;
+  const context = await loadValidatedLicense(payload);
+  if (!context.ok) {
+    return privateJson(fail(context.message), context.status);
+  }
+
+  const limit = normalizeEvolutionMessageLimit(payload.limit);
+  const instanceName = await evolutionInstanceName(context.licenseKey);
+  const result = await findEvolutionMessages(config, instanceName, limit);
+  if (!result.ok) {
+    return result.notFound
+      ? privateJson(fail("WhatsApp ainda nao conectado para esta licenca."), 404)
+      : privateJson(fail(result.message), 502);
+  }
+
+  const messages = extractEvolutionMessages(result.data, limit);
+  return privateJson({
+    ok: true,
+    pending: false,
+    messages,
+    count: messages.length,
+  });
+}
+
+async function disconnectEvolutionStorePhone(req: Request, config: EvolutionConfig) {
+  const payload = await readJson(req) as ClientPayload;
+  const context = await loadValidatedLicense(payload);
+  if (!context.ok) {
+    return privateJson(fail(context.message), context.status);
+  }
+
+  const instanceName = await evolutionInstanceName(context.licenseKey);
+  const disconnected = await disconnectEvolutionInstance(config, instanceName);
+  if (!disconnected.ok) {
+    await saveEvolutionError(
+      context,
+      payload,
+      disconnected.message,
+      "whatsapp.evolution.disconnect_failed",
+    );
+    return privateJson(fail(disconnected.message), 502);
+  }
+
+  clearEvolutionConnection(context.license);
+  appendEvent(
+    context.store,
+    payload,
+    "whatsapp.evolution.disconnected",
+    "WhatsApp Evolution desconectado e instancia removida.",
+  );
+  await saveAdminStore(context.store);
+  return privateJson(active("WhatsApp desconectado.", ""));
+}
+
+async function startEvolutionOnboarding(url: URL, config: EvolutionConfig) {
+  const stateKey = String(url.searchParams.get("state") ?? "").trim();
+  if (!stateKey) {
+    return text("Link invalido. Abra a conexao pelo botao WhatsApp dentro do PDV.", 400);
+  }
+
+  const stateContext = await readOnboardingState(stateKey);
+  if (!stateContext.ok) {
+    return text(`Link indisponivel. ${stateContext.message}`, 400);
+  }
+
+  const validation = await loadValidatedLicense({
+    licenseKey: stateContext.state.license_key,
+    machineHash: stateContext.state.machine_hash,
+  });
+  if (!validation.ok) {
+    return text(`Licenca recusada. ${validation.message}`, validation.status);
+  }
+
+  const storePhone = normalizePhone(stateContext.state.store_phone || validation.license.whatsAppPhone);
+  const instanceName = await evolutionInstanceName(validation.licenseKey);
+  const instance = await ensureEvolutionInstance(config, instanceName);
+  if (!instance.ok) {
+    return text(`Evolution indisponivel. ${instance.message} Atualize esta pagina para tentar novamente.`, 502);
+  }
+
+  if (instance.state === "open") {
+    applyEvolutionActive(validation.license, storePhone, instanceName);
+    appendEvent(validation.store, { licenseKey: validation.licenseKey },
+      "whatsapp.evolution.connected", `WhatsApp Evolution conectado: ${maskPhone(storePhone)}`);
+    await saveAdminStore(validation.store);
+    await consumeOnboardingState(stateKey);
+    return text("WhatsApp conectado. Pode fechar esta tela e voltar para o PDV.");
+  }
+
+  const connection = await connectEvolutionInstance(config, instanceName);
+  if (!connection.ok) {
+    return text(`Nao consegui gerar o QR Code. ${connection.message} Atualize esta pagina para tentar novamente.`, 502);
+  }
+
+  const qr = extractEvolutionQr(connection.data);
+  const image = decodeEvolutionQrImage(qr.image);
+  if (image) {
+    return evolutionQrImageResponse(image);
+  }
+  if (qr.pairingCode) {
+    return text(`Codigo de pareamento do WhatsApp: ${qr.pairingCode}`);
+  }
+  return text("Aguardando a Evolution gerar o QR Code. Atualize esta pagina em alguns segundos.", 202);
+}
+
+async function ensureEvolutionInstance(config: EvolutionConfig, instanceName: string): Promise<
+  | { ok: true; state: string }
+  | { ok: false; message: string }
+> {
+  const current = await evolutionConnectionState(config, instanceName);
+  if (current.ok) {
+    return { ok: true, state: current.data.state };
+  }
+  if (!current.notFound) {
+    return { ok: false, message: current.message };
+  }
+
+  const created = await createEvolutionInstance(config, instanceName);
+  if (created.ok) {
+    return { ok: true, state: "close" };
+  }
+
+  // Outro /activate pode ter criado a mesma instancia ao mesmo tempo.
+  const raced = await evolutionConnectionState(config, instanceName);
+  return raced.ok
+    ? { ok: true, state: raced.data.state }
+    : { ok: false, message: created.message };
+}
+
+function applyEvolutionActive(license: AdminLicense, storePhone: string, instanceName: string) {
+  license.whatsAppPhone = normalizePhone(storePhone || license.whatsAppPhone);
+  license.whatsAppBotId = instanceName;
+  license.whatsAppStatus = "ATIVO";
+  license.whatsAppLastError = "";
+  license.whatsAppActivatedAt ??= new Date().toISOString();
+  license.whatsAppConnectedAt = new Date().toISOString();
+  license.whatsAppWabaId = "";
+  license.whatsAppBusinessId = "";
+  license.whatsAppPhoneNumberId = "";
+  license.whatsAppDisplayPhone = normalizePhone(storePhone);
+}
+
+function phoneNumbersMatch(left: string, right: string) {
+  const normalizedLeft = normalizePhone(left);
+  const normalizedRight = normalizePhone(right);
+  return !normalizedLeft || !normalizedRight || normalizedLeft === normalizedRight ||
+    normalizedLeft.endsWith(normalizedRight) || normalizedRight.endsWith(normalizedLeft);
+}
+
+function applyEvolutionPending(
+  license: AdminLicense,
+  storePhone: string,
+  instanceName: string,
+  error: string,
+) {
+  license.whatsAppPhone = normalizePhone(storePhone || license.whatsAppPhone);
+  license.whatsAppBotId = instanceName;
+  license.whatsAppStatus = "AGUARDANDO_EVOLUTION";
+  license.whatsAppLastError = error;
+  license.whatsAppRequestedAt = new Date().toISOString();
+}
+
+function clearEvolutionConnection(license: AdminLicense) {
+  license.whatsAppPhone = "";
+  license.whatsAppBotId = "";
+  license.whatsAppStatus = "INATIVO";
+  license.whatsAppLastError = "";
+  license.whatsAppRequestedAt = "";
+  license.whatsAppActivatedAt = "";
+  license.whatsAppWabaId = "";
+  license.whatsAppBusinessId = "";
+  license.whatsAppPhoneNumberId = "";
+  license.whatsAppDisplayPhone = "";
+  license.whatsAppConnectedAt = "";
+}
+
+async function saveEvolutionError(
+  context: { store: AdminStore; license: AdminLicense },
+  payload: ClientPayload,
+  message: string,
+  eventType: string,
+) {
+  context.license.whatsAppStatus = "ERRO_EVOLUTION";
+  context.license.whatsAppLastError = message;
+  appendEvent(context.store, payload, eventType, `WhatsApp Evolution falhou: ${message}`);
+  await saveAdminStore(context.store);
+}
+
+function evolutionSendId(licenseKey: string, messageId: unknown) {
+  const id = String(messageId ?? "").trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 128);
+  return id ? `${normalizeLicense(licenseKey)}:${id}` : "";
+}
+
+function hasProcessedEvolutionSend(store: AdminStore, sendId: string) {
+  return (store.whatsAppProcessedSendIds ?? []).includes(sendId);
+}
+
+function markProcessedEvolutionSend(store: AdminStore, sendId: string) {
+  store.whatsAppProcessedSendIds ??= [];
+  store.whatsAppProcessedSendIds = [sendId, ...store.whatsAppProcessedSendIds.filter((id) => id !== sendId)]
+    .slice(0, 500);
+}
+
+async function saveAdminStoreAfterSend(store: AdminStore) {
+  try {
+    await Promise.race([
+      saveAdminStore(store),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 1_500)),
+    ]);
+  } catch (error) {
+    console.error("whatsapp.evolution.send_log_failed", messageFromError(error));
+  }
 }
 
 async function sendMetaText(
@@ -953,7 +1455,7 @@ function markWebhookMessageProcessed(store: AdminStore, messageId: string) {
   store.whatsAppProcessedMessageIds = store.whatsAppProcessedMessageIds.slice(0, 500);
 }
 
-async function validateAndUpdateLicense(
+async function _validateAndUpdateLicense(
   payload: ClientPayload,
   update: (license: AdminLicense) => void,
   event: { type: string; message: string },
@@ -985,7 +1487,7 @@ async function validateAndUpdateLicense(
 
   const requestMachine = String(payload.machineHash ?? "").trim();
   const licenseMachine = String(license.machineHash ?? "").trim();
-  if (licenseMachine && requestMachine && licenseMachine !== requestMachine) {
+  if (licenseMachine && licenseMachine !== requestMachine) {
     return { ok: false, status: 403, message: "Licenca pertence a outro computador." };
   }
 
@@ -1027,6 +1529,7 @@ async function readAdminStore(): Promise<{ ok: true; store: AdminStore } | { ok:
     store.licenses ??= [];
     store.events ??= [];
     store.whatsAppProcessedMessageIds ??= [];
+    store.whatsAppProcessedSendIds ??= [];
     return { ok: true, store };
   } catch (_error) {
     return { ok: false, message: "Arquivo de licencas do Supabase esta invalido." };
@@ -1103,7 +1606,7 @@ async function saveStoreConnection(connection: WhatsAppStoreConnection) {
   return error ? { ok: false, message: error.message } : { ok: true, message: "" };
 }
 
-async function createOnboardingSession(req: Request, payload: ClientPayload, storePhone: string) {
+function createOnboardingSession(req: Request, payload: ClientPayload, storePhone: string) {
   if (!metaAppId() || !metaAppSecret() || !embeddedSignupConfigId()) {
     return {
       ok: false,
@@ -1112,12 +1615,30 @@ async function createOnboardingSession(req: Request, payload: ClientPayload, sto
     };
   }
 
+  return createOnboardingStateSession(req, payload, storePhone, "meta");
+}
+
+function createEvolutionOnboardingSession(
+  req: Request,
+  payload: ClientPayload,
+  storePhone: string,
+) {
+  return createOnboardingStateSession(req, payload, storePhone, "evo");
+}
+
+async function createOnboardingStateSession(
+  req: Request,
+  payload: ClientPayload,
+  storePhone: string,
+  providerPrefix: "meta" | "evo",
+) {
+
   const supabase = serviceClient();
   if (!supabase) {
     return { ok: false, message: "Supabase service role indisponivel.", url: "" };
   }
 
-  const state = crypto.randomUUID().replace(/-/g, "");
+  const state = createOnboardingStateKey(providerPrefix === "evo" ? "evolution" : "meta");
   const expiresAt = new Date(Date.now() + ONBOARDING_STATE_MINUTES * 60_000).toISOString();
   const { error } = await supabase
     .from("balcao_whatsapp_onboarding_states")
@@ -1387,7 +1908,7 @@ async function loadValidatedLicense(payload: ClientPayload): Promise<
 
   const requestMachine = String(payload.machineHash ?? "").trim();
   const licenseMachine = String(license.machineHash ?? "").trim();
-  if (licenseMachine && requestMachine && licenseMachine !== requestMachine) {
+  if (licenseMachine && licenseMachine !== requestMachine) {
     return { ok: false, status: 403, message: "Licenca pertence a outro computador." };
   }
 
@@ -1749,13 +2270,31 @@ function json(data: unknown, status = 200) {
   });
 }
 
+function privateJson(data: unknown, status = 200) {
+  const response = json(data, status);
+  response.headers.set("cache-control", "no-store, max-age=0");
+  return response;
+}
+
 function text(body: string, status = 200) {
   const headers = new Headers(corsHeaders);
   headers.set("content-type", "text/plain; charset=utf-8");
   return new Response(body, { status, headers });
 }
 
-function html(body: string, status = 200) {
+function evolutionQrImageResponse(image: EvolutionQrImage) {
+  const headers = new Headers(corsHeaders);
+  headers.set("content-type", image.contentType);
+  headers.set("content-disposition", "inline; filename=whatsapp-qr.png");
+  headers.set("cache-control", "no-store, max-age=0");
+  headers.set("refresh", "8");
+  return new Response(Uint8Array.from(image.bytes).buffer, {
+    status: 200,
+    headers,
+  });
+}
+
+function _html(body: string, status = 200) {
   const headers = new Headers(corsHeaders);
   headers.set("content-type", "text/html; charset=utf-8");
   headers.set(
@@ -1804,7 +2343,7 @@ function functionRouteUrl(url: URL, route: string) {
   return next.toString();
 }
 
-function onboardingMessagePage(title: string, message: string) {
+function _onboardingMessagePage(title: string, message: string) {
   return `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -1822,7 +2361,7 @@ function onboardingMessagePage(title: string, message: string) {
 </html>`;
 }
 
-function onboardingStartPage(options: { appId: string; configId: string; graphVersion: string; state: string; storePhone: string; completeUrl: string }) {
+function _onboardingStartPage(options: { appId: string; configId: string; graphVersion: string; state: string; storePhone: string; completeUrl: string }) {
   return `<!doctype html>
 <html lang="pt-BR">
 <head>

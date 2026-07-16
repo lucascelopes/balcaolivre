@@ -2,14 +2,14 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <AssemblyName>AgendaLivreWindows</AssemblyName>
     <RootNamespace>AgendaLivre.Windows</RootNamespace>
-    <Product>Balcão Livre Windows</Product>
-    <AssemblyTitle>Balcão Livre Windows</AssemblyTitle>
+    <Product>Agenda Livre</Product>
+    <AssemblyTitle>Agenda Livre</AssemblyTitle>
     <Company>Nagazaki Software</Company>
     <Version>1.0.2026.1</Version>
     <AssemblyVersion>1.0.2026.1</AssemblyVersion>
@@ -20,6 +20,12 @@
 
   <ItemGroup>
     <PackageReference Include="MaterialDesignThemes" Version="5.3.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\agenda-livre-logo-source.png" />
+    <Resource Include="Assets\agenda-livre-logo-dark-transparent.png" />
+    <Resource Include="Assets\Themes\*.png" />
   </ItemGroup>
 
 </Project>

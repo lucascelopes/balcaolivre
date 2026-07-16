@@ -38,12 +38,17 @@ public sealed class AgendaSettings
     public string BusinessPhone { get; set; } = "";
     public string BusinessAddress { get; set; } = "";
     public string BusinessSegment { get; set; } = "";
+    public string ThemeId { get; set; } = "";
     public string ClientLabel { get; set; } = "Cliente";
     public string ClientDetailLabel { get; set; } = "Paciente / pet / veículo / preferência";
     public string ResourceLabel { get; set; } = "Sala, box ou cadeira";
     public bool OnboardingCompleted { get; set; } = true;
     public int WorkdayStartHour { get; set; } = 8;
     public int WorkdayEndHour { get; set; } = 20;
+    public List<int> Workdays { get; set; } = [1, 2, 3, 4, 5, 6];
+    public bool WorkdayBreakEnabled { get; set; } = true;
+    public int WorkdayBreakStartHour { get; set; } = 12;
+    public int WorkdayBreakEndHour { get; set; } = 13;
     public List<string> Resources { get; set; } = [];
     public string ProfessionalCountRange { get; set; } = "";
     public string MainObjective { get; set; } = "";
@@ -61,12 +66,23 @@ public sealed class AgendaSettings
     public DateTime? WhatsAppLinkedAt { get; set; }
     public DateTime? WhatsAppLastMessageAt { get; set; }
     public bool WhatsAppAutoConfirmationsEnabled { get; set; } = true;
-    public string WhatsAppEvolutionBaseUrl { get; set; } = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/evolution-proxy";
+    public string WhatsAppEvolutionBaseUrl { get; set; } = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/whatsapp";
+    [JsonIgnore]
     public string WhatsAppEvolutionApiKey { get; set; } = "";
     public string WhatsAppEvolutionInstanceName { get; set; } = "agenda-livre";
     public string WhatsAppEvolutionState { get; set; } = "";
     public string WhatsAppEvolutionQrBase64 { get; set; } = "";
     public DateTime? WhatsAppEvolutionLastCheckedAt { get; set; }
+    public bool InstagramEnabled { get; set; } = true;
+    public bool InstagramLinked { get; set; }
+    public string InstagramApiUrl { get; set; } = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/instagram";
+    public string InstagramUsername { get; set; } = "";
+    public string InstagramDisplayName { get; set; } = "";
+    public string InstagramAccountId { get; set; } = "";
+    public string InstagramState { get; set; } = "";
+    public string InstagramLastError { get; set; } = "";
+    public DateTime? InstagramLinkedAt { get; set; }
+    public DateTime? InstagramLastCheckedAt { get; set; }
     public bool MercadoPagoEnabled { get; set; }
     public bool MercadoPagoConnected { get; set; }
     public string MercadoPagoLicenseKey { get; set; } = "";
