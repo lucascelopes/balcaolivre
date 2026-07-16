@@ -26,6 +26,7 @@ public sealed class AgendaData
     public List<ManualPayment> ManualPayments { get; set; } = [];
     public List<ExpenseItem> Expenses { get; set; } = [];
     public List<WhatsAppMessage> WhatsAppMessages { get; set; } = [];
+    public List<WhatsAppLead> WhatsAppLeads { get; set; } = [];
 }
 
 public sealed class AgendaSettings
@@ -240,12 +241,52 @@ public sealed class Appointment
 public sealed class WhatsAppMessage
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string ProviderMessageId { get; set; } = "";
+    public string Provider { get; set; } = "";
+    public string Instance { get; set; } = "";
+    public string ConversationId { get; set; } = "";
+    public string LeadId { get; set; } = "";
     public string CustomerName { get; set; } = "";
     public string Phone { get; set; } = "";
     public string Message { get; set; } = "";
     public string Direction { get; set; } = "saida";
+    public string Type { get; set; } = "text";
+    public string Kind { get; set; } = "";
     public string Status { get; set; } = "criado";
     public string Category { get; set; } = "Atendimento";
     public DateTime CreatedAt { get; set; } = DateTime.Now;
     public DateTime? SentAt { get; set; }
+    public DateTime? ReceivedAt { get; set; }
+    public DateTime? ReadAt { get; set; }
+}
+
+public sealed class WhatsAppLead
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Instance { get; set; } = "";
+    public string ConversationId { get; set; } = "";
+    public string CustomerName { get; set; } = "";
+    public string Phone { get; set; } = "";
+    public string Stage { get; set; } = "new";
+    public int Score { get; set; }
+    public string Summary { get; set; } = "";
+    public List<string> Facts { get; set; } = [];
+    public string Intent { get; set; } = "";
+    public string RequestedService { get; set; } = "";
+    public string PreferredSchedule { get; set; } = "";
+    public string AssignedProfessional { get; set; } = "";
+    public string PreferredDate { get; set; } = "";
+    public string Period { get; set; } = "";
+    public bool Unread { get; set; }
+    public int UnreadCount { get; set; }
+    public int FollowupCount { get; set; }
+    public DateTime? NextFollowupAt { get; set; }
+    public DateTime? LastInboundAt { get; set; }
+    public DateTime? LastOutboundAt { get; set; }
+    public DateTime? OptedOutAt { get; set; }
+    public DateTime? HandedOffAt { get; set; }
+    public string Notes { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime UpdatedAt { get; set; } = DateTime.Now;
+    public DateTime? LastMessageAt { get; set; }
 }

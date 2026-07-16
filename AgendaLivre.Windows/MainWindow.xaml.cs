@@ -332,6 +332,7 @@ public partial class MainWindow : Window
         };
         PreviewKeyDown += MainWindow_PreviewKeyDown;
         Loaded += MainWindow_Loaded;
+        Closed += MainWindow_WhatsAppRealtimeClosed;
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -360,6 +361,7 @@ public partial class MainWindow : Window
         ClearEditor();
         RefreshAll();
         UpdateWhatsAppPollingState();
+        StartWhatsAppRealtime();
         ApplyBusinessLabels();
         ShowMainPage(MainPage.Home);
 
@@ -6697,6 +6699,7 @@ public partial class MainWindow : Window
         }
 
         var messagesWithPhone = _data.WhatsAppMessages
+            .Where(item => !IsLegacyWhatsAppConnectionNotice(item))
             .Where(item => !string.IsNullOrWhiteSpace(NormalizeBrazilPhone(item.Phone)))
             .OrderByDescending(item => item.CreatedAt)
             .ToList();
@@ -6769,13 +6772,16 @@ public partial class MainWindow : Window
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         RefreshWhatsAppReplyComposer();
+        RefreshWhatsAppLeadCard(showingConversation);
         ScrollWhatsAppConversationToEnd();
 
-        var hasFreshIncoming = _data.WhatsAppMessages.Any(item =>
-            string.Equals(item.Direction, "entrada", StringComparison.OrdinalIgnoreCase) &&
-            item.CreatedAt >= DateTime.Now.AddMinutes(-10));
+        var unreadCount = _data.WhatsAppMessages.Count(item =>
+            IsWhatsAppIncoming(item) &&
+            item.ReadAt is null &&
+            !IsLegacyWhatsAppConnectionNotice(item));
+        WhatsAppFloatingBadgeText.Text = unreadCount > 99 ? "99+" : unreadCount.ToString(CultureInfo.InvariantCulture);
         WhatsAppFloatingBadge.Visibility =
-            hasFreshIncoming && WhatsAppFloatingPanel.Visibility != Visibility.Visible
+            unreadCount > 0 && WhatsAppFloatingPanel.Visibility != Visibility.Visible
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         WhatsAppFloatingDetailCard.Visibility = linked || _whatsAppConversations.Count > 0 || showingConversation
@@ -6811,8 +6817,7 @@ public partial class MainWindow : Window
                              .ToList();
                          var latest = ordered[0];
                          var incomingCount = ordered.Count(item =>
-                             IsWhatsAppIncoming(item) &&
-                             item.CreatedAt >= DateTime.Now.AddDays(-7));
+                             IsWhatsAppIncoming(item) && item.ReadAt is null);
                          var latestIncoming = ordered.FirstOrDefault(item =>
                              IsWhatsAppIncoming(item) &&
                              !string.IsNullOrWhiteSpace(item.CustomerName));
@@ -6873,6 +6878,12 @@ public partial class MainWindow : Window
 
     private static bool IsWhatsAppOutgoing(WhatsAppMessage message) =>
         string.Equals(message.Direction, "saida", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsLegacyWhatsAppConnectionNotice(WhatsAppMessage message) =>
+        string.Equals(message.Category, "Conexão", StringComparison.OrdinalIgnoreCase) &&
+        message.Message.StartsWith(
+            "WhatsApp linkado. Confirmações, retornos e mensagens dos clientes aparecem neste painel.",
+            StringComparison.OrdinalIgnoreCase);
 
     private string WhatsAppMessageDisplayName(WhatsAppMessage message)
     {
@@ -7176,11 +7187,13 @@ public partial class MainWindow : Window
         var when = createdAt ?? DateTime.Now;
         if (_data.WhatsAppMessages.Any(item =>
                 (!string.IsNullOrWhiteSpace(id) && string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase)) ||
-                (string.Equals(item.Direction, direction, StringComparison.OrdinalIgnoreCase) &&
+                ((string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(item.ProviderMessageId)) &&
+                 string.Equals(item.Direction, direction, StringComparison.OrdinalIgnoreCase) &&
                  string.Equals(item.Phone, normalizedPhone, StringComparison.OrdinalIgnoreCase) &&
                  string.Equals(item.Message, cleanMessage, StringComparison.Ordinal) &&
                  Math.Abs((item.CreatedAt - when).TotalMinutes) < 3) ||
-                (!string.Equals(item.Direction, direction, StringComparison.OrdinalIgnoreCase) &&
+                ((string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(item.ProviderMessageId)) &&
+                 !string.Equals(item.Direction, direction, StringComparison.OrdinalIgnoreCase) &&
                  string.Equals(item.Phone, normalizedPhone, StringComparison.OrdinalIgnoreCase) &&
                  string.Equals(item.Message, cleanMessage, StringComparison.Ordinal) &&
                  Math.Abs((item.CreatedAt - when).TotalSeconds) <= 1)))
@@ -7191,6 +7204,7 @@ public partial class MainWindow : Window
         _data.WhatsAppMessages.Insert(0, new WhatsAppMessage
         {
             Id = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString("N") : id,
+            ProviderMessageId = id,
             CustomerName = customerName.Trim(),
             Phone = normalizedPhone,
             Message = cleanMessage,
@@ -7320,6 +7334,7 @@ public partial class MainWindow : Window
         _selectedWhatsAppReplyName = string.IsNullOrWhiteSpace(name) ? FormatPhone(phone) : name.Trim();
         _whatsAppConversationOpen = true;
         WhatsAppFloatingPanel.Visibility = Visibility.Visible;
+        MarkWhatsAppConversationRead(phone);
         RefreshWhatsAppSurface();
         RefreshWhatsAppReplyComposer();
         WhatsAppReplyTextBox.Focus();
@@ -7421,6 +7436,13 @@ public partial class MainWindow : Window
 
         SetWhatsAppButtonsEnabled(false);
         _data.Settings.WhatsAppEnabled = true;
+            if (ActiveWhatsAppLead() is { } activeLead)
+            {
+                activeLead.Stage = "handoff";
+                activeLead.UpdatedAt = DateTime.Now;
+                _store.Save(_data);
+                _ = PatchWhatsAppLeadStageAsync(activeLead.Id, activeLead.Stage);
+            }
         _data.Settings.WhatsAppStorePhone = normalizedPhone;
         _data.Settings.WhatsAppEvolutionQrBase64 = "";
         _data.Settings.WhatsAppEvolutionState = "";
@@ -7557,7 +7579,6 @@ public partial class MainWindow : Window
 
     private void ApplyWhatsAppConnectedState(WhatsAppEvolutionResult state, string phone)
     {
-        var wasLinked = _data.Settings.WhatsAppLinked;
         var normalizedPhone = NormalizeBrazilPhone(phone);
         _data.Settings.WhatsAppEnabled = true;
         _data.Settings.WhatsAppLinked = true;
@@ -7570,21 +7591,8 @@ public partial class MainWindow : Window
         _data.Settings.WhatsAppEvolutionState = string.IsNullOrWhiteSpace(state.State) ? "open" : state.State;
         _data.Settings.WhatsAppEvolutionQrBase64 = "";
         _data.Settings.WhatsAppEvolutionLastCheckedAt = DateTime.Now;
-        if (!wasLinked)
-        {
-            AddWhatsAppMessage(
-                BusinessDisplayName(),
-                _data.Settings.WhatsAppStorePhone,
-                "WhatsApp linkado. Confirmações, retornos e mensagens dos clientes aparecem neste painel.",
-                "Conexão",
-                "recebido",
-                "entrada");
-        }
-        else
-        {
-            _store.Save(_data);
-            RefreshWhatsAppSurface();
-        }
+        _store.Save(_data);
+        RefreshWhatsAppSurface();
     }
 
     private async Task<bool> SendOrOpenWhatsAppAsync(string customerName, string phone, string message, string category)
@@ -20983,7 +20991,11 @@ public partial class MainWindow : Window
         string Preview,
         string Detail,
         DateTime LastAt,
-        int UnreadCount);
+        int UnreadCount)
+    {
+        public string UnreadText => UnreadCount > 99 ? "99+" : UnreadCount.ToString(CultureInfo.InvariantCulture);
+        public Visibility UnreadVisibility => UnreadCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     public sealed record WhatsAppMessageRow(
         string CustomerName,

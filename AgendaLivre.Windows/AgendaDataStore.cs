@@ -90,6 +90,7 @@ public sealed class AgendaDataStore
         data.ManualPayments ??= [];
         data.Expenses ??= [];
         data.WhatsAppMessages ??= [];
+        data.WhatsAppLeads ??= [];
         data.Settings.BusinessName ??= "Balcão Livre";
         data.Settings.BusinessDocument ??= "";
         data.Settings.BusinessPhone ??= "";
@@ -188,6 +189,43 @@ public sealed class AgendaDataStore
         foreach (var message in data.WhatsAppMessages.Where(message => string.IsNullOrWhiteSpace(message.Id)))
         {
             message.Id = Guid.NewGuid().ToString("N");
+        }
+
+        foreach (var message in data.WhatsAppMessages)
+        {
+            message.ProviderMessageId ??= "";
+            message.Provider ??= "";
+            message.Instance ??= "";
+            message.ConversationId ??= "";
+            message.LeadId ??= "";
+            message.Type ??= "text";
+            message.Kind ??= "";
+            if (IsLegacyWhatsAppConnectionNotice(message))
+            {
+                message.Direction = "sistema";
+                message.Status = "informativo";
+                message.Category = "Sistema";
+                message.ReadAt ??= message.CreatedAt;
+            }
+        }
+
+        foreach (var lead in data.WhatsAppLeads)
+        {
+            lead.Id = string.IsNullOrWhiteSpace(lead.Id) ? Guid.NewGuid().ToString("N") : lead.Id;
+            lead.Instance ??= "";
+            lead.ConversationId ??= "";
+            lead.CustomerName ??= "";
+            lead.Phone ??= "";
+            lead.Stage = string.IsNullOrWhiteSpace(lead.Stage) ? "new" : lead.Stage;
+            lead.Summary ??= "";
+            lead.Facts ??= [];
+            lead.Intent ??= "";
+            lead.RequestedService ??= "";
+            lead.PreferredSchedule ??= "";
+            lead.AssignedProfessional ??= "";
+            lead.PreferredDate ??= "";
+            lead.Period ??= "";
+            lead.Notes ??= "";
         }
 
         BackfillCustomersFromAppointments(data);
@@ -489,6 +527,13 @@ public sealed class AgendaDataStore
 
         foreach (var message in data.WhatsAppMessages)
         {
+            message.ProviderMessageId = RepairText(message.ProviderMessageId);
+            message.Provider = RepairText(message.Provider);
+            message.Instance = RepairText(message.Instance);
+            message.ConversationId = RepairText(message.ConversationId);
+            message.LeadId = RepairText(message.LeadId);
+            message.Type = RepairText(message.Type);
+            message.Kind = RepairText(message.Kind);
             message.CustomerName = RepairText(message.CustomerName);
             message.Phone = RepairText(message.Phone);
             message.Message = RepairText(message.Message);
@@ -496,7 +541,34 @@ public sealed class AgendaDataStore
             message.Status = RepairText(message.Status);
             message.Category = RepairText(message.Category);
         }
+
+        foreach (var lead in data.WhatsAppLeads)
+        {
+            lead.Instance = RepairText(lead.Instance);
+            lead.ConversationId = RepairText(lead.ConversationId);
+            lead.CustomerName = RepairText(lead.CustomerName);
+            lead.Phone = RepairText(lead.Phone);
+            lead.Stage = RepairText(lead.Stage);
+            lead.Summary = RepairText(lead.Summary);
+            lead.Intent = RepairText(lead.Intent);
+            lead.RequestedService = RepairText(lead.RequestedService);
+            lead.PreferredSchedule = RepairText(lead.PreferredSchedule);
+            lead.AssignedProfessional = RepairText(lead.AssignedProfessional);
+            lead.PreferredDate = RepairText(lead.PreferredDate);
+            lead.Period = RepairText(lead.Period);
+            lead.Notes = RepairText(lead.Notes);
+            for (var index = 0; index < lead.Facts.Count; index++)
+            {
+                lead.Facts[index] = RepairText(lead.Facts[index]);
+            }
+        }
     }
+
+    private static bool IsLegacyWhatsAppConnectionNotice(WhatsAppMessage message) =>
+        string.Equals(message.Category, "Conexão", StringComparison.OrdinalIgnoreCase) &&
+        message.Message.StartsWith(
+            "WhatsApp linkado. Confirmações, retornos e mensagens dos clientes aparecem neste painel.",
+            StringComparison.OrdinalIgnoreCase);
 
     private static string RepairText(string value)
     {
