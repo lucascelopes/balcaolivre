@@ -6993,20 +6993,24 @@ public partial class MainWindow : Window
                 workdayStartHour = _data.Settings.WorkdayStartHour,
                 workdayEndHour = _data.Settings.WorkdayEndHour,
                 services = _data.Services
+                    .Where(item => item.IsActive)
                     .OrderBy(item => item.Name)
                     .Take(12)
                     .Select(item => new
                     {
+                        id = item.Id,
                         name = item.Name,
                         durationMinutes = item.DurationMinutes,
                         price = item.Price
                     })
                     .ToList(),
                 professionals = _data.Professionals
+                    .Where(item => item.IsActive)
                     .OrderBy(item => item.Name)
                     .Take(12)
                     .Select(item => item.Name)
                     .ToList(),
+                bookingServices = BuildWhatsAppBookingServicesSnapshot(today),
                 days
             };
 
@@ -7205,6 +7209,7 @@ public partial class MainWindow : Window
         {
             Id = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString("N") : id,
             ProviderMessageId = id,
+            Instance = WhatsAppRealtimeInstanceName(),
             CustomerName = customerName.Trim(),
             Phone = normalizedPhone,
             Message = cleanMessage,
@@ -7960,6 +7965,15 @@ public partial class MainWindow : Window
             }
 
             if (!state.Ok || !IsWhatsAppEvolutionConnected(state.State))
+            {
+                RefreshWhatsAppSurface();
+                return;
+            }
+
+            // The authenticated local stream is authoritative for messages and leads.
+            // Keep polling only for connection state so gateway/Supabase echoes cannot
+            // create a second conversation with a malformed phone number.
+            if (System.IO.File.Exists(WhatsAppLocalApiTokenPath()))
             {
                 RefreshWhatsAppSurface();
                 return;

@@ -147,8 +147,17 @@ public partial class MainWindow
             .Where(item => item is not null)
             .Cast<WhatsAppMessage>()
             .ToList();
+        var bookings = ReadRealtimeArray(root, "bookings")
+            .Select(ParseWhatsAppBookingRequest)
+            .Where(item => item is not null)
+            .Cast<WhatsAppBookingRequest>()
+            .ToList();
 
         await Dispatcher.InvokeAsync(() => MergeWhatsAppRealtimeSnapshot(messages, leads, cursor));
+        foreach (var booking in bookings)
+        {
+            await ProcessWhatsAppBookingRequestAsync(booking, cancellationToken);
+        }
     }
 
     private async Task ConsumeWhatsAppRealtimeEventsAsync(string token, CancellationToken cancellationToken)
@@ -236,6 +245,7 @@ public partial class MainWindow
 
         WhatsAppMessage? message = null;
         WhatsAppLead? lead = null;
+        WhatsAppBookingRequest? booking = null;
         if (eventName.Equals("whatsapp.message", StringComparison.OrdinalIgnoreCase))
         {
             message = TryGetRealtimeProperty(root, "message", out var messageElement)
@@ -252,6 +262,19 @@ public partial class MainWindow
                 ? ParseWhatsAppRealtimeLead(leadElement)
                 : ParseWhatsAppRealtimeLead(root);
         }
+        else if (eventName.Equals("booking.requested", StringComparison.OrdinalIgnoreCase))
+        {
+            booking = TryGetRealtimeProperty(root, "booking", out var bookingElement)
+                ? ParseWhatsAppBookingRequest(bookingElement)
+                : ParseWhatsAppBookingRequest(root);
+        }
+        else if (eventName.Equals("booking.updated", StringComparison.OrdinalIgnoreCase) ||
+                 eventName.Equals("booking.resolved", StringComparison.OrdinalIgnoreCase))
+        {
+            booking = TryGetRealtimeProperty(root, "booking", out var bookingElement)
+                ? ParseWhatsAppBookingRequest(bookingElement)
+                : ParseWhatsAppBookingRequest(root);
+        }
         else
         {
             return;
@@ -262,6 +285,10 @@ public partial class MainWindow
             message is null ? [] : [message],
             lead is null ? [] : [lead],
             cursor));
+        if (booking is not null)
+        {
+            await ProcessWhatsAppBookingRequestAsync(booking, cancellationToken);
+        }
     }
 
     private void MergeWhatsAppRealtimeSnapshot(
@@ -271,12 +298,11 @@ public partial class MainWindow
     {
         var expectedInstance = WhatsAppRealtimeInstanceName();
         var changed = _data.WhatsAppMessages.RemoveAll(item =>
-                          !string.IsNullOrWhiteSpace(item.Instance) &&
                           !string.Equals(item.Instance, expectedInstance, StringComparison.OrdinalIgnoreCase)) > 0;
         changed |= _data.WhatsAppLeads.RemoveAll(item =>
-                       !string.IsNullOrWhiteSpace(item.Instance) &&
                        !string.Equals(item.Instance, expectedInstance, StringComparison.OrdinalIgnoreCase)) > 0;
         var newIncoming = false;
+        WhatsAppMessage? latestIncoming = null;
         foreach (var lead in leads.Where(item =>
                      string.Equals(item.Instance, expectedInstance, StringComparison.OrdinalIgnoreCase)))
         {
@@ -290,6 +316,10 @@ public partial class MainWindow
             var result = UpsertWhatsAppRealtimeMessage(message);
             changed |= result.Changed;
             newIncoming |= result.AddedIncoming;
+            if (result.AddedIncoming && (latestIncoming is null || message.CreatedAt >= latestIncoming.CreatedAt))
+            {
+                latestIncoming = message;
+            }
         }
 
         if (cursor > 0)
@@ -304,6 +334,16 @@ public partial class MainWindow
         if (!changed)
         {
             return;
+        }
+
+        if (newIncoming && latestIncoming is not null)
+        {
+            _selectedWhatsAppReplyPhone = NormalizeBrazilPhone(latestIncoming.Phone);
+            _selectedWhatsAppReplyName = NormalizeWhatsAppBookingCustomerName(
+                latestIncoming.CustomerName,
+                latestIncoming.Phone);
+            _whatsAppConversationOpen = true;
+            WhatsAppFloatingPanel.Visibility = Visibility.Visible;
         }
 
         if (_whatsAppConversationOpen && WhatsAppFloatingPanel.Visibility == Visibility.Visible)
@@ -321,11 +361,6 @@ public partial class MainWindow
         }
 
         _store.Save(_data);
-        if (newIncoming)
-        {
-            WhatsAppFloatingPanel.Visibility = Visibility.Visible;
-        }
-
         RefreshWhatsAppSurface();
         if (newIncoming)
         {

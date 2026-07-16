@@ -231,6 +231,8 @@ public sealed class Appointment
     public decimal Price { get; set; }
     public AppointmentStatus Status { get; set; } = AppointmentStatus.Scheduled;
     public string Notes { get; set; } = "";
+    public string ExternalSource { get; set; } = "";
+    public string ExternalReference { get; set; } = "";
     public DateTime CreatedAt { get; set; } = DateTime.Now;
     public DateTime UpdatedAt { get; set; } = DateTime.Now;
 
