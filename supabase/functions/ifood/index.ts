@@ -64,6 +64,10 @@ Deno.serve(async (req) => {
     }
 
     if (route === "/connect/start") {
+      return await handleLegacyConnectStart(req);
+    }
+
+    if (route === "/connect/distributed/start") {
       return await handleConnectStart(req);
     }
 
@@ -256,6 +260,81 @@ async function handleConnectStart(req: Request) {
     verificationUrlComplete,
     expiresIn,
     webhookUrl: "",
+  });
+}
+
+async function handleLegacyConnectStart(req: Request) {
+  const context = await readJson(req) as StoreContext;
+  const identity = await requireIFoodLicense(context);
+  const webhookUrl = publicFunctionUrl() + "/webhook";
+  const token = await ifoodForm("/authentication/v1.0/oauth/token", {
+    grantType: "client_credentials",
+    clientId: legacyClientId(),
+    clientSecret: legacyClientSecret(),
+  });
+
+  const accessToken = text(token.accessToken);
+  const merchants = await listMerchants(accessToken).catch(() => []);
+  const latestMerchant = await latestWebhookMerchant();
+  const merchant = merchants[0] ?? {};
+  const merchantId = text(merchant.id) || latestMerchant;
+  const merchantName = text(merchant.name ?? merchant.corporateName) || "Loja iFood";
+
+  if (!merchantId) {
+    throw new IFoodHttpError(
+      "iFood conectado, mas nenhuma loja foi identificada. Gere um pedido de teste ou confira a permissao da loja no portal iFood.",
+      400,
+    );
+  }
+
+  const expiresAt = new Date(
+    Date.now() + Math.max(60, Number(token.expiresIn ?? 3600)) * 1000,
+  ).toISOString();
+  const row = {
+    license_key: identity.licenseKey,
+    machine_hash: identity.machineHash,
+    machine_code: text(context.machineCode),
+    business_name: text(context.businessName),
+    legal_name: text(context.legalName),
+    cnpj: text(context.cnpj),
+    phone: text(context.phone),
+    address: text(context.address),
+    city: text(context.city),
+    state: text(context.state),
+    app_version: text(context.appVersion),
+    status: "connected",
+    user_code: null,
+    authorization_code_verifier: null,
+    verification_url: null,
+    verification_url_complete: null,
+    merchant_id: merchantId,
+    merchant_name: merchantName,
+    access_token: accessToken,
+    refresh_token: text(token.refreshToken),
+    token_expires_at: expiresAt,
+    webhook_url: webhookUrl,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await serviceClient()
+    .from("bv_ifood_connections")
+    .upsert(row, { onConflict: "license_key,machine_hash" })
+    .select("id")
+    .single();
+  if (error) throw error;
+
+  return json({
+    ok: true,
+    status: "connected",
+    message: `iFood conectado: ${merchantName}. Novos pedidos entram automaticamente no Delivery.`,
+    connectionId: data.id,
+    merchantId,
+    merchantName,
+    userCode: "",
+    verificationUrl: "",
+    verificationUrlComplete: "",
+    expiresIn: Number(token.expiresIn ?? 0),
+    webhookUrl,
   });
 }
 

@@ -8,6 +8,7 @@ Este fluxo prepara a App Teste (D) sem substituir as credenciais centralizadas e
 - Migration: validada em Postgres 15 com duplicata real de teste, indices, deduplicacao e RLS.
 - Cliente Windows: `IFoodCloudClient.cs` compilado com `IFoodModels.cs` e `IFoodIntegrationSettings.cs`.
 - Wiring do modal Windows: inicio, conclusao, retry `awaiting_merchant` e desconexao conferidos.
+- Compatibilidade: clientes anteriores continuam em `/connect/start`; somente o novo cliente usa `/connect/distributed/start`.
 - Workflow de validacao: https://github.com/lucascelopes/balcaolivre/actions/runs/29587746385
 
 O build completo do snapshot remoto do PDV possui falhas antigas em WhatsApp/mobile e nao e usado como prova para este deploy.

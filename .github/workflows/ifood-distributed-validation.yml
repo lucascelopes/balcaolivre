@@ -23,6 +23,15 @@ jobs:
           deno-version: v2.x
       - name: Check iFood function
         run: deno check --reload supabase/functions/ifood/index.ts
+      - name: Verify compatible connection routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          source="supabase/functions/ifood/index.ts"
+          grep -F 'route === "/connect/start"' "$source"
+          grep -F 'handleLegacyConnectStart(req)' "$source"
+          grep -F 'route === "/connect/distributed/start"' "$source"
+          grep -F 'handleConnectStart(req)' "$source"
 
   database:
     name: Postgres migration contract
@@ -165,6 +174,10 @@ jobs:
         shell: pwsh
         run: |
           $source = Get-Content BalcaoLivre.Online.Windows/MainWindow.xaml.cs -Raw
+          $clientSource = Get-Content BalcaoLivre.Online.Windows/IFoodCloudClient.cs -Raw
+          if (-not $clientSource.Contains('"connect/distributed/start"')) {
+            throw 'New Windows client must opt in to the distributed iFood route.'
+          }
           $required = @(
             'var authorizationCard = BorderCard();',
             'StartConnectionAsync(',

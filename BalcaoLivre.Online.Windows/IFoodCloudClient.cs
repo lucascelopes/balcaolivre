@@ -25,7 +25,7 @@ public sealed class IFoodCloudClient
     {
         return await PostAsync<IFoodCloudStartResponse>(
             backendUrl,
-            "connect/start",
+            "connect/distributed/start",
             context,
             cancellationToken);
     }
