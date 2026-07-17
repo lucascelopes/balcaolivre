@@ -1,0 +1,95 @@
+name: Deploy iFood distributed to Supabase
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_project_ref:
+        description: Type the target Supabase project ref to confirm
+        required: true
+        type: string
+      confirm_deploy:
+        description: Confirm migration, secrets and function deployment
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ifood-distributed-supabase-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy migration and iFood function
+    if: ${{ inputs.confirm_deploy }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PROJECT_ID: hzvplpotsdzxygkxrgyi
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      IFOOD_DISTRIBUTED_CLIENT_ID: ${{ secrets.IFOOD_DISTRIBUTED_CLIENT_ID }}
+      IFOOD_DISTRIBUTED_CLIENT_SECRET: ${{ secrets.IFOOD_DISTRIBUTED_CLIENT_SECRET }}
+      IFOOD_PUBLIC_FUNCTION_URL: https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/ifood
+
+    steps:
+      - name: Validate target and required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirm_project_ref }}" != "$PROJECT_ID" ]; then
+            echo "::error::Target project confirmation does not match the Balcao Livre project."
+            exit 1
+          fi
+          for name in SUPABASE_ACCESS_TOKEN IFOOD_DISTRIBUTED_CLIENT_ID IFOOD_DISTRIBUTED_CLIENT_SECRET; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing required GitHub Actions secret: $name"
+              exit 1
+            fi
+          done
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf
+        with:
+          version: latest
+
+      - name: Link the exact Supabase project
+        run: supabase link --project-ref "$PROJECT_ID"
+
+      - name: Apply only the iFood event deduplication migration
+        run: >
+          supabase db query
+          --linked
+          --file supabase/migrations/20260717000000_ifood_event_dedup.sql
+          --output table
+
+      - name: Configure distributed iFood secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase secrets set             --project-ref "$PROJECT_ID"             "IFOOD_DISTRIBUTED_CLIENT_ID=$IFOOD_DISTRIBUTED_CLIENT_ID"             "IFOOD_DISTRIBUTED_CLIENT_SECRET=$IFOOD_DISTRIBUTED_CLIENT_SECRET"             "IFOOD_PUBLIC_FUNCTION_URL=$IFOOD_PUBLIC_FUNCTION_URL"
+
+      - name: Deploy the iFood Edge Function
+        run: >
+          supabase functions deploy ifood
+          --project-ref "$PROJECT_ID"
+          --use-api
+          --no-verify-jwt
+
+      - name: Verify database index
+        run: >
+          supabase db query
+          --linked
+          "select indexname from pg_indexes where schemaname = 'public' and indexname = 'bv_ifood_webhook_events_connection_event_uidx';"
+          --output table
+
+      - name: Verify deployed function and secret names
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase functions list --project-ref "$PROJECT_ID"
+          supabase secrets list --project-ref "$PROJECT_ID"
