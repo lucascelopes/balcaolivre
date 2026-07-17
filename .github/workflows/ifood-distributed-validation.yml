@@ -38,6 +38,7 @@ jobs:
           Remove-Item .ci/IFoodClientValidation/Class1.cs
           Copy-Item BalcaoLivre.Online.Windows/IFoodCloudClient.cs .ci/IFoodClientValidation/IFoodCloudClient.cs
           Copy-Item BalcaoLivre.Online.Windows/IFoodModels.cs .ci/IFoodClientValidation/IFoodModels.cs
+          Copy-Item BalcaoLivre.Online.Windows/IFoodIntegrationSettings.cs .ci/IFoodClientValidation/IFoodIntegrationSettings.cs
           dotnet build .ci/IFoodClientValidation/IFoodClientValidation.csproj -c Release
       - name: Verify distributed authorization wiring
         shell: pwsh
