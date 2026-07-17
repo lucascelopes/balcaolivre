@@ -42,6 +42,18 @@ public sealed class IFoodCloudClient
             cancellationToken);
     }
 
+    public async Task<IFoodCloudDisconnectResponse> DisconnectConnectionAsync(
+        string backendUrl,
+        IFoodCloudSyncRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return await PostAsync<IFoodCloudDisconnectResponse>(
+            backendUrl,
+            "connect/disconnect",
+            request,
+            cancellationToken);
+    }
+
     public async Task<IFoodCloudSyncResponse> SyncOrdersAsync(
         string backendUrl,
         IFoodCloudSyncRequest request,
@@ -276,9 +288,16 @@ public sealed class IFoodCloudFinishResponse
     public bool Ok { get; set; }
     public string Message { get; set; } = "";
     public string ConnectionId { get; set; } = "";
+    public string Status { get; set; } = "";
     public string MerchantId { get; set; } = "";
     public string MerchantName { get; set; } = "";
     public string WebhookUrl { get; set; } = "";
+}
+
+public sealed class IFoodCloudDisconnectResponse
+{
+    public bool Ok { get; set; }
+    public string Message { get; set; } = "";
 }
 
 public sealed class IFoodCloudSyncResponse
