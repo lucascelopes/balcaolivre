@@ -114,8 +114,9 @@ async function handleWebhook(req: Request) {
 
   for (const event of events) {
     const merchantId = eventMerchantId(event);
-    const orderId = text(event?.orderId ?? event?.metadata?.orderId);
-    const eventId = text(event?.id ?? event?.eventId);
+    const metadata = isRecord(event.metadata) ? event.metadata : {};
+    const orderId = text(event.orderId ?? metadata.orderId);
+    const eventId = text(event.id ?? event.eventId);
     let connectionId: string | null = null;
     let connection: ConnectionRow | null = null;
 
