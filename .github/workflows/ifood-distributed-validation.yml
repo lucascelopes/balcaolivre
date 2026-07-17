@@ -15,19 +15,100 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
       - name: Check iFood function
         run: deno check --reload supabase/functions/ifood/index.ts
 
+  database:
+    name: Postgres migration contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Apply base schema and seed duplicate events
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f supabase/migrations/20260526000000_ifood_integration.sql
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          insert into public.bv_ifood_connections (license_key, machine_hash, status)
+          values ('CI-IFOOD', 'CI-MACHINE', 'connected');
+
+          insert into public.bv_ifood_webhook_events (
+            event_id,
+            connection_id,
+            merchant_id,
+            order_id,
+            payload
+          )
+          select
+            'CI-EVENT',
+            id,
+            'CI-MERCHANT',
+            'CI-ORDER',
+            '{"source":"validation"}'::jsonb
+          from public.bv_ifood_connections
+          where license_key = 'CI-IFOOD';
+
+          insert into public.bv_ifood_webhook_events (
+            event_id,
+            connection_id,
+            merchant_id,
+            order_id,
+            payload
+          )
+          select
+            'CI-EVENT',
+            id,
+            'CI-MERCHANT',
+            'CI-ORDER',
+            '{"source":"duplicate"}'::jsonb
+          from public.bv_ifood_connections
+          where license_key = 'CI-IFOOD';
+          SQL
+      - name: Apply and verify iFood distributed migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f supabase/migrations/20260717000000_ifood_event_dedup.sql
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f supabase/tests/ifood_distributed_deploy_verify.sql
+          duplicate_count="$(psql -h localhost -U postgres -d postgres -Atc "select count(*) from public.bv_ifood_webhook_events where event_id = 'CI-EVENT';")"
+          if [ "$duplicate_count" != "1" ]; then
+            echo "::error::Expected one deduplicated iFood event, found $duplicate_count."
+            exit 1
+          fi
+
   windows:
     name: Windows iFood contract
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 9.0.x
