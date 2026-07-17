@@ -101,6 +101,46 @@ jobs:
             exit 1
           fi
 
+  deploy_contract:
+    name: Supabase deploy workflow contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf
+        with:
+          version: 2.109.1
+      - name: Verify pinned Supabase CLI commands
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase --version | grep -F "2.109.1"
+          supabase link --help >/dev/null
+          supabase db query --help >/dev/null
+          supabase migration list --help >/dev/null
+          supabase migration repair --help >/dev/null
+          supabase secrets set --help >/dev/null
+          supabase functions deploy --help >/dev/null
+      - name: Verify production workflow safeguards
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow=".github/workflows/ifood-distributed-deploy.yml"
+          grep -F 'PROJECT_ID: hzvplpotsdzxygkxrgyi' "$workflow"
+          grep -F 'MIGRATION_VERSION: "20260717000000"' "$workflow"
+          grep -F 'SUPABASE_DB_PASSWORD:' "$workflow"
+          grep -F 'IFOOD_DISTRIBUTED_CLIENT_ID:' "$workflow"
+          grep -F 'IFOOD_DISTRIBUTED_CLIENT_SECRET:' "$workflow"
+          grep -F 'version: 2.109.1' "$workflow"
+          grep -F 'environment: production' "$workflow"
+          grep -F 'verify_jwt = false' supabase/config.toml
+          if grep -Fq 'version: latest' "$workflow"; then
+            echo "::error::Supabase CLI must not use an unpinned latest version."
+            exit 1
+          fi
+
   windows:
     name: Windows iFood contract
     runs-on: windows-latest
