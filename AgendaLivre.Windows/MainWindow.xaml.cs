@@ -7399,6 +7399,13 @@ public partial class MainWindow : Window
             }
 
             AddWhatsAppMessage(FirstFilled(_data.Settings.AccountFullName, BusinessDisplayName(), "Você"), phone, text, "Atendimento", "enviado");
+            if (ActiveWhatsAppLead() is { } activeLead)
+            {
+                activeLead.Stage = "handoff";
+                activeLead.UpdatedAt = DateTime.Now;
+                _store.Save(_data);
+                _ = PatchWhatsAppLeadStageAsync(activeLead.Id, activeLead.Stage);
+            }
             WhatsAppReplyTextBox.Clear();
             ShowStatus($"Resposta enviada para {FirstFilled(_selectedWhatsAppReplyName, FormatPhone(phone))}.");
         }
@@ -7441,13 +7448,6 @@ public partial class MainWindow : Window
 
         SetWhatsAppButtonsEnabled(false);
         _data.Settings.WhatsAppEnabled = true;
-            if (ActiveWhatsAppLead() is { } activeLead)
-            {
-                activeLead.Stage = "handoff";
-                activeLead.UpdatedAt = DateTime.Now;
-                _store.Save(_data);
-                _ = PatchWhatsAppLeadStageAsync(activeLead.Id, activeLead.Stage);
-            }
         _data.Settings.WhatsAppStorePhone = normalizedPhone;
         _data.Settings.WhatsAppEvolutionQrBase64 = "";
         _data.Settings.WhatsAppEvolutionState = "";
