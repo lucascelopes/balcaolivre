@@ -103,8 +103,12 @@ Deno.serve(async (req) => {
 });
 
 async function handleWebhook(req: Request) {
-  const payload = await readJson(req);
-  const events = Array.isArray(payload) ? payload : Array.isArray(payload?.events) ? payload.events : [payload];
+  const payload = await readJson(req) as Record<string, unknown> | Record<string, unknown>[];
+  const events = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload.events)
+      ? payload.events.filter(isRecord)
+      : [payload];
   const supabase = serviceClient();
   const ackIds: string[] = [];
 
@@ -1191,7 +1195,12 @@ async function updateIFoodProductImage(
 async function findIFoodCatalogProductLink(
   merchantId: string,
   accessToken: string,
-  target: { productId: string; externalCode: string },
+  target: {
+    productId: string;
+    externalCode: string;
+    productName?: string;
+    imageDataUrl?: string;
+  },
 ) {
   const products = new Map<string, CatalogProduct>();
   const warnings: string[] = [];
