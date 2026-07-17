@@ -104,14 +104,16 @@ jobs:
         run: |
           set -euo pipefail
           supabase migration repair "$MIGRATION_VERSION" --status applied --linked
-          supabase db query --linked --output table             "do \$verify\$ begin if not exists (select 1 from supabase_migrations.schema_migrations where version = '$MIGRATION_VERSION') then raise exception 'Migration iFood nao registrada no historico.'; end if; end \$verify\$;"
+          supabase db query --linked --output table "do \$verify\$ begin if not exists (select 1 from supabase_migrations.schema_migrations where version = '$MIGRATION_VERSION') then raise exception 'Migration iFood nao registrada no historico.'; end if; end \$verify\$;"
           supabase migration list --linked
 
       - name: Configure distributed iFood secrets
-        shell: bash
-        run: |
-          set -euo pipefail
-          supabase secrets set             --project-ref "$PROJECT_ID"             "IFOOD_DISTRIBUTED_CLIENT_ID=$IFOOD_DISTRIBUTED_CLIENT_ID"             "IFOOD_DISTRIBUTED_CLIENT_SECRET=$IFOOD_DISTRIBUTED_CLIENT_SECRET"             "IFOOD_PUBLIC_FUNCTION_URL=$IFOOD_PUBLIC_FUNCTION_URL"
+        run: >-
+          supabase secrets set
+          --project-ref "$PROJECT_ID"
+          "IFOOD_DISTRIBUTED_CLIENT_ID=$IFOOD_DISTRIBUTED_CLIENT_ID"
+          "IFOOD_DISTRIBUTED_CLIENT_SECRET=$IFOOD_DISTRIBUTED_CLIENT_SECRET"
+          "IFOOD_PUBLIC_FUNCTION_URL=$IFOOD_PUBLIC_FUNCTION_URL"
 
       - name: Deploy the iFood Edge Function
         run: >-
