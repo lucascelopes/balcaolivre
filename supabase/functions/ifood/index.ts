@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.7";
 
 const IFOOD_API_BASE = "https://merchant-api.ifood.com.br";
 const DEFAULT_FUNCTION_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/ifood";
