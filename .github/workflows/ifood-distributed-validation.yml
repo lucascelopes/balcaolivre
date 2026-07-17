@@ -23,15 +23,36 @@ jobs:
         run: deno check --reload supabase/functions/ifood/index.ts
 
   windows:
-    name: Windows PDV
+    name: Windows iFood contract
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 9.0.x
-      - name: Restore
-        run: dotnet restore BalcaoLivre.Online.Windows/BalcaoLivre.Online.Windows.csproj
-      - name: Build
-        run: dotnet build BalcaoLivre.Online.Windows/BalcaoLivre.Online.Windows.csproj -c Release --no-restore
+      - name: Compile iFood cloud client in isolation
+        shell: pwsh
+        run: |
+          dotnet new classlib --framework net9.0 --output .ci/IFoodClientValidation --force
+          Remove-Item .ci/IFoodClientValidation/Class1.cs
+          Copy-Item BalcaoLivre.Online.Windows/IFoodCloudClient.cs .ci/IFoodClientValidation/IFoodCloudClient.cs
+          dotnet build .ci/IFoodClientValidation/IFoodClientValidation.csproj -c Release
+      - name: Verify distributed authorization wiring
+        shell: pwsh
+        run: |
+          $source = Get-Content BalcaoLivre.Online.Windows/MainWindow.xaml.cs -Raw
+          $required = @(
+            'var authorizationCard = BorderCard();',
+            'StartConnectionAsync(',
+            'FinishConnectionAsync(',
+            'DisconnectConnectionAsync(',
+            'awaiting_merchant',
+            'Verificar liberacao',
+            'Concluir autorizacao'
+          )
+          foreach ($needle in $required) {
+            if (-not $source.Contains($needle)) {
+              throw "Missing distributed iFood UI wiring: $needle"
+            }
+          }
