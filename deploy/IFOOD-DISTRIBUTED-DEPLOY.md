@@ -4,10 +4,11 @@ Este fluxo prepara a App Teste (D) sem substituir as credenciais centralizadas e
 
 ## Estado validado
 
-- Edge Function: `deno check` aprovado.
+- Edge Function: `deno check` aprovado com `@supabase/supabase-js` fixado em `2.110.7`.
+- Migration: validada em Postgres 15 com duplicata real de teste, indices, deduplicacao e RLS.
 - Cliente Windows: `IFoodCloudClient.cs` compilado com `IFoodModels.cs` e `IFoodIntegrationSettings.cs`.
 - Wiring do modal Windows: inicio, conclusao, retry `awaiting_merchant` e desconexao conferidos.
-- Workflow de validacao: https://github.com/lucascelopes/balcaolivre/actions/runs/29585222380
+- Workflow de validacao: https://github.com/lucascelopes/balcaolivre/actions/runs/29587746385
 
 O build completo do snapshot remoto do PDV possui falhas antigas em WhatsApp/mobile e nao e usado como prova para este deploy.
 
@@ -16,10 +17,13 @@ O build completo do snapshot remoto do PDV possui falhas antigas em WhatsApp/mob
 Cadastre em **Settings > Secrets and variables > Actions**:
 
 - `SUPABASE_ACCESS_TOKEN`
+- `SUPABASE_DB_PASSWORD`
 - `IFOOD_DISTRIBUTED_CLIENT_ID`
 - `IFOOD_DISTRIBUTED_CLIENT_SECRET`
 
 Nao grave valores em arquivos, commits ou logs. Se o client secret apareceu em uma captura de tela, gere um novo antes do deploy.
+
+O job usa o ambiente GitHub **production**. Configure um reviewer obrigatorio nesse ambiente antes de liberar o workflow.
 
 ## Execucao manual protegida
 
@@ -28,20 +32,26 @@ Abra o workflow **Deploy iFood distributed to Supabase** e use **Run workflow**.
 Preencha:
 
 - `confirm_project_ref`: `hzvplpotsdzxygkxrgyi`
+- `confirm_migration_version`: `20260717000000`
 - `confirm_deploy`: marcado
 
 O workflow:
 
-1. confirma o project ref;
-2. exige os tres secrets;
-3. aplica somente `20260717000000_ifood_event_dedup.sql`;
-4. configura os secrets distribuídos no Supabase;
-5. publica apenas a funcao `ifood` com `verify_jwt=false`, mantendo a autenticacao propria por licenca e maquina;
-6. confirma o indice, a funcao e os nomes dos secrets.
+1. confirma o project ref e a migration exata;
+2. exige os quatro secrets;
+3. fixa a Supabase CLI em `2.109.1` e confere os comandos usados;
+4. mostra o historico remoto e aplica somente `20260717000000_ifood_event_dedup.sql`;
+5. valida deduplicacao, definicao do indice unico, indices de polling e RLS;
+6. registra `20260717000000` no historico de migrations do Supabase;
+7. configura os secrets distribuidos no Supabase;
+8. publica apenas a funcao `ifood`, usando `verify_jwt=false` do `supabase/config.toml` porque a funcao valida licenca e maquina;
+9. confirma funcao, nomes dos secrets e resposta publica esperada da rota.
 
 O deploy usa a CLI oficial conforme a documentacao do Supabase:
+
+- https://supabase.com/docs/guides/deployment/database-migrations
+- https://supabase.com/docs/guides/deployment/managing-environments
 - https://supabase.com/docs/guides/functions/examples/github-actions
-- https://supabase.com/docs/reference/cli/supabase-bootstrap
 
 ## Teste da App Teste (D)
 
