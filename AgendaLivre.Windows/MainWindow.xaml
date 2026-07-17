@@ -6192,39 +6192,97 @@
 
                 <Border x:Name="WhatsAppLeadCard"
                         DockPanel.Dock="Top"
-                        Background="#F0FDF4"
-                        BorderBrush="#86EFAC"
+                        Background="{DynamicResource Panel}"
+                        BorderBrush="{DynamicResource Line}"
                         BorderThickness="1"
-                        CornerRadius="12"
-                        Padding="11"
-                        Margin="12,0,12,8"
+                        CornerRadius="10"
+                        Padding="8,6"
+                        Margin="12,0,12,6"
+                        AutomationProperties.Name="Status do lead desta conversa"
                         Visibility="Collapsed">
-                    <StackPanel>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock x:Name="WhatsAppLeadNameText" Text="Lead do WhatsApp" Foreground="{StaticResource Ink}" FontSize="13" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
-                                <TextBlock Text="Oportunidade gerada automaticamente" Foreground="{StaticResource Muted}" FontSize="10.5" Margin="0,2,0,0"/>
+                    <Border.ToolTip>
+                        <ToolTip Placement="Mouse" MaxWidth="300">
+                            <StackPanel Margin="3">
+                                <TextBlock x:Name="WhatsAppLeadNameText"
+                                           Text="Lead do WhatsApp"
+                                           Foreground="{StaticResource Ink}"
+                                           FontSize="12"
+                                           FontWeight="Bold"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <TextBlock x:Name="WhatsAppLeadSummaryText"
+                                           Text="Novo contato pelo WhatsApp."
+                                           Foreground="{StaticResource Ink}"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"
+                                           Margin="0,5,0,0"/>
+                                <TextBlock x:Name="WhatsAppLeadFactsText"
+                                           Text="Aguardando qualificação."
+                                           Foreground="{StaticResource Muted}"
+                                           FontSize="10.5"
+                                           TextWrapping="Wrap"
+                                           Margin="0,3,0,0"/>
                             </StackPanel>
-                            <Border Grid.Column="1" Background="#DCFCE7" CornerRadius="10" Padding="7,3" Margin="8,0,0,0" VerticalAlignment="Top">
-                                <TextBlock x:Name="WhatsAppLeadStageText" Text="Novo" Foreground="#166534" FontSize="10" FontWeight="Bold"/>
+                        </ToolTip>
+                    </Border.ToolTip>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Lead"
+                                       Foreground="{StaticResource Muted}"
+                                       FontSize="10.5"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       Margin="1,0,7,0"/>
+                            <Border Background="#ECFDF3" CornerRadius="9" Padding="7,2">
+                                <TextBlock x:Name="WhatsAppLeadStageText"
+                                           Text="Novo"
+                                           Foreground="#166534"
+                                           FontSize="10"
+                                           FontWeight="Bold"/>
                             </Border>
-                            <Border Grid.Column="2" Background="#FFFFFF" BorderBrush="#BBF7D0" BorderThickness="1" CornerRadius="10" Padding="7,3" Margin="6,0,0,0" VerticalAlignment="Top">
-                                <TextBlock x:Name="WhatsAppLeadScoreText" Text="0 pts" Foreground="#166534" FontSize="10" FontWeight="Bold"/>
-                            </Border>
-                        </Grid>
-                        <TextBlock x:Name="WhatsAppLeadSummaryText" Text="Novo contato pelo WhatsApp." Foreground="{StaticResource Ink}" FontSize="11.5" TextWrapping="Wrap" Margin="0,8,0,0"/>
-                        <TextBlock x:Name="WhatsAppLeadFactsText" Text="Aguardando qualificação." Foreground="{StaticResource Muted}" FontSize="10.5" TextWrapping="Wrap" Margin="0,5,0,0"/>
-                        <UniformGrid Columns="3" Margin="0,9,0,0">
-                            <Button Content="Qualificar" Tag="qualified" Style="{StaticResource GhostButton}" Height="32" Margin="0,0,4,0" Click="UpdateWhatsAppLeadStageButton_Click"/>
-                            <Button Content="Ganho" Tag="won" Style="{StaticResource GhostButton}" Height="32" Margin="2,0" Click="UpdateWhatsAppLeadStageButton_Click"/>
-                            <Button Content="Perdido" Tag="lost" Style="{StaticResource GhostButton}" Height="32" Margin="4,0,0,0" Click="UpdateWhatsAppLeadStageButton_Click"/>
-                        </UniformGrid>
-                    </StackPanel>
+                            <TextBlock x:Name="WhatsAppLeadScoreText"
+                                       Text="0 pts"
+                                       Foreground="{StaticResource Muted}"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       Margin="7,0,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0">
+                            <Button Content="Qualificar"
+                                    Tag="qualified"
+                                    Style="{StaticResource GhostButton}"
+                                    Height="30"
+                                    MinWidth="0"
+                                    Padding="8,0"
+                                    FontSize="10.5"
+                                    Margin="0,0,4,0"
+                                    AutomationProperties.Name="Marcar lead como qualificado"
+                                    Click="UpdateWhatsAppLeadStageButton_Click"/>
+                            <Button Content="Ganho"
+                                    Tag="won"
+                                    Style="{StaticResource GhostButton}"
+                                    Height="30"
+                                    MinWidth="0"
+                                    Padding="8,0"
+                                    FontSize="10.5"
+                                    Margin="0,0,4,0"
+                                    AutomationProperties.Name="Marcar lead como ganho"
+                                    Click="UpdateWhatsAppLeadStageButton_Click"/>
+                            <Button Content="Perdido"
+                                    Tag="lost"
+                                    Style="{StaticResource GhostButton}"
+                                    Height="30"
+                                    MinWidth="0"
+                                    Padding="8,0"
+                                    FontSize="10.5"
+                                    AutomationProperties.Name="Marcar lead como perdido"
+                                    Click="UpdateWhatsAppLeadStageButton_Click"/>
+                        </StackPanel>
+                    </Grid>
                 </Border>
 
                 <Border x:Name="WhatsAppReplyPanel"
