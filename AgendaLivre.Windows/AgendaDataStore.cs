@@ -7,6 +7,11 @@ namespace AgendaLivre.Windows;
 
 public sealed class AgendaDataStore
 {
+    private static readonly string AuditDataRoot = Path.Combine(
+        Path.GetTempPath(),
+        "AgendaLivre.Windows-Audit",
+        $"{Environment.ProcessId}-{Guid.NewGuid():N}");
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -17,11 +22,22 @@ public sealed class AgendaDataStore
     public AgendaDataStore()
     {
         var configuredRoot = Environment.GetEnvironmentVariable("AGENDA_LIVRE_DATA_ROOT");
-        DataRoot = string.IsNullOrWhiteSpace(configuredRoot)
-            ? Path.Combine(
+        if (!string.IsNullOrWhiteSpace(configuredRoot))
+        {
+            DataRoot = Path.GetFullPath(configuredRoot);
+        }
+        else if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AGENDA_LIVRE_AUDIT_STATE")) ||
+                 !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AGENDA_LIVRE_AUDIT_SCREENSHOT_PATH")))
+        {
+            // Keep automated audits isolated from the user's real data.
+            DataRoot = AuditDataRoot;
+        }
+        else
+        {
+            DataRoot = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "AgendaLivre.Windows")
-            : Path.GetFullPath(configuredRoot);
+                "AgendaLivre.Windows");
+        }
 
         DataPath = Path.Combine(DataRoot, "agenda-data.json");
     }
