@@ -1,0 +1,37 @@
+name: iFood distributed validation
+
+on:
+  push:
+    branches:
+      - codex/ifood-distributed-validation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Deno edge function
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check iFood function
+        run: deno check --reload supabase/functions/ifood/index.ts
+
+  windows:
+    name: Windows PDV
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - name: Restore
+        run: dotnet restore BalcaoLivre.Online.Windows/BalcaoLivre.Online.Windows.csproj
+      - name: Build
+        run: dotnet build BalcaoLivre.Online.Windows/BalcaoLivre.Online.Windows.csproj -c Release --no-restore
