@@ -13207,6 +13207,69 @@ public partial class MainWindow : Window
             button.Margin = new Thickness(0, 0, 10, 10);
         }
 
+        var userCodeValue = new TextBlock
+        {
+            FontSize = 22,
+            FontWeight = FontWeights.Bold,
+            Foreground = Solid("#071A2C"),
+            Margin = new Thickness(0, 6, 0, 10)
+        };
+        var authorizationCodeBox = new TextBox
+        {
+            MinHeight = 42,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 6, 0, 10)
+        };
+        var openAuthorization = DialogButton("Abrir autorizacao", "#0B3A52");
+        var finishAuthorization = DialogButton("Concluir autorizacao", "#08A99B");
+        foreach (var button in new[] { openAuthorization, finishAuthorization })
+        {
+            button.Width = 230;
+            button.MinHeight = 48;
+            button.HorizontalAlignment = HorizontalAlignment.Left;
+            button.Margin = new Thickness(0, 0, 10, 0);
+        }
+
+        var authorizationCard = BorderCard();
+        authorizationCard.Margin = new Thickness(0, 14, 0, 0);
+        authorizationCard.Visibility = !HasIFoodConnectionConfigured(settings) &&
+            !string.IsNullOrWhiteSpace(settings.ConnectionId)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        userCodeValue.Text = string.IsNullOrWhiteSpace(settings.LastUserCode)
+            ? "Codigo de vinculo gerado"
+            : settings.LastUserCode;
+        if (string.Equals(settings.ConnectionStatus, "awaiting_merchant", StringComparison.OrdinalIgnoreCase))
+        {
+            finishAuthorization.Content = "Verificar liberacao";
+        }
+
+        var authorizationActions = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
+        authorizationActions.Children.Add(openAuthorization);
+        authorizationActions.Children.Add(finishAuthorization);
+        authorizationCard.Child = new StackPanel
+        {
+            Children =
+            {
+                SectionTitle("Autorizar esta loja"),
+                new TextBlock
+                {
+                    Text = "Abra o link do iFood, autorize o Balcao Livre e cole abaixo o codigo de autorizacao recebido.",
+                    Foreground = Solid("#5A6B7C"),
+                    TextWrapping = TextWrapping.Wrap
+                },
+                userCodeValue,
+                new TextBlock
+                {
+                    Text = "Codigo de autorizacao",
+                    Foreground = Solid("#52687A"),
+                    FontWeight = FontWeights.SemiBold
+                },
+                authorizationCodeBox,
+                authorizationActions
+            }
+        };
+
         void RefreshIFoodUi(string? message = null)
         {
             ApplyOnlineStoreScheduleState("atualizar iFood", persist: false);
@@ -13255,6 +13318,100 @@ public partial class MainWindow : Window
             }
         }
 
+        openAuthorization.Click += (_, _) =>
+        {
+            var authorizationUrl = string.IsNullOrWhiteSpace(settings.VerificationUrlComplete)
+                ? settings.VerificationUrl
+                : settings.VerificationUrlComplete;
+            if (string.IsNullOrWhiteSpace(authorizationUrl))
+            {
+                RefreshIFoodUi("Gere um novo codigo de vinculo para abrir a autorizacao do iFood.");
+                return;
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo(authorizationUrl) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                RefreshIFoodUi($"Nao foi possivel abrir a autorizacao do iFood: {ex.Message}");
+            }
+        };
+
+        finishAuthorization.Click += async (_, _) =>
+        {
+            var awaitingMerchant = string.Equals(
+                settings.ConnectionStatus,
+                "awaiting_merchant",
+                StringComparison.OrdinalIgnoreCase);
+            var authorizationCode = authorizationCodeBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(settings.ConnectionId) ||
+                (!awaitingMerchant && string.IsNullOrWhiteSpace(authorizationCode)))
+            {
+                RefreshIFoodUi("Cole o codigo de autorizacao exibido pelo Portal do Parceiro.");
+                return;
+            }
+
+            try
+            {
+                finishAuthorization.IsEnabled = false;
+                RefreshIFoodUi(awaitingMerchant
+                    ? "Verificando se a loja ja foi liberada..."
+                    : "Validando a autorizacao da loja...");
+                var response = await _ifoodClient.FinishConnectionAsync(
+                    settings.BackendUrl,
+                    CreateIFoodFinishRequest(settings.ConnectionId, authorizationCode));
+
+                settings.ConnectionId = string.IsNullOrWhiteSpace(response.ConnectionId)
+                    ? settings.ConnectionId
+                    : response.ConnectionId;
+                settings.ConnectionStatus = string.IsNullOrWhiteSpace(response.Status)
+                    ? string.IsNullOrWhiteSpace(response.MerchantId) ? "awaiting_merchant" : "conectado"
+                    : response.Status;
+
+                if (string.IsNullOrWhiteSpace(response.MerchantId))
+                {
+                    settings.ConnectionStatus = "awaiting_merchant";
+                    authorizationCodeBox.Clear();
+                    authorizationCard.Visibility = Visibility.Visible;
+                    finishAuthorization.Content = "Verificar liberacao";
+                    SaveAppSettings();
+                    SaveStore();
+                    RefreshIFoodUi(string.IsNullOrWhiteSpace(response.Message)
+                        ? "A autorizacao foi recebida. Aguarde alguns minutos e verifique a liberacao novamente."
+                        : response.Message);
+                    return;
+                }
+
+                settings.ConnectionStatus = "conectado";
+                settings.MerchantId = response.MerchantId;
+                settings.MerchantName = response.MerchantName;
+                settings.WebhookUrl = "";
+                settings.LastUserCode = "";
+                settings.VerificationUrl = "";
+                settings.VerificationUrlComplete = "";
+                authorizationCodeBox.Clear();
+                authorizationCard.Visibility = Visibility.Collapsed;
+                finishAuthorization.Content = "Concluir autorizacao";
+                SaveAppSettings();
+                SaveStore();
+                ApplyOnlineStoreScheduleState("iFood conectado", forcePublish: true);
+                RefreshOnlineStoreButton();
+                QueueIFoodLocalCatalogSync("iFood conectado", force: true);
+                _ = AutoImportIFoodOrdersAsync(force: true);
+                RefreshIFoodUi("iFood conectado. Pedidos entram automaticamente no Delivery.");
+            }
+            catch (Exception ex)
+            {
+                RefreshIFoodUi($"Falha ao concluir autorizacao iFood: {ex.Message}");
+            }
+            finally
+            {
+                finishAuthorization.IsEnabled = true;
+            }
+        };
+
         connect.Click += async (_, _) =>
         {
             try
@@ -13267,6 +13424,13 @@ public partial class MainWindow : Window
                 settings.LastUserCode = response.UserCode;
                 settings.VerificationUrl = response.VerificationUrl;
                 settings.VerificationUrlComplete = response.VerificationUrlComplete;
+                userCodeValue.Text = string.IsNullOrWhiteSpace(response.UserCode)
+                    ? "Codigo de vinculo gerado"
+                    : response.UserCode;
+                authorizationCard.Visibility = string.IsNullOrWhiteSpace(response.MerchantId)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+                finishAuthorization.Content = "Concluir autorizacao";
                 settings.MerchantId = response.MerchantId;
                 settings.MerchantName = response.MerchantName;
                 settings.WebhookUrl = string.IsNullOrWhiteSpace(response.WebhookUrl) ? settings.WebhookUrl : response.WebhookUrl;
@@ -13372,7 +13536,7 @@ public partial class MainWindow : Window
             dialog.Close();
         };
 
-        disconnect.Click += (_, _) =>
+        disconnect.Click += async (_, _) =>
         {
             var answer = System.Windows.MessageBox.Show(
                 dialog,
@@ -13383,6 +13547,24 @@ public partial class MainWindow : Window
             if (answer != MessageBoxResult.Yes)
             {
                 return;
+            }
+
+            try
+            {
+                disconnect.IsEnabled = false;
+                RefreshIFoodUi("Desconectando a loja do iFood...");
+                await _ifoodClient.DisconnectConnectionAsync(
+                    settings.BackendUrl,
+                    CreateIFoodSyncRequest(settings.ConnectionId));
+            }
+            catch (Exception ex)
+            {
+                RefreshIFoodUi($"Nao foi possivel sair do iFood: {ex.Message}");
+                return;
+            }
+            finally
+            {
+                disconnect.IsEnabled = true;
             }
 
             _ifoodSyncTimer.Stop();
@@ -13503,6 +13685,22 @@ public partial class MainWindow : Window
             Content = outer,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+        dialog.Loaded += (_, _) =>
+        {
+            if (dialog.Content is not UIElement currentContent ||
+                ReferenceEquals(currentContent, authorizationCard) ||
+                authorizationCard.Parent is not null)
+            {
+                return;
+            }
+
+            dialog.Content = null;
+            var authorizationHost = new DockPanel();
+            DockPanel.SetDock(authorizationCard, Dock.Top);
+            authorizationHost.Children.Add(authorizationCard);
+            authorizationHost.Children.Add(currentContent);
+            dialog.Content = authorizationHost;
         };
         dialog.ShowDialog();
     }
