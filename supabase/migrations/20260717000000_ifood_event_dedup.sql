@@ -29,7 +29,14 @@ create unique index if not exists bv_ifood_webhook_events_connection_event_uidx
 
 create index if not exists bv_ifood_webhook_events_connection_received_idx
   on public.bv_ifood_webhook_events (connection_id, received_at desc)
-  where connection_id is not null;
+  include (order_id)
+  where connection_id is not null
+    and order_id is not null;
+
+create index if not exists bv_ifood_webhook_events_latest_merchant_idx
+  on public.bv_ifood_webhook_events (received_at desc)
+  include (merchant_id)
+  where merchant_id is not null;
 
 create index if not exists bv_ifood_connections_merchant_idx
   on public.bv_ifood_connections (merchant_id)
