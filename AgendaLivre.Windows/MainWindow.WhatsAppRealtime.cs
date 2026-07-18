@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 
 namespace AgendaLivre.Windows;
 
@@ -46,6 +47,7 @@ public partial class MainWindow
             return;
         }
 
+        WriteWhatsAppRealtimeDiagnostic($"start instance={WhatsAppRealtimeInstanceName()}");
         _whatsAppRealtimeCancellation?.Dispose();
         _whatsAppRealtimeCancellation = new CancellationTokenSource();
         _whatsAppRealtimeTask = Task.Run(
@@ -84,6 +86,12 @@ public partial class MainWindow
             catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException or InvalidOperationException)
             {
                 Debug.WriteLine($"Agenda WhatsApp realtime reconnecting: {ex.Message}");
+                WriteWhatsAppRealtimeDiagnostic("reconnect", ex);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Agenda WhatsApp realtime unexpected failure: {ex}");
+                WriteWhatsAppRealtimeDiagnostic("unexpected", ex);
             }
 
             await Task.Delay(retryDelay, cancellationToken);
@@ -121,6 +129,172 @@ public partial class MainWindow
         return request;
     }
 
+    private async Task<WhatsAppEvolutionResult> SendWhatsAppLocalApiTextAsync(
+        string phone,
+        string text,
+        string customerName,
+        string requestId,
+        string token)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        using var request = CreateWhatsAppLocalApiRequest(
+            HttpMethod.Post,
+            $"/api/agenda/send?{WhatsAppRealtimeInstanceQuery()}",
+            token,
+            new
+            {
+                requestId,
+                phone = NormalizeBrazilPhone(phone),
+                text,
+                customerName = FirstFilled(customerName, FormatPhone(phone))
+            });
+
+        try
+        {
+            using var response = await _whatsAppRealtimeClient.SendAsync(request, timeout.Token);
+            var body = await response.Content.ReadAsStringAsync(timeout.Token);
+            if (WhatsAppManualSendPolicy.AllowsLegacyFallback((int)response.StatusCode, body))
+            {
+                return new WhatsAppEvolutionResult
+                {
+                    Ok = false,
+                    EndpointNotFound = true,
+                    Message = "O bot local ainda não oferece a rota de envio."
+                };
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                if (response.StatusCode == HttpStatusCode.Conflict &&
+                    TryParseExistingWhatsAppPending(body, out var existingPending))
+                {
+                    return existingPending;
+                }
+
+                return WhatsAppEvolutionResult.Fail(
+                    ReadEvolutionMessage(body),
+                    IsAmbiguousWhatsAppHttpStatus(response.StatusCode));
+            }
+
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                return WhatsAppEvolutionResult.Success("Mensagem aceita pelo bot local.");
+            }
+
+            try
+            {
+                using var document = JsonDocument.Parse(body);
+                var root = document.RootElement;
+                var responseStatus = ReadRealtimeString(root, "status", "deliveryStatus", "messageStatus");
+                var hasAccepted = TryGetJsonProperty(root, "accepted", out _);
+                var accepted = hasAccepted && ReadRealtimeBool(root, "accepted");
+                var existingPending = hasAccepted &&
+                    WhatsAppManualSendPolicy.IsExistingPending(accepted, responseStatus);
+                var providerMessageId = ReadRealtimeString(root, "providerMessageId", "remoteMessageId");
+                if (string.IsNullOrWhiteSpace(providerMessageId) &&
+                    TryGetJsonProperty(root, "key", out var key) &&
+                    key.ValueKind == JsonValueKind.Object)
+                {
+                    providerMessageId = ReadRealtimeString(key, "id", "messageId");
+                }
+
+                if (existingPending)
+                {
+                    return new WhatsAppEvolutionResult
+                    {
+                        Ok = true,
+                        Pending = true,
+                        ExistingPending = true,
+                        DeliveryStatus = "pendente",
+                        ProviderMessageId = providerMessageId,
+                        Message = FirstFilled(
+                            ReadRealtimeString(root, "message", "detail"),
+                            "Esta tentativa já estava em processamento.")
+                    };
+                }
+
+                if (TryGetJsonProperty(root, "ok", out var okValue) &&
+                    okValue.ValueKind == JsonValueKind.False)
+                {
+                    return WhatsAppEvolutionResult.Fail(
+                        FirstFilled(
+                            ReadRealtimeString(root, "message", "error", "detail"),
+                            "O bot local recusou a mensagem."));
+                }
+
+                if (hasAccepted && !accepted)
+                {
+                    return WhatsAppEvolutionResult.Fail(
+                        FirstFilled(
+                            ReadRealtimeString(root, "message", "error", "detail"),
+                            "O bot local não aceitou a mensagem."));
+                }
+
+                return new WhatsAppEvolutionResult
+                {
+                    Ok = true,
+                    Pending = NormalizeWhatsAppDeliveryStatus(responseStatus) is "pendente" or "incerto",
+                    DeliveryStatus = NormalizeWhatsAppDeliveryStatus(responseStatus),
+                    ProviderMessageId = providerMessageId,
+                    Message = FirstFilled(
+                        ReadRealtimeString(root, "message", "detail"),
+                        "Mensagem aceita pelo bot local.")
+                };
+            }
+            catch (JsonException)
+            {
+                return WhatsAppEvolutionResult.Success("Mensagem aceita pelo bot local.");
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or ObjectDisposedException)
+        {
+            return WhatsAppEvolutionResult.Fail(
+                $"Falha no envio pelo bot local: {ex.Message}",
+                deliveryUncertain: true);
+        }
+    }
+
+    private static bool TryParseExistingWhatsAppPending(
+        string body,
+        out WhatsAppEvolutionResult result)
+    {
+        result = WhatsAppEvolutionResult.Fail("A tentativa anterior não está mais em processamento.");
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            var responseStatus = ReadRealtimeString(root, "status", "deliveryStatus", "messageStatus");
+            var accepted = ReadRealtimeBool(root, "accepted");
+            if (!WhatsAppManualSendPolicy.IsExistingPending(accepted, responseStatus))
+            {
+                return false;
+            }
+
+            var providerMessageId = ReadRealtimeString(root, "providerMessageId", "remoteMessageId");
+            result = new WhatsAppEvolutionResult
+            {
+                Ok = true,
+                Pending = true,
+                ExistingPending = true,
+                DeliveryStatus = "pendente",
+                ProviderMessageId = providerMessageId,
+                Message = FirstFilled(
+                    ReadRealtimeString(root, "message", "detail"),
+                    "Esta tentativa já estava em processamento.")
+            };
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     private async Task BackfillWhatsAppRealtimeSnapshotAsync(string token, CancellationToken cancellationToken)
     {
         using var request = CreateWhatsAppLocalApiRequest(
@@ -153,10 +327,40 @@ public partial class MainWindow
             .Cast<WhatsAppBookingRequest>()
             .ToList();
 
-        await Dispatcher.InvokeAsync(() => MergeWhatsAppRealtimeSnapshot(messages, leads, cursor));
+        WriteWhatsAppRealtimeDiagnostic(
+            $"snapshot instance={WhatsAppRealtimeInstanceName()} cursor={cursor} leads={leads.Count} messages={messages.Count} bookings={bookings.Count}");
+        await Dispatcher.InvokeAsync(() => MergeWhatsAppRealtimeSnapshot(
+            messages,
+            leads,
+            cursor,
+            authoritative: true));
+        WriteWhatsAppRealtimeDiagnostic($"snapshot-merged cursor={cursor}");
         foreach (var booking in bookings)
         {
             await ProcessWhatsAppBookingRequestAsync(booking, cancellationToken);
+        }
+    }
+
+    private void WriteWhatsAppRealtimeDiagnostic(string message, Exception? exception = null)
+    {
+        try
+        {
+            var directory = Path.Combine(_store.DataRoot, "bot-runtime");
+            Directory.CreateDirectory(directory);
+            var line = $"{DateTimeOffset.Now:O} {message}";
+            if (exception is not null)
+            {
+                line += $" | {exception.GetType().Name}: {exception.Message}";
+            }
+
+            File.AppendAllText(
+                Path.Combine(directory, "agenda-realtime.log"),
+                line + Environment.NewLine,
+                Encoding.UTF8);
+        }
+        catch
+        {
+            // Diagnostics must never interrupt the realtime connection.
         }
     }
 
@@ -294,7 +498,8 @@ public partial class MainWindow
     private void MergeWhatsAppRealtimeSnapshot(
         IReadOnlyCollection<WhatsAppMessage> messages,
         IReadOnlyCollection<WhatsAppLead> leads,
-        long cursor)
+        long cursor,
+        bool authoritative = false)
     {
         var expectedInstance = WhatsAppRealtimeInstanceName();
         var changed = _data.WhatsAppMessages.RemoveAll(item =>
@@ -302,6 +507,7 @@ public partial class MainWindow
         changed |= _data.WhatsAppLeads.RemoveAll(item =>
                        !string.Equals(item.Instance, expectedInstance, StringComparison.OrdinalIgnoreCase)) > 0;
         var newIncoming = false;
+        var failedOutgoing = false;
         WhatsAppMessage? latestIncoming = null;
         foreach (var lead in leads.Where(item =>
                      string.Equals(item.Instance, expectedInstance, StringComparison.OrdinalIgnoreCase)))
@@ -316,10 +522,55 @@ public partial class MainWindow
             var result = UpsertWhatsAppRealtimeMessage(message);
             changed |= result.Changed;
             newIncoming |= result.AddedIncoming;
+            failedOutgoing |= result.FailedOutgoing;
             if (result.AddedIncoming && (latestIncoming is null || message.CreatedAt >= latestIncoming.CreatedAt))
             {
                 latestIncoming = message;
             }
+        }
+
+        if (authoritative)
+        {
+            var consolidation = WhatsAppMessageIdentityReconciler.ConsolidateAuthoritativeExactDuplicates(
+                _data.WhatsAppMessages,
+                messages.Where(item =>
+                    string.Equals(item.Instance, expectedInstance, StringComparison.OrdinalIgnoreCase)),
+                MergeWhatsAppDuplicateLocalState);
+            changed |= consolidation.Changed;
+
+            var snapshotLeadIds = leads
+                .Where(item => string.Equals(item.Instance, expectedInstance, StringComparison.OrdinalIgnoreCase))
+                .Select(item => item.Id)
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            changed |= _data.WhatsAppLeads.RemoveAll(item =>
+                string.Equals(item.Instance, expectedInstance, StringComparison.OrdinalIgnoreCase) &&
+                !snapshotLeadIds.Contains(item.Id)) > 0;
+
+            var snapshotByProviderId = messages
+                .Where(item => !string.IsNullOrWhiteSpace(item.ProviderMessageId))
+                .GroupBy(item => item.ProviderMessageId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var local in _data.WhatsAppMessages.Where(item =>
+                         string.Equals(item.Instance, expectedInstance, StringComparison.OrdinalIgnoreCase)))
+            {
+                if (!string.IsNullOrWhiteSpace(local.ProviderMessageId) &&
+                    snapshotByProviderId.TryGetValue(local.ProviderMessageId, out var source))
+                {
+                    changed |= SetIfFilled(local.Phone, NormalizeBrazilPhone(source.Phone), value => local.Phone = value);
+                    changed |= SetIfFilled(local.LeadId, source.LeadId, value => local.LeadId = value);
+                    changed |= SetIfFilled(local.ConversationId, source.ConversationId, value => local.ConversationId = value);
+                    var currentStatus = NormalizeWhatsAppDeliveryStatus(local.Status, IsWhatsAppIncoming(local));
+                    var sourceStatus = NormalizeWhatsAppDeliveryStatus(source.Status, IsWhatsAppIncoming(source));
+                    if (WhatsAppManualSendPolicy.CanTransitionDeliveryStatus(currentStatus, sourceStatus))
+                    {
+                        local.Status = sourceStatus;
+                        changed = true;
+                    }
+                }
+            }
+
         }
 
         if (cursor > 0)
@@ -331,6 +582,8 @@ public partial class MainWindow
             }
         }
 
+        WriteWhatsAppRealtimeDiagnostic(
+            $"merge authoritative={authoritative} changed={changed} localLeads={_data.WhatsAppLeads.Count} localMessages={_data.WhatsAppMessages.Count}");
         if (!changed)
         {
             return;
@@ -352,13 +605,10 @@ public partial class MainWindow
         }
 
         _data.Settings.WhatsAppLastMessageAt = DateTime.Now;
-        if (_data.WhatsAppMessages.Count > 1000)
-        {
-            _data.WhatsAppMessages = _data.WhatsAppMessages
-                .OrderByDescending(item => item.CreatedAt)
-                .Take(1000)
-                .ToList();
-        }
+        _data.WhatsAppMessages = _data.WhatsAppMessages
+            .OrderByDescending(item => item.CreatedAt)
+            .Take(1000)
+            .ToList();
 
         _store.Save(_data);
         RefreshWhatsAppSurface();
@@ -366,31 +616,31 @@ public partial class MainWindow
         {
             ShowStatus("Nova mensagem do WhatsApp recebida.");
         }
+        else if (failedOutgoing)
+        {
+            ShowStatus("O WhatsApp não entregou uma mensagem. Ela foi marcada em vermelho.");
+        }
     }
 
-    private (bool Changed, bool AddedIncoming) UpsertWhatsAppRealtimeMessage(WhatsAppMessage incoming)
+    private (bool Changed, bool AddedIncoming, bool FailedOutgoing) UpsertWhatsAppRealtimeMessage(WhatsAppMessage incoming)
     {
+        var exact = WhatsAppMessageIdentityReconciler.ConsolidateExactMatches(
+            _data.WhatsAppMessages,
+            incoming,
+            MergeWhatsAppDuplicateLocalState);
         var providerId = FirstFilled(incoming.ProviderMessageId, incoming.Id);
-        var existing = _data.WhatsAppMessages.FirstOrDefault(item =>
-            (!string.IsNullOrWhiteSpace(providerId) &&
-             (string.Equals(item.ProviderMessageId, providerId, StringComparison.OrdinalIgnoreCase) ||
-              string.Equals(item.Id, providerId, StringComparison.OrdinalIgnoreCase))) ||
-            (!string.IsNullOrWhiteSpace(incoming.Id) &&
-             string.Equals(item.Id, incoming.Id, StringComparison.OrdinalIgnoreCase)) ||
-            (string.IsNullOrWhiteSpace(item.ProviderMessageId) &&
-             string.Equals(NormalizeBrazilPhone(item.Phone), NormalizeBrazilPhone(incoming.Phone), StringComparison.OrdinalIgnoreCase) &&
-             string.Equals(item.Direction, incoming.Direction, StringComparison.OrdinalIgnoreCase) &&
-             string.Equals(item.Message, incoming.Message, StringComparison.Ordinal) &&
-             Math.Abs((item.CreatedAt - incoming.CreatedAt).TotalMinutes) <= 3));
+        var existing = exact.Keeper;
         if (existing is null)
         {
             incoming.Id = FirstFilled(incoming.Id, providerId, Guid.NewGuid().ToString("N"));
             incoming.ProviderMessageId = providerId;
             _data.WhatsAppMessages.Insert(0, incoming);
-            return (true, IsWhatsAppIncoming(incoming));
+            return (true, IsWhatsAppIncoming(incoming), IsWhatsAppOutgoing(incoming) &&
+                NormalizeWhatsAppDeliveryStatus(incoming.Status) == "erro");
         }
 
-        var changed = false;
+        var changed = exact.Changed;
+        changed |= SetIfFilled(existing.ClientRequestId, incoming.ClientRequestId, value => existing.ClientRequestId = value);
         changed |= SetIfFilled(existing.ProviderMessageId, incoming.ProviderMessageId, value => existing.ProviderMessageId = value);
         changed |= SetIfFilled(existing.Provider, incoming.Provider, value => existing.Provider = value);
         changed |= SetIfFilled(existing.Instance, incoming.Instance, value => existing.Instance = value);
@@ -402,7 +652,17 @@ public partial class MainWindow
         changed |= SetIfFilled(existing.Direction, incoming.Direction, value => existing.Direction = value);
         changed |= SetIfFilled(existing.Type, incoming.Type, value => existing.Type = value);
         changed |= SetIfFilled(existing.Kind, incoming.Kind, value => existing.Kind = value);
-        changed |= SetIfFilled(existing.Status, incoming.Status, value => existing.Status = value);
+        var currentStatus = NormalizeWhatsAppDeliveryStatus(existing.Status, IsWhatsAppIncoming(existing));
+        var incomingStatus = NormalizeWhatsAppDeliveryStatus(incoming.Status, IsWhatsAppIncoming(incoming));
+        var failedOutgoing = false;
+        if (WhatsAppManualSendPolicy.CanTransitionDeliveryStatus(currentStatus, incomingStatus))
+        {
+            failedOutgoing = IsWhatsAppOutgoing(existing) &&
+                currentStatus != "erro" &&
+                incomingStatus == "erro";
+            existing.Status = incomingStatus;
+            changed = true;
+        }
         changed |= SetIfFilled(existing.Category, incoming.Category, value => existing.Category = value);
         if (incoming.SentAt.HasValue && existing.SentAt != incoming.SentAt)
         {
@@ -416,7 +676,67 @@ public partial class MainWindow
             changed = true;
         }
 
-        return (changed, false);
+        return (changed, false, failedOutgoing);
+    }
+
+    private bool MergeWhatsAppDuplicateLocalState(
+        WhatsAppMessage keeper,
+        WhatsAppMessage duplicate)
+    {
+        var changed = false;
+        changed |= FillWhatsAppMessageIfBlank(keeper.Provider, duplicate.Provider, value => keeper.Provider = value);
+        changed |= FillWhatsAppMessageIfBlank(keeper.Instance, duplicate.Instance, value => keeper.Instance = value);
+        changed |= FillWhatsAppMessageIfBlank(keeper.ConversationId, duplicate.ConversationId, value => keeper.ConversationId = value);
+        changed |= FillWhatsAppMessageIfBlank(keeper.LeadId, duplicate.LeadId, value => keeper.LeadId = value);
+        changed |= FillWhatsAppMessageIfBlank(keeper.CustomerName, duplicate.CustomerName, value => keeper.CustomerName = value);
+        changed |= FillWhatsAppMessageIfBlank(keeper.Phone, duplicate.Phone, value => keeper.Phone = value);
+        changed |= FillWhatsAppMessageIfBlank(keeper.Message, duplicate.Message, value => keeper.Message = value);
+        changed |= FillWhatsAppMessageIfBlank(keeper.Direction, duplicate.Direction, value => keeper.Direction = value);
+        changed |= FillWhatsAppMessageIfBlank(keeper.Type, duplicate.Type, value => keeper.Type = value);
+        changed |= FillWhatsAppMessageIfBlank(keeper.Kind, duplicate.Kind, value => keeper.Kind = value);
+        changed |= FillWhatsAppMessageIfBlank(keeper.Category, duplicate.Category, value => keeper.Category = value);
+
+        var currentStatus = NormalizeWhatsAppDeliveryStatus(keeper.Status, IsWhatsAppIncoming(keeper));
+        var duplicateStatus = NormalizeWhatsAppDeliveryStatus(duplicate.Status, IsWhatsAppIncoming(duplicate));
+        if (WhatsAppManualSendPolicy.CanTransitionDeliveryStatus(currentStatus, duplicateStatus))
+        {
+            keeper.Status = duplicateStatus;
+            changed = true;
+        }
+
+        if (!keeper.SentAt.HasValue && duplicate.SentAt.HasValue)
+        {
+            keeper.SentAt = duplicate.SentAt;
+            changed = true;
+        }
+
+        if (!keeper.ReceivedAt.HasValue && duplicate.ReceivedAt.HasValue)
+        {
+            keeper.ReceivedAt = duplicate.ReceivedAt;
+            changed = true;
+        }
+
+        if (!keeper.ReadAt.HasValue && duplicate.ReadAt.HasValue)
+        {
+            keeper.ReadAt = duplicate.ReadAt;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static bool FillWhatsAppMessageIfBlank(
+        string target,
+        string value,
+        Action<string> setter)
+    {
+        if (!string.IsNullOrWhiteSpace(target) || string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        setter(value);
+        return true;
     }
 
     private bool UpsertWhatsAppRealtimeLead(WhatsAppLead incoming)
@@ -559,9 +879,15 @@ public partial class MainWindow
     private void RefreshWhatsAppLeadCard(bool showingConversation)
     {
         var lead = showingConversation ? ActiveWhatsAppLead() : null;
-        WhatsAppLeadCard.Visibility = lead is null ? Visibility.Collapsed : Visibility.Visible;
+        WhatsAppLeadCard.Visibility = showingConversation ? Visibility.Visible : Visibility.Collapsed;
+        WhatsAppOutcomeWonButton.IsEnabled = lead is not null;
+        WhatsAppOutcomeLaterButton.IsEnabled = lead is not null;
+        WhatsAppOutcomeLostButton.IsEnabled = lead is not null;
         if (lead is null)
         {
+            UpdateWhatsAppOutcomeButtonAppearance(WhatsAppOutcomeWonButton, selected: false);
+            UpdateWhatsAppOutcomeButtonAppearance(WhatsAppOutcomeLaterButton, selected: false);
+            UpdateWhatsAppOutcomeButtonAppearance(WhatsAppOutcomeLostButton, selected: false);
             return;
         }
 
@@ -583,6 +909,20 @@ public partial class MainWindow
         WhatsAppLeadFactsText.Text = facts.Count == 0
             ? "Aguardando qualificação."
             : string.Join("  •  ", facts.Distinct(StringComparer.OrdinalIgnoreCase).Take(6));
+
+        var stage = lead.Stage.Trim().ToLowerInvariant();
+        UpdateWhatsAppOutcomeButtonAppearance(WhatsAppOutcomeWonButton, stage == "won");
+        UpdateWhatsAppOutcomeButtonAppearance(WhatsAppOutcomeLaterButton, stage == "qualified");
+        UpdateWhatsAppOutcomeButtonAppearance(WhatsAppOutcomeLostButton, stage == "lost");
+    }
+
+    private static void UpdateWhatsAppOutcomeButtonAppearance(Button button, bool selected)
+    {
+        var foreground = AccentTextBrush;
+        button.Background = selected ? AccentSoftBrush : PanelBrush;
+        button.BorderBrush = selected ? AccentBrush : LineBrush;
+        button.Foreground = foreground;
+        TextElement.SetForeground(button, foreground);
     }
 
     private static string WhatsAppLeadStageLabel(string stage) => stage.Trim().ToLowerInvariant() switch
@@ -719,6 +1059,7 @@ public partial class MainWindow
         }
 
         var occurredAt = ReadRealtimeDate(element, "occurredAt", "createdAt", "timestamp") ?? DateTime.Now;
+        var clientRequestId = ReadRealtimeString(element, "clientRequestId", "requestId", "idempotencyKey");
         var providerId = ReadRealtimeString(element, "providerMessageId", "messageId", "id");
         var id = ReadRealtimeString(element, "id");
         if (string.IsNullOrWhiteSpace(id))
@@ -730,6 +1071,7 @@ public partial class MainWindow
         return new WhatsAppMessage
         {
             Id = id,
+            ClientRequestId = clientRequestId,
             ProviderMessageId = providerId,
             Provider = ReadRealtimeString(element, "provider"),
             Instance = ReadRealtimeString(element, "instance"),
@@ -741,7 +1083,9 @@ public partial class MainWindow
             Direction = direction,
             Type = type,
             Kind = ReadRealtimeString(element, "kind"),
-            Status = direction == "entrada" ? "recebido" : "enviado",
+            Status = NormalizeWhatsAppDeliveryStatus(
+                ReadRealtimeString(element, "status", "deliveryStatus", "messageStatus"),
+                direction == "entrada"),
             Category = "Atendimento",
             CreatedAt = occurredAt,
             SentAt = direction == "saida" ? occurredAt : null,

@@ -1,9 +1,16 @@
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace AgendaLivre.Windows;
+
+public sealed class AgendaDataSavedEventArgs(AgendaData data, string serialized) : EventArgs
+{
+    public AgendaData Data { get; } = data;
+    public string Serialized { get; } = serialized;
+}
 
 public sealed class AgendaDataStore
 {
@@ -19,31 +26,58 @@ public sealed class AgendaDataStore
         Converters = { new JsonStringEnumConverter() }
     };
 
+    private readonly bool _seedWhenMissing;
+    private readonly object _ioGate = new();
+
     public AgendaDataStore()
+        : this(userId: null, seedWhenMissing: true)
     {
+    }
+
+    public AgendaDataStore(string userId)
+        : this(userId, seedWhenMissing: false)
+    {
+    }
+
+    private AgendaDataStore(string? userId, bool seedWhenMissing)
+    {
+        _seedWhenMissing = seedWhenMissing;
         var configuredRoot = Environment.GetEnvironmentVariable("AGENDA_LIVRE_DATA_ROOT");
+        string baseRoot;
         if (!string.IsNullOrWhiteSpace(configuredRoot))
         {
-            DataRoot = Path.GetFullPath(configuredRoot);
+            baseRoot = Path.GetFullPath(configuredRoot);
         }
         else if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AGENDA_LIVRE_AUDIT_STATE")) ||
                  !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AGENDA_LIVRE_AUDIT_SCREENSHOT_PATH")))
         {
             // Keep automated audits isolated from the user's real data.
-            DataRoot = AuditDataRoot;
+            baseRoot = AuditDataRoot;
         }
         else
         {
-            DataRoot = Path.Combine(
+            baseRoot = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "AgendaLivre.Windows");
         }
 
+        DataRoot = string.IsNullOrWhiteSpace(userId)
+            ? baseRoot
+            : Path.Combine(baseRoot, "accounts", SafeAccountId(userId));
+
         DataPath = Path.Combine(DataRoot, "agenda-data.json");
     }
 
+    public event EventHandler<AgendaDataSavedEventArgs>? Saved;
+
+    public static string LegacyDataPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "AgendaLivre.Windows",
+        "agenda-data.json");
+
     public string DataRoot { get; }
     public string DataPath { get; }
+    public bool HasLocalData => File.Exists(DataPath);
 
     public AgendaData LoadOrCreate()
     {
@@ -51,10 +85,10 @@ public sealed class AgendaDataStore
 
         if (!File.Exists(DataPath))
         {
-            var seeded = CreateSeedData();
-            seeded.Settings.OnboardingCompleted = false;
-            Save(seeded);
-            return seeded;
+            var created = _seedWhenMissing ? CreateSeedData() : CreateCleanData();
+            created.Settings.OnboardingCompleted = false;
+            Save(created);
+            return created;
         }
 
         try
@@ -70,14 +104,40 @@ public sealed class AgendaDataStore
             var backupPath = Path.Combine(DataRoot, $"agenda-data-corrompido-{DateTime.Now:yyyyMMdd-HHmmss}.json");
             File.Copy(DataPath, backupPath, overwrite: true);
 
-            var seeded = CreateSeedData();
-            seeded.Settings.OnboardingCompleted = false;
-            Save(seeded);
-            return seeded;
+            var recovered = _seedWhenMissing ? CreateSeedData() : CreateCleanData();
+            recovered.Settings.OnboardingCompleted = false;
+            Save(recovered);
+            return recovered;
         }
     }
 
     public void Save(AgendaData data)
+    {
+        lock (_ioGate)
+        {
+            SaveCore(data, notifySaved: true);
+        }
+    }
+
+    internal bool TrySaveFromSync(AgendaData data, Func<bool> canApply, Action committed)
+    {
+        ArgumentNullException.ThrowIfNull(canApply);
+        ArgumentNullException.ThrowIfNull(committed);
+
+        lock (_ioGate)
+        {
+            if (!canApply())
+            {
+                return false;
+            }
+
+            SaveCore(data, notifySaved: false);
+            committed();
+            return true;
+        }
+    }
+
+    private void SaveCore(AgendaData data, bool notifySaved)
     {
         Directory.CreateDirectory(DataRoot);
         EnsureUsableData(data);
@@ -92,6 +152,36 @@ public sealed class AgendaDataStore
         }
 
         File.Move(temporaryPath, DataPath, overwrite: true);
+        if (!notifySaved)
+        {
+            return;
+        }
+
+        try
+        {
+            Saved?.Invoke(this, new AgendaDataSavedEventArgs(data, serialized));
+        }
+        catch
+        {
+            // A falha de uma integração posterior nunca invalida o save local já concluído.
+        }
+    }
+
+    private static string SafeAccountId(string userId)
+    {
+        var clean = new string(userId
+            .Trim()
+            .ToLowerInvariant()
+            .Where(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_')
+            .Take(96)
+            .ToArray());
+        if (clean.Length >= 8)
+        {
+            return clean;
+        }
+
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(userId.Trim()));
+        return Convert.ToHexString(digest)[..32].ToLowerInvariant();
     }
 
     private static void EnsureUsableData(AgendaData data)
@@ -108,6 +198,7 @@ public sealed class AgendaDataStore
         data.WhatsAppMessages ??= [];
         data.WhatsAppLeads ??= [];
         data.Settings.BusinessName ??= "Balcão Livre";
+        data.Settings.BusinessLogoPath ??= "";
         data.Settings.BusinessDocument ??= "";
         data.Settings.BusinessPhone ??= "";
         data.Settings.BusinessAddress ??= "";
@@ -141,11 +232,6 @@ public sealed class AgendaDataStore
 
         RepairPersistedText(data);
         NormalizeBusinessRules(data);
-
-        if (data.Settings.Resources.Count == 0)
-        {
-            data.Settings.Resources.AddRange(DefaultResources());
-        }
 
         if (string.IsNullOrWhiteSpace(data.Settings.ClientLabel))
         {
@@ -209,6 +295,7 @@ public sealed class AgendaDataStore
 
         foreach (var message in data.WhatsAppMessages)
         {
+            message.ClientRequestId ??= "";
             message.ProviderMessageId ??= "";
             message.Provider ??= "";
             message.Instance ??= "";
@@ -391,6 +478,7 @@ public sealed class AgendaDataStore
         data.Settings.AccountPhone = RepairText(data.Settings.AccountPhone);
         data.Settings.AccountEmail = RepairText(data.Settings.AccountEmail);
         data.Settings.BusinessName = RepairText(data.Settings.BusinessName);
+        data.Settings.BusinessLogoPath = RepairText(data.Settings.BusinessLogoPath);
         data.Settings.BusinessDocument = RepairText(data.Settings.BusinessDocument);
         data.Settings.BusinessPhone = RepairText(data.Settings.BusinessPhone);
         data.Settings.BusinessAddress = RepairText(data.Settings.BusinessAddress);
@@ -543,6 +631,7 @@ public sealed class AgendaDataStore
 
         foreach (var message in data.WhatsAppMessages)
         {
+            message.ClientRequestId = RepairText(message.ClientRequestId);
             message.ProviderMessageId = RepairText(message.ProviderMessageId);
             message.Provider = RepairText(message.Provider);
             message.Instance = RepairText(message.Instance);
@@ -683,6 +772,20 @@ public sealed class AgendaDataStore
 
         return data;
     }
+
+    private static AgendaData CreateCleanData() =>
+        new()
+        {
+            Settings = new AgendaSettings
+            {
+                BusinessName = "Agenda Livre",
+                OnboardingCompleted = false,
+                WorkdayStartHour = 8,
+                WorkdayEndHour = 20,
+                Workdays = [1, 2, 3, 4, 5, 6],
+                Resources = []
+            }
+        };
 
     private static List<string> DefaultResources() =>
     [

@@ -40,6 +40,7 @@ public partial class MainWindow : Window
     private const string WhatsAppEvolutionLicenseExpires = "203512312359";
     private const string WhatsAppEvolutionLicenseScope = "AGENDALIVRE";
     private const string DefaultMercadoPagoPaymentsApiUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/payments";
+    private const string MercadoPagoLicenseActivationUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/license/activate";
     private const string MercadoPagoCreditMethod = "Mercado Pago - crédito na maquininha";
     private const string MercadoPagoDebitMethod = "Mercado Pago - débito na maquininha";
     private const double AppModalRadiusValue = 18;
@@ -80,10 +81,16 @@ public partial class MainWindow : Window
     {
         Timeout = TimeSpan.FromSeconds(8)
     };
+    private static readonly HttpClient MercadoPagoClient = new();
     private static Brush AccentBrush = Solid("#ED6823");
     private static Brush AccentDarkBrush = Solid("#C95016");
     private static Brush AccentTextBrush = Solid("#B74716");
+    private static Brush AccentOnDarkBrush = Solid("#ED6823");
+    private static Brush OnAccentBrush = Solid("#FFFFFF");
+    private static Brush PrimaryActionBrush = AccentBrush;
+    private static Brush PrimaryActionForegroundBrush = Solid("#1C1B1A");
     private static Brush AccentSoftBrush = Solid("#FFF1E9");
+    private static Brush ScheduleCardTintBrush = Solid("#F9CFB9");
     private static Brush WarmSoftBrush = Solid("#FFF8F3");
     private static Brush RedSoftBrush = Solid("#FCE5E2");
     private static Brush BlueSoftBrush = Solid("#FCE4D8");
@@ -118,7 +125,8 @@ public partial class MainWindow : Window
         RedSoftBrush
     ];
 
-    private readonly AgendaDataStore _store = new();
+    private readonly AgendaDataStore _store;
+    private readonly AgendaSyncCoordinator? _syncCoordinator;
     private readonly ObservableCollection<AppointmentRow> _dayRows = [];
     private readonly ObservableCollection<AppointmentRow> _weekRows = [];
     private readonly ObservableCollection<WeekSummaryRow> _weekSummaryRows = [];
@@ -173,25 +181,35 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _statusToastTimer = new() { Interval = TimeSpan.FromSeconds(4) };
     private readonly DispatcherTimer _searchRefreshTimer = new() { Interval = TimeSpan.FromMilliseconds(280) };
     private readonly DispatcherTimer _snapshotExportTimer = new() { Interval = TimeSpan.FromMilliseconds(700) };
+    private readonly DispatcherTimer _accountActivationSyncTimer = new() { Interval = TimeSpan.FromMilliseconds(700) };
+    private readonly CancellationTokenSource _accountActivationSyncCancellation = new();
+    private readonly SemaphoreSlim _mercadoPagoLicenseGate = new(1, 1);
+    private readonly WhatsAppManualSendGuard _whatsAppManualSendGuard = new();
     private bool _whatsAppPollRunning;
+    private bool _mercadoPagoLicenseRegistered;
+    private bool _whatsAppReplySending;
     private string _selectedWhatsAppReplyPhone = "";
     private string _selectedWhatsAppReplyName = "";
     private bool _whatsAppConversationOpen;
+    private string _lastWhatsAppAutoScrollKey = "";
     private FrameworkElement? _whatsAppReturnFocusElement;
     private readonly ObservableCollection<ProfessionalDayRow> _professionalRows = [];
     private readonly ObservableCollection<RecentCustomerRow> _recentCustomers = [];
     private readonly ObservableCollection<ServiceItem> _filteredServices = [];
     private readonly ObservableCollection<Professional> _filteredProfessionals = [];
+    private readonly ObservableCollection<CustomerSuggestionRow> _customerSuggestions = [];
     private readonly ObservableCollection<string> _resourceOptions = [];
     private readonly IReadOnlyList<OnboardingTemplate> _onboardingTemplates = OnboardingTemplate.CreateDefaults();
+    private readonly Dictionary<string, BitmapSource> _onboardingIllustrationThemeCache = new(StringComparer.OrdinalIgnoreCase);
+    private string _onboardingIllustrationCacheThemeId = ThemeDefaultWarm;
     private static readonly string[] OnboardingStepTitles =
     [
-        "Dados iniciais",
-        "Segmento do negócio",
-        "Tamanho da equipe",
-        "Objetivo principal",
-        "Endereço",
-        "Revisão"
+        "Tudo pronto para começar.",
+        "Qual é o seu negócio?",
+        "Quem atende com você?",
+        "Onde você quer chegar?",
+        "Onde fica o seu negócio?",
+        "Tudo certo por aqui."
     ];
     private static readonly string[] OnboardingStepCaptions =
     [
@@ -201,6 +219,24 @@ public partial class MainWindow : Window
         "Marque a prioridade inicial para a configuração nascer alinhada ao seu uso.",
         "Cadastre onde o negócio funciona para consultas e relatórios.",
         "Confira os dados principais e conclua a configuração inicial."
+    ];
+    private static readonly string[] OnboardingStepIllustrations =
+    [
+        "Assets/onboarding-store-calendar.png",
+        "Assets/onboarding-segment.png",
+        "Assets/onboarding-team.png",
+        "Assets/onboarding-goal.png",
+        "Assets/onboarding-address.png",
+        "Assets/onboarding-review.png"
+    ];
+    private static readonly string[] OnboardingStepIllustrationNames =
+    [
+        "Ilustração de um negócio com agenda organizada",
+        "Ilustração de diferentes tipos de estabelecimento",
+        "Ilustração de uma pequena equipe de profissionais",
+        "Ilustração de um objetivo sendo alcançado",
+        "Ilustração de um negócio localizado no mapa",
+        "Ilustração de uma configuração revisada e concluída"
     ];
 
     private readonly string[] _segments =
@@ -225,13 +261,16 @@ public partial class MainWindow : Window
     private string _selectedProfessionalCount = "";
     private string _selectedObjective = "";
     private string _selectedOnboardingThemeId = "";
+    private string? _pendingOnboardingLogoSourcePath;
     private int _onboardingStep;
     private bool _showingThemeSelection;
     private bool _loadingEditor;
+    private bool _applyingCustomerSuggestion;
     private bool _formattingCustomerPhone;
     private bool _formattingDialogText;
     private bool _formattingOnboardingCep;
     private bool _mainWindowInitialized;
+    private bool _forceFullOnboarding;
     private bool _syncingSelection;
     private int _appointmentEditorStep;
     private IInputElement? _appointmentEditorPreviousFocus;
@@ -314,10 +353,24 @@ public partial class MainWindow : Window
             Keyboard.PreviewKeyDownEvent,
             new KeyEventHandler(FormDatePicker_PreviewKeyDown),
             handledEventsToo: true);
+        EventManager.RegisterClassHandler(
+            typeof(PackIcon),
+            FrameworkElement.LoadedEvent,
+            new RoutedEventHandler(ThemePackIcon_Loaded),
+            handledEventsToo: true);
     }
 
-    public MainWindow()
+    public event EventHandler? LogoutRequested;
+    public event EventHandler? InitialOnboardingCompleted;
+
+    public MainWindow(
+        AgendaDataStore store,
+        AgendaSyncCoordinator? syncCoordinator,
+        bool forceFullOnboarding = false)
     {
+        _store = store ?? throw new ArgumentNullException(nameof(store));
+        _syncCoordinator = syncCoordinator;
+        _forceFullOnboarding = forceFullOnboarding;
         InitializeComponent();
         _statusToastTimer.Tick += (_, _) => HideStatusToast();
         _searchRefreshTimer.Tick += (_, _) =>
@@ -330,9 +383,13 @@ public partial class MainWindow : Window
             _snapshotExportTimer.Stop();
             ExportWhatsAppAgendaSnapshot();
         };
+        _accountActivationSyncTimer.Tick += MainWindow_AccountActivationSyncTimerTick;
         PreviewKeyDown += MainWindow_PreviewKeyDown;
         Loaded += MainWindow_Loaded;
+        Activated += MainWindow_Activated;
         Closed += MainWindow_WhatsAppRealtimeClosed;
+        Closed += MainWindow_OnlineBookingClosed;
+        Closed += MainWindow_AccountSyncClosed;
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -345,7 +402,13 @@ public partial class MainWindow : Window
         _mainWindowInitialized = true;
         _whatsAppPollTimer.Tick += async (_, _) => await PollWhatsAppEvolutionMessagesAsync();
 
-        _data = _store.LoadOrCreate();
+        _data = _syncCoordinator?.InitialData ?? _store.LoadOrCreate();
+        if (_forceFullOnboarding && _data.Settings.OnboardingCompleted)
+        {
+            _data.Settings.OnboardingCompleted = false;
+            _store.Save(_data);
+        }
+
         ApplyVisualTheme(ThemeById(_data.Settings.ThemeId), refreshVisibleData: false);
         var dataChanged = false;
         dataChanged |= PruneProfessionalsForSelectedCount();
@@ -362,11 +425,29 @@ public partial class MainWindow : Window
         RefreshAll();
         UpdateWhatsAppPollingState();
         StartWhatsAppRealtime();
+        StartOnlineBookingSync();
         ApplyBusinessLabels();
         ShowMainPage(MainPage.Home);
 
         DataPathText.Text = _store.DataPath;
         ShowStatus("Agenda pronta para usar.");
+
+        if (_syncCoordinator is not null)
+        {
+            _syncCoordinator.StatusChanged += SyncCoordinator_StatusChanged;
+            _syncCoordinator.ConflictDetected += SyncCoordinator_ConflictDetected;
+            _syncCoordinator.RemoteDataApplied += SyncCoordinator_RemoteDataApplied;
+            _syncCoordinator.Attach();
+            if (!string.IsNullOrWhiteSpace(_syncCoordinator.InitialNotice))
+            {
+                ShowStatus(_syncCoordinator.InitialNotice);
+            }
+
+            if (_syncCoordinator.InitialConflict is not null)
+            {
+                SyncCoordinator_ConflictDetected(_syncCoordinator, _syncCoordinator.InitialConflict);
+            }
+        }
 
         if (NeedsOnboarding())
         {
@@ -374,6 +455,143 @@ public partial class MainWindow : Window
         }
 
         CaptureAuditScreenshotIfRequested();
+        ExportAuditReportPdfIfRequested();
+    }
+
+    private void SyncCoordinator_StatusChanged(object? sender, AgendaSyncStatusEventArgs e)
+    {
+        Dispatcher.BeginInvoke(() => ShowStatus(e.Message));
+    }
+
+    private void SyncCoordinator_ConflictDetected(object? sender, AgendaSyncConflictEventArgs e)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            ShowStatus(e.Message);
+            MessageBox.Show(
+                this,
+                $"{e.Message}\n\nRevisão remota: {e.RemoteRevision}.\nAs cópias estão em:\n{System.IO.Path.GetDirectoryName(e.LocalCopyPath)}",
+                "Agenda alterada em outro dispositivo",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        });
+    }
+
+    private void MainWindow_Activated(object? sender, EventArgs e)
+    {
+        if (!_mainWindowInitialized || _syncCoordinator is null)
+        {
+            return;
+        }
+
+        _accountActivationSyncTimer.Stop();
+        _accountActivationSyncTimer.Start();
+    }
+
+    private async void MainWindow_AccountActivationSyncTimerTick(object? sender, EventArgs e)
+    {
+        _accountActivationSyncTimer.Stop();
+        if (!IsActive || _syncCoordinator is null || _accountActivationSyncCancellation.IsCancellationRequested)
+        {
+            return;
+        }
+
+        await _syncCoordinator.RefreshFromCloudOnActivationAsync(_accountActivationSyncCancellation.Token);
+    }
+
+    private void SyncCoordinator_RemoteDataApplied(object? sender, AgendaRemoteDataAppliedEventArgs e)
+    {
+        void ApplyRemoteData()
+        {
+            var selectedId = _selectedAppointment?.Id;
+            _data = e.Data;
+            ApplyVisualTheme(ThemeById(_data.Settings.ThemeId), refreshVisibleData: false);
+            ApplyBusinessLabels();
+            RefreshAll(selectedId);
+            UpdateWhatsAppPollingState();
+
+            if (NeedsOnboarding())
+            {
+                if (OnboardingOverlay.Visibility != Visibility.Visible)
+                {
+                    ShowOnboarding();
+                }
+            }
+            else if (OnboardingOverlay.Visibility == Visibility.Visible)
+            {
+                OnboardingOverlay.Visibility = Visibility.Collapsed;
+                TopBarBorder.IsEnabled = true;
+                AppShellBodyGrid.IsEnabled = true;
+                RefreshWhatsAppLauncherVisibility();
+            }
+        }
+
+        if (Dispatcher.CheckAccess())
+        {
+            ApplyRemoteData();
+        }
+        else
+        {
+            Dispatcher.BeginInvoke(ApplyRemoteData);
+        }
+    }
+
+    private void MainWindow_AccountSyncClosed(object? sender, EventArgs e)
+    {
+        _accountActivationSyncTimer.Stop();
+        _accountActivationSyncCancellation.Cancel();
+        Activated -= MainWindow_Activated;
+        if (_syncCoordinator is not null)
+        {
+            _syncCoordinator.StatusChanged -= SyncCoordinator_StatusChanged;
+            _syncCoordinator.ConflictDetected -= SyncCoordinator_ConflictDetected;
+            _syncCoordinator.RemoteDataApplied -= SyncCoordinator_RemoteDataApplied;
+        }
+
+        _accountActivationSyncCancellation.Dispose();
+    }
+
+    private void ExportAuditReportPdfIfRequested()
+    {
+        var outputPath = Environment.GetEnvironmentVariable("AGENDA_LIVRE_AUDIT_PDF_PATH");
+        if (string.IsNullOrWhiteSpace(outputPath))
+        {
+            return;
+        }
+
+        Dispatcher.BeginInvoke(
+            () =>
+            {
+                try
+                {
+                    ShowMainPage(MainPage.Reports);
+                    RefreshReportsPage();
+                    var auditThemeId = Environment.GetEnvironmentVariable("AGENDA_LIVRE_AUDIT_THEME_ID");
+                    if (!string.IsNullOrWhiteSpace(auditThemeId))
+                    {
+                        _data.Settings.ThemeId = auditThemeId;
+                    }
+
+                    var auditLogoPath = Environment.GetEnvironmentVariable("AGENDA_LIVRE_AUDIT_BUSINESS_LOGO_PATH");
+                    if (!string.IsNullOrWhiteSpace(auditLogoPath))
+                    {
+                        _data.Settings.BusinessLogoPath = System.IO.Path.GetFullPath(auditLogoPath);
+                    }
+
+                    WriteReportPdf(System.IO.Path.GetFullPath(outputPath));
+                }
+                finally
+                {
+                    if (string.Equals(
+                            Environment.GetEnvironmentVariable("AGENDA_LIVRE_AUDIT_CLOSE_AFTER_PDF"),
+                            "1",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        Close();
+                    }
+                }
+            },
+            DispatcherPriority.ApplicationIdle);
     }
 
     private void CaptureAuditScreenshotIfRequested()
@@ -398,6 +616,12 @@ public partial class MainWindow : Window
         }
 
         var auditState = Environment.GetEnvironmentVariable("AGENDA_LIVRE_AUDIT_STATE");
+        var auditThemeId = Environment.GetEnvironmentVariable("AGENDA_LIVRE_AUDIT_THEME_ID");
+        if (!string.IsNullOrWhiteSpace(auditThemeId))
+        {
+            ApplyVisualTheme(ThemeById(auditThemeId), refreshVisibleData: false);
+        }
+
         switch (auditState?.Trim().ToLowerInvariant())
         {
             case "home":
@@ -406,9 +630,25 @@ public partial class MainWindow : Window
             case "agenda":
                 ShowMainPage(MainPage.Agenda);
                 break;
+            case "establishment":
+            case "meu-estabelecimento":
+                ShowMainPage(MainPage.Establishment);
+                break;
             case "finance":
             case "financeiro":
                 ShowMainPage(MainPage.Finance);
+                break;
+            case "reports":
+            case "relatorios":
+                ShowMainPage(MainPage.Reports);
+                break;
+            case "marketing":
+            case "marketing-lower":
+                ShowMainPage(MainPage.Marketing);
+                break;
+            case "settings":
+            case "configuracoes":
+                ShowMainPage(MainPage.Settings);
                 break;
             case "whatsapp-panel":
                 ShowMainPage(MainPage.Home);
@@ -430,6 +670,15 @@ public partial class MainWindow : Window
                 ShowOnboarding();
                 ShowThemeSelectionStep();
                 break;
+        }
+
+        if (!string.IsNullOrWhiteSpace(auditState) &&
+            !auditState.StartsWith("onboarding", StringComparison.OrdinalIgnoreCase))
+        {
+            OnboardingOverlay.Visibility = Visibility.Collapsed;
+            TopBarBorder.IsEnabled = true;
+            AppShellBodyGrid.IsEnabled = true;
+            RefreshWhatsAppLauncherVisibility();
         }
 
         var auditAppointment = string.Equals(auditState, "appointment", StringComparison.OrdinalIgnoreCase) ||
@@ -474,6 +723,12 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(() =>
             {
                 UpdateLayout();
+                if (string.Equals(auditState, "marketing-lower", StringComparison.OrdinalIgnoreCase))
+                {
+                    MarketingView.ScrollToEnd();
+                    UpdateLayout();
+                }
+
                 if (string.Equals(auditState, "appointment-top-date", StringComparison.OrdinalIgnoreCase))
                 {
                     AppointmentDatePicker.Focus();
@@ -628,6 +883,14 @@ public partial class MainWindow : Window
 
         if (e.Key != Key.F12)
         {
+            if ((e.Key is Key.Enter or Key.Return) &&
+                ReferenceEquals(
+                    FindVisualParent<TextBox>(e.OriginalSource as DependencyObject),
+                    WhatsAppReplyTextBox))
+            {
+                return;
+            }
+
             HandleFormKeyboardNavigation(e);
             return;
         }
@@ -652,11 +915,36 @@ public partial class MainWindow : Window
         try
         {
             source.UpdateLayout();
-            var dpi = VisualTreeHelper.GetDpi(source);
-            var width = Math.Max(1, (int)Math.Ceiling(source.ActualWidth * dpi.DpiScaleX));
-            var height = Math.Max(1, (int)Math.Ceiling(source.ActualHeight * dpi.DpiScaleY));
+            Visual captureTarget = source;
+
+            // The audit viewport describes the application client area. Rendering the
+            // Window itself includes the invisible non-client border, which leaves a
+            // transparent strip in the PNG and makes same-viewport comparisons wrong.
+            var auditViewport = Environment.GetEnvironmentVariable("AGENDA_LIVRE_AUDIT_VIEWPORT");
+            var viewportParts = auditViewport?.Split('x', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (source is MainWindow &&
+                source.Content is FrameworkElement clientArea &&
+                viewportParts is { Length: 2 } &&
+                double.TryParse(viewportParts[0], out var targetWidth) &&
+                double.TryParse(viewportParts[1], out var targetHeight) &&
+                targetWidth > 0 &&
+                targetHeight > 0)
+            {
+                source.Width += targetWidth - clientArea.ActualWidth;
+                source.Height += targetHeight - clientArea.ActualHeight;
+                source.UpdateLayout();
+                clientArea.UpdateLayout();
+                captureTarget = clientArea;
+            }
+
+            var dpi = VisualTreeHelper.GetDpi(captureTarget);
+            var bounds = captureTarget is FrameworkElement element
+                ? new Size(element.ActualWidth, element.ActualHeight)
+                : new Size(source.ActualWidth, source.ActualHeight);
+            var width = Math.Max(1, (int)Math.Ceiling(bounds.Width * dpi.DpiScaleX));
+            var height = Math.Max(1, (int)Math.Ceiling(bounds.Height * dpi.DpiScaleY));
             var bitmap = new RenderTargetBitmap(width, height, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
-            bitmap.Render(source);
+            bitmap.Render(captureTarget);
 
             var fullPath = System.IO.Path.GetFullPath(path);
             var directory = System.IO.Path.GetDirectoryName(fullPath);
@@ -684,23 +972,23 @@ public partial class MainWindow : Window
                 ThemeSalonClassicGold,
                 "Clássico dourado",
                 "Georgia",
-                "#FFF9EC",
+                "#FFFCF5",
                 "#FFFFFF",
-                "#C99A2E",
-                "#9F7422",
-                "#FFF4D5",
-                "#F7E7B4",
-                "#FFFBF2",
-                "#EBDAB5",
+                "#F4D195",
+                "#A86808",
+                "#F9E0B8",
+                "#FBEDCF",
+                "#FFF9ED",
+                "#EAD5AC",
                 "#2A201A",
                 "#756A58",
-                "#FFFBF2",
-                "#F4DF9F",
-                "#EBDAB5",
-                "#5A431E",
+                "#FFF9ED",
+                "#F9E0B8",
+                "#E4C48A",
+                "#5A3D0F",
                 "#FCE8E8",
-                "#FFF7D6",
-                "#F4EFE3"),
+                "#FFF0C7",
+                "#F5F0E7"),
             "SALONLILACGLOW" => new(
                 ThemeSalonLilacGlow,
                 "Lilás glow",
@@ -1210,11 +1498,33 @@ public partial class MainWindow : Window
 
     private void ApplyVisualTheme(VisualTheme theme, bool refreshVisibleData)
     {
+        if (!string.Equals(_onboardingIllustrationCacheThemeId, theme.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            _onboardingIllustrationThemeCache.Clear();
+            _onboardingIllustrationCacheThemeId = theme.Id;
+        }
+
         ActiveThemeId = theme.Id;
         AccentBrush = Solid(theme.Accent);
         AccentDarkBrush = Solid(theme.AccentDark);
-        AccentTextBrush = AccentDarkBrush;
+        var accentText = ReadableForeground(theme.AccentSoft, theme.AccentDark, theme.Ink);
+        AccentTextBrush = Solid(accentText);
+        var accentOnDark = ReadableForeground("#2B2927", theme.Accent, "#FFFFFF");
+        AccentOnDarkBrush = Solid(accentOnDark);
+        var onAccent = HighestContrastForeground(theme.Accent, theme.Ink);
+        var accentForeground = ReadableForeground(theme.AccentSoft, theme.Accent, theme.Ink);
+        var accentColor = (Color)ColorConverter.ConvertFromString(theme.Accent);
+        var panelColor = (Color)ColorConverter.ConvertFromString(theme.Panel);
+        var inkColor = (Color)ColorConverter.ConvertFromString(theme.Ink);
+        var primaryAction = theme.Accent;
+        var primaryActionHover = ColorHex(Blend(accentColor, inkColor, 0.08));
+        var primaryActionPressed = ColorHex(Blend(accentColor, inkColor, 0.14));
+        var primaryActionForeground = HighestContrastForeground(primaryAction, theme.Ink);
+        OnAccentBrush = Solid(onAccent);
+        PrimaryActionBrush = Solid(primaryAction);
+        PrimaryActionForegroundBrush = Solid(primaryActionForeground);
         AccentSoftBrush = Solid(theme.AccentSoft);
+        ScheduleCardTintBrush = Solid(ColorHex(Blend(accentColor, panelColor, 0.68)));
         WarmSoftBrush = Solid(theme.WarmSoft);
         RedSoftBrush = Solid(theme.RedSoft);
         BlueSoftBrush = Solid(theme.BlueSoft);
@@ -1228,7 +1538,7 @@ public partial class MainWindow : Window
         ApplySystemSelectionPalette();
         var usesDarkSidebar = ThemeUsesDarkSidebar(theme);
         SidebarTextBrush = usesDarkSidebar ? Solid("#F1EEE9") : Solid(theme.Ink);
-        SidebarActiveTextBrush = usesDarkSidebar ? Brushes.White : Solid(theme.AccentDark);
+        SidebarActiveTextBrush = usesDarkSidebar ? Brushes.White : AccentTextBrush;
         SidebarActiveBackgroundBrush = SidebarActiveBackground(theme);
         var sidebarBorderBrush = SidebarBorderSurface(theme);
         var sidebarHoverBrush = SidebarHoverSurface(theme);
@@ -1255,7 +1565,14 @@ public partial class MainWindow : Window
 
         SetResourceBrush("Accent", theme.Accent);
         SetResourceBrush("AccentDark", theme.AccentDark);
-        SetResourceBrush("AccentText", theme.AccentDark);
+        SetResourceBrush("AccentText", accentText);
+        SetResourceBrush("AccentOnDark", accentOnDark);
+        SetResourceBrush("AccentForeground", accentForeground);
+        SetResourceBrush("OnAccent", onAccent);
+        SetResourceBrush("PrimaryActionBackground", primaryAction);
+        SetResourceBrush("PrimaryActionForeground", primaryActionForeground);
+        SetResourceBrush("PrimaryActionHoverBackground", primaryActionHover);
+        SetResourceBrush("PrimaryActionPressedBackground", primaryActionPressed);
         SetResourceBrush("AccentSoft", theme.AccentSoft);
         SetResourceBrush("BlueSoft", theme.BlueSoft);
         SetResourceBrush("WarmSoft", theme.WarmSoft);
@@ -1274,25 +1591,22 @@ public partial class MainWindow : Window
         TopBarBorder.BorderBrush = LineBrush;
         TopBrandPanel.Background = SidebarHeaderGradient(theme);
         TopBrandPanel.BorderBrush = LineBrush;
-        TopLogoText.Foreground = Solid(theme.AccentDark);
+        TopLogoText.Foreground = AccentTextBrush;
         AppTitleText.Foreground = InkBrush;
         AppSubtitleText.Foreground = MutedBrush;
         var sidebarProfileSurface = SidebarProfileSurface(theme);
-        SidebarProfileButton.Background = sidebarProfileSurface;
-        SidebarProfileButton.BorderBrush = sidebarBorderBrush;
-        SidebarProfileButton.BorderThickness = new Thickness(1);
-        SidebarLogoText.Foreground = Solid(theme.AccentDark);
-        SidebarProfileLogoHost.Background = Brushes.Transparent;
-        SidebarDarkThemeLogo.Visibility = usesDarkSidebar ? Visibility.Visible : Visibility.Collapsed;
-        SidebarLightThemeAvatar.Visibility = usesDarkSidebar ? Visibility.Collapsed : Visibility.Visible;
+        SidebarProfileCard.Background = sidebarProfileSurface;
+        SidebarProfileCard.BorderBrush = sidebarBorderBrush;
+        SidebarProfileCard.BorderThickness = new Thickness(1);
+        SidebarProfileLogoHost.Background = usesDarkSidebar ? Solid("#312D2A") : AccentSoftBrush;
+        SidebarProfileLogoHost.BorderBrush = usesDarkSidebar ? Solid("#5A524C") : AccentBrush;
+        SidebarLogoText.Foreground = usesDarkSidebar ? Brushes.White : AccentTextBrush;
         SidebarCollapsedDarkThemeLogo.Visibility = usesDarkSidebar ? Visibility.Visible : Visibility.Collapsed;
         SidebarCollapsedLightThemeLogo.Visibility = usesDarkSidebar ? Visibility.Collapsed : Visibility.Visible;
-        SidebarLightThemeAvatar.Background = AccentSoftBrush;
-        SidebarLightThemeAvatar.BorderBrush = LineBrush;
         SidebarUserNameText.Foreground = usesDarkSidebar ? Brushes.White : InkBrush;
         SidebarUserRoleText.Foreground = usesDarkSidebar ? Solid("#A9A39D") : MutedBrush;
-        var sidebarToggleBrush = Solid(theme.AccentDark);
-        SidebarProfileChevron.Foreground = sidebarToggleBrush;
+        var sidebarToggleBrush = usesDarkSidebar ? Brushes.White : AccentTextBrush;
+        SidebarExpandedToggleIcon.Foreground = sidebarToggleBrush;
         SidebarCollapsedToggleIcon.Foreground = sidebarToggleBrush;
         SidebarCollapsedToggleButton.Background = sidebarProfileSurface;
         SidebarCollapsedToggleButton.BorderBrush = sidebarBorderBrush;
@@ -1305,12 +1619,12 @@ public partial class MainWindow : Window
         OnboardingOverlay.Background = Solid(theme.AppBackground);
         OnboardingSidebarPanel.Background = Solid(theme.WarmSoft);
         OnboardingSidebarPanel.BorderBrush = LineBrush;
-        OnboardingBrandIcon.Foreground = AccentBrush;
+        OnboardingBrandIcon.Foreground = AccentTextBrush;
         OnboardingBrandIconShell.BorderBrush = LineBrush;
         OnboardingQuickTipCard.Background = Solid(theme.WarmSoft);
         OnboardingQuickTipCard.BorderBrush = LineBrush;
         OnboardingQuickTipIconShell.Background = AccentSoftBrush;
-        OnboardingQuickTipIcon.Foreground = AccentBrush;
+        OnboardingQuickTipIcon.Foreground = AccentTextBrush;
 
         if (refreshVisibleData)
         {
@@ -1320,6 +1634,12 @@ public partial class MainWindow : Window
 
         UpdateOnboardingStepDots();
         UpdateWizardChoiceStates();
+        if (OnboardingOverlay.Visibility == Visibility.Visible)
+        {
+            UpdateOnboardingSidebarIllustration();
+        }
+
+        ApplyPackIconContrastPolicy(this);
     }
 
     private void ApplyThemeTypography()
@@ -1379,6 +1699,16 @@ public partial class MainWindow : Window
         {
             Resources[key] = new SolidColorBrush(color);
         }
+
+        var applicationResources = Application.Current.Resources;
+        if (applicationResources[key] is SolidColorBrush applicationBrush && !applicationBrush.IsFrozen)
+        {
+            applicationBrush.Color = color;
+        }
+        else
+        {
+            applicationResources[key] = new SolidColorBrush(color);
+        }
     }
 
     private void ConfigureInputs()
@@ -1420,6 +1750,7 @@ public partial class MainWindow : Window
         ConfigureReportChartOptions();
         ProfessionalListBox.ItemsSource = _professionalRows;
         RecentCustomerListBox.ItemsSource = _recentCustomers;
+        CustomerSuggestionsListBox.ItemsSource = _customerSuggestions;
         DayAgendaList.ItemsSource = _dayRows;
         WeekAgendaList.ItemsSource = _weekRows;
         WeekSummaryItemsControl.ItemsSource = _weekSummaryRows;
@@ -1474,8 +1805,8 @@ public partial class MainWindow : Window
     private void ConfigureOnboardingInputs()
     {
         _selectedOnboardingTemplate = ResolveBusinessTemplate(_data.Settings.BusinessSegment);
-        _selectedProfessionalCount = _data.Settings.ProfessionalCountRange;
-        _selectedObjective = _data.Settings.MainObjective;
+        _selectedProfessionalCount = NormalizeProfessionalCountChoice(_data.Settings.ProfessionalCountRange);
+        _selectedObjective = NormalizeObjectiveChoice(_data.Settings.MainObjective);
         _selectedOnboardingThemeId = _data.Settings.ThemeId;
         _showingThemeSelection = false;
 
@@ -1487,6 +1818,8 @@ public partial class MainWindow : Window
         InitialBusinessNameTextBox.Text = IsDefaultBusinessName(_data.Settings.BusinessName)
             ? ""
             : _data.Settings.BusinessName;
+        _pendingOnboardingLogoSourcePath = null;
+        RefreshInitialBusinessLogoPreview(_data.Settings.BusinessLogoPath);
         _formattingOnboardingCep = true;
         OnboardingCepTextBox.Text = FormatCepInput(_data.Settings.PostalCode);
         _formattingOnboardingCep = false;
@@ -1498,6 +1831,7 @@ public partial class MainWindow : Window
     }
 
     private bool NeedsOnboarding() =>
+        _forceFullOnboarding ||
         !_data.Settings.OnboardingCompleted ||
         string.IsNullOrWhiteSpace(_data.Settings.BusinessSegment);
 
@@ -1511,6 +1845,9 @@ public partial class MainWindow : Window
         IsDefaultBusinessName(_data.Settings.BusinessName)
             ? "Balcão Livre"
             : _data.Settings.BusinessName;
+
+    private string OwnerDisplayName() =>
+        FirstFilled(_data.Settings.AccountFullName, "Responsável não informado");
 
     private void ShowOnboarding()
     {
@@ -1537,7 +1874,9 @@ public partial class MainWindow : Window
         var themeChoices = ThemeChoicesForTemplate(_selectedOnboardingTemplate);
         if (!themeChoices.Any(choice => NormalizeTemplateLookup(choice.Id) == NormalizeTemplateLookup(_selectedOnboardingThemeId)))
         {
-            _selectedOnboardingThemeId = "";
+            _selectedOnboardingThemeId = ThemeDefaultWarm;
+            _data.Settings.ThemeId = ThemeDefaultWarm;
+            ApplyVisualTheme(ThemeById(ThemeDefaultWarm), refreshVisibleData: true);
         }
 
         BuildThemeChoiceCards();
@@ -1625,21 +1964,21 @@ public partial class MainWindow : Window
                     ThemeMedicalTeal,
                     "Teal clínico",
                     "Cuidado limpo e moderno.",
-                    "",
+                    "/Assets/Themes/medical-teal.png",
                     "#EEF9F9",
                     "#CFE7E8"),
                 new(
                     ThemeMedicalGreen,
                     "Verde acolhe",
                     "Saúde leve e acolhedora.",
-                    "",
+                    "/Assets/Themes/medical-green.png",
                     "#EEF8F3",
                     "#D5E7DF"),
                 new(
                     ThemeMedicalBlue,
                     "Azul saúde",
                     "Clínico e tecnológico.",
-                    "",
+                    "/Assets/Themes/medical-blue.png",
                     "#EEF6FF",
                     "#D3E2F8")
             ];
@@ -1660,21 +1999,21 @@ public partial class MainWindow : Window
                     ThemePetCoral,
                     "Coral pet",
                     "Quente e divertido.",
-                    "",
+                    "/Assets/Themes/pet-coral.png",
                     "#FFF0EA",
                     "#F0D2CB"),
                 new(
                     ThemePetLilac,
                     "Lilás pet",
                     "Fofo e delicado.",
-                    "",
+                    "/Assets/Themes/pet-lilac.png",
                     "#F6EFFF",
                     "#E3D6F5"),
                 new(
                     ThemePetTeal,
                     "Verde pet",
                     "Vivo e organizado.",
-                    "",
+                    "/Assets/Themes/pet-teal.png",
                     "#ECFAF8",
                     "#CFE7E4")
             ];
@@ -1695,21 +2034,21 @@ public partial class MainWindow : Window
                     ThemeWorkshopGold,
                     "Mecânica ouro",
                     "Forte e premium.",
-                    "",
+                    "/Assets/Themes/workshop-gold.png",
                     "#FFF7E8",
                     "#E7D8B8"),
                 new(
                     ThemeWorkshopOlive,
                     "Verde automotivo",
                     "Robusto e organizado.",
-                    "",
+                    "/Assets/Themes/workshop-olive.png",
                     "#F2F7E6",
                     "#D9E2BD"),
                 new(
                     ThemeWorkshopGraphite,
                     "Grafite oficina",
                     "Direto e técnico.",
-                    "",
+                    "/Assets/Themes/workshop-graphite.png",
                     "#F1F3F4",
                     "#D9DFDF")
             ];
@@ -1834,8 +2173,8 @@ public partial class MainWindow : Window
                 "Clássico dourado",
                 "Claro e elegante.",
                 "/Assets/Themes/salon-classic-gold.png",
-                "#FFF7F0",
-                "#EAD8CB"),
+                "#FFF9ED",
+                "#F4D195"),
             new(
                 ThemeSalonLilacGlow,
                 "Lilás glow",
@@ -1858,27 +2197,57 @@ public partial class MainWindow : Window
         ThemeChoiceCardsPanel.Children.Clear();
 
         var themeChoices = ThemeChoicesForTemplate(_selectedOnboardingTemplate);
-        ThemeChoiceCardsPanel.Columns = Math.Min(4, Math.Max(1, themeChoices.Count));
-        foreach (var choice in themeChoices)
+        ThemeChoiceCardsPanel.Columns = themeChoices.Count == 1 ? 1 : 2;
+        ThemeChoiceCardsPanel.Rows = Math.Max(1, (int)Math.Ceiling(themeChoices.Count / 2d));
+        for (var index = 0; index < themeChoices.Count; index++)
         {
+            var choice = themeChoices[index];
+            var theme = ThemeById(choice.Id);
             var button = new Button
             {
                 Tag = choice.Id,
                 Style = (Style)ThemeChoiceCardsPanel.FindResource("WizardThemeButton"),
-                Margin = new Thickness(8, 0, 8, 0)
+                Margin = new Thickness(6),
+                ToolTip = $"{choice.Title} — {choice.Description}"
             };
             AutomationProperties.SetName(button, $"Tema {choice.Title}. {choice.Description}");
+            AutomationProperties.SetHelpText(button, "Pressione Enter ou Espaço para aplicar este tema.");
+            AutomationProperties.SetPositionInSet(button, index + 1);
+            AutomationProperties.SetSizeOfSet(button, themeChoices.Count);
             button.Click += ThemeChoiceButton_Click;
 
-            var content = new StackPanel();
-            var preview = CreateThemeChoicePreview(choice);
+            var content = new Grid
+            {
+                Margin = new Thickness(10),
+                IsHitTestVisible = false
+            };
+            content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(122) });
+            content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
+            content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var preview = CreateThemeChoicePreview(choice, theme);
+            preview.HorizontalAlignment = HorizontalAlignment.Stretch;
+            preview.VerticalAlignment = VerticalAlignment.Center;
+            content.Children.Add(preview);
+
+            var details = new Grid { VerticalAlignment = VerticalAlignment.Stretch };
+            details.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            details.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            details.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Grid.SetColumn(details, 2);
+
+            var header = new Grid();
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
 
             var title = new TextBlock
             {
                 Text = choice.Title,
-                FontSize = 12.5,
-                FontWeight = FontWeights.Bold,
-                Margin = new Thickness(2, 8, 2, 0)
+                FontSize = 13.5,
+                FontWeight = FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap,
+                MaxHeight = 36,
+                VerticalAlignment = VerticalAlignment.Center
             };
             BindingOperations.SetBinding(
                 title,
@@ -1888,128 +2257,223 @@ public partial class MainWindow : Window
                     RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(Button), 1)
                 });
 
+            var selectedBadge = new Border
+            {
+                Tag = "ThemeSelectionBadge",
+                Width = 20,
+                Height = 20,
+                CornerRadius = new CornerRadius(10),
+                Background = AccentBrush,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Visibility = NormalizeTemplateLookup(choice.Id) == NormalizeTemplateLookup(_selectedOnboardingThemeId ?? "")
+                    ? Visibility.Visible
+                    : Visibility.Collapsed,
+                Child = new PackIcon
+                {
+                    Kind = PackIconKind.Check,
+                    Width = 13,
+                    Height = 13,
+                    Foreground = OnAccentBrush,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            };
+            Grid.SetColumn(selectedBadge, 1);
+            header.Children.Add(title);
+            header.Children.Add(selectedBadge);
+            details.Children.Add(header);
+
             var description = new TextBlock
             {
                 Text = choice.Description,
                 Foreground = MutedBrush,
-                FontSize = 10.5,
+                FontSize = 11.5,
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(2, 3, 2, 0)
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxHeight = 31,
+                Margin = new Thickness(0, 3, 0, 0),
+                VerticalAlignment = VerticalAlignment.Top
             };
+            Grid.SetRow(description, 1);
+            details.Children.Add(description);
 
-            content.Children.Add(preview);
-            content.Children.Add(title);
-            content.Children.Add(description);
+            var swatches = CreateThemeSwatchRow(theme);
+            Grid.SetRow(swatches, 2);
+            details.Children.Add(swatches);
+
+            content.Children.Add(details);
             button.Content = content;
             ThemeChoiceCardsPanel.Children.Add(button);
         }
     }
 
-    private static Border CreateThemeChoicePreview(OnboardingThemeChoice choice)
+    private static FrameworkElement CreateThemeChoicePreview(OnboardingThemeChoice choice, VisualTheme theme)
     {
-        return CreateThemeChoiceMiniPreview(choice, ThemeById(choice.Id));
-    }
-
-    private static Border CreateThemeChoiceMiniPreview(OnboardingThemeChoice choice, VisualTheme theme)
-    {
-        var radius = 13.0;
-        var isDefaultTheme = string.IsNullOrWhiteSpace(choice.Id);
-        var sidebarColor = isDefaultTheme ? theme.Accent : theme.SidebarBackground;
-        var activeColor = isDefaultTheme ? theme.AccentSoft : theme.SidebarActive;
-        var panelColor = isDefaultTheme ? "#FFFFFF" : theme.Panel;
-        var contentSoftColor = isDefaultTheme ? theme.AccentSoft : theme.BlueSoft;
-        var contentStrongColor = isDefaultTheme ? theme.BlueSoft : theme.AccentSoft;
-
-        var shell = new Grid
+        var isDefaultTheme = string.IsNullOrWhiteSpace(theme.Id);
+        var isClassicGold = string.Equals(theme.Id, ThemeSalonClassicGold, StringComparison.OrdinalIgnoreCase);
+        var primaryBackground = isDefaultTheme
+            ? Solid(theme.Panel)
+            : isClassicGold
+                ? Solid(theme.Accent)
+                : Solid(theme.AccentDark);
+        var primaryForeground = isDefaultTheme || isClassicGold
+            ? Solid(theme.Ink)
+            : Brushes.White;
+        var specimen = new StackPanel
         {
-            Background = Solid(theme.AppBackground),
-            ClipToBounds = true
+            IsHitTestVisible = false
         };
 
-        shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32) });
-        shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        var sidebar = new Border
+        specimen.Children.Add(new Border
         {
-            Background = Solid(sidebarColor),
-            CornerRadius = new CornerRadius(radius, 0, 0, radius)
-        };
-        shell.Children.Add(sidebar);
-
-        var sidebarMarks = new StackPanel
-        {
-            Margin = new Thickness(9, 10, 7, 0),
-            VerticalAlignment = VerticalAlignment.Top
-        };
-        sidebarMarks.Children.Add(new Border
-        {
-            Height = 7,
-            Background = Solid(activeColor),
-            CornerRadius = new CornerRadius(4)
-        });
-        sidebarMarks.Children.Add(new Border
-        {
-            Height = 5,
-            Width = 12,
+            Width = 76,
+            Height = 21,
             HorizontalAlignment = HorizontalAlignment.Left,
-            Margin = new Thickness(0, 9, 0, 0),
-            Background = Solid(isDefaultTheme ? "#FFFFFF" : theme.SidebarText),
-            Opacity = 0.65,
-            CornerRadius = new CornerRadius(3)
+            Background = primaryBackground,
+            BorderBrush = isDefaultTheme ? Solid(theme.Line) : primaryBackground,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Child = new TextBlock
+            {
+                Text = "Botão",
+                FontFamily = new FontFamily(theme.FontFamily),
+                FontSize = 10.5,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = primaryForeground,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
         });
-        shell.Children.Add(sidebarMarks);
 
-        var content = new StackPanel
+        var fieldGrid = new Grid();
+        fieldGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        fieldGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+        fieldGrid.Children.Add(new TextBlock
         {
-            Margin = new Thickness(9, 9, 9, 7)
+            Text = "Texto",
+            FontFamily = new FontFamily(theme.FontFamily),
+            FontSize = 10.5,
+            Foreground = Solid(theme.Muted),
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        var calendarIcon = new PackIcon
+        {
+            Kind = PackIconKind.CalendarOutline,
+            Width = 13,
+            Height = 13,
+            Foreground = Solid(theme.Muted),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
         };
-        Grid.SetColumn(content, 1);
-
-        content.Children.Add(new Border
+        Grid.SetColumn(calendarIcon, 1);
+        fieldGrid.Children.Add(calendarIcon);
+        specimen.Children.Add(new Border
         {
-            Height = 9,
-            Width = 86,
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Background = Solid(panelColor),
+            Height = 25,
+            Margin = new Thickness(0, 5, 0, 0),
+            Background = Solid(theme.Panel),
             BorderBrush = Solid(theme.Line),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(5)
-        });
-        content.Children.Add(new Border
-        {
-            Height = 13,
-            Margin = new Thickness(0, 9, 0, 5),
-            Background = Solid(contentSoftColor),
-            CornerRadius = new CornerRadius(6)
-        });
-        content.Children.Add(new Border
-        {
-            Height = 13,
-            Width = 72,
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Background = Solid(contentStrongColor),
-            CornerRadius = new CornerRadius(6)
+            CornerRadius = new CornerRadius(6),
+            Child = fieldGrid
         });
 
-        shell.Children.Add(content);
+        var chipGrid = new Grid();
+        chipGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        chipGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+        chipGrid.Children.Add(new TextBlock
+        {
+            Text = "Etiqueta",
+            FontFamily = new FontFamily(theme.FontFamily),
+            FontSize = 9.5,
+            Foreground = Solid(theme.Ink),
+            Margin = new Thickness(7, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        var closeIcon = new PackIcon
+        {
+            Kind = PackIconKind.Close,
+            Width = 11,
+            Height = 11,
+            Foreground = Solid(theme.Ink),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(closeIcon, 1);
+        chipGrid.Children.Add(closeIcon);
+        specimen.Children.Add(new Border
+        {
+            Width = 76,
+            Height = 20,
+            Margin = new Thickness(0, 5, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Background = Solid(theme.AccentSoft),
+            BorderBrush = Solid(theme.Line),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Child = chipGrid
+        });
 
         return new Border
         {
-            Height = 66,
-            Background = Solid(choice.PreviewBackground),
+            Width = 122,
+            Height = 100,
+            Padding = new Thickness(10),
+            Background = CreateThemeSpecimenBackground(theme),
             BorderBrush = Solid(choice.PreviewBorder),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(radius),
+            CornerRadius = new CornerRadius(12),
             ClipToBounds = true,
-            Effect = new DropShadowEffect
-            {
-                BlurRadius = 14,
-                ShadowDepth = 2,
-                Opacity = 0.08,
-                Color = Colors.Black
-            },
-            Child = shell
+            Child = specimen
         };
+    }
+
+    private static Brush CreateThemeSpecimenBackground(VisualTheme theme)
+    {
+        if (string.IsNullOrWhiteSpace(theme.Id))
+        {
+            return Solid(theme.AccentDark);
+        }
+
+        var accent = (Color)ColorConverter.ConvertFromString(theme.Accent)!;
+        var whiteBlend = NormalizeTemplateLookup(theme.Id) switch
+        {
+            "SALONCLASSICGOLD" => 0.34,
+            "SALONLILACGLOW" => 0.48,
+            "SALONROSELUXE" => 0.55,
+            _ => 0.52
+        };
+        var brush = new SolidColorBrush(Blend(accent, Colors.White, whiteBlend));
+        brush.Freeze();
+        return brush;
+    }
+
+    private static StackPanel CreateThemeSwatchRow(VisualTheme theme)
+    {
+        var row = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 4, 0, 0),
+            VerticalAlignment = VerticalAlignment.Bottom
+        };
+
+        foreach (var color in new[] { theme.Accent, theme.AccentSoft, theme.GraySoft, theme.Panel })
+        {
+            row.Children.Add(new Border
+            {
+                Width = 18,
+                Height = 18,
+                Margin = new Thickness(0, 0, 6, 0),
+                Background = Solid(color),
+                BorderBrush = Solid(theme.Line),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(9)
+            });
+        }
+
+        return row;
     }
 
     private void ContinueInitialDataButton_Click(object sender, RoutedEventArgs e)
@@ -2081,12 +2545,12 @@ public partial class MainWindow : Window
     private void EnsureInitialDataDefaults()
     {
         var template = CreateBusinessTemplate("Salão de Beleza");
-        var ownerName = FirstFilled(ToNameCase(InitialFullNameTextBox.Text), _data.Settings.AccountFullName, "Nina");
-        var phone = FirstFilled(InitialPhoneTextBox.Text.Trim(), _data.Settings.AccountPhone, _data.Settings.BusinessPhone, "(33) 99800-7978");
+        var ownerName = FirstFilled(ToNameCase(InitialFullNameTextBox.Text), _data.Settings.AccountFullName);
+        var phone = FirstFilled(InitialPhoneTextBox.Text.Trim(), _data.Settings.AccountPhone, _data.Settings.BusinessPhone);
         var typedEmail = InitialEmailTextBox.Text.Trim();
         var email = LooksLikeEmail(typedEmail)
             ? typedEmail
-            : FirstFilled(_data.Settings.AccountEmail, "teste@agendalivre.local");
+            : _data.Settings.AccountEmail;
         var businessName = FirstFilled(ToNameCase(InitialBusinessNameTextBox.Text), _data.Settings.BusinessName, template.DefaultBusinessName);
         if (IsDefaultBusinessName(businessName))
         {
@@ -2153,6 +2617,58 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ChooseInitialBusinessLogoButton_Click(object sender, RoutedEventArgs e)
+    {
+        var selectedPath = SelectBusinessLogoSourceFile(this);
+        if (string.IsNullOrWhiteSpace(selectedPath))
+        {
+            return;
+        }
+
+        _pendingOnboardingLogoSourcePath = selectedPath;
+        RefreshInitialBusinessLogoPreview(selectedPath);
+        ShowStatus("Logo selecionada. Ela aparecerá na página pública e nos relatórios.");
+    }
+
+    private void RefreshInitialBusinessLogoPreview(string? logoPath)
+    {
+        ApplyBusinessLogoPreview(
+            InitialBusinessLogoImage,
+            InitialBusinessLogoPlaceholder,
+            InitialBusinessLogoFileText,
+            logoPath);
+        var hasLogo = InitialBusinessLogoImage.Source is not null;
+        InitialBusinessLogoFileText.Text = hasLogo ? "Alterar logo" : "Escolher logo";
+        ChooseInitialBusinessLogoButton.ToolTip = hasLogo
+            ? "Logo selecionada. Clique para trocar a imagem usada na página pública e nos relatórios."
+            : "Opcional. A logo aparecerá na página pública e nos relatórios.";
+    }
+
+    private bool TryCommitPendingOnboardingBusinessLogo()
+    {
+        if (string.IsNullOrWhiteSpace(_pendingOnboardingLogoSourcePath))
+        {
+            return true;
+        }
+
+        try
+        {
+            var previousLogoPath = _data.Settings.BusinessLogoPath;
+            var persistedLogoPath = PersistBusinessLogo(_pendingOnboardingLogoSourcePath);
+            _data.Settings.BusinessLogoPath = persistedLogoPath;
+            _pendingOnboardingLogoSourcePath = null;
+            DeleteManagedBusinessLogoIfUnused(previousLogoPath);
+            RefreshInitialBusinessLogoPreview(persistedLogoPath);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Não foi possível salvar a logo: {ex.Message}");
+            ChooseInitialBusinessLogoButton.Focus();
+            return false;
+        }
+    }
+
     private bool TryCaptureInitialData()
     {
         var fullName = ToNameCase(InitialFullNameTextBox.Text);
@@ -2190,6 +2706,11 @@ public partial class MainWindow : Window
         {
             ShowStatus("Informe o nome do negócio antes de continuar.");
             InitialBusinessNameTextBox.Focus();
+            return false;
+        }
+
+        if (!TryCommitPendingOnboardingBusinessLogo())
+        {
             return false;
         }
 
@@ -2333,6 +2854,12 @@ public partial class MainWindow : Window
 
     private void FinishCreateAccountButton_Click(object sender, RoutedEventArgs e)
     {
+        if (!TryCommitPendingOnboardingBusinessLogo())
+        {
+            ShowOnboardingStep(0);
+            return;
+        }
+
         var template = _selectedOnboardingTemplate ?? CreateBusinessTemplate("Salão de Beleza");
         var professionalCount = string.IsNullOrWhiteSpace(_selectedProfessionalCount)
             ? "1 profissional"
@@ -2370,6 +2897,8 @@ public partial class MainWindow : Window
         _data.Settings.AccountPasswordHash = "";
         _data.Settings.AccountCreatedAt = DateTime.Now;
         _store.Save(_data);
+        _forceFullOnboarding = false;
+        InitialOnboardingCompleted?.Invoke(this, EventArgs.Empty);
 
         OnboardingOverlay.Visibility = Visibility.Collapsed;
         TopBarBorder.IsEnabled = true;
@@ -2396,6 +2925,52 @@ public partial class MainWindow : Window
         ShowOnboardingStep(Math.Max(0, _onboardingStep - 1));
     }
 
+    private void OnboardingStepNavigationButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: string stepValue } ||
+            !int.TryParse(stepValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var targetStep))
+        {
+            return;
+        }
+
+        targetStep = Math.Clamp(targetStep, 0, 5);
+        if (targetStep == _onboardingStep)
+        {
+            return;
+        }
+
+        if (targetStep > _onboardingStep)
+        {
+            if (_onboardingStep == 0 && !TryCaptureInitialData())
+            {
+                return;
+            }
+
+            if (targetStep >= 2)
+            {
+                EnsureSegmentDefaults();
+            }
+
+            if (targetStep >= 3)
+            {
+                EnsureProfessionalCountDefault();
+            }
+
+            if (targetStep >= 4)
+            {
+                EnsureObjectiveDefault();
+            }
+        }
+
+        if (targetStep == 1)
+        {
+            ShowSegmentSelectionStep();
+            return;
+        }
+
+        ShowOnboardingStep(targetStep);
+    }
+
     private void ShowOnboardingStep(int step)
     {
         _onboardingStep = Math.Clamp(step, 0, 5);
@@ -2411,18 +2986,20 @@ public partial class MainWindow : Window
         ObjectiveStepPanel.Visibility = _onboardingStep == 3 ? Visibility.Visible : Visibility.Collapsed;
         AddressStepPanel.Visibility = _onboardingStep == 4 ? Visibility.Visible : Visibility.Collapsed;
         ReviewStepPanel.Visibility = _onboardingStep == 5 ? Visibility.Visible : Visibility.Collapsed;
-        OnboardingHeaderRow.Height = _onboardingStep == 0 ? new GridLength(0) : new GridLength(64);
+        OnboardingHeaderRow.Height = new GridLength(0);
         OnboardingTopBar.Visibility = _onboardingStep == 0 ? Visibility.Collapsed : Visibility.Visible;
+        OnboardingSharedStepProgress.Visibility = _onboardingStep == 0 ? Visibility.Collapsed : Visibility.Visible;
         OnboardingBackButton.Visibility = _onboardingStep == 0 ? Visibility.Hidden : Visibility.Visible;
         OnboardingSkipStepButton.Visibility = _onboardingStep is > 0 and < 5 && !_showingThemeSelection ? Visibility.Visible : Visibility.Collapsed;
         OnboardingProgressText.Text = $"{_onboardingStep + 1}/6";
         OnboardingSidebarProgressText.Text = $"Etapa {_onboardingStep + 1} de 6";
         OnboardingSidebarTitleText.Text = _onboardingStep == 1 && _showingThemeSelection
-            ? "Tema do sistema"
+            ? "Agora, escolha seu estilo."
             : OnboardingStepTitles[_onboardingStep];
         OnboardingSidebarCaptionText.Text = _onboardingStep == 1 && _showingThemeSelection
             ? "Veja como o app pode ficar e aplique uma identidade visual ao seu negócio."
             : OnboardingStepCaptions[_onboardingStep];
+        UpdateOnboardingSidebarIllustration();
         UpdateOnboardingStepDots();
 
         UpdateWizardChoiceStates();
@@ -2448,6 +3025,240 @@ public partial class MainWindow : Window
         }, DispatcherPriority.Input);
     }
 
+    private void UpdateOnboardingSidebarIllustration()
+    {
+        var (path, automationName) = ResolveOnboardingSidebarIllustration();
+
+        var theme = ThemeById(ActiveThemeId);
+        var cacheKey = $"{theme.Id}|{path}";
+        if (!_onboardingIllustrationThemeCache.TryGetValue(cacheKey, out var illustration))
+        {
+            var source = LoadOnboardingIllustration(path);
+            illustration = string.IsNullOrWhiteSpace(theme.Id)
+                ? source
+                : CreateThemeTintedOnboardingIllustration(source, theme, path);
+            _onboardingIllustrationThemeCache[cacheKey] = illustration;
+        }
+
+        OnboardingSidebarIllustration.Source = illustration;
+        AutomationProperties.SetName(OnboardingSidebarIllustration, automationName);
+        AutomationProperties.SetHelpText(
+            OnboardingSidebarIllustration,
+            string.IsNullOrWhiteSpace(theme.Id)
+                ? "Ilustração nas cores originais do Agenda Livre."
+                : $"Ilustração adaptada às cores do tema {theme.Name}.");
+    }
+
+    private (string Path, string AutomationName) ResolveOnboardingSidebarIllustration()
+    {
+        if (_onboardingStep == 1 && _showingThemeSelection)
+        {
+            return (
+                "Assets/onboarding-theme.png",
+                "Ilustração de personalização visual do sistema");
+        }
+
+        if (_onboardingStep == 2)
+        {
+            var templateTitle = NormalizeTemplateLookup(_selectedOnboardingTemplate?.Title ?? "");
+            var templateSegment = NormalizeTemplateLookup(_selectedOnboardingTemplate?.Segment ?? "");
+            var themeLookup = NormalizeTemplateLookup(ActiveThemeId);
+
+            var isBarber = templateTitle == "BARBEARIA" ||
+                           templateSegment is "BARBEARIA" or "CABELOEBARBEARIA" ||
+                           themeLookup.StartsWith("BARBER", StringComparison.Ordinal);
+            if (isBarber)
+            {
+                return (
+                    "Assets/onboarding-team-barber.png",
+                    "Ilustração de uma equipe de barbeiros organizando a agenda");
+            }
+
+            var isWorkshop = templateTitle == "OFICINA" ||
+                             templateSegment is "OFICINA" or "MECANICA" ||
+                             themeLookup.StartsWith("WORKSHOP", StringComparison.Ordinal);
+            if (isWorkshop)
+            {
+                return (
+                    "Assets/onboarding-team-workshop.png",
+                    "Ilustração de uma equipe de mecânicos organizando a agenda");
+            }
+        }
+
+        return (
+            OnboardingStepIllustrations[_onboardingStep],
+            OnboardingStepIllustrationNames[_onboardingStep]);
+    }
+
+    private static BitmapSource LoadOnboardingIllustration(string path)
+    {
+        var image = new BitmapImage();
+        image.BeginInit();
+        image.CacheOption = BitmapCacheOption.OnLoad;
+        image.UriSource = new Uri($"pack://application:,,,/{path}", UriKind.Absolute);
+        image.EndInit();
+        image.Freeze();
+        return image;
+    }
+
+    private static BitmapSource CreateThemeTintedOnboardingIllustration(
+        BitmapSource source,
+        VisualTheme theme,
+        string path)
+    {
+        var converted = source.Format == PixelFormats.Bgra32
+            ? source
+            : new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
+        var stride = converted.PixelWidth * 4;
+        var pixels = new byte[stride * converted.PixelHeight];
+        converted.CopyPixels(pixels, stride, 0);
+
+        var accent = (Color)ColorConverter.ConvertFromString(theme.Accent)!;
+        var accentSoft = (Color)ColorConverter.ConvertFromString(theme.AccentSoft)!;
+        var accentHsl = RgbToHsl(accent.R, accent.G, accent.B);
+        var softHsl = RgbToHsl(accentSoft.R, accentSoft.G, accentSoft.B);
+        var preserveSkinTones = System.IO.Path
+            .GetFileNameWithoutExtension(path)
+            .StartsWith("onboarding-team", StringComparison.OrdinalIgnoreCase);
+
+        for (var offset = 0; offset < pixels.Length; offset += 4)
+        {
+            var alpha = pixels[offset + 3];
+            if (alpha < 12)
+            {
+                continue;
+            }
+
+            var blue = pixels[offset];
+            var green = pixels[offset + 1];
+            var red = pixels[offset + 2];
+            var sourceHsl = RgbToHsl(red, green, blue);
+            if (sourceHsl.Saturation < 0.075 || sourceHsl.Lightness < 0.14)
+            {
+                continue;
+            }
+
+            var warmDistance = CircularHueDistance(sourceHsl.Hue, 28);
+            var warmAffinity = 1 - Math.Clamp((warmDistance - 8) / 52, 0, 1);
+            if (warmAffinity <= 0)
+            {
+                continue;
+            }
+
+            var saturationStrength = Math.Clamp((sourceHsl.Saturation - 0.075) / 0.43, 0, 1);
+            var tintStrength = warmAffinity * (0.26 + (0.74 * saturationStrength));
+            if (sourceHsl.Lightness > 0.86)
+            {
+                tintStrength *= 0.72;
+            }
+
+            if (preserveSkinTones &&
+                sourceHsl.Lightness > 0.42 &&
+                sourceHsl.Saturation < 0.58 &&
+                CircularHueDistance(sourceHsl.Hue, 24) < 30)
+            {
+                tintStrength *= 0.2;
+            }
+
+            var usesSoftTone = sourceHsl.Lightness > 0.7 || sourceHsl.Saturation < 0.28;
+            var targetHue = accentHsl.Hue;
+            var targetSaturation = accentHsl.Saturation < 0.24
+                ? Math.Clamp(accentHsl.Saturation * 1.05, 0.04, 0.24)
+                : usesSoftTone
+                    ? Math.Clamp(Math.Max(softHsl.Saturation, accentHsl.Saturation * 0.24), 0.08, 0.42)
+                    : Math.Clamp((sourceHsl.Saturation * 0.42) + (accentHsl.Saturation * 0.58), 0.12, 0.88);
+            var targetLightness = usesSoftTone
+                ? (sourceHsl.Lightness * 0.7) + (softHsl.Lightness * 0.3)
+                : (sourceHsl.Lightness * 0.76) + (accentHsl.Lightness * 0.24);
+            var mapped = HslToRgb(targetHue, targetSaturation, Math.Clamp(targetLightness, 0.08, 0.96));
+
+            pixels[offset] = BlendChannel(blue, mapped.Blue, tintStrength);
+            pixels[offset + 1] = BlendChannel(green, mapped.Green, tintStrength);
+            pixels[offset + 2] = BlendChannel(red, mapped.Red, tintStrength);
+        }
+
+        var tinted = BitmapSource.Create(
+            converted.PixelWidth,
+            converted.PixelHeight,
+            converted.DpiX > 0 ? converted.DpiX : 96,
+            converted.DpiY > 0 ? converted.DpiY : 96,
+            PixelFormats.Bgra32,
+            null,
+            pixels,
+            stride);
+        tinted.Freeze();
+        return tinted;
+    }
+
+    private static byte BlendChannel(byte source, byte target, double amount) =>
+        (byte)Math.Clamp((int)Math.Round(source + ((target - source) * amount)), 0, 255);
+
+    private static double CircularHueDistance(double first, double second)
+    {
+        var difference = Math.Abs(first - second) % 360;
+        return Math.Min(difference, 360 - difference);
+    }
+
+    private static (double Hue, double Saturation, double Lightness) RgbToHsl(byte red, byte green, byte blue)
+    {
+        var r = red / 255d;
+        var g = green / 255d;
+        var b = blue / 255d;
+        var max = Math.Max(r, Math.Max(g, b));
+        var min = Math.Min(r, Math.Min(g, b));
+        var delta = max - min;
+        var lightness = (max + min) / 2;
+
+        if (delta < 0.00001)
+        {
+            return (0, 0, lightness);
+        }
+
+        var saturation = delta / (1 - Math.Abs((2 * lightness) - 1));
+        double hue;
+        if (Math.Abs(max - r) < 0.00001)
+        {
+            hue = 60 * (((g - b) / delta) % 6);
+        }
+        else if (Math.Abs(max - g) < 0.00001)
+        {
+            hue = 60 * (((b - r) / delta) + 2);
+        }
+        else
+        {
+            hue = 60 * (((r - g) / delta) + 4);
+        }
+
+        if (hue < 0)
+        {
+            hue += 360;
+        }
+
+        return (hue, saturation, lightness);
+    }
+
+    private static (byte Red, byte Green, byte Blue) HslToRgb(double hue, double saturation, double lightness)
+    {
+        var chroma = (1 - Math.Abs((2 * lightness) - 1)) * saturation;
+        var hueSection = hue / 60;
+        var secondary = chroma * (1 - Math.Abs((hueSection % 2) - 1));
+        var (r1, g1, b1) = hueSection switch
+        {
+            < 1 => (chroma, secondary, 0d),
+            < 2 => (secondary, chroma, 0d),
+            < 3 => (0d, chroma, secondary),
+            < 4 => (0d, secondary, chroma),
+            < 5 => (secondary, 0d, chroma),
+            _ => (chroma, 0d, secondary)
+        };
+        var match = lightness - (chroma / 2);
+
+        return (
+            (byte)Math.Clamp((int)Math.Round((r1 + match) * 255), 0, 255),
+            (byte)Math.Clamp((int)Math.Round((g1 + match) * 255), 0, 255),
+            (byte)Math.Clamp((int)Math.Round((b1 + match) * 255), 0, 255));
+    }
+
     private void RefreshOnboardingReview()
     {
         var template = _selectedOnboardingTemplate ?? CreateBusinessTemplate("Salão de Beleza");
@@ -2458,47 +3269,100 @@ public partial class MainWindow : Window
 
         OnboardingReviewBusinessText.Text = businessName;
         OnboardingReviewSegmentText.Text = template.Title;
-        OnboardingReviewOperationText.Text = $"{professionalCount} | {objective}";
+        OnboardingReviewOperationText.Text = $"{ProfessionalCountDisplay(professionalCount)} | {ObjectiveDisplay(objective)}";
         OnboardingReviewAddressText.Text = string.IsNullOrWhiteSpace(address) ? "Não informado" : address;
     }
 
+    private static string NormalizeProfessionalCountChoice(string? value)
+    {
+        var original = value?.Trim() ?? "";
+        return NormalizeTemplateLookup(original) switch
+        {
+            "5A10PROFISSIONAIS" => "5 a 9 profissionais",
+            "11A30PROFISSIONAIS" or "MAISDE30PROFISSIONAIS" => "10 ou mais profissionais",
+            _ => original
+        };
+    }
+
+    private static string NormalizeObjectiveChoice(string? value)
+    {
+        var original = value?.Trim() ?? "";
+        return NormalizeTemplateLookup(original) switch
+        {
+            "GERENCIARAPARTEFISCAL" or "FACILITARPAGAMENTOSDAEQUIPE" => "Administrar financeiro",
+            "GERENCIARAGENDASDASUNIDADES" or "ACOMPANHARTODASASUNIDADES" => "Organizar agenda",
+            _ => original
+        };
+    }
+
+    private static string ProfessionalCountDisplay(string value) =>
+        NormalizeTemplateLookup(value) switch
+        {
+            "1PROFISSIONAL" => "Só eu",
+            "2PROFISSIONAIS" => "2 pessoas",
+            "3A4PROFISSIONAIS" => "3 a 4 pessoas",
+            "5A9PROFISSIONAIS" => "5 a 9 pessoas",
+            "10OUMAISPROFISSIONAIS" => "10 ou mais pessoas",
+            _ => value
+        };
+
+    private static string ObjectiveDisplay(string value) =>
+        NormalizeTemplateLookup(value) switch
+        {
+            "DIVULGARSERVICOS" => "Atrair mais clientes",
+            "ORGANIZARAGENDA" => "Organizar minha agenda",
+            "IMPLEMENTARAGENDAMENTOONLINE" => "Oferecer agendamento online",
+            "DARAUTONOMIAAOSPROFISSIONAIS" => "Facilitar a gestão da equipe",
+            "ADMINISTRARFINANCEIRO" => "Controlar finanças e pagamentos",
+            "FIDELIZARCLIENTES" => "Fidelizar clientes",
+            _ => value
+        };
+
     private void UpdateOnboardingStepDots()
     {
-        Border[] dots =
+        Button?[][] dotGroups =
         [
-            OnboardingStepDot1,
-            OnboardingStepDot2,
-            OnboardingStepDot3,
-            OnboardingStepDot4,
-            OnboardingStepDot5,
-            OnboardingStepDot6
+            [OnboardingStepDot1, OnboardingStepDot2, OnboardingStepDot3, OnboardingStepDot4, OnboardingStepDot5, OnboardingStepDot6],
+            [OnboardingSharedStepDot1, OnboardingSharedStepDot2, OnboardingSharedStepDot3, OnboardingSharedStepDot4, OnboardingSharedStepDot5, OnboardingSharedStepDot6]
         ];
 
-        Border[] lines =
+        Border?[][] lineGroups =
         [
-            OnboardingStepLine1,
-            OnboardingStepLine2,
-            OnboardingStepLine3,
-            OnboardingStepLine4,
-            OnboardingStepLine5
+            [OnboardingStepLine1, OnboardingStepLine2, OnboardingStepLine3, OnboardingStepLine4, OnboardingStepLine5],
+            [OnboardingSharedStepLine1, OnboardingSharedStepLine2, OnboardingSharedStepLine3, OnboardingSharedStepLine4, OnboardingSharedStepLine5]
         ];
 
-        for (var index = 0; index < dots.Length; index++)
+        foreach (var dots in dotGroups)
         {
-            var isActive = index <= _onboardingStep;
-            dots[index].Background = isActive ? AccentDarkBrush : PanelBrush;
-            dots[index].BorderBrush = isActive ? AccentDarkBrush : LineBrush;
-
-            if (dots[index].Child is TextBlock label)
+            for (var index = 0; index < dots.Length; index++)
             {
-                label.Foreground = isActive ? Brushes.White : MutedBrush;
+                var dot = dots[index];
+                if (dot is null)
+                {
+                    continue;
+                }
+
+                var isCurrent = index == _onboardingStep;
+                var isComplete = index < _onboardingStep;
+                dot.Tag = isCurrent ? "Current" : isComplete ? "Complete" : "Upcoming";
+                AutomationProperties.SetItemStatus(
+                    dot,
+                    isCurrent ? "Etapa atual" : isComplete ? "Etapa concluída" : "Etapa disponível");
             }
         }
 
-        for (var index = 0; index < lines.Length; index++)
+        foreach (var lines in lineGroups)
         {
-            lines[index].Background = index < _onboardingStep ? AccentDarkBrush : LineBrush;
+            foreach (var line in lines)
+            {
+                if (line is not null)
+                {
+                    line.Background = Brushes.Transparent;
+                }
+            }
         }
+
+        Grid.SetColumnSpan(OnboardingSidebarProgressFill, _onboardingStep + 1);
     }
 
     private void UpdateWizardChoiceStates()
@@ -2518,10 +3382,10 @@ public partial class MainWindow : Window
     private static void SetWizardContinueState(Button button, bool enabled)
     {
         button.IsEnabled = enabled;
-        button.Background = enabled ? AccentDarkBrush : AccentSoftBrush;
-        button.BorderBrush = enabled ? AccentDarkBrush : LineBrush;
-        button.Foreground = enabled ? Solid("#FFFFFF") : MutedBrush;
-        TextElement.SetForeground(button, enabled ? Solid("#FFFFFF") : MutedBrush);
+        button.Background = enabled ? PrimaryActionBrush : AccentSoftBrush;
+        button.BorderBrush = enabled ? PrimaryActionBrush : LineBrush;
+        button.Foreground = enabled ? PrimaryActionForegroundBrush : MutedBrush;
+        TextElement.SetForeground(button, enabled ? PrimaryActionForegroundBrush : MutedBrush);
         button.Cursor = enabled ? Cursors.Hand : Cursors.Arrow;
     }
 
@@ -2534,12 +3398,39 @@ public partial class MainWindow : Window
             var isSelected = button.Tag is string tag &&
                              (isThemeChoiceRoot || !string.IsNullOrWhiteSpace(selectedLookup)) &&
                              NormalizeTemplateLookup(tag) == selectedLookup;
+
+            AutomationProperties.SetItemStatus(button, isSelected ? "Selecionado" : "");
+
+            if (isThemeChoiceRoot)
+            {
+                button.ClearValue(Control.BackgroundProperty);
+                button.ClearValue(Control.BorderBrushProperty);
+                button.ClearValue(Control.BorderThicknessProperty);
+                button.ClearValue(Control.ForegroundProperty);
+                button.ClearValue(TextElement.ForegroundProperty);
+                button.Padding = new Thickness(0);
+
+                var selectedBadge = FindVisualChildren<Border>(button)
+                    .FirstOrDefault(item => Equals(item.Tag, "ThemeSelectionBadge"));
+                if (selectedBadge is not null)
+                {
+                    selectedBadge.Visibility = isSelected ? Visibility.Visible : Visibility.Collapsed;
+                    selectedBadge.Background = AccentBrush;
+                    if (selectedBadge.Child is PackIcon selectedIcon)
+                    {
+                        selectedIcon.Foreground = OnAccentBrush;
+                    }
+                }
+
+                continue;
+            }
+
             button.Background = isSelected ? AccentSoftBrush : PanelBrush;
-            button.BorderBrush = isSelected ? AccentTextBrush : LineBrush;
-            button.Foreground = isSelected && isThemeChoiceRoot ? AccentTextBrush : InkBrush;
-            TextElement.SetForeground(button, isSelected && isThemeChoiceRoot ? AccentTextBrush : InkBrush);
-            button.BorderThickness = new Thickness(isSelected ? (isThemeChoiceRoot ? 2 : 3) : 1);
-            button.Padding = isThemeChoiceRoot ? new Thickness(7) : isSelected ? new Thickness(10) : new Thickness(12);
+            button.BorderBrush = isSelected ? AccentDarkBrush : LineBrush;
+            button.Foreground = isSelected ? AccentTextBrush : InkBrush;
+            TextElement.SetForeground(button, isSelected ? AccentTextBrush : InkBrush);
+            button.BorderThickness = new Thickness(isSelected ? 2 : 1);
+            button.Padding = new Thickness(10);
         }
     }
 
@@ -2983,16 +3874,22 @@ public partial class MainWindow : Window
     private void ApplyBusinessLabels()
     {
         var displayName = BusinessDisplayName();
-        var accountName = string.IsNullOrWhiteSpace(_data.Settings.AccountFullName)
-            ? displayName
-            : _data.Settings.AccountFullName;
+        var ownerName = OwnerDisplayName();
 
-        TopLogoText.Text = InitialsFor(accountName);
+        TopLogoText.Text = InitialsFor(displayName);
         SidebarLogoText.Text = TopLogoText.Text;
-        SidebarUserNameText.Text = accountName;
-        SidebarUserRoleText.Text = string.IsNullOrWhiteSpace(_data.Settings.BusinessSegment)
-            ? "Proprietária"
-            : _data.Settings.BusinessSegment;
+        ApplyBusinessLogoPreview(
+            SidebarBusinessLogoImage,
+            SidebarLogoText,
+            label: null,
+            logoPath: _data.Settings.BusinessLogoPath);
+        SidebarUserNameText.Text = displayName;
+        SidebarUserNameText.ToolTip = displayName;
+        SidebarUserRoleText.Text = ownerName;
+        SidebarUserRoleText.ToolTip = ownerName;
+        AutomationProperties.SetName(
+            SidebarProfileCard,
+            $"{displayName}, responsável {ownerName}");
 
         AppTitleText.Text = "Agenda Livre";
         AppTitleText.Foreground = InkBrush;
@@ -3208,7 +4105,7 @@ public partial class MainWindow : Window
 
             var minutes = professionalAppointments.Sum(item => item.DurationMinutes);
             var percent = Math.Min(100d, minutes * 100d / workdayMinutes);
-            var accent = percent >= 85 ? Solid("#DC2626") : percent >= 60 ? AccentBrush : Solid("#16A34A");
+            var accent = percent >= 85 ? Solid("#DC2626") : percent >= 60 ? AccentOnDarkBrush : Solid("#16A34A");
             var brush = percent >= 85 ? RedSoftBrush : percent >= 60 ? AccentSoftBrush : Solid("#ECFDF5");
 
             _professionalRows.Add(new ProfessionalDayRow(
@@ -3319,11 +4216,13 @@ public partial class MainWindow : Window
             .Where(item => item.Status == AppointmentStatus.Done)
             .Sum(item => item.Price);
 
-        HomeGreetingText.Text = $"{GreetingFor(now)}, {FirstName(_data.Settings.AccountFullName)}";
+        var businessName = BusinessDisplayName();
+        var ownerName = OwnerDisplayName();
+        HomeGreetingText.Text = $"{GreetingFor(now)}, {businessName}";
+        HomeGreetingText.ToolTip = HomeGreetingText.Text;
         HomeDateText.Text = targetDate.ToString("dddd, dd 'de' MMMM 'de' yyyy", Brazil);
-        HomeBusinessText.Text = string.IsNullOrWhiteSpace(_data.Settings.BusinessName)
-            ? "Balcão Livre"
-            : _data.Settings.BusinessName;
+        HomeBusinessText.Text = ownerName;
+        HomeBusinessText.ToolTip = ownerName;
 
         var dateSuffix = targetDate == today
             ? "hoje"
@@ -3535,7 +4434,7 @@ public partial class MainWindow : Window
                 new PackIcon
                 {
                     Kind = PackIconKind.CalendarPlus,
-                    Foreground = AccentBrush,
+                    Foreground = AccentTextBrush,
                     Width = 20,
                     Height = 20,
                     HorizontalAlignment = HorizontalAlignment.Center
@@ -3681,7 +4580,7 @@ public partial class MainWindow : Window
             Child = new TextBlock
             {
                 Text = column.Initials,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 FontSize = 10,
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -3949,6 +4848,43 @@ public partial class MainWindow : Window
         return first + second;
     }
 
+    private static readonly HashSet<string> WhatsAppInitialsIgnoredWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "da",
+        "das",
+        "de",
+        "do",
+        "dos",
+        "e"
+    };
+
+    private static string WhatsAppConversationInitials(string title, string phone)
+    {
+        var words = (title ?? "")
+            .Split([' ', '\t', '\r', '\n', '-'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(part => new string(part.Where(char.IsLetter).ToArray()))
+            .Where(part => part.Length > 0 && !WhatsAppInitialsIgnoredWords.Contains(part))
+            .Take(2)
+            .ToArray();
+        if (words.Length == 1 && words[0].Length >= 2)
+        {
+            return words[0][..2].ToUpper(Brazil);
+        }
+
+        if (words.Length > 0)
+        {
+            return string.Concat(words.Select(part => char.ToUpper(part[0], Brazil)));
+        }
+
+        var digits = OnlyDigits(phone ?? "");
+        return digits.Length switch
+        {
+            >= 2 => digits[^2..],
+            1 => digits,
+            _ => "--"
+        };
+    }
+
     private void RefreshEstablishmentPage()
     {
         CloseCustomerInfoPopup();
@@ -3984,8 +4920,8 @@ public partial class MainWindow : Window
         _establishmentMetrics.Add(new EstablishmentMetricRow("Receita do mês", totalRevenueThisMonth.ToString("C0", Brazil), "faturamento", WarmSoftBrush, PackIconKind.WalletOutline, AccentBrush));
 
         _establishmentSections.Clear();
-        _establishmentSections.Add(new EstablishmentSectionRow("Clientes", $"{_data.Customers.Count} cadastrado(s)", "Acesse cadastros e histórico de clientes.", "Gerenciar", PackIconKind.AccountGroup, AccentBrush, AccentSoftBrush));
-        _establishmentSections.Add(new EstablishmentSectionRow("Profissionais", $"{_data.Professionals.Count(item => item.IsActive)} ativo(s)", "Gerencie sua equipe de profissionais.", "Gerenciar", PackIconKind.AccountOutline, AccentBrush, AccentSoftBrush));
+        _establishmentSections.Add(new EstablishmentSectionRow("Clientes", $"{_data.Customers.Count} cadastrado(s)", "Acesse cadastros e histórico de clientes.", "Gerenciar", PackIconKind.AccountGroup, AccentTextBrush, AccentSoftBrush));
+        _establishmentSections.Add(new EstablishmentSectionRow("Profissionais", $"{_data.Professionals.Count(item => item.IsActive)} ativo(s)", "Gerencie sua equipe de profissionais.", "Gerenciar", PackIconKind.AccountOutline, AccentTextBrush, AccentSoftBrush));
         _establishmentSections.Add(new EstablishmentSectionRow("Serviços", $"{_data.Services.Count(item => item.IsActive)} no catálogo", "Cadastre e organize seus serviços.", "Gerenciar", PackIconKind.ClipboardText, Solid("#10B981"), Solid("#ECFDF5")));
 
         EstablishmentMonthAppointmentsText.Text = appointmentsThisMonth.Count.ToString(Brazil);
@@ -4356,10 +5292,7 @@ public partial class MainWindow : Window
         }
 
         CloseCustomerInfoPopup();
-        var sent = await SendOrOpenWhatsAppAsync(customer.Name, phone, BuildCustomerWhatsAppMessage(customer), "Cliente");
-        ShowStatus(sent
-            ? $"WhatsApp enviado para {customer.Name}."
-            : $"WhatsApp aberto para {customer.Name}.");
+        await SendOrOpenWhatsAppAsync(customer.Name, phone, BuildCustomerWhatsAppMessage(customer), "Cliente");
     }
 
     private string BuildCustomerWhatsAppMessage(Customer customer)
@@ -4437,7 +5370,7 @@ public partial class MainWindow : Window
                 professional.SegmentLine,
                 string.IsNullOrWhiteSpace(professional.Role) ? "Equipe" : professional.Role,
                 AccentSoftBrush,
-                AccentBrush,
+                AccentTextBrush,
                 professional.Id,
                 PackIconKind.AccountTie));
         }
@@ -4585,7 +5518,7 @@ public partial class MainWindow : Window
             Child = new TextBlock
             {
                 Text = InitialsFor(professional.Name),
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 FontSize = 12,
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -4711,7 +5644,7 @@ public partial class MainWindow : Window
             Kind = icon,
             Width = 15,
             Height = 15,
-            Foreground = AccentBrush,
+            Foreground = AccentTextBrush,
             Margin = new Thickness(0, 0, 0, 5)
         });
         stack.Children.Add(new TextBlock
@@ -4898,10 +5831,7 @@ public partial class MainWindow : Window
         }
 
         CloseProfessionalInfoPopup();
-        var sent = await SendOrOpenWhatsAppAsync(professional.Name, phone, BuildProfessionalWhatsAppMessage(professional), "Equipe");
-        ShowStatus(sent
-            ? $"WhatsApp enviado para {professional.Name}."
-            : $"WhatsApp aberto para {professional.Name}.");
+        await SendOrOpenWhatsAppAsync(professional.Name, phone, BuildProfessionalWhatsAppMessage(professional), "Equipe");
     }
 
     private string BuildProfessionalWhatsAppMessage(Professional professional)
@@ -4944,7 +5874,7 @@ public partial class MainWindow : Window
                 $"{service.DurationMinutes} min",
                 service.Price.ToString("C", Brazil),
                 AccentSoftBrush,
-                AccentBrush,
+                AccentTextBrush,
                 service.Id,
                 Icon: PackIconKind.ClipboardText));
         }
@@ -5092,7 +6022,7 @@ public partial class MainWindow : Window
                 Kind = PackIconKind.ClipboardText,
                 Width = 20,
                 Height = 20,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -5332,7 +6262,7 @@ public partial class MainWindow : Window
                 detail,
                 product.Price.ToString("C0", Brazil),
                 AccentSoftBrush,
-                AccentBrush));
+                AccentTextBrush));
         }
 
         if (_establishmentProducts.Count == 0)
@@ -5651,7 +6581,7 @@ public partial class MainWindow : Window
             Kind = PackIconKind.CashCheck,
             Width = 15,
             Height = 15,
-            Foreground = AccentBrush,
+            Foreground = AccentTextBrush,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -5679,7 +6609,7 @@ public partial class MainWindow : Window
         var totalText = new TextBlock
         {
             Text = total.ToString("C", Brazil),
-            Foreground = AccentBrush,
+            Foreground = AccentTextBrush,
             FontSize = 12,
             FontWeight = FontWeights.Bold,
             HorizontalAlignment = HorizontalAlignment.Right,
@@ -6505,7 +7435,7 @@ public partial class MainWindow : Window
             badge,
             BuildMarketingMessage(name.Trim()),
             string.IsNullOrWhiteSpace(phone) ? YellowSoftBrush : AccentSoftBrush,
-            string.IsNullOrWhiteSpace(phone) ? InkBrush : AccentBrush));
+            InkBrush));
     }
 
     private void RefreshMarketingMessages()
@@ -6616,16 +7546,8 @@ public partial class MainWindow : Window
     private static string OnlyDigits(string value) =>
         new(value.Where(char.IsDigit).ToArray());
 
-    private static string NormalizeBrazilPhone(string phone)
-    {
-        var digits = OnlyDigits(phone);
-        if (digits.Length is 10 or 11)
-        {
-            return $"55{digits}";
-        }
-
-        return digits;
-    }
+    private static string NormalizeBrazilPhone(string phone) =>
+        WhatsAppPhoneNormalizer.Normalize(phone);
 
     private async Task OpenMarketingWhatsAppAsync(MarketingContactRow row)
     {
@@ -6637,10 +7559,7 @@ public partial class MainWindow : Window
         }
 
         var message = BuildMarketingMessage(row.Name);
-        var sent = await SendOrOpenWhatsAppAsync(row.Name, phone, message, "Marketing");
-        ShowStatus(sent
-            ? $"WhatsApp enviado para {row.Name} pelo canal linkado."
-            : $"WhatsApp aberto para {row.Name}. A conversa ficou no painel.");
+        await SendOrOpenWhatsAppAsync(row.Name, phone, message, "Marketing");
     }
 
     private void RefreshWhatsAppSurface()
@@ -6666,6 +7585,7 @@ public partial class MainWindow : Window
         }
 
         var hasQr = !linked && TryShowWhatsAppQr(settings.WhatsAppEvolutionQrBase64);
+        var showingQr = hasQr && !linked;
         var stateText = string.IsNullOrWhiteSpace(settings.WhatsAppEvolutionState)
             ? ""
             : $" Estado: {settings.WhatsAppEvolutionState}.";
@@ -6682,8 +7602,12 @@ public partial class MainWindow : Window
         SettingsWhatsAppConnectButton.Content = linked ? "Deslinkar" : hasQr ? "Novo QR" : "Linkar WhatsApp";
 
         WhatsAppFloatingStatusText.Text = linked
-            ? $"Linkado em {displayPhone}"
-            : hasQr ? "QR pronto para escanear" : "Linke o WhatsApp da loja";
+            ? "Conectado"
+            : showingQr ? "QR pronto" : "Linke o WhatsApp da loja";
+        WhatsAppFloatingStatusText.Foreground = showingQr ? Solid("#15803D") : MutedBrush;
+        WhatsAppFloatingStatusBadge.Background = showingQr ? Solid("#DCFCE7") : Brushes.Transparent;
+        WhatsAppFloatingStatusBadge.Padding = showingQr ? new Thickness(7, 2, 7, 2) : new Thickness(0);
+        WhatsAppFloatingStatusDot.Visibility = showingQr ? Visibility.Visible : Visibility.Collapsed;
         WhatsAppFloatingDetailText.Text = linked
             ? $"Ativo na agenda.{stateText}"
             : hasQr
@@ -6720,7 +7644,7 @@ public partial class MainWindow : Window
             _whatsAppConversationOpen = false;
         }
 
-        var showingConversation = _whatsAppConversationOpen && selectedConversationExists;
+        var showingConversation = !showingQr && _whatsAppConversationOpen && selectedConversationExists;
         var visibleMessages = showingConversation
             ? DeduplicateWhatsAppTimeline(messagesWithPhone
                 .Where(item => string.Equals(NormalizeBrazilPhone(item.Phone), _selectedWhatsAppReplyPhone, StringComparison.OrdinalIgnoreCase))
@@ -6729,51 +7653,93 @@ public partial class MainWindow : Window
                 .TakeLast(120)
                 .ToList()
             : [];
+        var autoScrollKey = showingConversation && visibleMessages.Count > 0
+            ? string.Join('|',
+                _selectedWhatsAppReplyPhone,
+                visibleMessages[^1].Id,
+                visibleMessages[^1].CreatedAt.Ticks.ToString(CultureInfo.InvariantCulture),
+                visibleMessages.Count.ToString(CultureInfo.InvariantCulture))
+            : "";
 
         _whatsAppMessages.Clear();
         foreach (var message in visibleMessages)
         {
             var incoming = IsWhatsAppIncoming(message);
+            var deliveryStatus = NormalizeWhatsAppDeliveryStatus(message.Status, incoming);
+            var detail = deliveryStatus switch
+            {
+                "erro" => $"Não enviada · {message.CreatedAt:HH:mm}",
+                "incerto" => $"Confirmação pendente · {message.CreatedAt:HH:mm}",
+                "pendente" => $"Enviando · {message.CreatedAt:HH:mm}",
+                _ => $"{message.CreatedAt:HH:mm}"
+            };
             _whatsAppMessages.Add(new WhatsAppMessageRow(
                 WhatsAppMessageDisplayName(message),
                 NormalizeBrazilPhone(message.Phone),
                 message.Message,
-                $"{message.CreatedAt:dd/MM HH:mm}",
+                detail,
                 message.Category,
                 incoming ? "Recebida" : StatusLabelForWhatsApp(message.Status),
                 incoming ? BlueSoftBrush : AccentSoftBrush,
                 incoming ? AccentBrush : Solid("#16A34A"),
-                incoming ? Solid("#FFF9F4") : Solid("#F0FDF4"),
-                incoming ? Solid("#EADFD6") : Solid("#BBF7D0")));
+                incoming ? PanelBrush : Solid("#EAFBEF"),
+                incoming ? Solid("#DEDAD5") : Solid("#B9E6C0"),
+                incoming,
+                deliveryStatus));
         }
 
-        WhatsAppConversationListHeader.Visibility = showingConversation ? Visibility.Collapsed : Visibility.Visible;
-        WhatsAppActiveConversationHeader.Visibility = showingConversation ? Visibility.Visible : Visibility.Collapsed;
+        WhatsAppConversationListHeader.Visibility = showingQr || showingConversation ? Visibility.Collapsed : Visibility.Visible;
+        WhatsAppActiveConversationHeader.Visibility = !showingQr && showingConversation ? Visibility.Visible : Visibility.Collapsed;
+        WhatsAppFloatingConnectButton.Visibility = showingQr || showingConversation ? Visibility.Collapsed : Visibility.Visible;
+        WhatsAppConversationMoreButton.Visibility = !showingQr && showingConversation ? Visibility.Visible : Visibility.Collapsed;
         WhatsAppConversationListCountText.Text = _whatsAppConversations.Count == 0
             ? "Nenhuma conversa ainda"
             : $"{_whatsAppConversations.Count} conversa(s)";
         WhatsAppActiveConversationTitleText.Text = FirstFilled(_selectedWhatsAppReplyName, FormatPhone(_selectedWhatsAppReplyPhone));
         WhatsAppActiveConversationPhoneText.Text = FormatPhone(_selectedWhatsAppReplyPhone);
-        WhatsAppReplyPanel.Visibility = showingConversation ? Visibility.Visible : Visibility.Collapsed;
+        WhatsAppActiveConversationInitialsText.Text = WhatsAppConversationInitials(
+            WhatsAppActiveConversationTitleText.Text,
+            _selectedWhatsAppReplyPhone);
+        WhatsAppReplyPanel.Visibility = !showingQr && showingConversation ? Visibility.Visible : Visibility.Collapsed;
         WhatsAppConversationCardsItemsControl.Visibility =
-            !showingConversation && _whatsAppConversations.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            !showingQr && !showingConversation && _whatsAppConversations.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         WhatsAppFloatingMessagesItemsControl.Visibility =
-            showingConversation && _whatsAppMessages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            !showingQr && showingConversation && _whatsAppMessages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        WhatsAppConversationDateChip.Visibility =
+            !showingQr && showingConversation && _whatsAppMessages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (visibleMessages.Count > 0)
+        {
+            var timelineDate = visibleMessages[^1].CreatedAt.Date;
+            WhatsAppConversationDateText.Text = timelineDate == DateTime.Today
+                ? "Hoje"
+                : timelineDate == DateTime.Today.AddDays(-1)
+                    ? "Ontem"
+                    : timelineDate.ToString("dd/MM/yyyy", Brazil);
+        }
         WhatsAppFloatingEmptyText.Text = showingConversation
             ? "Nenhuma mensagem nessa conversa ainda."
             : "Nenhuma conversa ainda. Quando um cliente chamar no WhatsApp, aparece aqui.";
         WhatsAppFloatingEmptyText.Visibility =
-            (showingConversation && _whatsAppMessages.Count == 0) ||
-            (!showingConversation && _whatsAppConversations.Count == 0)
+            !showingQr && ((showingConversation && _whatsAppMessages.Count == 0) ||
+            (!showingConversation && _whatsAppConversations.Count == 0))
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         WhatsAppFloatingEmptyConnectButton.Visibility =
-            !linked && !showingConversation && _whatsAppConversations.Count == 0
+            !showingQr && !linked && !showingConversation && _whatsAppConversations.Count == 0
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+        WhatsAppConversationScrollViewer.Visibility = showingQr ? Visibility.Collapsed : Visibility.Visible;
         RefreshWhatsAppReplyComposer();
         RefreshWhatsAppLeadCard(showingConversation);
-        ScrollWhatsAppConversationToEnd();
+        if (showingConversation && !string.Equals(autoScrollKey, _lastWhatsAppAutoScrollKey, StringComparison.Ordinal))
+        {
+            _lastWhatsAppAutoScrollKey = autoScrollKey;
+            ScrollWhatsAppConversationToEnd();
+        }
+        else if (!showingConversation)
+        {
+            _lastWhatsAppAutoScrollKey = "";
+        }
 
         var unreadCount = _data.WhatsAppMessages.Count(item =>
             IsWhatsAppIncoming(item) &&
@@ -6784,7 +7750,7 @@ public partial class MainWindow : Window
             unreadCount > 0 && WhatsAppFloatingPanel.Visibility != Visibility.Visible
                 ? Visibility.Visible
                 : Visibility.Collapsed;
-        WhatsAppFloatingDetailCard.Visibility = linked || _whatsAppConversations.Count > 0 || showingConversation
+        WhatsAppFloatingDetailCard.Visibility = showingQr || linked || _whatsAppConversations.Count > 0 || showingConversation
             ? Visibility.Collapsed
             : Visibility.Visible;
         RefreshWhatsAppLauncherVisibility();
@@ -6944,8 +7910,9 @@ public partial class MainWindow : Window
         WhatsAppReplyTargetText.Text = hasTarget
             ? $"Responder para {FirstFilled(_selectedWhatsAppReplyName, FormatPhone(_selectedWhatsAppReplyPhone))}"
             : "Selecione uma conversa para responder";
-        WhatsAppReplyTextBox.IsEnabled = hasTarget && _data.Settings.WhatsAppLinked;
-        WhatsAppReplySendButton.IsEnabled = hasTarget && _data.Settings.WhatsAppLinked;
+        var canReply = hasTarget && _data.Settings.WhatsAppLinked && !_whatsAppReplySending;
+        WhatsAppReplyTextBox.IsEnabled = canReply;
+        WhatsAppReplySendButton.IsEnabled = canReply;
     }
 
     private string WhatsAppAgendaSnapshotPath() =>
@@ -7022,6 +7989,8 @@ public partial class MainWindow : Window
         {
             Debug.WriteLine($"WhatsApp agenda snapshot skipped: {ex.Message}");
         }
+
+        ScheduleOnlineBookingSync();
     }
 
     private List<string> BuildWhatsAppAvailableSlots(DateTime date, int durationMinutes, int maxSlots)
@@ -7098,13 +8067,37 @@ public partial class MainWindow : Window
         return last.HasValue ? last.Value.ToString("dd/MM HH:mm", Brazil) : "sem mensagens";
     }
 
-    private static string StatusLabelForWhatsApp(string status) =>
-        status.Trim().ToLowerInvariant() switch
+    private static string NormalizeWhatsAppDeliveryStatus(string status, bool incoming = false)
+    {
+        if (incoming)
         {
+            return "recebido";
+        }
+
+        var normalized = status.Trim().ToLowerInvariant().Replace('-', '_').Replace(' ', '_');
+        return normalized switch
+        {
+            "0" or "error" or "failed" or "failure" or "erro" => "erro",
+            "1" or "pending" or "queued" or "pendente" or "enviando" => "pendente",
+            "uncertain" or "unknown" or "confirmation_pending" or "incerto" or "nao_confirmado" => "incerto",
+            "2" or "server_ack" or "sent" or "enviado" or "enviada" => "enviado",
+            "3" or "delivery_ack" or "delivered" or "entregue" => "entregue",
+            "4" or "5" or "read" or "played" or "lido" or "lida" => "lido",
+            "recebido" or "recebida" => "recebido",
+            _ => "pendente"
+        };
+    }
+
+    private static string StatusLabelForWhatsApp(string status) =>
+        NormalizeWhatsAppDeliveryStatus(status) switch
+        {
+            "pendente" => "Enviando",
+            "incerto" => "Confirmação pendente",
             "enviado" => "Enviada",
-            "aberto" => "Aberta",
+            "entregue" => "Entregue",
+            "lido" => "Lida",
             "recebido" => "Recebida",
-            "erro" => "Erro",
+            "erro" => "Não enviada",
             _ => "Criada"
         };
 
@@ -7141,7 +8134,7 @@ public partial class MainWindow : Window
     {
         WhatsAppQrPanel.Visibility = Visibility.Collapsed;
         WhatsAppQrImage.Source = null;
-        WhatsAppQrHintText.Text = "Depois de escanear, clique em checar conexão.";
+        WhatsAppQrHintText.Text = "Escaneie o código com o celular que receberá as mensagens.";
         if (string.IsNullOrWhiteSpace(qrBase64))
         {
             return false;
@@ -7184,19 +8177,24 @@ public partial class MainWindow : Window
         string status,
         string direction = "saida",
         string id = "",
-        DateTime? createdAt = null)
+        DateTime? createdAt = null,
+        string? providerMessageId = null,
+        string clientRequestId = "")
     {
         var normalizedPhone = NormalizeBrazilPhone(phone ?? "");
         var cleanMessage = message.Trim();
         var when = createdAt ?? DateTime.Now;
         if (_data.WhatsAppMessages.Any(item =>
-                (!string.IsNullOrWhiteSpace(id) && string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase)) ||
-                ((string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(item.ProviderMessageId)) &&
+                (!string.IsNullOrWhiteSpace(id) &&
+                 (string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase) ||
+                  string.Equals(item.ClientRequestId, id, StringComparison.OrdinalIgnoreCase) ||
+                  string.Equals(item.ProviderMessageId, id, StringComparison.OrdinalIgnoreCase))) ||
+                (string.IsNullOrWhiteSpace(id) &&
                  string.Equals(item.Direction, direction, StringComparison.OrdinalIgnoreCase) &&
                  string.Equals(item.Phone, normalizedPhone, StringComparison.OrdinalIgnoreCase) &&
                  string.Equals(item.Message, cleanMessage, StringComparison.Ordinal) &&
                  Math.Abs((item.CreatedAt - when).TotalMinutes) < 3) ||
-                ((string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(item.ProviderMessageId)) &&
+                (string.IsNullOrWhiteSpace(id) &&
                  !string.Equals(item.Direction, direction, StringComparison.OrdinalIgnoreCase) &&
                  string.Equals(item.Phone, normalizedPhone, StringComparison.OrdinalIgnoreCase) &&
                  string.Equals(item.Message, cleanMessage, StringComparison.Ordinal) &&
@@ -7205,10 +8203,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        _data.WhatsAppMessages.Insert(0, new WhatsAppMessage
+        _data.WhatsAppMessages.Add(new WhatsAppMessage
         {
             Id = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString("N") : id,
-            ProviderMessageId = id,
+            ClientRequestId = clientRequestId.Trim(),
+            ProviderMessageId = providerMessageId ?? id,
             Instance = WhatsAppRealtimeInstanceName(),
             CustomerName = customerName.Trim(),
             Phone = normalizedPhone,
@@ -7220,14 +8219,56 @@ public partial class MainWindow : Window
             SentAt = string.Equals(direction, "saida", StringComparison.OrdinalIgnoreCase) ? when : null
         });
 
-        if (_data.WhatsAppMessages.Count > 250)
-        {
-            _data.WhatsAppMessages.RemoveRange(250, _data.WhatsAppMessages.Count - 250);
-        }
+        _data.WhatsAppMessages = _data.WhatsAppMessages
+            .OrderByDescending(item => item.CreatedAt)
+            .Take(1000)
+            .ToList();
 
         _data.Settings.WhatsAppLastMessageAt = DateTime.Now;
         _store.Save(_data);
         RefreshWhatsAppSurface();
+    }
+
+    private string UpdateWhatsAppOutgoingAttempt(
+        string attemptId,
+        string status,
+        string providerMessageId = "")
+    {
+        var message = _data.WhatsAppMessages.FirstOrDefault(item =>
+            string.Equals(item.ClientRequestId, attemptId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(item.Id, attemptId, StringComparison.OrdinalIgnoreCase));
+        if (message is null)
+        {
+            return "";
+        }
+
+        var changed = false;
+        if (!string.IsNullOrWhiteSpace(providerMessageId) &&
+            !string.Equals(message.ProviderMessageId, providerMessageId, StringComparison.OrdinalIgnoreCase))
+        {
+            message.ProviderMessageId = providerMessageId.Trim();
+            changed = true;
+        }
+
+        var currentStatus = NormalizeWhatsAppDeliveryStatus(message.Status, IsWhatsAppIncoming(message));
+        var requestedStatus = NormalizeWhatsAppDeliveryStatus(status, IsWhatsAppIncoming(message));
+        if (WhatsAppManualSendPolicy.CanTransitionDeliveryStatus(currentStatus, requestedStatus))
+        {
+            message.Status = requestedStatus;
+            changed = true;
+        }
+        else if (!string.Equals(currentStatus, requestedStatus, StringComparison.OrdinalIgnoreCase))
+        {
+            requestedStatus = currentStatus;
+        }
+
+        if (changed)
+        {
+            _store.Save(_data);
+            RefreshWhatsAppSurface();
+        }
+
+        return requestedStatus;
     }
 
     private void ToggleWhatsAppPanelButton_Click(object sender, RoutedEventArgs e)
@@ -7351,6 +8392,23 @@ public partial class MainWindow : Window
         RefreshWhatsAppSurface();
     }
 
+    private void OpenWhatsAppConversationMenuButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { ContextMenu: { } menu } button)
+        {
+            return;
+        }
+
+        menu.PlacementTarget = button;
+        menu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    private void DisconnectWhatsAppMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        LinkWhatsAppButton_Click(WhatsAppFloatingConnectButton, e);
+    }
+
     private async void SendWhatsAppInlineReplyButton_Click(object sender, RoutedEventArgs e)
     {
         await SendWhatsAppInlineReplyAsync();
@@ -7358,15 +8416,28 @@ public partial class MainWindow : Window
 
     private async void WhatsAppReplyTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter && Keyboard.Modifiers != ModifierKeys.Shift)
+        if (e.Key is Key.Enter or Key.Return)
         {
             e.Handled = true;
+
+            if (Keyboard.Modifiers != ModifierKeys.None)
+            {
+                return;
+            }
+
             await SendWhatsAppInlineReplyAsync();
         }
     }
 
     private async Task SendWhatsAppInlineReplyAsync()
     {
+        if (_whatsAppReplySending ||
+            !WhatsAppReplyTextBox.IsEnabled ||
+            !WhatsAppReplySendButton.IsEnabled)
+        {
+            return;
+        }
+
         var phone = NormalizeBrazilPhone(_selectedWhatsAppReplyPhone);
         var text = WhatsAppReplyTextBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(phone))
@@ -7382,37 +8453,95 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!WhatsAppManualSendPolicy.IsTextWithinLimit(text))
+        {
+            ShowStatus($"A mensagem é muito longa. Use no máximo {WhatsAppManualSendPolicy.MaxTextLength:N0} caracteres.");
+            WhatsAppReplyTextBox.Focus();
+            return;
+        }
+
         if (!_data.Settings.WhatsAppLinked)
         {
             ShowStatus("WhatsApp não está linkado. Gere o QR antes de responder pelo painel.");
             return;
         }
 
-        WhatsAppReplySendButton.IsEnabled = false;
+        var attempt = _whatsAppManualSendGuard.Begin(phone, text, DateTimeOffset.UtcNow);
+        if (!attempt.Accepted)
+        {
+            ShowStatus("Essa mesma mensagem já está sendo processada. Aguarde alguns segundos antes de tentar novamente.");
+            return;
+        }
+
+        _whatsAppReplySending = true;
+        RefreshWhatsAppReplyComposer();
+        AddWhatsAppMessage(
+            FirstFilled(_data.Settings.AccountFullName, BusinessDisplayName(), "Você"),
+            phone,
+            text,
+            "Atendimento",
+            "pendente",
+            id: attempt.AttemptId,
+            providerMessageId: "",
+            clientRequestId: attempt.AttemptId);
+        WhatsAppReplyTextBox.Clear();
+        ShowStatus($"Enviando mensagem para {FirstFilled(_selectedWhatsAppReplyName, FormatPhone(phone))}...");
         try
         {
-            var result = await SendWhatsAppEvolutionTextAsync(phone, text);
+            var result = await SendWhatsAppEvolutionTextAsync(
+                phone,
+                text,
+                attempt.AttemptId,
+                FirstFilled(_selectedWhatsAppReplyName, FormatPhone(phone)));
             if (!result.Ok)
             {
-                ShowStatus($"WhatsApp recusou a resposta: {result.Message}");
+                if (result.DeliveryUncertain)
+                {
+                    UpdateWhatsAppOutgoingAttempt(attempt.AttemptId, "incerto", result.ProviderMessageId);
+                    ShowStatus($"O envio ainda aguarda confirmação: {result.Message} Não reenviamos automaticamente para evitar duplicidade.");
+                    return;
+                }
+
+                var finalStatus = UpdateWhatsAppOutgoingAttempt(attempt.AttemptId, "erro");
+                if (string.IsNullOrWhiteSpace(WhatsAppReplyTextBox.Text))
+                {
+                    WhatsAppReplyTextBox.Text = text;
+                    WhatsAppReplyTextBox.CaretIndex = WhatsAppReplyTextBox.Text.Length;
+                }
+
+                if (finalStatus != "erro")
+                {
+                    ShowStatus("A confirmação do WhatsApp chegou pelo status da conversa.");
+                }
+                else
+                {
+                    ShowStatus($"Mensagem não enviada: {result.Message}");
+                }
+
                 return;
             }
 
-            AddWhatsAppMessage(FirstFilled(_data.Settings.AccountFullName, BusinessDisplayName(), "Você"), phone, text, "Atendimento", "enviado");
-            if (ActiveWhatsAppLead() is { } activeLead)
+            UpdateWhatsAppOutgoingAttempt(attempt.AttemptId, "pendente", result.ProviderMessageId);
+            if (ActiveWhatsAppLead() is { } activeLead &&
+                activeLead.Stage is not ("won" or "lost" or "opted_out"))
             {
                 activeLead.Stage = "handoff";
                 activeLead.UpdatedAt = DateTime.Now;
                 _store.Save(_data);
                 _ = PatchWhatsAppLeadStageAsync(activeLead.Id, activeLead.Stage);
             }
-            WhatsAppReplyTextBox.Clear();
-            ShowStatus($"Resposta enviada para {FirstFilled(_selectedWhatsAppReplyName, FormatPhone(phone))}.");
+            ShowStatus(result.ExistingPending
+                ? "Essa tentativa já estava em processamento. Continuamos aguardando a confirmação do WhatsApp."
+                : $"Mensagem aceita pelo servidor para {FirstFilled(_selectedWhatsAppReplyName, FormatPhone(phone))}. Aguardando confirmação do WhatsApp.");
         }
         finally
         {
+            _whatsAppReplySending = false;
             RefreshWhatsAppReplyComposer();
-            WhatsAppReplyTextBox.Focus();
+            if (WhatsAppReplyTextBox.IsEnabled)
+            {
+                WhatsAppReplyTextBox.Focus();
+            }
         }
     }
 
@@ -7519,6 +8648,8 @@ public partial class MainWindow : Window
         SettingsWhatsAppConnectButton.IsEnabled = enabled;
         WhatsAppFloatingConnectButton.IsEnabled = enabled;
         WhatsAppFloatingEmptyConnectButton.IsEnabled = enabled;
+        WhatsAppQrCheckConnectionButton.IsEnabled = enabled;
+        WhatsAppQrRegenerateButton.IsEnabled = enabled;
     }
 
     private void UpdateWhatsAppPollingState()
@@ -7609,22 +8740,69 @@ public partial class MainWindow : Window
             return false;
         }
 
+        if (!WhatsAppManualSendPolicy.IsTextWithinLimit(message))
+        {
+            ShowStatus($"A mensagem para {customerName} é muito longa. Use no máximo {WhatsAppManualSendPolicy.MaxTextLength:N0} caracteres.");
+            return false;
+        }
+
         if (_data.Settings.WhatsAppLinked)
         {
-            var result = await SendWhatsAppEvolutionTextAsync(normalizedPhone, message);
+            var attempt = _whatsAppManualSendGuard.Begin(normalizedPhone, message, DateTimeOffset.UtcNow);
+            if (!attempt.Accepted)
+            {
+                ShowStatus("Essa mesma mensagem já está sendo processada. Aguarde alguns segundos antes de tentar novamente.");
+                return false;
+            }
+
+            AddWhatsAppMessage(
+                customerName,
+                normalizedPhone,
+                message,
+                category,
+                "pendente",
+                id: attempt.AttemptId,
+                providerMessageId: "",
+                clientRequestId: attempt.AttemptId);
+            WhatsAppFloatingPanel.Visibility = Visibility.Visible;
+            ShowStatus($"Enviando mensagem para {customerName}...");
+
+            var result = await SendWhatsAppEvolutionTextAsync(
+                normalizedPhone,
+                message,
+                attempt.AttemptId,
+                customerName);
             if (result.Ok)
             {
-                AddWhatsAppMessage(customerName, normalizedPhone, message, category, "enviado");
-                WhatsAppFloatingPanel.Visibility = Visibility.Visible;
+                UpdateWhatsAppOutgoingAttempt(attempt.AttemptId, "pendente", result.ProviderMessageId);
+                ShowStatus(result.ExistingPending
+                    ? "Essa tentativa já estava em processamento. Continuamos aguardando a confirmação do WhatsApp."
+                    : $"Mensagem aceita pelo servidor para {customerName}. Aguardando confirmação do WhatsApp.");
                 return true;
             }
 
-            ShowStatus($"Evolution recusou o envio. Abrindo WhatsApp normal: {result.Message}");
+            if (result.DeliveryUncertain)
+            {
+                UpdateWhatsAppOutgoingAttempt(attempt.AttemptId, "incerto", result.ProviderMessageId);
+                ShowStatus($"O envio para {customerName} ainda aguarda confirmação: {result.Message} Não reenviamos automaticamente para evitar duplicidade.");
+                return false;
+            }
+
+            var finalStatus = UpdateWhatsAppOutgoingAttempt(attempt.AttemptId, "erro");
+            if (finalStatus != "erro")
+            {
+                ShowStatus("A confirmação do WhatsApp chegou pelo status da conversa.");
+                return true;
+            }
+
+            ShowStatus($"Mensagem não enviada para {customerName}: {result.Message}");
+            return false;
         }
 
         OpenWhatsAppWeb(normalizedPhone, message);
         AddWhatsAppMessage(customerName, normalizedPhone, message, category, "aberto");
         WhatsAppFloatingPanel.Visibility = Visibility.Visible;
+        ShowStatus($"WhatsApp Web aberto para {customerName}; confirme o envio na janela do WhatsApp.");
         return false;
     }
 
@@ -7875,22 +9053,45 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<WhatsAppEvolutionResult> SendWhatsAppEvolutionTextAsync(string phone, string text)
+    private async Task<WhatsAppEvolutionResult> SendWhatsAppEvolutionTextAsync(
+        string phone,
+        string text,
+        string? attemptId = null,
+        string customerName = "")
     {
-        var result = await SendWhatsAppEvolutionTextCoreAsync(phone, text);
-        if (!result.Ok && IsCloudflareOriginDown(result.Message) && TryApplyWhatsAppEvolutionLocalEnv(preferLocal: true))
+        // A falha pode acontecer depois de o provedor aceitar o envio. Tentar outra
+        // rota automaticamente nesse ponto cria mensagens duplicadas no cliente.
+        var stableAttemptId = string.IsNullOrWhiteSpace(attemptId)
+            ? Guid.NewGuid().ToString("N")
+            : attemptId.Trim();
+        var localToken = await ReadWhatsAppLocalApiTokenAsync(CancellationToken.None);
+        if (!string.IsNullOrWhiteSpace(localToken))
         {
-            return await SendWhatsAppEvolutionTextCoreAsync(phone, text);
+            var localResult = await SendWhatsAppLocalApiTextAsync(
+                phone,
+                text,
+                customerName,
+                stableAttemptId,
+                localToken);
+            if (!localResult.EndpointNotFound)
+            {
+                return localResult;
+            }
         }
 
-        return result;
+        // 404 prova que a versão do bot ainda não oferece a rota. Esse é o único
+        // caso em que usamos o gateway legado como fallback, sempre uma única vez.
+        return await SendWhatsAppEvolutionTextCoreAsync(phone, text, stableAttemptId);
     }
 
-    private async Task<WhatsAppEvolutionResult> SendWhatsAppEvolutionTextCoreAsync(string phone, string text)
+    private async Task<WhatsAppEvolutionResult> SendWhatsAppEvolutionTextCoreAsync(
+        string phone,
+        string text,
+        string attemptId)
     {
         if (IsWhatsAppGatewayEndpoint(_data.Settings.WhatsAppEvolutionBaseUrl))
         {
-            return await SendWhatsAppGatewayTextAsync(phone, text);
+            return await SendWhatsAppGatewayTextAsync(phone, text, attemptId);
         }
 
         try
@@ -7909,14 +9110,52 @@ public partial class MainWindow : Window
             var body = await response.Content.ReadAsStringAsync();
             if (response.IsSuccessStatusCode)
             {
-                return WhatsAppEvolutionResult.Success("Mensagem enviada.");
+                return WhatsAppEvolutionResult.Success(
+                    "Mensagem aceita pelo servidor.",
+                    ReadWhatsAppProviderMessageId(body));
             }
 
-            return WhatsAppEvolutionResult.Fail(ReadEvolutionMessage(body));
+            return WhatsAppEvolutionResult.Fail(
+                ReadEvolutionMessage(body),
+                IsAmbiguousWhatsAppHttpStatus(response.StatusCode));
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return WhatsAppEvolutionResult.Fail(
+                $"Falha ao enviar mensagem: {ex.Message}",
+                deliveryUncertain: true);
+        }
+        catch (InvalidOperationException ex)
         {
             return WhatsAppEvolutionResult.Fail($"Falha ao enviar mensagem: {ex.Message}");
+        }
+    }
+
+    private static string ReadWhatsAppProviderMessageId(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return "";
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            if (TryGetJsonProperty(root, "key", out var key) && key.ValueKind == JsonValueKind.Object)
+            {
+                var nestedId = ReadEvolutionString(key, "id", "messageId");
+                if (!string.IsNullOrWhiteSpace(nestedId))
+                {
+                    return nestedId;
+                }
+            }
+
+            return ReadEvolutionString(root, "providerMessageId", "remoteMessageId", "messageId", "id");
+        }
+        catch (JsonException)
+        {
+            return "";
         }
     }
 
@@ -8563,7 +9802,10 @@ public partial class MainWindow : Window
         var remoteJid = key.ValueKind == JsonValueKind.Object
             ? ReadEvolutionString(key, "remoteJid", "participant")
             : ReadEvolutionString(element, "remoteJid", "jid", "from");
-        var phone = NormalizeEvolutionJidPhone(remoteJid);
+        var remoteJidAlt = key.ValueKind == JsonValueKind.Object
+            ? ReadEvolutionString(key, "remoteJidAlt", "participantAlt")
+            : ReadEvolutionString(element, "remoteJidAlt", "participantAlt", "senderPn");
+        var phone = NormalizeEvolutionJidPhone(FirstFilled(remoteJidAlt, remoteJid));
         if (string.IsNullOrWhiteSpace(phone))
         {
             return false;
@@ -8856,7 +10098,7 @@ public partial class MainWindow : Window
                             Child = new TextBlock
                             {
                                 Text = InitialsFor(professional.Name),
-                                Foreground = AccentBrush,
+                                Foreground = AccentTextBrush,
                                 FontSize = 10.5,
                                 FontWeight = FontWeights.Bold,
                                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -9016,7 +10258,7 @@ public partial class MainWindow : Window
                         Child = new PackIcon
                         {
                             Kind = PackIconKind.CalendarPlus,
-                            Foreground = AccentBrush,
+                            Foreground = AccentTextBrush,
                             Width = 22,
                             Height = 22,
                             HorizontalAlignment = HorizontalAlignment.Center,
@@ -9058,8 +10300,12 @@ public partial class MainWindow : Window
 
     private Border CreateScheduleAppointmentCard(Appointment appointment, int rowSpan)
     {
-        var statusBrush = ScheduleCardBackground(appointment.Status);
+        var usesThemeTint = appointment.Status == AppointmentStatus.Scheduled && !IsActiveBarberMidnight();
+        var statusBrush = usesThemeTint
+            ? ScheduleCardTintBrush
+            : ScheduleCardBackground(appointment.Status);
         var accentBrush = ScheduleAccentFor(appointment.Status);
+        var contentAccentBrush = usesThemeTint ? AccentTextBrush : accentBrush;
         var compact = rowSpan <= 1;
         var visualHeight = compact
             ? Math.Max(32, ScheduleSlotHeight - 4)
@@ -9140,7 +10386,7 @@ public partial class MainWindow : Window
             Child = new TextBlock
             {
                 Text = ScheduleStatusLabel(appointment.Status),
-                Foreground = accentBrush,
+                Foreground = contentAccentBrush,
                 FontSize = compact ? 7.3 : 8.2,
                 FontWeight = FontWeights.Bold,
                 TextTrimming = TextTrimming.CharacterEllipsis
@@ -9153,7 +10399,7 @@ public partial class MainWindow : Window
         stack.Children.Add(new TextBlock
         {
             Text = appointment.CustomerName,
-            Foreground = MutedBrush,
+            Foreground = usesThemeTint ? InkBrush : MutedBrush,
             FontSize = compact ? 8.5 : 9.4,
             FontWeight = FontWeights.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis,
@@ -9165,7 +10411,7 @@ public partial class MainWindow : Window
             stack.Children.Add(new TextBlock
             {
                 Text = appointment.ResourceName,
-                Foreground = accentBrush,
+                Foreground = contentAccentBrush,
                 FontSize = 8.8,
                 FontWeight = FontWeights.SemiBold,
                 TextTrimming = TextTrimming.CharacterEllipsis,
@@ -9474,7 +10720,7 @@ public partial class MainWindow : Window
         }
 
         var suggestedStart = SuggestedStartFor(_selectedDate, suggestedDuration);
-        AppointmentDatePicker.SelectedDate = suggestedStart.Date;
+        AppointmentDatePicker.SelectedDate = _selectedDate.Date;
         TimeCombo.Text = suggestedStart.ToString("HH:mm", Brazil);
 
         EditorTitleText.Text = "Novo agendamento";
@@ -9541,6 +10787,7 @@ public partial class MainWindow : Window
 
     private void CloseAppointmentEditorModal()
     {
+        CloseCustomerSuggestions();
         AppointmentEditorOverlay.Visibility = Visibility.Collapsed;
         RefreshWhatsAppLauncherVisibility();
 
@@ -9588,6 +10835,11 @@ public partial class MainWindow : Window
     {
         step = Math.Clamp(step, 0, 2);
         _appointmentEditorStep = step;
+
+        if (step != 1)
+        {
+            CloseCustomerSuggestions();
+        }
 
         AppointmentScheduleStep.Visibility = step == 0 ? Visibility.Visible : Visibility.Collapsed;
         AppointmentClientStep.Visibility = step == 1 ? Visibility.Visible : Visibility.Collapsed;
@@ -9642,11 +10894,11 @@ public partial class MainWindow : Window
         for (var index = 0; index < circles.Length; index++)
         {
             var reached = index <= _appointmentEditorStep;
-            circles[index].SetResourceReference(Border.BackgroundProperty, reached ? "AccentDark" : "Panel");
-            circles[index].SetResourceReference(Border.BorderBrushProperty, reached ? "AccentDark" : "Line");
+            circles[index].SetResourceReference(Border.BackgroundProperty, reached ? "PrimaryActionBackground" : "Panel");
+            circles[index].SetResourceReference(Border.BorderBrushProperty, reached ? "PrimaryActionBackground" : "Line");
             if (reached)
             {
-                numbers[index].Foreground = Brushes.White;
+                numbers[index].SetResourceReference(TextBlock.ForegroundProperty, "PrimaryActionForeground");
             }
             else
             {
@@ -9684,6 +10936,150 @@ public partial class MainWindow : Window
     private void AppointmentContinueButton_Click(object sender, RoutedEventArgs e)
     {
         SetAppointmentEditorStep(_appointmentEditorStep + 1, focusFirst: true);
+    }
+
+    private void CustomerNameTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        RefreshAppointmentEditorSummary();
+
+        if (CustomerSuggestionsPopup is null || CustomerSuggestionsListBox is null)
+        {
+            return;
+        }
+
+        if (_loadingEditor || _applyingCustomerSuggestion)
+        {
+            CloseCustomerSuggestions();
+            return;
+        }
+
+        RefreshCustomerSuggestions();
+    }
+
+    private void RefreshCustomerSuggestions()
+    {
+        var query = NormalizeCustomerLookup(CustomerNameTextBox.Text);
+        if (_appointmentEditorStep != 1 ||
+            AppointmentEditorOverlay.Visibility != Visibility.Visible ||
+            !CustomerNameTextBox.IsKeyboardFocusWithin ||
+            string.IsNullOrWhiteSpace(query))
+        {
+            CloseCustomerSuggestions();
+            return;
+        }
+
+        var matches = _data.Customers
+            .Where(customer => !string.IsNullOrWhiteSpace(customer.Name))
+            .Select(customer => new
+            {
+                Customer = customer,
+                SearchName = NormalizeCustomerLookup(customer.Name)
+            })
+            .Where(item => item.SearchName.Contains(query, StringComparison.Ordinal))
+            .OrderBy(item => item.SearchName.StartsWith(query, StringComparison.Ordinal) ? 0 : 1)
+            .ThenBy(item => item.SearchName.IndexOf(query, StringComparison.Ordinal))
+            .ThenBy(item => item.Customer.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ThenByDescending(item => item.Customer.LastSeenAt)
+            .Select(item => CreateCustomerSuggestionRow(item.Customer))
+            .ToList();
+
+        _customerSuggestions.Clear();
+        foreach (var match in matches)
+        {
+            _customerSuggestions.Add(match);
+        }
+
+        if (_customerSuggestions.Count == 0)
+        {
+            CloseCustomerSuggestions();
+            return;
+        }
+
+        CustomerSuggestionsCountText.Text = _customerSuggestions.Count == 1
+            ? "1 opção"
+            : $"{_customerSuggestions.Count} opções";
+        CustomerSuggestionsListBox.SelectedIndex = -1;
+        CustomerSuggestionsPopup.IsOpen = true;
+    }
+
+    private static string NormalizeCustomerLookup(string? value) =>
+        RemoveDiacritics(value ?? "").Trim().ToUpperInvariant();
+
+    private static CustomerSuggestionRow CreateCustomerSuggestionRow(Customer customer)
+    {
+        var details = new[]
+            {
+                (customer.Phone ?? "").Trim(),
+                (customer.Profile ?? "").Trim(),
+                (customer.Segment ?? "").Trim()
+            }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.CurrentCultureIgnoreCase);
+
+        var detail = string.Join(" • ", details);
+        return new CustomerSuggestionRow(
+            customer,
+            customer.Name.Trim(),
+            string.IsNullOrWhiteSpace(detail) ? "Cliente cadastrado" : detail);
+    }
+
+    private void CustomerSuggestionsListBox_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        var source = e.OriginalSource as DependencyObject;
+        if (FindVisualParent<ListBoxItem>(source)?.DataContext is not CustomerSuggestionRow suggestion)
+        {
+            return;
+        }
+
+        ApplyCustomerSuggestion(suggestion);
+        e.Handled = true;
+    }
+
+    private void ApplyCustomerSuggestion(CustomerSuggestionRow suggestion)
+    {
+        _applyingCustomerSuggestion = true;
+        try
+        {
+            CustomerNameTextBox.Text = suggestion.Customer.Name.Trim();
+            CustomerNameTextBox.CaretIndex = CustomerNameTextBox.Text.Length;
+            PhoneTextBox.Text = (suggestion.Customer.Phone ?? "").Trim();
+            CustomerProfileTextBox.Text = (suggestion.Customer.Profile ?? "").Trim();
+        }
+        finally
+        {
+            _applyingCustomerSuggestion = false;
+        }
+
+        CloseCustomerSuggestions();
+        RefreshAppointmentEditorSummary();
+        CustomerNameTextBox.Focus();
+        CustomerNameTextBox.CaretIndex = CustomerNameTextBox.Text.Length;
+    }
+
+    private void CustomerSuggestionsPopup_Closed(object? sender, EventArgs e)
+    {
+        CustomerSuggestionsListBox.SelectedItem = null;
+        _customerSuggestions.Clear();
+        CustomerSuggestionsCountText.Text = "0 opções";
+    }
+
+    private void CloseCustomerSuggestions()
+    {
+        if (CustomerSuggestionsPopup is not null)
+        {
+            CustomerSuggestionsPopup.IsOpen = false;
+        }
+
+        if (CustomerSuggestionsListBox is not null)
+        {
+            CustomerSuggestionsListBox.SelectedItem = null;
+        }
+
+        _customerSuggestions.Clear();
+        if (CustomerSuggestionsCountText is not null)
+        {
+            CustomerSuggestionsCountText.Text = "0 opções";
+        }
     }
 
     private void AppointmentSummaryInput_Changed(object sender, RoutedEventArgs e)
@@ -9771,6 +11167,11 @@ public partial class MainWindow : Window
 
     private void AppointmentEditorForm_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (HandleCustomerSuggestionsKeyboard(e))
+        {
+            return;
+        }
+
         HandleFormKeyboardNavigation(e);
         if (e.Handled)
         {
@@ -9782,6 +11183,65 @@ public partial class MainWindow : Window
             CloseAppointmentEditorModal();
             e.Handled = true;
         }
+    }
+
+    private bool HandleCustomerSuggestionsKeyboard(KeyEventArgs e)
+    {
+        if (CustomerSuggestionsPopup.IsOpen != true || _customerSuggestions.Count == 0)
+        {
+            return false;
+        }
+
+        var source = e.OriginalSource as DependencyObject ?? Keyboard.FocusedElement as DependencyObject;
+        if (FindVisualParent<TextBox>(source) != CustomerNameTextBox)
+        {
+            return false;
+        }
+
+        if (e.Key == Key.Down)
+        {
+            var nextIndex = CustomerSuggestionsListBox.SelectedIndex < 0
+                ? 0
+                : Math.Min(CustomerSuggestionsListBox.SelectedIndex + 1, _customerSuggestions.Count - 1);
+            CustomerSuggestionsListBox.SelectedIndex = nextIndex;
+            CustomerSuggestionsListBox.ScrollIntoView(CustomerSuggestionsListBox.SelectedItem);
+            e.Handled = true;
+            return true;
+        }
+
+        if (e.Key == Key.Up)
+        {
+            var previousIndex = CustomerSuggestionsListBox.SelectedIndex < 0
+                ? _customerSuggestions.Count - 1
+                : Math.Max(CustomerSuggestionsListBox.SelectedIndex - 1, 0);
+            CustomerSuggestionsListBox.SelectedIndex = previousIndex;
+            CustomerSuggestionsListBox.ScrollIntoView(CustomerSuggestionsListBox.SelectedItem);
+            e.Handled = true;
+            return true;
+        }
+
+        if (e.Key is Key.Enter or Key.Return)
+        {
+            var suggestion = CustomerSuggestionsListBox.SelectedItem as CustomerSuggestionRow
+                             ?? _customerSuggestions[0];
+            ApplyCustomerSuggestion(suggestion);
+            e.Handled = true;
+            return true;
+        }
+
+        if (e.Key == Key.Escape)
+        {
+            CloseCustomerSuggestions();
+            e.Handled = true;
+            return true;
+        }
+
+        if (e.Key == Key.Tab)
+        {
+            CloseCustomerSuggestions();
+        }
+
+        return false;
     }
 
     private static void HandleFormKeyboardNavigation(KeyEventArgs e)
@@ -10048,7 +11508,6 @@ public partial class MainWindow : Window
     private void ConfigButton_Click(object sender, RoutedEventArgs e)
     {
         ShowMainPage(MainPage.Settings);
-        ShowStatus("Configurações abertas.");
     }
 
     private void HomeSidebarButton_Click(object sender, RoutedEventArgs e)
@@ -10345,10 +11804,7 @@ public partial class MainWindow : Window
         }
 
         var message = BuildAppointmentWhatsAppMessage(_selectedAppointment);
-        var sent = await SendOrOpenWhatsAppAsync(_selectedAppointment.CustomerName, phone, message, "Confirmação");
-        ShowStatus(sent
-            ? $"WhatsApp de confirmação enviado para {_selectedAppointment.CustomerName}."
-            : $"WhatsApp de confirmação aberto para {_selectedAppointment.CustomerName}.");
+        await SendOrOpenWhatsAppAsync(_selectedAppointment.CustomerName, phone, message, "Confirmação");
     }
 
     private string BuildAppointmentWhatsAppMessage(Appointment appointment)
@@ -10549,32 +12005,48 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (section == "Serviços" && _data.Services.Count > 0)
+        if (section == "Serviços")
         {
-            var serviceShell = CreateManagerDialog(section, title, subtitle, primaryText);
-            serviceShell.Dialog.Width = 980;
-            serviceShell.Dialog.MaxHeight = 650;
-            string? serviceEditId = null;
-            AddServiceMasterDetail(serviceShell.Body, id =>
+            while (true)
             {
-                serviceEditId = id;
-                serviceShell.Dialog.DialogResult = false;
-            });
-            serviceShell.PrimaryButton.Click += (_, _) => serviceShell.Dialog.DialogResult = true;
+                var serviceShell = CreateManagerDialog(section, title, subtitle, primaryText);
+                string? serviceEditId = null;
+                if (_data.Services.Count > 0)
+                {
+                    serviceShell.Dialog.Width = 980;
+                    serviceShell.Dialog.MaxHeight = 650;
+                    AddServiceMasterDetail(serviceShell.Body, id =>
+                    {
+                        serviceEditId = id;
+                        serviceShell.Dialog.DialogResult = false;
+                    });
+                }
+                else
+                {
+                    AddManagerRows(serviceShell.Body, section, emptyTitle, emptyDetail, id =>
+                    {
+                        serviceEditId = id;
+                        serviceShell.Dialog.DialogResult = false;
+                    });
+                }
 
-            var serviceResult = ShowAppDialog(serviceShell.Dialog);
-            if (!string.IsNullOrWhiteSpace(serviceEditId))
-            {
-                OpenManagerItemEditor(section, serviceEditId);
+                serviceShell.PrimaryButton.Click += (_, _) => serviceShell.Dialog.DialogResult = true;
+
+                var serviceResult = ShowAppDialog(serviceShell.Dialog);
+                if (!string.IsNullOrWhiteSpace(serviceEditId))
+                {
+                    OpenManagerItemEditor(section, serviceEditId);
+                    continue;
+                }
+
+                if (serviceResult == true)
+                {
+                    CreateServiceButton_Click(this, new RoutedEventArgs());
+                    continue;
+                }
+
                 return;
             }
-
-            if (serviceResult == true)
-            {
-                CreateServiceButton_Click(this, new RoutedEventArgs());
-            }
-
-            return;
         }
 
         var shell = CreateManagerDialog(section, title, subtitle, primaryText);
@@ -10772,9 +12244,6 @@ public partial class MainWindow : Window
             Height = 40,
             MinWidth = 150,
             IsDefault = true,
-            Background = AccentDarkBrush,
-            BorderBrush = AccentDarkBrush,
-            Foreground = Brushes.White,
             Content = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -10786,20 +12255,17 @@ public partial class MainWindow : Window
                         Kind = PackIconKind.Plus,
                         Width = 17,
                         Height = 17,
-                        Margin = new Thickness(0, 0, 7, 0),
-                        Foreground = Brushes.White
+                        Margin = new Thickness(0, 0, 7, 0)
                     },
                     new TextBlock
                     {
                         Text = primaryText,
-                        Foreground = Brushes.White,
                         FontWeight = FontWeights.SemiBold,
                         VerticalAlignment = VerticalAlignment.Center
                     }
                 }
             }
         };
-        TextElement.SetForeground(primaryButton, Brushes.White);
         AutomationProperties.SetName(primaryButton, primaryText);
 
         var closeButton = CreateDialogCloseButton(dialog);
@@ -10821,7 +12287,7 @@ public partial class MainWindow : Window
                 Kind = ManagerIcon(section),
                 Width = 21,
                 Height = 21,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -10970,7 +12436,7 @@ public partial class MainWindow : Window
                 Kind = PackIconKind.AccountGroup,
                 Width = 24,
                 Height = 24,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -11031,7 +12497,7 @@ public partial class MainWindow : Window
                 Kind = PackIconKind.AccountGroup,
                 Width = 16,
                 Height = 16,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -11053,9 +12519,6 @@ public partial class MainWindow : Window
             Height = 44,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             IsDefault = true,
-            Background = AccentDarkBrush,
-            BorderBrush = AccentDarkBrush,
-            Foreground = Brushes.White,
             Content = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -11068,20 +12531,17 @@ public partial class MainWindow : Window
                         Kind = PackIconKind.Plus,
                         Width = 17,
                         Height = 17,
-                        Foreground = Brushes.White,
                         Margin = new Thickness(0, 0, 7, 0)
                     },
                     new TextBlock
                     {
                         Text = "Cadastrar primeiro cliente",
-                        Foreground = Brushes.White,
                         FontWeight = FontWeights.SemiBold,
                         VerticalAlignment = VerticalAlignment.Center
                     }
                 }
             }
         };
-        TextElement.SetForeground(primaryButton, Brushes.White);
         AutomationProperties.SetName(primaryButton, "Cadastrar primeiro cliente");
 
         var importButton = new Button
@@ -11090,19 +12550,19 @@ public partial class MainWindow : Window
             Height = 44,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 10, 0, 0),
-            Foreground = AccentBrush,
+            Foreground = AccentTextBrush,
             BorderBrush = AccentBrush,
             ToolTip = "Importação de contatos em breve",
             Content = new TextBlock
             {
                 Text = "Importar contatos",
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 FontWeight = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center
             }
         };
-        TextElement.SetForeground(importButton, AccentBrush);
+        TextElement.SetForeground(importButton, AccentTextBrush);
         AutomationProperties.SetName(importButton, "Importar contatos");
 
         var heroCopy = new StackPanel
@@ -11220,7 +12680,7 @@ public partial class MainWindow : Window
                 Kind = PackIconKind.AccountGroup,
                 Width = 120,
                 Height = 120,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -11263,7 +12723,7 @@ public partial class MainWindow : Window
                 Kind = PackIconKind.AccountOutline,
                 Width = 18,
                 Height = 18,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -11295,7 +12755,7 @@ public partial class MainWindow : Window
             Kind = PackIconKind.Plus,
             Width = 19,
             Height = 19,
-            Foreground = AccentBrush,
+            Foreground = AccentTextBrush,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Top,
             Margin = new Thickness(0, 14, 15, 0)
@@ -11305,7 +12765,7 @@ public partial class MainWindow : Window
             Kind = PackIconKind.Plus,
             Width = 13,
             Height = 13,
-            Foreground = AccentBrush,
+            Foreground = AccentTextBrush,
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Bottom,
             Margin = new Thickness(16, 0, 0, 27)
@@ -11326,7 +12786,7 @@ public partial class MainWindow : Window
                     Kind = PackIconKind.CheckCircleOutline,
                     Width = 17,
                     Height = 17,
-                    Foreground = AccentBrush,
+                    Foreground = AccentTextBrush,
                     Margin = new Thickness(0, 0, 8, 0),
                     VerticalAlignment = VerticalAlignment.Center
                 },
@@ -11481,7 +12941,7 @@ public partial class MainWindow : Window
                             .Split(' ', StringSplitOptions.RemoveEmptyEntries)
                             .Take(2)
                             .Select(part => char.ToUpperInvariant(part[0]))),
-                        Foreground = AccentBrush,
+                        Foreground = AccentTextBrush,
                         FontSize = 11.5,
                         FontWeight = FontWeights.Bold,
                         HorizontalAlignment = HorizontalAlignment.Center,
@@ -11545,7 +13005,7 @@ public partial class MainWindow : Window
                     Child = new TextBlock
                     {
                         Text = professional.IsActive ? "Ativo" : "Inativo",
-                        Foreground = professional.IsActive ? AccentDarkBrush : MutedBrush,
+                        Foreground = professional.IsActive ? AccentTextBrush : MutedBrush,
                         FontSize = 10.5,
                         FontWeight = FontWeights.SemiBold
                     }
@@ -11699,7 +13159,7 @@ public partial class MainWindow : Window
                 Kind = ManagerIcon(section),
                 Width = 17,
                 Height = 17,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -11874,8 +13334,8 @@ public partial class MainWindow : Window
                     Orientation = Orientation.Horizontal,
                     Children =
                     {
-                        new PackIcon { Kind = PackIconKind.Pencil, Width = 15, Height = 15, Foreground = AccentBrush, Margin = new Thickness(0, 0, 7, 0) },
-                        new TextBlock { Text = "Editar", Foreground = AccentBrush, FontWeight = FontWeights.SemiBold }
+                        new PackIcon { Kind = PackIconKind.Pencil, Width = 15, Height = 15, Foreground = AccentTextBrush, Margin = new Thickness(0, 0, 7, 0) },
+                        new TextBlock { Text = "Editar", Foreground = AccentTextBrush, FontWeight = FontWeights.SemiBold }
                     }
                 },
                 Height = 40,
@@ -11894,7 +13354,7 @@ public partial class MainWindow : Window
                 Height = 44,
                 Background = AccentSoftBrush,
                 CornerRadius = new CornerRadius(22),
-                Child = new PackIcon { Kind = PackIconKind.AccountOutline, Width = 22, Height = 22, Foreground = AccentBrush, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                Child = new PackIcon { Kind = PackIconKind.AccountOutline, Width = 22, Height = 22, Foreground = AccentTextBrush, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
             });
             var headingText = new StackPanel
             {
@@ -11953,7 +13413,7 @@ public partial class MainWindow : Window
                     Height = 34,
                     Background = Brushes.White,
                     CornerRadius = new CornerRadius(17),
-                    Child = new PackIcon { Kind = PackIconKind.AccountGroup, Width = 17, Height = 17, Foreground = AccentBrush, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                    Child = new PackIcon { Kind = PackIconKind.AccountGroup, Width = 17, Height = 17, Foreground = AccentTextBrush, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
                 });
                 var nameAndArrow = new StackPanel
                 {
@@ -12155,7 +13615,7 @@ public partial class MainWindow : Window
                 Height = 42,
                 MinWidth = 112,
                 BorderBrush = AccentBrush,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 Content = new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
@@ -12166,13 +13626,13 @@ public partial class MainWindow : Window
                             Kind = PackIconKind.Pencil,
                             Width = 16,
                             Height = 16,
-                            Foreground = AccentBrush,
+                            Foreground = AccentTextBrush,
                             Margin = new Thickness(0, 0, 7, 0)
                         },
                         new TextBlock
                         {
                             Text = "Editar",
-                            Foreground = AccentBrush,
+                            Foreground = AccentTextBrush,
                             FontWeight = FontWeights.SemiBold
                         }
                     }
@@ -12291,7 +13751,7 @@ public partial class MainWindow : Window
                         Kind = PackIconKind.ClipboardText,
                         Width = 17,
                         Height = 17,
-                        Foreground = AccentBrush,
+                        Foreground = AccentTextBrush,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center
                     }
@@ -12349,7 +13809,7 @@ public partial class MainWindow : Window
 
                 var button = new Button
                 {
-                    Style = (Style)FindResource("SidebarMenuButton"),
+                    Style = (Style)FindResource("ManagerListRowButton"),
                     Height = 56,
                     Padding = new Thickness(0),
                     Margin = new Thickness(0),
@@ -12431,7 +13891,7 @@ public partial class MainWindow : Window
                     Child = new PackIcon
                     {
                         Kind = ManagerIcon(section),
-                        Foreground = AccentBrush,
+                        Foreground = AccentTextBrush,
                         Width = 23,
                         Height = 23,
                         HorizontalAlignment = HorizontalAlignment.Center,
@@ -12577,7 +14037,7 @@ public partial class MainWindow : Window
                 Kind = row.Icon,
                 Width = 18,
                 Height = 18,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -12628,7 +14088,7 @@ public partial class MainWindow : Window
                 Padding = new Thickness(10, 0, 10, 0),
                 Background = Brushes.White,
                 BorderBrush = LineBrush,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 Content = new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
@@ -12640,13 +14100,13 @@ public partial class MainWindow : Window
                             Kind = PackIconKind.Pencil,
                             Width = 14,
                             Height = 14,
-                            Foreground = AccentBrush,
+                            Foreground = AccentTextBrush,
                             Margin = new Thickness(0, 0, 6, 0)
                         },
                         new TextBlock
                         {
                             Text = "Editar",
-                            Foreground = AccentBrush,
+                            Foreground = AccentTextBrush,
                             FontSize = 12,
                             FontWeight = FontWeights.SemiBold,
                             VerticalAlignment = VerticalAlignment.Center
@@ -12654,7 +14114,7 @@ public partial class MainWindow : Window
                     }
                 }
             };
-            TextElement.SetForeground(editButton, AccentBrush);
+            TextElement.SetForeground(editButton, AccentTextBrush);
             editButton.Click += (_, _) => clickAction();
             Grid.SetColumn(editButton, 3);
             rowGrid.Children.Add(editButton);
@@ -12922,6 +14382,11 @@ public partial class MainWindow : Window
         var showMarketing = page == MainPage.Marketing;
         var showSettings = page == MainPage.Settings;
         var showAgenda = page == MainPage.Agenda;
+        if (showSettings)
+        {
+            DismissStatusToastImmediately();
+        }
+
         HomeDashboardView.Visibility = showHome ? Visibility.Visible : Visibility.Collapsed;
         EstablishmentView.Visibility = showEstablishment ? Visibility.Visible : Visibility.Collapsed;
         FinanceView.Visibility = showFinance ? Visibility.Visible : Visibility.Collapsed;
@@ -13035,6 +14500,7 @@ public partial class MainWindow : Window
             {
                 InvalidateVisual();
                 UpdateLayout();
+                ApplyPackIconContrastPolicy(this);
             },
             DispatcherPriority.Render);
     }
@@ -13072,7 +14538,7 @@ public partial class MainWindow : Window
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
             Width = 700,
-            Height = 610
+            Height = 660
         };
         ConfigureRoundedDialogWindow(dialog);
         dialog.PreviewKeyDown += AppointmentEditorForm_PreviewKeyDown;
@@ -13107,7 +14573,6 @@ public partial class MainWindow : Window
             Content = new TextBlock
             {
                 Text = "Salvar cadastro",
-                Foreground = Brushes.Black,
                 FontWeight = FontWeights.SemiBold
             },
             Style = (Style)FindResource("CommandButton"),
@@ -13161,7 +14626,97 @@ public partial class MainWindow : Window
         var businessNameBox = AddRegistrationTextField(businessBody, "Nome do negócio", BusinessDisplayName(), "Ex: Marquinho Barbearia");
         var segmentBox = AddRegistrationComboField(businessBody, "Segmento", BusinessRegistrationSegmentOptions(), initialSegment, editable: false);
         var documentBox = AddRegistrationTextField(businessBody, "CPF / CNPJ", FormatDocumentInput(_data.Settings.BusinessDocument), "Ex: 123.456.789-00");
-        var businessSection = CreateRegistrationFlatSection("Estabelecimento", "Dados exibidos no sistema.", PackIconKind.StorefrontOutline, businessBody);
+        var selectedBusinessLogoSourcePath = _data.Settings.BusinessLogoPath;
+        var businessLogoChanged = false;
+        businessBody.Children.Add(new TextBlock
+        {
+            Text = "Logo do negócio",
+            Foreground = InkBrush,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 2, 0, 7)
+        });
+        var businessLogoImage = new Image
+        {
+            Width = 42,
+            Height = 42,
+            Stretch = Stretch.Uniform,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var businessLogoPlaceholder = new PackIcon
+        {
+            Kind = PackIconKind.ImagePlusOutline,
+            Width = 21,
+            Height = 21,
+            Foreground = AccentTextBrush,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var businessLogoPreviewGrid = new Grid();
+        businessLogoPreviewGrid.Children.Add(businessLogoImage);
+        businessLogoPreviewGrid.Children.Add(businessLogoPlaceholder);
+        var businessLogoPreview = new Border
+        {
+            Width = 50,
+            Height = 50,
+            Background = AccentSoftBrush,
+            BorderBrush = LineBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Child = businessLogoPreviewGrid
+        };
+        var businessLogoFileText = new TextBlock
+        {
+            Foreground = MutedBrush,
+            FontSize = 11.5,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxWidth = 176,
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        var chooseBusinessLogoButton = new Button
+        {
+            Content = "Escolher / alterar",
+            Style = (Style)FindResource("GhostButton"),
+            Height = 32,
+            MinWidth = 118,
+            Padding = new Thickness(9, 0, 9, 0),
+            Margin = new Thickness(0, 0, 6, 0)
+        };
+        var removeBusinessLogoButton = new Button
+        {
+            Content = "Remover",
+            Style = (Style)FindResource("GhostButton"),
+            Height = 32,
+            MinWidth = 72,
+            Padding = new Thickness(8, 0, 8, 0)
+        };
+        var businessLogoActions = new StackPanel { Orientation = Orientation.Horizontal };
+        businessLogoActions.Children.Add(chooseBusinessLogoButton);
+        businessLogoActions.Children.Add(removeBusinessLogoButton);
+        var businessLogoDetails = new StackPanel
+        {
+            Margin = new Thickness(10, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        businessLogoDetails.Children.Add(businessLogoFileText);
+        businessLogoDetails.Children.Add(businessLogoActions);
+        var businessLogoRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+        businessLogoRow.Children.Add(businessLogoPreview);
+        businessLogoRow.Children.Add(businessLogoDetails);
+        businessBody.Children.Add(businessLogoRow);
+        ApplyBusinessLogoPreview(
+            businessLogoImage,
+            businessLogoPlaceholder,
+            businessLogoFileText,
+            selectedBusinessLogoSourcePath);
+        removeBusinessLogoButton.Visibility = string.IsNullOrWhiteSpace(selectedBusinessLogoSourcePath)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        var businessSection = CreateRegistrationFlatSection("Estabelecimento", "Dados exibidos no sistema e na página pública.", PackIconKind.StorefrontOutline, businessBody);
         businessSection.Margin = new Thickness(22, 0, 0, 0);
         Grid.SetColumn(businessSection, 2);
         cardsGrid.Children.Add(businessSection);
@@ -13195,6 +14750,36 @@ public partial class MainWindow : Window
         ownerPhoneBox.LostFocus += DialogPhoneTextBox_LostFocus;
         documentBox.TextChanged += DialogDocumentTextBox_TextChanged;
         documentBox.LostFocus += DialogDocumentTextBox_LostFocus;
+        chooseBusinessLogoButton.Click += (_, _) =>
+        {
+            var selectedPath = SelectBusinessLogoSourceFile(dialog);
+            if (string.IsNullOrWhiteSpace(selectedPath))
+            {
+                return;
+            }
+
+            selectedBusinessLogoSourcePath = selectedPath;
+            businessLogoChanged = true;
+            ApplyBusinessLogoPreview(
+                businessLogoImage,
+                businessLogoPlaceholder,
+                businessLogoFileText,
+                selectedBusinessLogoSourcePath);
+            removeBusinessLogoButton.Visibility = Visibility.Visible;
+            footerErrorText.Visibility = Visibility.Collapsed;
+        };
+        removeBusinessLogoButton.Click += (_, _) =>
+        {
+            selectedBusinessLogoSourcePath = "";
+            businessLogoChanged = true;
+            ApplyBusinessLogoPreview(
+                businessLogoImage,
+                businessLogoPlaceholder,
+                businessLogoFileText,
+                selectedBusinessLogoSourcePath);
+            removeBusinessLogoButton.Visibility = Visibility.Collapsed;
+            footerErrorText.Visibility = Visibility.Collapsed;
+        };
 
         RegistrationEditorForm? result = null;
         saveButton.Click += (_, _) =>
@@ -13245,6 +14830,23 @@ public partial class MainWindow : Window
                 return;
             }
 
+            var persistedBusinessLogoPath = _data.Settings.BusinessLogoPath;
+            if (businessLogoChanged)
+            {
+                try
+                {
+                    persistedBusinessLogoPath = string.IsNullOrWhiteSpace(selectedBusinessLogoSourcePath)
+                        ? ""
+                        : PersistBusinessLogo(selectedBusinessLogoSourcePath);
+                }
+                catch (Exception ex)
+                {
+                    SetDialogError(footerErrorText, $"Não foi possível salvar a logo: {ex.Message}");
+                    chooseBusinessLogoButton.Focus();
+                    return;
+                }
+            }
+
             result = new RegistrationEditorForm(
                 ownerName,
                 phone,
@@ -13252,7 +14854,9 @@ public partial class MainWindow : Window
                 businessName,
                 segment,
                 document,
-                addressBox.Text.Trim());
+                addressBox.Text.Trim(),
+                persistedBusinessLogoPath,
+                _data.Settings.BusinessLogoPath);
             dialog.DialogResult = true;
         };
 
@@ -13278,7 +14882,7 @@ public partial class MainWindow : Window
             Child = new PackIcon
             {
                 Kind = PackIconKind.AccountEditOutline,
-                Foreground = Brushes.White,
+                Foreground = OnAccentBrush,
                 Width = 25,
                 Height = 25,
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -13317,7 +14921,7 @@ public partial class MainWindow : Window
             Child = new TextBlock
             {
                 Text = "Sem reiniciar",
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 FontSize = 12,
                 FontWeight = FontWeights.Bold
             }
@@ -13421,7 +15025,7 @@ public partial class MainWindow : Window
         header.Children.Add(new PackIcon
         {
             Kind = icon,
-            Foreground = AccentBrush,
+            Foreground = AccentTextBrush,
             Width = 20,
             Height = 20,
             Margin = new Thickness(0, 2, 10, 0),
@@ -13537,11 +15141,13 @@ public partial class MainWindow : Window
         _data.Settings.BusinessPhone = form.Phone;
         _data.Settings.BusinessDocument = form.Document;
         _data.Settings.BusinessAddress = form.Address;
+        _data.Settings.BusinessLogoPath = form.BusinessLogoPath;
         _data.Settings.BusinessSegment = nextSegment;
         _data.Settings.ClientLabel = template.ClientLabel;
         _data.Settings.ClientDetailLabel = template.ClientDetailLabel;
         _data.Settings.ResourceLabel = template.ResourceLabel;
         _data.Settings.OnboardingCompleted = true;
+        DeleteManagedBusinessLogoIfUnused(form.PreviousBusinessLogoPath);
 
         if (_data.Settings.Resources.Count == 0)
         {
@@ -13624,55 +15230,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        _selectedAppointment = null;
-        _selectedSegmentFilter = AllSegments;
-
-        _data.Settings.BusinessName = "Balcão Livre";
-        _data.Settings.BusinessDocument = "";
-        _data.Settings.BusinessPhone = "";
-        _data.Settings.BusinessAddress = "";
-        _data.Settings.AccountFullName = "";
-        _data.Settings.AccountPhone = "";
-        _data.Settings.AccountEmail = "";
-        _data.Settings.BusinessSegment = "";
-        _data.Settings.ClientLabel = "Cliente";
-        _data.Settings.ClientDetailLabel = "Paciente / pet / veículo / preferência";
-        _data.Settings.ResourceLabel = "Sala, box ou cadeira";
-        _data.Settings.WorkdayStartHour = 8;
-        _data.Settings.WorkdayEndHour = 20;
-        _data.Settings.Workdays = [1, 2, 3, 4, 5, 6];
-        _data.Settings.WorkdayBreakEnabled = true;
-        _data.Settings.WorkdayBreakStartHour = 12;
-        _data.Settings.WorkdayBreakEndHour = 13;
-        _data.Settings.Resources = [];
-        _data.Settings.ProfessionalCountRange = "";
-        _data.Settings.MainObjective = "";
-        _data.Settings.PostalCode = "";
-        _data.Settings.Neighborhood = "";
-        _data.Settings.Street = "";
-        _data.Settings.AddressNumber = "";
-        _data.Settings.AddressComplement = "";
-        _data.Settings.AccountPasswordHash = "";
-        _data.Settings.AccountCreatedAt = DateTime.MinValue;
-        _data.Settings.MercadoPagoEnabled = false;
-        _data.Settings.MercadoPagoConnected = false;
-        _data.Settings.MercadoPagoLicenseKey = "";
-        _data.Settings.MercadoPagoPaymentsApiUrl = DefaultMercadoPagoPaymentsApiUrl;
-        _data.Settings.MercadoPagoSellerUserId = "";
-        _data.Settings.MercadoPagoDefaultTerminalId = "";
-        _data.Settings.MercadoPagoDefaultTerminalLabel = "";
-        _data.Settings.MercadoPagoLastError = "";
-        _data.Settings.MercadoPagoLastSyncAt = null;
-        _data.Settings.OnboardingCompleted = false;
-
-        _store.Save(_data);
-        ApplyBusinessLabels();
-        ConfigureInputs();
-        ConfigureOnboardingInputs();
-        ClearEditor();
-        RefreshAll();
-        ShowOnboarding();
-        ShowStatus("Você saiu do sistema atual. Escolha um setor para iniciar outra agenda.");
+        LogoutRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private bool ShowExitSystemConfirmation()
@@ -13779,7 +15337,7 @@ public partial class MainWindow : Window
                                     },
                                     new TextBlock
                                     {
-                                        Text = "Você vai voltar para a configuração inicial.",
+                                        Text = "Você voltará para a tela de acesso.",
                                         Foreground = MutedBrush,
                                         FontSize = 13,
                                         TextWrapping = TextWrapping.Wrap,
@@ -13803,7 +15361,7 @@ public partial class MainWindow : Window
                             {
                                 new TextBlock
                                 {
-                                    Text = "Seus dados continuam salvos neste computador.",
+                                    Text = "Seus dados não serão apagados.",
                                     Foreground = InkBrush,
                                     FontSize = 14,
                                     FontWeight = FontWeights.Bold,
@@ -13811,7 +15369,7 @@ public partial class MainWindow : Window
                                 },
                                 new TextBlock
                                 {
-                                    Text = "Eles só serão substituídos se você criar outra agenda.",
+                                    Text = "A sessão será encerrada e você poderá entrar com esta ou outra conta.",
                                     Foreground = MutedBrush,
                                     FontSize = 12.5,
                                     TextWrapping = TextWrapping.Wrap,
@@ -13841,8 +15399,15 @@ public partial class MainWindow : Window
         }.Where(part => !string.IsNullOrWhiteSpace(part));
 
         SettingsBusinessText.Text = string.Join(" | ", businessParts);
-        ServicesCountText.Text = $"{_data.Services.Count} serviço(s) cadastrados";
-        ProfessionalsCountText.Text = $"{_data.Professionals.Count} profissional(is) cadastrados";
+        SettingsBusinessNameDisplayText.Text = BusinessDisplayName();
+        SettingsBusinessSegmentDisplayText.Text = FirstFilled(_data.Settings.BusinessSegment, "Segmento não informado");
+
+        ServicesCountText.Text = _data.Services.Count == 1
+            ? "1 serviço cadastrado"
+            : $"{_data.Services.Count} serviços cadastrados";
+        ProfessionalsCountText.Text = _data.Professionals.Count == 1
+            ? "1 profissional cadastrado"
+            : $"{_data.Professionals.Count} profissionais cadastrados";
         ResourcesCountText.Text = $"{ConfiguredWorkdaysSummary()} · {_data.Settings.WorkdayStartHour:00}:00 às {_data.Settings.WorkdayEndHour:00}:00";
         RefreshMercadoPagoSettingsSummary();
     }
@@ -14179,15 +15744,30 @@ public partial class MainWindow : Window
             Child = infoGrid
         });
 
+        var operationRunning = false;
+
+        void SetDialogBusy(bool busy)
+        {
+            operationRunning = busy;
+            connectButton.IsEnabled = !busy;
+            statusButton.IsEnabled = !busy;
+            terminalsButton.IsEnabled = !busy;
+            enabledToggle.IsEnabled = !busy;
+            shell.PrimaryButton.IsEnabled = !busy;
+            terminalBox.IsEnabled = !busy && _data.Settings.MercadoPagoConnected;
+            if (!busy)
+            {
+                connectButton.Content = "Conectar";
+                statusButton.Content = "Checar conta";
+                terminalsButton.Content = "Buscar Points";
+                shell.PrimaryButton.Content = "Salvar configuração";
+            }
+        }
+
         void CopyDialogFieldsToSettings()
         {
             _data.Settings.MercadoPagoEnabled = enabledToggle.IsChecked == true;
             EnsureMercadoPagoInternalSettings();
-            if (terminalBox.SelectedItem is AgendaMercadoPagoTerminalDto terminal)
-            {
-                _data.Settings.MercadoPagoDefaultTerminalId = terminal.Id.Trim();
-                _data.Settings.MercadoPagoDefaultTerminalLabel = terminal.Display.Trim();
-            }
         }
 
         void RefreshDialogStatus()
@@ -14201,12 +15781,12 @@ public partial class MainWindow : Window
             var enabled = enabledToggle.IsChecked == true;
             var connected = _data.Settings.MercadoPagoConnected;
             var hasPoint = !string.IsNullOrWhiteSpace(_data.Settings.MercadoPagoDefaultTerminalId);
-            terminalBox.IsEnabled = connected;
+            terminalBox.IsEnabled = connected && !operationRunning;
 
             if (!enabled)
             {
                 statusBadgeText.Text = "Desativado";
-                statusBadgeText.Foreground = AccentDarkBrush;
+                statusBadgeText.Foreground = AccentTextBrush;
                 statusBadge.Background = AccentSoftBrush;
                 terminalHelpText.Text = "Conecte e verifique a conta para escolher uma Point.";
                 terminalHelpText.Foreground = MutedBrush;
@@ -14247,60 +15827,278 @@ public partial class MainWindow : Window
             if (!terminals.Ok)
             {
                 _data.Settings.MercadoPagoLastError = FirstFilled(terminals.Message, "Não consegui buscar as maquininhas Mercado Pago.");
+                _store.Save(_data);
+                SetDialogError(shell.ErrorText, _data.Settings.MercadoPagoLastError);
                 RefreshDialogStatus();
                 return;
             }
 
-            ApplyMercadoPagoTerminals(terminals);
-            var list = CurrentMercadoPagoTerminalOptions();
+            var list = terminals.Terminals
+                .Where(item => !string.IsNullOrWhiteSpace(item.Id))
+                .GroupBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToList();
+            var selected = list.FirstOrDefault(item => item.Id.Equals(_data.Settings.MercadoPagoDefaultTerminalId, StringComparison.OrdinalIgnoreCase))
+                           ?? list.FirstOrDefault(item => item.Id.Equals(terminals.SelectedTerminalId, StringComparison.OrdinalIgnoreCase))
+                           ?? list.FirstOrDefault();
             terminalBox.ItemsSource = list;
-            terminalBox.SelectedItem = list.FirstOrDefault(item => item.Id == _data.Settings.MercadoPagoDefaultTerminalId);
+            terminalBox.SelectedItem = selected;
+            if (selected is null)
+            {
+                _data.Settings.MercadoPagoLastError = "Conta conectada, mas nenhuma Point apareceu. Confira se a maquininha está vinculada à mesma conta Mercado Pago.";
+                SetDialogError(shell.ErrorText, _data.Settings.MercadoPagoLastError);
+            }
+            else
+            {
+                _data.Settings.MercadoPagoLastError = "";
+                shell.ErrorText.Visibility = Visibility.Collapsed;
+            }
+
             _store.Save(_data);
             RefreshDialogStatus();
+            if (selected is not null &&
+                !selected.Id.Equals(_data.Settings.MercadoPagoDefaultTerminalId, StringComparison.OrdinalIgnoreCase))
+            {
+                terminalHelpText.Text = $"Point encontrada: {selected.Display}. Clique em Salvar configuração para colocá-la em modo PDV.";
+                terminalHelpText.Foreground = InkBrush;
+            }
         }
 
         connectButton.Click += async (_, _) =>
         {
-            CopyDialogFieldsToSettings();
-            _data.Settings.MercadoPagoEnabled = true;
-            _store.Save(_data);
-            var result = await StartMercadoPagoConnectAsync();
-            if (!result.Ok || string.IsNullOrWhiteSpace(result.AuthUrl))
+            if (operationRunning)
             {
-                _data.Settings.MercadoPagoLastError = FirstFilled(result.Message, "Não consegui iniciar a conexão com o Mercado Pago.");
-                RefreshDialogStatus();
                 return;
             }
 
-            Process.Start(new ProcessStartInfo(result.AuthUrl) { UseShellExecute = true });
-            _data.Settings.MercadoPagoLastError = "Autorize no navegador e depois clique em Checar conta.";
-            _store.Save(_data);
-            RefreshDialogStatus();
+            SetDialogBusy(true);
+            connectButton.Content = "Conectando...";
+            try
+            {
+                CopyDialogFieldsToSettings();
+                _data.Settings.MercadoPagoEnabled = true;
+                enabledToggle.IsChecked = true;
+                _store.Save(_data);
+                var result = await StartMercadoPagoConnectAsync();
+                if (!result.Ok || string.IsNullOrWhiteSpace(result.AuthUrl))
+                {
+                    _data.Settings.MercadoPagoLastError = FirstFilled(result.Message, "Não consegui iniciar a conexão com o Mercado Pago.");
+                    _store.Save(_data);
+                    SetDialogError(shell.ErrorText, _data.Settings.MercadoPagoLastError);
+                    RefreshDialogStatus();
+                    return;
+                }
+
+                try
+                {
+                    Process.Start(new ProcessStartInfo(result.AuthUrl) { UseShellExecute = true });
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    _data.Settings.MercadoPagoLastError = $"Não consegui abrir o navegador: {ex.Message}";
+                    _store.Save(_data);
+                    SetDialogError(shell.ErrorText, _data.Settings.MercadoPagoLastError);
+                    RefreshDialogStatus();
+                    return;
+                }
+
+                _data.Settings.MercadoPagoLastError = "Conclua a autorização no navegador. A agenda reconhecerá a conexão automaticamente.";
+                _store.Save(_data);
+                RefreshDialogStatus();
+
+                for (var attempt = 0; attempt < 90 && shell.Dialog.IsVisible; attempt++)
+                {
+                    await Task.Delay(2000);
+                    if (!shell.Dialog.IsVisible)
+                    {
+                        return;
+                    }
+
+                    var status = await FetchMercadoPagoConnectionStatusAsync();
+                    if (!status.Ok)
+                    {
+                        continue;
+                    }
+
+                    ApplyMercadoPagoStatus(status);
+                    _store.Save(_data);
+                    RefreshDialogStatus();
+                    if (!status.Connected)
+                    {
+                        continue;
+                    }
+
+                    shell.ErrorText.Visibility = Visibility.Collapsed;
+                    await RefreshTerminalsAsync();
+                    return;
+                }
+
+                _data.Settings.MercadoPagoLastError = "Se já autorizou a conta, clique em Checar conta para atualizar.";
+                _store.Save(_data);
+                RefreshDialogStatus();
+            }
+            finally
+            {
+                SetDialogBusy(false);
+                RefreshDialogVisualState();
+            }
         };
 
         statusButton.Click += async (_, _) =>
         {
-            CopyDialogFieldsToSettings();
-            var status = await FetchMercadoPagoConnectionStatusAsync();
-            ApplyMercadoPagoStatus(status);
-            _store.Save(_data);
-            RefreshDialogStatus();
-            if (status.Ok && status.Connected)
+            if (operationRunning)
             {
-                await RefreshTerminalsAsync();
+                return;
+            }
+
+            SetDialogBusy(true);
+            statusButton.Content = "Verificando...";
+            try
+            {
+                CopyDialogFieldsToSettings();
+                var status = await FetchMercadoPagoConnectionStatusAsync();
+                ApplyMercadoPagoStatus(status);
+                _store.Save(_data);
+                RefreshDialogStatus();
+                if (!status.Ok)
+                {
+                    SetDialogError(shell.ErrorText, _data.Settings.MercadoPagoLastError);
+                    return;
+                }
+
+                shell.ErrorText.Visibility = Visibility.Collapsed;
+                if (status.Connected)
+                {
+                    await RefreshTerminalsAsync();
+                }
+            }
+            finally
+            {
+                SetDialogBusy(false);
+                RefreshDialogVisualState();
             }
         };
 
-        terminalsButton.Click += async (_, _) => await RefreshTerminalsAsync();
+        terminalsButton.Click += async (_, _) =>
+        {
+            if (operationRunning)
+            {
+                return;
+            }
+
+            SetDialogBusy(true);
+            terminalsButton.Content = "Buscando...";
+            try
+            {
+                await RefreshTerminalsAsync();
+            }
+            finally
+            {
+                SetDialogBusy(false);
+                RefreshDialogVisualState();
+            }
+        };
         enabledToggle.Checked += (_, _) => RefreshDialogVisualState();
         enabledToggle.Unchecked += (_, _) => RefreshDialogVisualState();
 
-        shell.PrimaryButton.Click += (_, _) =>
+        shell.PrimaryButton.Click += async (_, _) =>
         {
-            CopyDialogFieldsToSettings();
-            _store.Save(_data);
-            RefreshSettingsSummary();
-            shell.Dialog.DialogResult = true;
+            if (operationRunning)
+            {
+                return;
+            }
+
+            SetDialogBusy(true);
+            shell.PrimaryButton.Content = "Salvando...";
+            try
+            {
+                CopyDialogFieldsToSettings();
+                if (_data.Settings.MercadoPagoEnabled && _data.Settings.MercadoPagoConnected)
+                {
+                    if (terminalBox.SelectedItem is not AgendaMercadoPagoTerminalDto terminal)
+                    {
+                        SetDialogError(shell.ErrorText, "Busque e escolha a Point da loja antes de salvar.");
+                        return;
+                    }
+
+                    var selected = await SelectMercadoPagoTerminalAsync(terminal);
+                    if (!selected.Ok)
+                    {
+                        _data.Settings.MercadoPagoLastError = FirstFilled(selected.Message, "Não consegui configurar a Point em modo PDV.");
+                        _store.Save(_data);
+                        SetDialogError(shell.ErrorText, _data.Settings.MercadoPagoLastError);
+                        RefreshDialogStatus();
+                        return;
+                    }
+
+                    _data.Settings.MercadoPagoDefaultTerminalId = terminal.Id.Trim();
+                    _data.Settings.MercadoPagoDefaultTerminalLabel = terminal.Display.Trim();
+                    _data.Settings.MercadoPagoLastError = "";
+                }
+                else if (!_data.Settings.MercadoPagoEnabled &&
+                         _data.Settings.MercadoPagoConnected &&
+                         !string.IsNullOrWhiteSpace(_data.Settings.MercadoPagoDefaultTerminalId))
+                {
+                    var released = await ReleaseMercadoPagoTerminalAsync();
+                    if (!released.Ok)
+                    {
+                        _data.Settings.MercadoPagoLastError = FirstFilled(released.Message, "Não consegui liberar a Point do modo PDV.");
+                        _store.Save(_data);
+                        SetDialogError(shell.ErrorText, _data.Settings.MercadoPagoLastError);
+                        return;
+                    }
+
+                    _data.Settings.MercadoPagoDefaultTerminalId = "";
+                    _data.Settings.MercadoPagoDefaultTerminalLabel = "";
+                    _data.Settings.MercadoPagoLastError = "";
+                }
+
+                _store.Save(_data);
+                RefreshSettingsSummary();
+                shell.Dialog.DialogResult = true;
+            }
+            finally
+            {
+                if (shell.Dialog.IsVisible)
+                {
+                    SetDialogBusy(false);
+                    RefreshDialogVisualState();
+                }
+            }
+        };
+
+        shell.Dialog.Loaded += async (_, _) =>
+        {
+            if (!_data.Settings.MercadoPagoEnabled || operationRunning)
+            {
+                return;
+            }
+
+            SetDialogBusy(true);
+            statusButton.Content = "Verificando...";
+            try
+            {
+                var status = await FetchMercadoPagoConnectionStatusAsync();
+                ApplyMercadoPagoStatus(status);
+                _store.Save(_data);
+                RefreshDialogStatus();
+                if (!status.Ok)
+                {
+                    SetDialogError(shell.ErrorText, _data.Settings.MercadoPagoLastError);
+                    return;
+                }
+
+                shell.ErrorText.Visibility = Visibility.Collapsed;
+                if (status.Connected)
+                {
+                    await RefreshTerminalsAsync();
+                }
+            }
+            finally
+            {
+                SetDialogBusy(false);
+                RefreshDialogVisualState();
+            }
         };
 
         RefreshDialogStatus();
@@ -14422,6 +16220,26 @@ public partial class MainWindow : Window
             "/mercadopago/terminals",
             FillMercadoPagoPayload(new AgendaMercadoPagoClientPayload { EventName = "agendalivre.mercadopago.terminals" }),
             TimeSpan.FromSeconds(16));
+
+    private Task<AgendaMercadoPagoResult> SelectMercadoPagoTerminalAsync(AgendaMercadoPagoTerminalDto terminal) =>
+        PostMercadoPagoOperationAsync<AgendaMercadoPagoResult>(
+            "/mercadopago/terminal/select",
+            FillMercadoPagoPayload(new AgendaMercadoPagoTerminalPayload
+            {
+                EventName = "agendalivre.mercadopago.terminal.select",
+                TerminalId = terminal.Id.Trim(),
+                TerminalLabel = terminal.Display.Trim()
+            }),
+            TimeSpan.FromSeconds(20));
+
+    private Task<AgendaMercadoPagoResult> ReleaseMercadoPagoTerminalAsync() =>
+        PostMercadoPagoOperationAsync<AgendaMercadoPagoResult>(
+            "/mercadopago/terminal/select",
+            FillMercadoPagoPayload(new AgendaMercadoPagoTerminalPayload
+            {
+                EventName = "agendalivre.mercadopago.terminal.release"
+            }),
+            TimeSpan.FromSeconds(20));
 
     private Task<AgendaMercadoPagoChargeResult> CreateMercadoPagoPointChargeAsync(decimal amount, string method, string description)
     {
@@ -14613,20 +16431,94 @@ public partial class MainWindow : Window
         return null;
     }
 
+    private async Task<AgendaMercadoPagoResult> EnsureMercadoPagoLicenseRegisteredAsync()
+    {
+        EnsureMercadoPagoInternalSettings();
+        if (_mercadoPagoLicenseRegistered)
+        {
+            return new AgendaMercadoPagoResult { Ok = true };
+        }
+
+        var email = _data.Settings.AccountEmail.Trim();
+        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@', StringComparison.Ordinal))
+        {
+            return new AgendaMercadoPagoResult
+            {
+                Ok = false,
+                Message = "Informe um e-mail válido em Configurações antes de conectar o Mercado Pago."
+            };
+        }
+
+        await _mercadoPagoLicenseGate.WaitAsync();
+        try
+        {
+            if (_mercadoPagoLicenseRegistered)
+            {
+                return new AgendaMercadoPagoResult { Ok = true };
+            }
+
+            var payload = FillMercadoPagoPayload(new AgendaMercadoPagoClientPayload
+            {
+                EventName = "agendalivre.mercadopago.activate"
+            });
+            var result = await SendMercadoPagoRequestAsync<AgendaMercadoPagoResult>(
+                new Uri(MercadoPagoLicenseActivationUrl, UriKind.Absolute),
+                payload,
+                TimeSpan.FromSeconds(12));
+            if (result.Ok)
+            {
+                _mercadoPagoLicenseRegistered = true;
+                if (_data.Settings.MercadoPagoLastError.Contains("chave", StringComparison.OrdinalIgnoreCase))
+                {
+                    _data.Settings.MercadoPagoLastError = "";
+                }
+
+                _store.Save(_data);
+            }
+
+            return result;
+        }
+        finally
+        {
+            _mercadoPagoLicenseGate.Release();
+        }
+    }
+
     private async Task<T> PostMercadoPagoOperationAsync<T>(string path, AgendaMercadoPagoClientPayload payload, TimeSpan timeout)
         where T : AgendaMercadoPagoResult, new()
     {
+        var registration = await EnsureMercadoPagoLicenseRegisteredAsync();
+        if (!registration.Ok)
+        {
+            return new T { Ok = false, Message = registration.Message };
+        }
+
         var endpoint = BuildMercadoPagoApiUri(path);
         if (endpoint is null)
         {
             return new T { Ok = false, Message = "Configuração interna de pagamentos inválida." };
         }
 
+        return await SendMercadoPagoRequestAsync<T>(endpoint, payload, timeout);
+    }
+
+    private static async Task<T> SendMercadoPagoRequestAsync<T>(
+        Uri endpoint,
+        AgendaMercadoPagoClientPayload payload,
+        TimeSpan timeout)
+        where T : AgendaMercadoPagoResult, new()
+    {
         try
         {
-            using var client = new HttpClient { Timeout = timeout };
-            using var content = new StringContent(JsonSerializer.Serialize(payload, payload.GetType(), WebJsonOptions), Encoding.UTF8, "application/json");
-            using var response = await client.PostAsync(endpoint, content);
+            using var timeoutSource = new CancellationTokenSource(timeout);
+            using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+            {
+                Content = new StringContent(
+                    JsonSerializer.Serialize(payload, payload.GetType(), WebJsonOptions),
+                    Encoding.UTF8,
+                    "application/json")
+            };
+            using var response = await MercadoPagoClient.SendAsync(request, timeoutSource.Token);
             var body = await response.Content.ReadAsStringAsync();
             var result = JsonSerializer.Deserialize<T>(body, WebJsonOptions) ?? new T { Ok = response.IsSuccessStatusCode };
             if (!response.IsSuccessStatusCode && string.IsNullOrWhiteSpace(result.Message))
@@ -14648,12 +16540,18 @@ public partial class MainWindow : Window
         payload.LicenseKey = _data.Settings.MercadoPagoLicenseKey.Trim();
         payload.MachineHash = BuildMercadoPagoMachineHash();
         payload.MachineCode = Environment.MachineName;
-        payload.AppVersion = "AgendaLivre.Windows";
+        payload.AppVersion = GetAppVersion();
+        payload.ClientKind = "agenda-livre-windows";
+        payload.LocalPlan = "Agenda Livre";
         payload.Profile = new Dictionary<string, object?>
         {
+            ["email"] = _data.Settings.AccountEmail.Trim(),
+            ["ownerName"] = _data.Settings.AccountFullName.Trim(),
             ["businessName"] = BusinessDisplayName(),
             ["businessDocument"] = OnlyDigits(_data.Settings.BusinessDocument),
+            ["cnpj"] = OnlyDigits(_data.Settings.BusinessDocument),
             ["businessPhone"] = OnlyDigits(FirstFilled(_data.Settings.BusinessPhone, _data.Settings.AccountPhone)),
+            ["phone"] = OnlyDigits(FirstFilled(_data.Settings.BusinessPhone, _data.Settings.AccountPhone)),
             ["segment"] = _data.Settings.BusinessSegment
         };
         return payload;
@@ -14679,38 +16577,21 @@ public partial class MainWindow : Window
     private void EnsureMercadoPagoInternalSettings()
     {
         _data.Settings.MercadoPagoPaymentsApiUrl = DefaultMercadoPagoPaymentsApiUrl;
-        if (!string.IsNullOrWhiteSpace(_data.Settings.MercadoPagoLicenseKey))
+        var currentLicense = _data.Settings.MercadoPagoLicenseKey.Trim();
+        if (!string.IsNullOrWhiteSpace(currentLicense) &&
+            !currentLicense.StartsWith("AGENDALIVRE-", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        var seed = FirstFilled(
-            OnlyDigits(_data.Settings.BusinessDocument),
-            OnlyDigits(_data.Settings.BusinessPhone),
-            OnlyDigits(_data.Settings.AccountPhone),
-            _data.Settings.AccountEmail,
-            BusinessDisplayName(),
-            BuildMercadoPagoMachineHash());
-        var clean = new string(seed.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
-        if (string.IsNullOrWhiteSpace(clean))
-        {
-            clean = BuildMercadoPagoMachineHash()[..12].ToUpperInvariant();
-        }
-
-        if (clean.Length > 32)
-        {
-            clean = clean[..32];
-        }
-
-        _data.Settings.MercadoPagoLicenseKey = $"AGENDALIVRE-{clean}";
+        // Reuse the signed, machine-scoped Agenda Livre identity. The old
+        // AGENDALIVRE-* value was derived from customer data and was never a
+        // valid license on the payments service, so OAuth always failed first.
+        _data.Settings.MercadoPagoLicenseKey = BuildAgendaLivreWhatsAppLicense();
+        _mercadoPagoLicenseRegistered = false;
     }
 
-    private string BuildMercadoPagoMachineHash()
-    {
-        var raw = $"{Environment.MachineName}|{Environment.UserName}|{OnlyDigits(_data.Settings.BusinessDocument)}|AGENDALIVRE";
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
-        return Convert.ToHexString(bytes).ToLowerInvariant();
-    }
+    private static string BuildMercadoPagoMachineHash() => GetAgendaMachineFingerprint();
 
     private static string BuildMercadoPagoLocalReference() =>
         $"AGL-{DateTime.Now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..32].ToUpperInvariant();
@@ -15071,7 +16952,7 @@ public partial class MainWindow : Window
             content.Children.Add(new TextBlock
             {
                 Text = option.Label,
-                Foreground = isSelected ? AccentDarkBrush : InkBrush,
+                Foreground = isSelected ? AccentTextBrush : InkBrush,
                 FontSize = 12.5,
                 FontWeight = isSelected ? FontWeights.SemiBold : FontWeights.Normal,
                 VerticalAlignment = VerticalAlignment.Center
@@ -15586,7 +17467,7 @@ public partial class MainWindow : Window
                             Kind = iconKind,
                             Width = 14,
                             Height = 14,
-                            Foreground = AccentBrush,
+                            Foreground = AccentTextBrush,
                             HorizontalAlignment = HorizontalAlignment.Center,
                             VerticalAlignment = VerticalAlignment.Center
                         }
@@ -15675,7 +17556,7 @@ public partial class MainWindow : Window
                     Kind = iconKind,
                     Width = 14,
                     Height = 14,
-                    Foreground = AccentBrush,
+                    Foreground = AccentTextBrush,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 }
@@ -15719,7 +17600,7 @@ public partial class MainWindow : Window
         var previewDuration = PreviewValue($"{initialDuration} min");
         var previewPrice = PreviewValue((decimal.TryParse(initialPrice, NumberStyles.Number, Brazil, out var parsedInitialPrice)
             ? parsedInitialPrice.ToString("C", Brazil)
-            : "R$ 0,00") + $" • {existing?.CommissionPercent ?? 0:N0}% comissão", AccentDarkBrush);
+            : "R$ 0,00") + $" • {existing?.CommissionPercent ?? 0:N0}% comissão", AccentTextBrush);
         var previewResource = PreviewValue(FirstFilled(initialResource, "Não definido"));
         var agendaPreviewText = new TextBlock
         {
@@ -15963,7 +17844,7 @@ public partial class MainWindow : Window
                     Kind = iconKind,
                     Width = 14,
                     Height = 14,
-                    Foreground = AccentBrush,
+                    Foreground = AccentTextBrush,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 }
@@ -15990,7 +17871,7 @@ public partial class MainWindow : Window
         var initialsText = new TextBlock
         {
             Text = "NP",
-            Foreground = AccentBrush,
+            Foreground = AccentTextBrush,
             FontSize = 15,
             FontWeight = FontWeights.Bold,
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -16311,7 +18192,7 @@ public partial class MainWindow : Window
         var summaryValue = new TextBlock
         {
             Text = "R$ 0,00",
-            Foreground = AccentDarkBrush,
+            Foreground = AccentTextBrush,
             FontSize = 28,
             FontWeight = FontWeights.Bold,
             Margin = new Thickness(0, 8, 0, 12)
@@ -16351,7 +18232,7 @@ public partial class MainWindow : Window
                     Kind = iconKind,
                     Width = 16,
                     Height = 16,
-                    Foreground = AccentBrush,
+                    Foreground = AccentTextBrush,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 }
@@ -16565,7 +18446,7 @@ public partial class MainWindow : Window
         var summaryValue = new TextBlock
         {
             Text = "R$ 0,00",
-            Foreground = AccentDarkBrush,
+            Foreground = AccentTextBrush,
             FontSize = 34,
             FontWeight = FontWeights.Bold,
             Margin = new Thickness(0, 12, 0, 18)
@@ -16595,7 +18476,7 @@ public partial class MainWindow : Window
                     Kind = iconKind,
                     Width = 18,
                     Height = 18,
-                    Foreground = AccentBrush,
+                    Foreground = AccentTextBrush,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 }
@@ -16648,7 +18529,7 @@ public partial class MainWindow : Window
                 },
                 Children =
                 {
-                    new PackIcon { Kind = PackIconKind.TagOutline, Width = 18, Height = 18, Foreground = AccentBrush },
+                    new PackIcon { Kind = PackIconKind.TagOutline, Width = 18, Height = 18, Foreground = AccentTextBrush },
                     new TextBlock { Text = "Valor", Foreground = MutedBrush, FontSize = 12, Margin = new Thickness(9, 0, 0, 0) },
                     footerValue
                 }
@@ -16882,11 +18763,7 @@ public partial class MainWindow : Window
             Height = 40,
             MinWidth = 150,
             IsDefault = true,
-            Background = AccentDarkBrush,
-            BorderBrush = AccentDarkBrush,
-            Foreground = Brushes.White
         };
-        TextElement.SetForeground(primaryButton, Brushes.White);
         AutomationProperties.SetName(primaryButton, primaryText);
 
         var dialog = new Window
@@ -17287,11 +19164,7 @@ public partial class MainWindow : Window
             Height = 44,
             MinWidth = 154,
             IsDefault = true,
-            Background = AccentDarkBrush,
-            BorderBrush = AccentDarkBrush,
-            Foreground = Brushes.White
         };
-        TextElement.SetForeground(primaryButton, Brushes.White);
         AutomationProperties.SetName(primaryButton, primaryText);
 
         var cancelButton = new Button
@@ -17337,7 +19210,7 @@ public partial class MainWindow : Window
                 Kind = PackIconKind.AccountOutline,
                 Width = 23,
                 Height = 23,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -17431,11 +19304,7 @@ public partial class MainWindow : Window
             Height = 40,
             MinWidth = 150,
             IsDefault = true,
-            Background = AccentDarkBrush,
-            BorderBrush = AccentDarkBrush,
-            Foreground = Brushes.White
         };
-        TextElement.SetForeground(primaryButton, Brushes.White);
         AutomationProperties.SetName(primaryButton, primaryText);
 
         var dialog = new Window
@@ -17840,7 +19709,7 @@ public partial class MainWindow : Window
 
         var initialsText = new TextBlock
         {
-            Foreground = AccentBrush,
+            Foreground = AccentTextBrush,
             FontSize = 13,
             FontWeight = FontWeights.Bold,
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -17947,7 +19816,7 @@ public partial class MainWindow : Window
             Child = new TextBlock
             {
                 Text = InitialsFor(displayName),
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 FontSize = 13,
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -18037,7 +19906,7 @@ public partial class MainWindow : Window
                 Kind = PackIconKind.ClipboardText,
                 Width = 20,
                 Height = 20,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -18102,7 +19971,7 @@ public partial class MainWindow : Window
                 Kind = icon,
                 Width = 16,
                 Height = 16,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -19576,7 +21445,7 @@ public partial class MainWindow : Window
                 Kind = PackIconKind.CalendarClock,
                 Width = 19,
                 Height = 19,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -19779,7 +21648,7 @@ public partial class MainWindow : Window
                 Kind = PackIconKind.Pencil,
                 Width = 18,
                 Height = 18,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -20164,7 +22033,7 @@ public partial class MainWindow : Window
                 Kind = icon,
                 Width = 15,
                 Height = 15,
-                Foreground = AccentBrush,
+                Foreground = AccentTextBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -20490,8 +22359,65 @@ public partial class MainWindow : Window
     private void ExportReportButton_Click(object sender, RoutedEventArgs e)
     {
         RefreshReportsPage();
-        Clipboard.SetText(BuildReportSummaryText());
-        ShowStatus("Relatório exportado como texto para a área de transferência.");
+
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Exportar relatório em PDF",
+            Filter = "Documento PDF (*.pdf)|*.pdf",
+            DefaultExt = ".pdf",
+            AddExtension = true,
+            OverwritePrompt = true,
+            FileName = $"relatorio-{SafeReportFileNamePart(BusinessDisplayName())}-{_selectedDate:yyyy-MM-dd}.pdf"
+        };
+
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            Mouse.OverrideCursor = Cursors.Wait;
+            WriteReportPdf(dialog.FileName);
+            ShowStatus($"PDF exportado: {System.IO.Path.GetFileName(dialog.FileName)}");
+
+            try
+            {
+                Process.Start(new ProcessStartInfo(dialog.FileName)
+                {
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception openException) when (openException is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                Debug.WriteLine($"O PDF foi salvo, mas não pôde ser aberto automaticamente: {openException.Message}");
+                ShowStatus($"PDF salvo em {dialog.FileName}");
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Não foi possível exportar o PDF: {ex.Message}");
+            MessageBox.Show(
+                this,
+                $"Não foi possível gerar o PDF.\n\n{ex.Message}",
+                "Exportar relatório",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+        }
+    }
+
+    private static string SafeReportFileNamePart(string value)
+    {
+        var invalid = System.IO.Path.GetInvalidFileNameChars();
+        var normalized = new string(value
+            .Trim()
+            .Select(character => invalid.Contains(character) ? '-' : character)
+            .ToArray());
+        return string.IsNullOrWhiteSpace(normalized) ? "agenda-livre" : normalized;
     }
 
     private void PrintReportButton_Click(object sender, RoutedEventArgs e)
@@ -20838,9 +22764,13 @@ public partial class MainWindow : Window
 
     private static Brush SidebarProfileSurface(VisualTheme theme)
     {
-        return ThemeUsesDarkSidebar(theme)
-            ? Solid("#24211F")
-            : Solid("#FFFFFF");
+        if (ThemeUsesDarkSidebar(theme))
+        {
+            return Solid("#24211F");
+        }
+
+        var accent = (Color)ColorConverter.ConvertFromString(theme.Accent);
+        return new SolidColorBrush(Blend(accent, Colors.White, 0.97));
     }
 
     private static Brush SidebarHoverSurface(VisualTheme theme)
@@ -20878,6 +22808,131 @@ public partial class MainWindow : Window
     private static bool ThemeUsesDarkSidebar(string? themeId) =>
         ThemeUsesDarkSidebar(ThemeById(themeId));
 
+    private static void ThemePackIcon_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not PackIcon icon)
+        {
+            return;
+        }
+
+        var iconWindow = Window.GetWindow(icon);
+        var mainWindow = iconWindow as MainWindow ??
+                         iconWindow?.Owner as MainWindow ??
+                         Application.Current?.MainWindow as MainWindow;
+        if (mainWindow is null)
+        {
+            return;
+        }
+
+        icon.DataContextChanged -= ThemePackIcon_DataContextChanged;
+        icon.DataContextChanged += ThemePackIcon_DataContextChanged;
+        mainWindow.ApplyPackIconContrast(icon);
+    }
+
+    private static void ThemePackIcon_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (sender is not PackIcon icon)
+        {
+            return;
+        }
+
+        var iconWindow = Window.GetWindow(icon);
+        var mainWindow = iconWindow as MainWindow ??
+                         iconWindow?.Owner as MainWindow ??
+                         Application.Current?.MainWindow as MainWindow;
+        if (mainWindow is null)
+        {
+            return;
+        }
+
+        mainWindow.Dispatcher.BeginInvoke(
+            DispatcherPriority.Loaded,
+            new Action(() => mainWindow.ApplyPackIconContrast(icon)));
+    }
+
+    private void ApplyPackIconContrastPolicy(DependencyObject root)
+    {
+        if (root is PackIcon icon)
+        {
+            ApplyPackIconContrast(icon);
+        }
+
+        var childCount = VisualTreeHelper.GetChildrenCount(root);
+        for (var index = 0; index < childCount; index++)
+        {
+            ApplyPackIconContrastPolicy(VisualTreeHelper.GetChild(root, index));
+        }
+    }
+
+    private void ApplyPackIconContrast(PackIcon icon)
+    {
+        if (icon.Name == nameof(StatusToastIcon))
+        {
+            icon.Foreground = Brushes.White;
+            return;
+        }
+
+        var surface = PackIconSurfaceColor(icon);
+        var darkForeground = InkBrush is SolidColorBrush ink
+            ? Color.FromRgb(ink.Color.R, ink.Color.G, ink.Color.B)
+            : Colors.Black;
+        icon.Foreground = ContrastRatio(surface, darkForeground) >= ContrastRatio(surface, Colors.White)
+            ? InkBrush
+            : Brushes.White;
+    }
+
+    private Color PackIconSurfaceColor(PackIcon icon)
+    {
+        DependencyObject? current = VisualTreeHelper.GetParent(icon);
+        while (current is not null)
+        {
+            var brush = current switch
+            {
+                Border border => border.Background,
+                Panel panel => panel.Background,
+                Control control => control.Background,
+                Shape shape => shape.Fill,
+                _ => null
+            };
+
+            if (TryGetOpaqueColor(brush, out var color))
+            {
+                return color;
+            }
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return PanelBrush is SolidColorBrush panelBrush
+            ? Color.FromRgb(panelBrush.Color.R, panelBrush.Color.G, panelBrush.Color.B)
+            : Colors.White;
+    }
+
+    private static bool TryGetOpaqueColor(Brush? brush, out Color color)
+    {
+        if (brush is SolidColorBrush solid && solid.Color.A > 8)
+        {
+            color = Color.FromRgb(solid.Color.R, solid.Color.G, solid.Color.B);
+            return true;
+        }
+
+        if (brush is GradientBrush gradient && gradient.GradientStops.Count > 0)
+        {
+            var stops = gradient.GradientStops.Where(stop => stop.Color.A > 8).ToArray();
+            if (stops.Length > 0)
+            {
+                color = Color.FromRgb(
+                    (byte)Math.Round(stops.Average(stop => stop.Color.R)),
+                    (byte)Math.Round(stops.Average(stop => stop.Color.G)),
+                    (byte)Math.Round(stops.Average(stop => stop.Color.B)));
+                return true;
+            }
+        }
+
+        color = default;
+        return false;
+    }
+
     private static double RelativeLuminance(Color color)
     {
         static double Linearize(byte channel)
@@ -20891,6 +22946,33 @@ public partial class MainWindow : Window
         return (0.2126 * Linearize(color.R)) +
                (0.7152 * Linearize(color.G)) +
                (0.0722 * Linearize(color.B));
+    }
+
+    private static double ContrastRatio(Color first, Color second)
+    {
+        var firstLuminance = RelativeLuminance(first);
+        var secondLuminance = RelativeLuminance(second);
+        var lighter = Math.Max(firstLuminance, secondLuminance);
+        var darker = Math.Min(firstLuminance, secondLuminance);
+        return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    private static string HighestContrastForeground(string backgroundHex, string darkForegroundHex)
+    {
+        var background = (Color)ColorConverter.ConvertFromString(backgroundHex);
+        var darkForeground = (Color)ColorConverter.ConvertFromString(darkForegroundHex);
+        return ContrastRatio(background, darkForeground) >= ContrastRatio(background, Colors.White)
+            ? darkForegroundHex
+            : "#FFFFFF";
+    }
+
+    private static string ReadableForeground(string backgroundHex, string preferredHex, string darkFallbackHex)
+    {
+        var background = (Color)ColorConverter.ConvertFromString(backgroundHex);
+        var preferred = (Color)ColorConverter.ConvertFromString(preferredHex);
+        return ContrastRatio(background, preferred) >= 4.5
+            ? preferredHex
+            : HighestContrastForeground(backgroundHex, darkFallbackHex);
     }
 
     private static bool IsActiveBarberTheme() => IsBarberTheme(ActiveThemeId);
@@ -20917,9 +22999,25 @@ public partial class MainWindow : Window
             (byte)Math.Round(from.B + ((to.B - from.B) * amount)));
     }
 
+    private static string ColorHex(Color color) =>
+        $"#{color.R:X2}{color.G:X2}{color.B:X2}";
+
     private static Brush Solid(string hex)
     {
         var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
+        brush.Freeze();
+        return brush;
+    }
+
+    private static Brush Translucent(string hex, byte alpha)
+    {
+        var color = (Color)ColorConverter.ConvertFromString(hex);
+        return Translucent(color, alpha);
+    }
+
+    private static Brush Translucent(Color color, byte alpha)
+    {
+        var brush = new SolidColorBrush(Color.FromArgb(alpha, color.R, color.G, color.B));
         brush.Freeze();
         return brush;
     }
@@ -20933,6 +23031,14 @@ public partial class MainWindow : Window
 
         _statusToastTimer.Stop();
 
+        var inOnboarding = OnboardingOverlay?.Visibility == Visibility.Visible;
+        StatusToastBorder.HorizontalAlignment = inOnboarding ? HorizontalAlignment.Right : HorizontalAlignment.Center;
+        StatusToastBorder.VerticalAlignment = inOnboarding ? VerticalAlignment.Top : VerticalAlignment.Bottom;
+        StatusToastBorder.Margin = inOnboarding
+            ? new Thickness(0, 72, 38, 0)
+            : new Thickness(24, 24, 24, 30);
+        StatusToastBorder.MaxWidth = inOnboarding ? 430 : 520;
+
         var normalized = message.ToUpperInvariant();
         var isError = normalized.Contains("NÃO ", StringComparison.Ordinal) ||
                       normalized.Contains("INVÁLID", StringComparison.Ordinal) ||
@@ -20945,34 +23051,11 @@ public partial class MainWindow : Window
                         normalized.Contains("REGISTRAD", StringComparison.Ordinal) ||
                         normalized.Contains("ENVIAD", StringComparison.Ordinal) ||
                         normalized.Contains("PREENCHIDO", StringComparison.Ordinal);
+        StatusToastBorder.Background = Translucent(Colors.Black, 153);
+        StatusToastBorder.BorderBrush = Translucent(Colors.Black, 190);
+        StatusToastIcon.Foreground = Brushes.White;
+        StatusToastText.Foreground = Brushes.White;
 
-        if (isError)
-        {
-            StatusToastBorder.Background = Solid("#B91C1C");
-            StatusToastBorder.BorderBrush = Solid("#40FFFFFF");
-            StatusToastIcon.Foreground = Solid("#FFFFFF");
-            StatusToastText.Foreground = Solid("#FFFFFF");
-        }
-        else if (isSuccess)
-        {
-            var theme = ThemeById(ActiveThemeId);
-            var accent = (Color)ColorConverter.ConvertFromString(theme.Accent);
-            var tint = Blend(accent, Colors.White, 0.94);
-
-            StatusToastBorder.Background = new SolidColorBrush(
-                Color.FromArgb(232, tint.R, tint.G, tint.B));
-            StatusToastBorder.BorderBrush = new SolidColorBrush(
-                Color.FromArgb(130, accent.R, accent.G, accent.B));
-            StatusToastIcon.Foreground = AccentBrush;
-            StatusToastText.Foreground = Solid(theme.Ink);
-        }
-        else
-        {
-            StatusToastBorder.Background = AccentDarkBrush;
-            StatusToastBorder.BorderBrush = Solid("#40FFFFFF");
-            StatusToastIcon.Foreground = Solid("#FFFFFF");
-            StatusToastText.Foreground = Solid("#FFFFFF");
-        }
         StatusToastIcon.Kind = isError
             ? PackIconKind.AlertCircleOutline
             : isSuccess
@@ -20999,6 +23082,19 @@ public partial class MainWindow : Window
         StatusToastBorder.BeginAnimation(OpacityProperty, animation);
     }
 
+    private void DismissStatusToastImmediately()
+    {
+        _statusToastTimer.Stop();
+        if (StatusToastBorder is null)
+        {
+            return;
+        }
+
+        StatusToastBorder.BeginAnimation(OpacityProperty, null);
+        StatusToastBorder.Opacity = 0;
+        StatusToastBorder.Visibility = Visibility.Collapsed;
+    }
+
     public sealed record WhatsAppConversationRow(
         string Title,
         string Phone,
@@ -21007,6 +23103,7 @@ public partial class MainWindow : Window
         DateTime LastAt,
         int UnreadCount)
     {
+        public string Initials => WhatsAppConversationInitials(Title, Phone);
         public string UnreadText => UnreadCount > 99 ? "99+" : UnreadCount.ToString(CultureInfo.InvariantCulture);
         public Visibility UnreadVisibility => UnreadCount > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -21021,7 +23118,49 @@ public partial class MainWindow : Window
         Brush BadgeBackground,
         Brush BadgeForeground,
         Brush BubbleBackground,
-        Brush BorderBrush);
+        Brush BorderBrush,
+        bool IsIncoming,
+        string DeliveryStatus)
+    {
+        public HorizontalAlignment BubbleAlignment => IsIncoming
+            ? HorizontalAlignment.Left
+            : HorizontalAlignment.Right;
+
+        public CornerRadius BubbleCornerRadius => IsIncoming
+            ? new CornerRadius(4, 12, 12, 12)
+            : new CornerRadius(12, 4, 12, 12);
+
+        public Visibility ReceiptVisibility => IsIncoming
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
+        public PackIconKind ReceiptKind => DeliveryStatus switch
+        {
+            "pendente" or "incerto" => PackIconKind.ClockOutline,
+            "enviado" => PackIconKind.Check,
+            "erro" => PackIconKind.AlertCircleOutline,
+            _ => PackIconKind.CheckAll
+        };
+
+        public Brush ReceiptForeground => DeliveryStatus switch
+        {
+            "lido" => Solid("#2494E8"),
+            "erro" => Solid("#DC2626"),
+            "incerto" => Solid("#D97706"),
+            _ => MutedBrush
+        };
+
+        public string ReceiptDescription => DeliveryStatus switch
+        {
+            "pendente" => "Enviando",
+            "incerto" => "Envio aguardando confirmação",
+            "enviado" => "Enviada ao servidor",
+            "entregue" => "Entregue ao cliente",
+            "lido" => "Lida pelo cliente",
+            "erro" => "Não enviada",
+            _ => "Status da mensagem"
+        };
+    }
 
     private sealed record RegistrationEditorForm(
         string OwnerName,
@@ -21030,7 +23169,14 @@ public partial class MainWindow : Window
         string BusinessName,
         string BusinessSegment,
         string Document,
-        string Address);
+        string Address,
+        string BusinessLogoPath,
+        string PreviousBusinessLogoPath);
+
+    public sealed record CustomerSuggestionRow(
+        Customer Customer,
+        string Name,
+        string Detail);
 
     private sealed record CustomerEditorForm(
         string Name,
@@ -21132,6 +23278,8 @@ public partial class MainWindow : Window
         public string MachineHash { get; set; } = "";
         public string MachineCode { get; set; } = "";
         public string AppVersion { get; set; } = "";
+        public string ClientKind { get; set; } = "";
+        public string LocalPlan { get; set; } = "";
         public Dictionary<string, object?> Profile { get; set; } = [];
     }
 
@@ -21157,6 +23305,12 @@ public partial class MainWindow : Window
         public List<AgendaMercadoPagoTerminalDto> Terminals { get; set; } = [];
         public string SelectedTerminalId { get; set; } = "";
         public string SelectedTerminalLabel { get; set; } = "";
+    }
+
+    public sealed class AgendaMercadoPagoTerminalPayload : AgendaMercadoPagoClientPayload
+    {
+        public string TerminalId { get; set; } = "";
+        public string TerminalLabel { get; set; } = "";
     }
 
     public sealed class AgendaMercadoPagoTerminalDto
@@ -21221,15 +23375,31 @@ public partial class MainWindow : Window
     {
         public bool Ok { get; init; }
         public bool Pending { get; init; }
+        public bool DeliveryUncertain { get; init; }
+        public bool EndpointNotFound { get; init; }
+        public bool ExistingPending { get; init; }
         public string Message { get; init; } = "";
+        public string DeliveryStatus { get; init; } = "";
         public string State { get; init; } = "";
         public string QrBase64 { get; init; } = "";
         public string OnboardingUrl { get; init; } = "";
+        public string ProviderMessageId { get; init; } = "";
         public string ConnectedName { get; set; } = "";
         public string ConnectedPhone { get; set; } = "";
 
-        public static WhatsAppEvolutionResult Success(string message) => new() { Ok = true, Message = message };
-        public static WhatsAppEvolutionResult Fail(string message) => new() { Ok = false, Message = message };
+        public static WhatsAppEvolutionResult Success(string message, string providerMessageId = "") => new()
+        {
+            Ok = true,
+            Message = message,
+            ProviderMessageId = providerMessageId
+        };
+
+        public static WhatsAppEvolutionResult Fail(string message, bool deliveryUncertain = false) => new()
+        {
+            Ok = false,
+            Message = message,
+            DeliveryUncertain = deliveryUncertain
+        };
     }
 
     public sealed record WhatsAppEvolutionIncomingMessage(

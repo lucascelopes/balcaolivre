@@ -110,18 +110,27 @@ public partial class MainWindow
         }
     }
 
-    private async Task<WhatsAppEvolutionResult> SendWhatsAppGatewayTextAsync(string phone, string text)
+    private async Task<WhatsAppEvolutionResult> SendWhatsAppGatewayTextAsync(
+        string phone,
+        string text,
+        string attemptId)
     {
         try
         {
             var payload = CreateWhatsAppGatewayPayload(_data.Settings.WhatsAppStorePhone);
             payload["customerPhone"] = NormalizeBrazilPhone(phone);
             payload["message"] = text;
-            payload["messageId"] = Guid.NewGuid().ToString("N");
+            payload["messageId"] = attemptId;
             var response = await PostWhatsAppGatewayAsync("/send", payload, TimeSpan.FromSeconds(20));
             return ParseWhatsAppGatewayResult(response.StatusCode, response.Body);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return WhatsAppEvolutionResult.Fail(
+                $"Falha ao enviar mensagem: {ex.Message}",
+                deliveryUncertain: true);
+        }
+        catch (InvalidOperationException ex)
         {
             return WhatsAppEvolutionResult.Fail($"Falha ao enviar mensagem: {ex.Message}");
         }
@@ -203,19 +212,28 @@ public partial class MainWindow
             var root = document.RootElement;
             var ok = ReadGatewayBool(root, "ok");
             var pending = ReadGatewayBool(root, "pending");
+            var responseStatus = ReadEvolutionString(root, "status", "deliveryStatus", "messageStatus");
+            var hasAccepted = TryGetJsonProperty(root, "accepted", out _);
+            var accepted = hasAccepted && ReadGatewayBool(root, "accepted");
+            var existingPending = hasAccepted &&
+                WhatsAppManualSendPolicy.IsExistingPending(accepted, responseStatus);
             var message = ReadEvolutionString(root, "message", "error", "detail");
             var storePhone = NormalizeBrazilPhone(ReadEvolutionString(root, "storePhone", "phone", "displayPhone"));
             var state = ok && !pending ? "open" : pending ? "qrcode" : "erro";
             return new WhatsAppEvolutionResult
             {
-                Ok = ok,
-                Pending = pending,
+                Ok = ok || existingPending,
+                Pending = pending || existingPending,
+                ExistingPending = existingPending,
+                DeliveryStatus = existingPending ? "pendente" : NormalizeWhatsAppDeliveryStatus(responseStatus),
+                DeliveryUncertain = !ok && !existingPending && IsAmbiguousWhatsAppHttpStatus(statusCode),
                 Message = string.IsNullOrWhiteSpace(message)
                     ? ((int)statusCode is >= 200 and < 300 ? "WhatsApp respondeu sem detalhes." : $"WhatsApp respondeu HTTP {(int)statusCode}.")
                     : message,
                 State = state,
                 OnboardingUrl = ReadEvolutionString(root, "onboardingUrl"),
-                ConnectedPhone = storePhone
+                ConnectedPhone = storePhone,
+                ProviderMessageId = ReadEvolutionString(root, "providerMessageId", "remoteMessageId")
             };
         }
         catch (JsonException)
@@ -233,6 +251,9 @@ public partial class MainWindow
             _ => false
         };
     }
+
+    private static bool IsAmbiguousWhatsAppHttpStatus(HttpStatusCode statusCode) =>
+        WhatsAppManualSendPolicy.IsAmbiguousHttpStatus((int)statusCode);
 
     private static async Task<string> TryDownloadWhatsAppGatewayQrAsync(string onboardingUrl)
     {

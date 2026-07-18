@@ -1,0 +1,421 @@
+<Window x:Class="AgendaLivre.Windows.LoginWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        Title="Agenda Livre — Acessar conta"
+        Width="980"
+        Height="700"
+        MinWidth="900"
+        MinHeight="680"
+        WindowStartupLocation="CenterScreen"
+        Background="#FFFCFA"
+        FontFamily="Segoe UI"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType">
+    <Window.Resources>
+        <SolidColorBrush x:Key="BrandOrangeBrush" Color="#F45A16"/>
+        <SolidColorBrush x:Key="FieldBorderBrush" Color="#CEC6C0"/>
+        <SolidColorBrush x:Key="FieldTextBrush" Color="#211F1D"/>
+
+        <Style x:Key="ModeButtonStyle" TargetType="Button">
+            <Setter Property="Height" Value="42"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ModeSurface"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="9">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ModeSurface" Property="Opacity" Value="0.88"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ModeSurface" Property="Opacity" Value="0.52"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="AuthTextBoxStyle" TargetType="TextBox">
+            <Setter Property="Height" Value="42"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="{StaticResource FieldTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource FieldBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="CaretBrush" Value="{StaticResource BrandOrangeBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="FieldSurface"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Margin="{TemplateBinding Padding}"
+                                          HorizontalScrollBarVisibility="Hidden"
+                                          VerticalScrollBarVisibility="Hidden"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="FieldSurface" Property="BorderBrush" Value="{StaticResource BrandOrangeBrush}"/>
+                                <Setter TargetName="FieldSurface" Property="BorderThickness" Value="1.5"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="FieldSurface" Property="Background" Value="#F6F2EF"/>
+                                <Setter TargetName="FieldSurface" Property="Opacity" Value="0.72"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="AuthPasswordBoxStyle" TargetType="PasswordBox">
+            <Setter Property="Height" Value="42"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="{StaticResource FieldTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource FieldBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="12,0,44,0"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="CaretBrush" Value="{StaticResource BrandOrangeBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="PasswordBox">
+                        <Border x:Name="FieldSurface"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Margin="{TemplateBinding Padding}"
+                                          HorizontalScrollBarVisibility="Hidden"
+                                          VerticalScrollBarVisibility="Hidden"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="FieldSurface" Property="BorderBrush" Value="{StaticResource BrandOrangeBrush}"/>
+                                <Setter TargetName="FieldSurface" Property="BorderThickness" Value="1.5"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="FieldSurface" Property="Background" Value="#F6F2EF"/>
+                                <Setter TargetName="FieldSurface" Property="Opacity" Value="0.72"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="RevealButtonStyle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="36"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#5E5955"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="RevealSurface"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="18">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="RevealSurface" Property="Background" Value="#F3ECE7"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="RevealSurface" Property="Opacity" Value="0.42"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PrimaryAuthButtonStyle" TargetType="Button">
+            <Setter Property="Height" Value="48"/>
+            <Setter Property="Background" Value="{StaticResource BrandOrangeBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="PrimarySurface"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="PrimarySurface" Property="Background" Value="#E94E0C"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="PrimarySurface" Property="Background" Value="#D94307"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="PrimarySurface" Property="Background" Value="#E8B49D"/>
+                                <Setter TargetName="PrimarySurface" Property="Opacity" Value="0.78"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="FieldLabelStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#211F1D"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="0.88*"/>
+            <ColumnDefinition Width="1.12*"/>
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Padding="44">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                    <GradientStop Color="#211915" Offset="0"/>
+                    <GradientStop Color="#2D231E" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.Background>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="84" Height="47" VerticalAlignment="Center">
+                        <Border.Background>
+                            <ImageBrush ImageSource="Assets/agenda-livre-logo-dark-transparent.png"
+                                        ViewboxUnits="Absolute"
+                                        Viewbox="190,165,940,520"
+                                        Stretch="Uniform"/>
+                        </Border.Background>
+                    </Border>
+                    <StackPanel Margin="5,2,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="AGENDA LIVRE"
+                                   Foreground="White"
+                                   FontSize="18"
+                                   FontWeight="Bold"/>
+                        <TextBlock Text="Sua agenda em todos os lugares"
+                                   Foreground="#D7C8BF"
+                                   FontSize="12"
+                                   Margin="0,3,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" VerticalAlignment="Center">
+                    <TextBlock Text="Entre no Windows e continue de onde parou."
+                               Foreground="White"
+                               FontSize="34"
+                               FontWeight="Bold"
+                               TextWrapping="Wrap"
+                               LineHeight="43"/>
+                    <TextBlock Text="A mesma conta conecta seus cadastros e sua agenda, com cópia local para você continuar trabalhando mesmo se a internet oscilar."
+                               Foreground="#D7C8BF"
+                               FontSize="15"
+                               TextWrapping="Wrap"
+                               LineHeight="24"
+                               Margin="0,20,0,0"/>
+                    <StackPanel Margin="0,30,0,0">
+                        <Grid Margin="0,0,0,13">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="22"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <materialDesign:PackIcon Kind="Check" Width="17" Height="17"
+                                                     Foreground="{StaticResource BrandOrangeBrush}"
+                                                     VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="Dados separados por conta"
+                                       Foreground="#F6ECE6" FontSize="14"/>
+                        </Grid>
+                        <Grid Margin="0,0,0,13">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="22"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <materialDesign:PackIcon Kind="Check" Width="17" Height="17"
+                                                     Foreground="{StaticResource BrandOrangeBrush}"
+                                                     VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="Sincronização protegida"
+                                       Foreground="#F6ECE6" FontSize="14"/>
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="22"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <materialDesign:PackIcon Kind="Check" Width="17" Height="17"
+                                                     Foreground="{StaticResource BrandOrangeBrush}"
+                                                     VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="Trabalho offline preservado"
+                                       Foreground="#F6ECE6" FontSize="14"/>
+                        </Grid>
+                    </StackPanel>
+                </StackPanel>
+
+                <TextBlock Grid.Row="2"
+                           Text="Agenda Livre para Windows"
+                           Foreground="#B7A69D"
+                           FontSize="12"/>
+            </Grid>
+        </Border>
+
+        <Border Grid.Column="1" Background="#FFFCFA" Padding="62,28">
+            <StackPanel MaxWidth="430" VerticalAlignment="Center">
+                <TextBlock x:Name="TitleText"
+                           Text="Bem-vindo de volta"
+                           Foreground="#171615"
+                           FontSize="30"
+                           FontWeight="Bold"/>
+                <TextBlock x:Name="SubtitleText"
+                           Text="Entre para abrir sua agenda sincronizada."
+                           Foreground="#716B66"
+                           FontSize="14"
+                           TextWrapping="Wrap"
+                           Margin="0,6,0,18"/>
+
+                <Border Background="#F4F1EF" CornerRadius="11" Padding="4" Margin="0,0,0,18">
+                    <Grid Height="42">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="LoginModeButton"
+                                Grid.Column="0"
+                                Content="Entrar"
+                                Click="LoginModeButton_Click"
+                                Background="#FFE4D3"
+                                Foreground="#D94D0B"
+                                Style="{StaticResource ModeButtonStyle}"/>
+                        <Button x:Name="SignUpModeButton"
+                                Grid.Column="1"
+                                Content="Criar conta"
+                                Click="SignUpModeButton_Click"
+                                Background="Transparent"
+                                Foreground="#716B66"
+                                Style="{StaticResource ModeButtonStyle}"/>
+                    </Grid>
+                </Border>
+
+                <StackPanel x:Name="SignUpFieldsPanel" Visibility="Collapsed">
+                    <TextBlock Text="Nome completo" Style="{StaticResource FieldLabelStyle}"/>
+                    <TextBox x:Name="FullNameTextBox"
+                             Margin="0,6,0,12"
+                             AutomationProperties.Name="Nome completo"
+                             Style="{StaticResource AuthTextBoxStyle}"/>
+                    <TextBlock Text="Nome do negócio" Style="{StaticResource FieldLabelStyle}"/>
+                    <TextBox x:Name="BusinessNameTextBox"
+                             Margin="0,6,0,12"
+                             AutomationProperties.Name="Nome do negócio"
+                             Style="{StaticResource AuthTextBoxStyle}"/>
+                </StackPanel>
+
+                <TextBlock Text="E-mail" Style="{StaticResource FieldLabelStyle}"/>
+                <TextBox x:Name="EmailTextBox"
+                         Margin="0,6,0,12"
+                         AutomationProperties.Name="E-mail"
+                         Style="{StaticResource AuthTextBoxStyle}"/>
+
+                <TextBlock Text="Senha" Style="{StaticResource FieldLabelStyle}"/>
+                <Grid Margin="0,6,0,0">
+                    <PasswordBox x:Name="PasswordInput"
+                                 AutomationProperties.Name="Senha"
+                                 Style="{StaticResource AuthPasswordBoxStyle}"/>
+                    <TextBox x:Name="PasswordRevealTextBox"
+                             Visibility="Collapsed"
+                             Padding="12,0,44,0"
+                             AutomationProperties.Name="Senha visível"
+                             Style="{StaticResource AuthTextBoxStyle}"/>
+                    <ToggleButton x:Name="PasswordRevealButton"
+                                  HorizontalAlignment="Right"
+                                  VerticalAlignment="Center"
+                                  Margin="0,0,4,0"
+                                  Click="PasswordRevealButton_Click"
+                                  AutomationProperties.Name="Mostrar ou ocultar senha"
+                                  Style="{StaticResource RevealButtonStyle}">
+                        <materialDesign:PackIcon x:Name="PasswordRevealIcon"
+                                                 Kind="EyeOutline"
+                                                 Width="18"
+                                                 Height="18"/>
+                    </ToggleButton>
+                </Grid>
+                <TextBlock x:Name="PasswordHelpText"
+                           Text="Use a senha da sua conta."
+                           Foreground="#817871"
+                           FontSize="11.5"
+                           Margin="0,4,0,12"/>
+
+                <Border x:Name="FeedbackBorder"
+                        Background="#FFF1E9"
+                        BorderBrush="#F7C7AA"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="11,9"
+                        Margin="0,0,0,12"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="FeedbackText"
+                               Foreground="#8F3B13"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               AutomationProperties.LiveSetting="Assertive"/>
+                </Border>
+
+                <Button x:Name="PrimaryButton"
+                        Content="Entrar"
+                        Click="PrimaryButton_Click"
+                        IsDefault="True"
+                        Style="{StaticResource PrimaryAuthButtonStyle}"/>
+                <TextBlock x:Name="PrivacyText"
+                           Text="Sua sessão fica protegida pela conta do Windows neste computador."
+                           Foreground="#817871"
+                           FontSize="11.5"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap"
+                           Margin="12,14,12,0"/>
+                <TextBlock x:Name="SignUpPrivacyText"
+                           Foreground="#817871"
+                           FontSize="11.5"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap"
+                           Margin="12,14,12,0"
+                           Visibility="Collapsed">
+                    <Run Text="Ao criar sua conta, você concorda com o armazenamento seguro dos seus dados conforme nossa "/>
+                    <Run Text="política de privacidade." Foreground="{StaticResource BrandOrangeBrush}"/>
+                </TextBlock>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="..\Models.cs" Link="Models.cs" />
+    <Compile Include="..\WhatsAppManualSendGuard.cs" Link="WhatsAppManualSendGuard.cs" />
+    <Compile Include="..\WhatsAppMessageIdentityReconciler.cs" Link="WhatsAppMessageIdentityReconciler.cs" />
+    <Compile Include="..\WhatsAppPhoneNormalizer.cs" Link="WhatsAppPhoneNormalizer.cs" />
+  </ItemGroup>
+</Project>

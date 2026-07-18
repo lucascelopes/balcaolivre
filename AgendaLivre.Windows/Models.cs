@@ -35,6 +35,7 @@ public sealed class AgendaSettings
     public string AccountPhone { get; set; } = "";
     public string AccountEmail { get; set; } = "";
     public string BusinessName { get; set; } = "Balcão Livre";
+    public string BusinessLogoPath { get; set; } = "";
     public string BusinessDocument { get; set; } = "";
     public string BusinessPhone { get; set; } = "";
     public string BusinessAddress { get; set; } = "";
@@ -74,6 +75,10 @@ public sealed class AgendaSettings
     public string WhatsAppEvolutionState { get; set; } = "";
     public string WhatsAppEvolutionQrBase64 { get; set; } = "";
     public DateTime? WhatsAppEvolutionLastCheckedAt { get; set; }
+    public string PublicBookingSlug { get; set; } = "";
+    public string PublicBookingUrl { get; set; } = "";
+    public string PublicBookingApiUrl { get; set; } = "https://agenda-livre-next.edodoy.chatgpt.site";
+    public DateTime? PublicBookingLastSyncAt { get; set; }
     public bool InstagramEnabled { get; set; } = true;
     public bool InstagramLinked { get; set; }
     public string InstagramApiUrl { get; set; } = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/instagram";
@@ -243,6 +248,7 @@ public sealed class Appointment
 public sealed class WhatsAppMessage
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string ClientRequestId { get; set; } = "";
     public string ProviderMessageId { get; set; } = "";
     public string Provider { get; set; } = "";
     public string Instance { get; set; } = "";

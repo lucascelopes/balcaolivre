@@ -143,8 +143,12 @@ public partial class MainWindow
 
     private WhatsAppBookingResolution CommitWhatsAppBooking(WhatsAppBookingRequest booking)
     {
+        var isOnlineBooking = IsOnlineBookingRequest(booking);
+        var externalSource = isOnlineBooking ? "agenda-online" : "whatsapp";
+        var retryInstruction = isOnlineBooking
+            ? "Atualize a página e escolha outro horário."
+            : "Envie 1 para consultar novos horários.";
         var existing = _data.Appointments.FirstOrDefault(item =>
-            string.Equals(item.ExternalSource, "whatsapp", StringComparison.OrdinalIgnoreCase) &&
             string.Equals(item.ExternalReference, booking.Id, StringComparison.OrdinalIgnoreCase));
         if (existing is not null)
         {
@@ -153,7 +157,7 @@ public partial class MainWindow
 
         if (booking.Start is null || booking.Start.Value < DateTime.Now.AddMinutes(-5))
         {
-            return WhatsAppBookingResolution.Rejected("Esse hor\u00E1rio n\u00E3o est\u00E1 mais dispon\u00EDvel. Envie 1 para consultar novos hor\u00E1rios.");
+            return WhatsAppBookingResolution.Rejected($"Esse horário não está mais disponível. {retryInstruction}");
         }
 
         var service = _data.Services.FirstOrDefault(item =>
@@ -165,7 +169,10 @@ public partial class MainWindow
                           string.Equals(item.Name, booking.ServiceName, StringComparison.OrdinalIgnoreCase));
         if (service is null)
         {
-            return WhatsAppBookingResolution.Rejected("Esse servi\u00E7o n\u00E3o est\u00E1 mais ativo. Envie 1 para escolher outra op\u00E7\u00E3o.");
+            return WhatsAppBookingResolution.Rejected(
+                isOnlineBooking
+                    ? "Esse serviço não está mais ativo. Atualize a página e escolha outra opção."
+                    : "Esse serviço não está mais ativo. Envie 1 para escolher outra opção.");
         }
 
         var professional = _data.Professionals.FirstOrDefault(item =>
@@ -177,24 +184,35 @@ public partial class MainWindow
                                string.Equals(item.Name, booking.ProfessionalName, StringComparison.OrdinalIgnoreCase));
         if (professional is null)
         {
-            return WhatsAppBookingResolution.Rejected("O profissional desse hor\u00E1rio n\u00E3o est\u00E1 mais dispon\u00EDvel. Envie 1 para escolher outro hor\u00E1rio.");
+            return WhatsAppBookingResolution.Rejected(
+                isOnlineBooking
+                    ? "O profissional desse horário não está mais disponível. Atualize a página e escolha outro horário."
+                    : "O profissional desse horário não está mais disponível. Envie 1 para escolher outro horário.");
         }
 
         var start = booking.Start.Value;
         var duration = Math.Clamp(service.DurationMinutes, 15, 480);
         if (!TryValidateConfiguredBusinessWindow(start, start.AddMinutes(duration), out var businessWindowError))
         {
-            return WhatsAppBookingResolution.Rejected($"{businessWindowError} Envie 1 para consultar novos hor\u00E1rios.");
+            return WhatsAppBookingResolution.Rejected($"{businessWindowError} {retryInstruction}");
         }
 
         var customerName = NormalizeWhatsAppBookingCustomerName(booking.CustomerName, booking.Phone);
-        TryNormalizeCustomerPhone(booking.Phone, out var customerPhone, out _);
+        var validCustomerPhone = TryNormalizeCustomerPhone(booking.Phone, out var customerPhone, out _);
+        if (isOnlineBooking && (!validCustomerPhone || string.IsNullOrWhiteSpace(customerPhone)))
+        {
+            return WhatsAppBookingResolution.Rejected(
+                "Informe um telefone válido com DDD para receber a confirmação do agendamento.");
+        }
+
         var resourceName = FirstFilled(booking.ResourceName, service.DefaultResource);
         var draft = new AppointmentDraft(
             FirstFilled(service.Segment, _data.Settings.BusinessSegment),
             customerName,
             customerPhone,
-            "Lead recebido e agendado pelo WhatsApp",
+            isOnlineBooking
+                ? "Cliente recebido pelo agendamento online"
+                : "Lead recebido e agendado pelo WhatsApp",
             service.Id,
             service.Name,
             professional.Id,
@@ -203,12 +221,16 @@ public partial class MainWindow
             start,
             duration,
             service.Price,
-            $"Agendamento autom\u00E1tico do WhatsApp. Lead {booking.LeadId}.");
+            isOnlineBooking
+                ? $"Agendamento realizado pelo site. Referência {booking.Id}."
+                : $"Agendamento automático do WhatsApp. Lead {booking.LeadId}.");
         if (FindConflicts(draft, null).Any())
         {
             ExportWhatsAppAgendaSnapshot();
             return WhatsAppBookingResolution.SlotConflict(
-                "Esse hor\u00E1rio acabou de ser ocupado. Envie 1 para ver os hor\u00E1rios atualizados.");
+                isOnlineBooking
+                    ? "Esse horário acabou de ser ocupado. Atualize a página para ver os horários disponíveis."
+                    : "Esse horário acabou de ser ocupado. Envie 1 para ver os horários atualizados.");
         }
 
         var now = DateTime.Now;
@@ -229,7 +251,7 @@ public partial class MainWindow
             Price = draft.Price,
             Status = AppointmentStatus.Confirmed,
             Notes = draft.Notes,
-            ExternalSource = "whatsapp",
+            ExternalSource = externalSource,
             ExternalReference = booking.Id,
             CreatedAt = now,
             UpdatedAt = now
@@ -239,8 +261,16 @@ public partial class MainWindow
         _store.Save(_data);
         RefreshAll(appointment.Id);
         ExportWhatsAppAgendaSnapshot();
-        ShowStatus($"WhatsApp agendou {appointment.CustomerName} para {appointment.Start:dd/MM HH:mm}.");
+        ShowStatus(isOnlineBooking
+            ? $"Novo agendamento online: {appointment.CustomerName}, {appointment.Start:dd/MM HH:mm}."
+            : $"WhatsApp agendou {appointment.CustomerName} para {appointment.Start:dd/MM HH:mm}.");
         return WhatsAppBookingResolution.Confirmed(appointment.Id);
+    }
+
+    private static bool IsOnlineBookingRequest(WhatsAppBookingRequest booking)
+    {
+        var source = booking.Source.Trim().ToLowerInvariant().Replace('_', '-');
+        return source is "agenda-online" or "online" or "web" or "website" or "public-booking";
     }
 
     private string NormalizeWhatsAppBookingCustomerName(string value, string phone)
@@ -342,7 +372,10 @@ public partial class MainWindow
             ReadRealtimeString(element, "professionalName", "professional"),
             ReadRealtimeString(element, "resourceName", "resource"),
             ReadRealtimeDecimal(element, "price"),
-            FirstFilled(ReadRealtimeString(element, "status"), "pending"));
+            FirstFilled(ReadRealtimeString(element, "status"), "pending"),
+            FirstFilled(ReadRealtimeString(element, "source", "channel"), "whatsapp"),
+            ReadRealtimeDate(element, "confirmationSentAt"),
+            ReadRealtimeDate(element, "reminderSentAt"));
     }
 
     private static decimal ReadRealtimeDecimal(JsonElement element, string name)
@@ -393,7 +426,10 @@ public partial class MainWindow
         string ProfessionalName,
         string ResourceName,
         decimal Price,
-        string Status);
+        string Status,
+        string Source,
+        DateTime? ConfirmationSentAt,
+        DateTime? ReminderSentAt);
 
     private sealed record WhatsAppBookingResolution(
         string Status,
