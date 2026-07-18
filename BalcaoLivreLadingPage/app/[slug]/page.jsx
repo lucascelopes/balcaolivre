@@ -15,8 +15,9 @@ export function generateStaticParams() {
   return seoPages.map((page) => ({ slug: page.slug }));
 }
 
-export function generateMetadata({ params }) {
-  const page = getSeoPage(params.slug);
+export async function generateMetadata({ params }) {
+  const routeParams = await params;
+  const page = getSeoPage(routeParams.slug);
   if (!page) return {};
 
   const canonical = absoluteUrl(`/${page.slug}/`);
@@ -63,8 +64,9 @@ function relatedPages(currentPage) {
     .slice(0, 6);
 }
 
-export default function SeoLandingPage({ params }) {
-  const page = getSeoPage(params.slug);
+export default async function SeoLandingPage({ params }) {
+  const routeParams = await params;
+  const page = getSeoPage(routeParams.slug);
   if (!page) notFound();
 
   const plan = getPlanCopy(page.plan);
