@@ -1,4 +1,4 @@
-import { cp, mkdir, rm } from "node:fs/promises";
+import { access, cp, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,6 +6,14 @@ const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const repoRoot = path.resolve(appRoot, "..");
 const sourceDir = path.join(repoRoot, "BalcaoLivre.PDV.Web");
 const targetDir = path.join(appRoot, "public", "pdv");
+
+try {
+  await access(sourceDir);
+} catch {
+  await access(targetDir);
+  console.log(`PDV web source is external; using bundled ${path.relative(appRoot, targetDir)}`);
+  process.exit(0);
+}
 
 await rm(targetDir, { recursive: true, force: true });
 await mkdir(targetDir, { recursive: true });

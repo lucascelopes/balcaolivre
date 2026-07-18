@@ -7,6 +7,9 @@ BalcaoLivreLadingPage/netlify-site/
 BalcaoLivreLadingPage/public/pdv/
 publish/
 **/build/
+!BalcaoLivreLadingPage/build/
+BalcaoLivreLadingPage/build/*
+!BalcaoLivreLadingPage/build/sites-vite-plugin.ts
 .gradle/
 local.properties
 *.user
