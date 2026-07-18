@@ -6,9 +6,11 @@
     "sync:pdv": "node scripts/sync-pdv-assets.mjs",
     "dev": "npm run sync:pdv && next dev",
     "build": "npm run sync:pdv && next build",
+    "build:agenda-sites": "npm run build && node scripts/build-agenda-livre-sites.mjs",
     "start": "next start"
   },
   "dependencies": {
+    "lucide-react": "^1.21.0",
     "next": "14.2.35",
     "react": "18.2.0",
     "react-dom": "18.2.0"
