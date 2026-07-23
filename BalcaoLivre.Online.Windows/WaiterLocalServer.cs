@@ -16,6 +16,7 @@ public sealed class WaiterLocalServer : IAsyncDisposable
     private readonly Func<WaiterRemoveLineRequest, Task<WaiterActionResult>> _removeLine;
     private readonly Func<WaiterBoardRequest, Task<WaiterActionResult>> _requestBill;
     private readonly Func<MobilePrintRequest, Task<WaiterActionResult>> _printMobile;
+    private readonly Func<MobileBridgeSessionDto>? _getMobileSession;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _loopTask;
@@ -38,6 +39,21 @@ public sealed class WaiterLocalServer : IAsyncDisposable
         _removeLine = removeLine;
         _requestBill = requestBill;
         _printMobile = printMobile;
+    }
+
+    public WaiterLocalServer(
+        int port,
+        Func<Task<WaiterStateDto>> getState,
+        Func<WaiterOpenBoardRequest, Task<WaiterActionResult>> openBoard,
+        Func<WaiterAddProductRequest, Task<WaiterActionResult>> addProduct,
+        Func<WaiterBoardNoteRequest, Task<WaiterActionResult>> saveBoardNote,
+        Func<WaiterRemoveLineRequest, Task<WaiterActionResult>> removeLine,
+        Func<WaiterBoardRequest, Task<WaiterActionResult>> requestBill,
+        Func<MobilePrintRequest, Task<WaiterActionResult>> printMobile,
+        Func<MobileBridgeSessionDto> getMobileSession)
+        : this(port, getState, openBoard, addProduct, saveBoardNote, removeLine, requestBill, printMobile)
+    {
+        _getMobileSession = getMobileSession;
     }
 
     public int Port { get; }
@@ -164,6 +180,9 @@ public sealed class WaiterLocalServer : IAsyncDisposable
                         ServerTime = DateTime.Now,
                         State = await _getState()
                     }),
+                    "/api/mobile/session" => _getMobileSession is null
+                        ? Json(new WaiterActionResult { Ok = false, Message = "Sessao mobile indisponivel." }, 404)
+                        : Json(_getMobileSession()),
                     _ => Json(new WaiterActionResult { Ok = false, Message = "Rota nao encontrada." }, 404)
                 };
             }
