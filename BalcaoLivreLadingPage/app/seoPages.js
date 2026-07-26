@@ -19,16 +19,16 @@ const connectedFeatures = [
 
 const planCopy = {
   offline: {
-    label: "PDV Caixa Local",
-    price: "R$29,90/mês",
-    cta: "Testar PDV local",
+    label: "PDV Online Básico",
+    price: "R$29,99/mês",
+    cta: "Testar PDV Online",
     href: downloadUrl,
-    analyticsPlan: "offline"
+    analyticsPlan: "online"
   },
   online: {
-    label: "Restaurante Profissional",
-    price: "R$149/mês",
-    cta: "Testar PDV online",
+    label: "PDV Online Completo",
+    price: "R$99,99/mês",
+    cta: "Testar PDV Completo",
     href: onlineDownloadUrl,
     analyticsPlan: "online"
   },
@@ -75,9 +75,9 @@ const rawSeoPages = [
     outcomes: ["Receber pedidos sem perder informação", "Organizar entrega, retirada e balcão", "Testar por 7 dias antes de pagar"],
     features: [...baseFeatures, ...connectedFeatures],
     faq: [
-      ["O PDV delivery é gratuito?", "O teste é grátis por 7 dias. Depois, o caixa local começa em R$29,90/mês e o plano restaurante conectado fica em R$149/mês."],
+      ["O PDV delivery é gratuito?", "O teste é grátis por 7 dias. Depois, o plano Básico Online fica em R$29,99/mês e o Completo Online fica em R$99,99/mês."],
       ["Serve para delivery pequeno?", "Sim. Dá para começar com balcão e entrega simples e depois ativar cardápio online, WhatsApp, equipe e integrações."],
-      ["O iFood entra no teste?", "O iFood depende de credenciais e homologação. Ele entra no plano profissional quando a loja já tem as liberações necessárias."]
+      ["O iFood entra no teste?", "O iFood depende de credenciais e homologação. Ele fica previsto no Completo, mas está temporariamente em manutenção."]
     ]
   },
   {
@@ -95,8 +95,8 @@ const rawSeoPages = [
     features: [...baseFeatures, ...connectedFeatures],
     faq: [
       ["Funciona em restaurante com mesas?", "Sim. O sistema trabalha com mesas, comandas, balcão, retirada e delivery."],
-      ["Funciona sem internet?", "O caixa local continua operando. Recursos de nuvem, cardápio, garçom e WhatsApp precisam de internet."],
-      ["Tem NFC-e?", "O plano profissional tem NFC-e configurável conforme certificado, dados fiscais e regra da UF."]
+      ["Funciona sem internet?", "O foco comercial agora é o PDV Online. Recursos de nuvem, cardápio, garçom e WhatsApp precisam de internet."],
+      ["Tem NFC-e?", "O plano Completo tem NFC-e configurável conforme certificado, dados fiscais e regra da UF."]
     ]
   },
   {
@@ -132,9 +132,9 @@ const rawSeoPages = [
     outcomes: ["Menos erro em sabores e adicionais", "Entrega com cliente e endereço salvos", "Pedidos por WhatsApp e cardápio online"],
     features: [...baseFeatures, "Delivery com taxa e entregador", "Observações e adicionais", "WhatsApp e cardápio online"],
     faq: [
-      ["Dá para usar em pizzaria delivery?", "Sim. O plano profissional organiza delivery, retirada, balcão e mesas."],
+      ["Dá para usar em pizzaria delivery?", "Sim. O plano Completo organiza delivery, retirada, balcão e mesas."],
       ["Tem controle de entregador?", "Sim. É possível cadastrar entregadores e acompanhar pedidos por status."],
-      ["Dá para vender pelo WhatsApp?", "Sim, quando o WhatsApp está ativado no plano profissional."]
+      ["Dá para vender pelo WhatsApp?", "Sim, quando o WhatsApp está ativado no plano Completo."]
     ]
   },
   {
@@ -152,7 +152,7 @@ const rawSeoPages = [
     features: [...baseFeatures, "Combos e adicionais", "Cardápio online com QR Code", "Delivery e WhatsApp"],
     faq: [
       ["Consigo vender combo?", "Sim. Você cadastra produtos e adicionais para montar o pedido com mais controle."],
-      ["O cliente pode pedir pelo cardápio online?", "Sim. O plano profissional publica produtos no cardápio digital."],
+      ["O cliente pode pedir pelo cardápio online?", "Sim. O plano Completo publica produtos no cardápio digital."],
       ["O WhatsApp pode atender cliente?", "Sim. O WhatsApp fica conectado ao fluxo do PDV quando configurado."]
     ]
   },
@@ -189,8 +189,8 @@ const rawSeoPages = [
     outcomes: ["Comandas organizadas", "Conta certa no fechamento", "Estoque de bebidas acompanhado"],
     features: [...baseFeatures, "Mesas e comandas", "Fechamento de conta", "Impressão de comprovante"],
     faq: [
-      ["Funciona para bar pequeno?", "Sim. O plano local já atende caixa, mesas, comandas, estoque e impressão."],
-      ["Precisa de internet?", "Para o caixa local, não. Recursos online usam internet."],
+      ["Funciona para bar pequeno?", "Sim. O plano Básico Online já atende caixa, mesas, comandas, estoque e impressão."],
+      ["Precisa de internet?", "O PDV é Online nos dois planos. Recursos de nuvem, cardápio, garçom e WhatsApp precisam de internet."],
       ["Tem relatório de fechamento?", "Sim. O sistema mostra vendas, pagamentos e movimento do caixa."]
     ]
   },
@@ -210,7 +210,7 @@ const rawSeoPages = [
     faq: [
       ["Serve para espetinho com mesas?", "Sim. O PDV trabalha com mesa, comanda e balcão."],
       ["Dá para controlar bebidas?", "Sim. Você cadastra produtos e acompanha estoque."],
-      ["Qual plano começar?", "Para caixa local, o plano de R$29,90/mês costuma resolver. Para online e WhatsApp, use o profissional."]
+      ["Qual plano começar?", "Para começar, o Básico Online de R$29,99/mês costuma resolver. Para cardápio, garçom, delivery e WhatsApp, use o Completo Online."]
     ]
   },
   {
@@ -228,7 +228,7 @@ const rawSeoPages = [
     features: [...baseFeatures, "Mesa e comanda", "Garçom no celular", "Fechamento e impressão"],
     faq: [
       ["Tem comanda por mesa?", "Sim. O sistema controla mesas e comandas abertas."],
-      ["O garçom lança pelo celular?", "Sim, no plano profissional."],
+      ["O garçom lança pelo celular?", "Sim, no plano Completo."],
       ["Dá para imprimir a conta?", "Sim. O PDV imprime comprovante e fechamento."]
     ]
   },
@@ -342,7 +342,7 @@ const rawSeoPages = [
     features: [...connectedFeatures, "Entrada de pedidos iFood conforme credenciais", "Status e despacho"],
     faq: [
       ["O iFood já vem liberado?", "Ele depende de credenciais, homologação e regras do iFood."],
-      ["O teste inclui iFood?", "No teste, o iFood fica desabilitado. Ele entra na implantação do plano profissional."],
+      ["O teste inclui iFood?", "No teste, o iFood fica desabilitado. Ele está previsto no Completo, mas temporariamente em manutenção."],
       ["O pedido aparece no PDV?", "Sim, quando a integração está configurada corretamente."]
     ]
   },
@@ -372,7 +372,7 @@ const rawSeoPages = [
     metaTitle: "PDV com NFC-e Configurável para Restaurante",
     description: "PDV com NFC-e configurável para restaurante, caixa Windows, certificado, dados fiscais, produtos, pagamentos e comprovante.",
     h1: "PDV com NFC-e configurável para restaurante",
-    lead: "O plano profissional tem área fiscal configurável para empresas que precisam preparar emissão conforme certificado, dados fiscais e regra da UF.",
+    lead: "O plano Completo tem área fiscal configurável para empresas que precisam preparar emissão conforme certificado, dados fiscais e regra da UF.",
     segment: "NFC-e",
     plan: "online",
     keywords: ["pdv com nfce", "pdv restaurante nfce", "sistema nfce restaurante"],
@@ -398,7 +398,7 @@ const rawSeoPages = [
     outcomes: ["Venda rápida no Windows", "Troco e pagamento registrados", "Fechamento do caixa mais claro"],
     features: [...baseFeatures, "Dinheiro, Pix manual e cartão", "Resumo do caixa", "Impressão"],
     faq: [
-      ["Qual plano serve para caixa?", "O plano PDV Caixa Local de R$29,90/mês já atende o caixa Windows."],
+      ["Qual plano serve para caixa?", "O plano Básico Online de R$29,99/mês já atende o caixa Windows."],
       ["Tem comprovante?", "Sim. Imprime comprovante em impressora configurada no Windows."],
       ["Tem mesas?", "Sim. O fluxo inclui mesas e comandas."]
     ]
@@ -437,7 +437,7 @@ const rawSeoPages = [
     features: [...baseFeatures, ...connectedFeatures, "Delivery por zona"],
     faq: [
       ["Serve para delivery próprio?", "Sim. O sistema controla pedido, cliente, endereço, taxa e entregador."],
-      ["Tem WhatsApp?", "Sim, no plano profissional configurado."],
+      ["Tem WhatsApp?", "Sim, no plano Completo configurado."],
       ["Tem cardápio online?", "Sim. O cliente pode acessar o cardápio digital quando ativado."]
     ]
   },
@@ -445,19 +445,19 @@ const rawSeoPages = [
     slug: "pdv-restaurante-windows",
     eyebrow: "PDV Windows",
     title: "PDV Restaurante Windows",
-    metaTitle: "PDV Restaurante Windows com Caixa Offline",
-    description: "PDV restaurante Windows com caixa offline, mesas, comandas, estoque, pagamentos, impressão e opção online com cardápio, WhatsApp e garçom.",
-    h1: "PDV restaurante Windows para vender mesmo sem internet",
-    lead: "O caixa local roda no Windows e mantém a venda funcionando. Quando a loja precisa crescer, o plano profissional conecta cardápio, equipe, garçom, WhatsApp e nuvem.",
+    metaTitle: "PDV Restaurante Windows com Plano Online",
+    description: "PDV restaurante Windows com mesas, comandas, estoque, pagamentos, impressão, cardápio, WhatsApp, delivery e garçom conforme o plano.",
+    h1: "PDV restaurante Windows com Básico e Completo Online",
+    lead: "O PDV Online roda no Windows para o caixa e acompanha a loja quando ela precisa crescer com cardápio, equipe, garçom, WhatsApp e nuvem.",
     segment: "Windows",
     plan: "offline",
     keywords: ["pdv restaurante windows", "pdv windows restaurante", "sistema windows restaurante"],
-    outcomes: ["Caixa local mais confiável", "Impressão pelo Windows", "Plano online quando precisar conectar a loja"],
-    features: [...baseFeatures, "Aplicativo Windows", "Modo local offline", "Plano online opcional"],
+    outcomes: ["Caixa Windows mais confiável", "Impressão pelo Windows", "Básico e Completo no mesmo PDV Online"],
+    features: [...baseFeatures, "Aplicativo Windows", "Plano Básico Online", "Plano Completo Online"],
     faq: [
       ["É Windows mesmo?", "Sim. O PDV principal é instalado no Windows."],
-      ["Funciona offline?", "O caixa local funciona sem depender da internet."],
-      ["Posso mudar para online depois?", "Sim. O plano profissional adiciona recursos conectados."]
+      ["Funciona offline?", "O foco comercial agora é o PDV Online. O app Windows continua sendo a base do caixa."],
+      ["Posso mudar de plano depois?", "Sim. O Completo Online adiciona recursos conectados."]
     ]
   },
   {
@@ -467,16 +467,16 @@ const rawSeoPages = [
     metaTitle: "Software para Restaurante Pequeno com PDV Windows",
     description: "Software para restaurante pequeno com caixa Windows, mesas, comandas, estoque, impressão, delivery e opção de cardápio online e WhatsApp.",
     h1: "Software para restaurante pequeno começar simples e crescer",
-    lead: "Comece pelo caixa local e evolua para cardápio online, WhatsApp, garçom no celular e integrações quando fizer sentido para a operação.",
+    lead: "Comece pelo Básico Online e evolua para cardápio online, WhatsApp, garçom no celular e integrações quando fizer sentido para a operação.",
     segment: "Restaurante pequeno",
     plan: "offline",
     keywords: ["software para restaurante pequeno", "sistema para restaurante pequeno", "pdv restaurante pequeno"],
     outcomes: ["Baixo custo para começar", "Fluxo simples no caixa", "Crescimento para online sem trocar de sistema"],
-    features: [...baseFeatures, "Plano local acessível", "Plano profissional opcional", "Suporte na implantação"],
+    features: [...baseFeatures, "Plano Básico acessível", "Plano Completo opcional", "Suporte na implantação"],
     faq: [
-      ["Qual o menor plano?", "O caixa local começa em R$29,90/mês."],
+      ["Qual o menor plano?", "O Básico Online começa em R$29,99/mês."],
       ["Dá para testar?", "Sim. O teste é grátis por 7 dias."],
-      ["Preciso contratar tudo de uma vez?", "Não. Você pode começar local e depois ir para o profissional."]
+      ["Preciso contratar tudo de uma vez?", "Não. Você pode começar no Básico Online e depois ir para o Completo Online."]
     ]
   },
   {
@@ -494,7 +494,7 @@ const rawSeoPages = [
     features: [...connectedFeatures, "Delivery com taxa", "Conversas com histórico", "Pedido no PDV"],
     faq: [
       ["O cliente pode pedir pelo WhatsApp?", "Sim, quando a opção de pedidos por WhatsApp está ativada na loja."],
-      ["Também tem cardápio online?", "Sim. O plano profissional trabalha com cardápio digital e WhatsApp."],
+      ["Também tem cardápio online?", "Sim. O plano Completo trabalha com cardápio digital e WhatsApp."],
       ["O PDV precisa ficar aberto?", "O atendimento online foi criado para continuar respondendo pelo serviço conectado."]
     ]
   },
@@ -532,9 +532,9 @@ const commercialSeoPages = [
     plan: "offline",
     keywords: ["pdv gratis para restaurante", "sistema gratis para restaurante", "teste gratis pdv restaurante"],
     outcomes: ["Testar antes de assinar", "Comecar com baixo custo", "Validar caixa e impressao no Windows"],
-    features: [...baseFeatures, "Teste gratis por 7 dias", "Plano local a partir de R$29,90", "Upgrade para restaurante conectado"],
+    features: [...baseFeatures, "Teste gratis por 7 dias", "Plano Básico Online a partir de R$29,99", "Upgrade para o Completo Online"],
     faq: [
-      ["O PDV e gratis?", "O teste e gratis por 7 dias. Depois, a loja escolhe entre caixa local ou plano restaurante conectado."],
+      ["O PDV e gratis?", "O teste e gratis por 7 dias. Depois, a loja escolhe entre Básico Online ou Completo Online."],
       ["Precisa de cartao para testar?", "O teste foi pensado para a loja conhecer o fluxo antes de contratar."],
       ["O que consigo testar?", "Caixa Windows, produtos, mesas, estoque, pagamentos, comprovante e recursos conectados conforme o instalador escolhido."]
     ]
@@ -551,11 +551,11 @@ const commercialSeoPages = [
     plan: "offline",
     keywords: ["sistema para lanchonete pequena", "pdv lanchonete pequena", "caixa para lanchonete pequena"],
     outcomes: ["Comecar com custo menor", "Organizar combos e bebidas", "Crescer para delivery online"],
-    features: [...baseFeatures, "Combos e adicionais", "Estoque de bebidas", "Plano profissional opcional"],
+    features: [...baseFeatures, "Combos e adicionais", "Estoque de bebidas", "Plano Completo opcional"],
     faq: [
-      ["Serve para loja pequena?", "Sim. O caixa local atende a rotina inicial e o plano profissional entra quando precisar de recursos online."],
+      ["Serve para loja pequena?", "Sim. O Básico Online atende a rotina inicial e o Completo Online entra quando precisar de mais recursos."],
       ["Dá para controlar estoque?", "Sim. O sistema mostra estoque, margem e produtos vendidos."],
-      ["Posso vender no delivery depois?", "Sim. O plano profissional adiciona cardapio online, WhatsApp e recursos de entrega."]
+      ["Posso vender no delivery depois?", "Sim. O plano Completo adiciona cardapio online, WhatsApp e recursos de entrega."]
     ]
   },
   {
@@ -619,19 +619,19 @@ const commercialSeoPages = [
     slug: "alternativa-anota-ai",
     eyebrow: "Comparativo comercial",
     title: "Alternativa ao Anota AI",
-    metaTitle: "Alternativa ao Anota AI com PDV Windows e Caixa Offline",
-    description: "Alternativa ao Anota AI para restaurante que quer PDV Windows, caixa offline, mesas, estoque, cardapio, WhatsApp e plano conectado.",
+    metaTitle: "Alternativa ao Anota AI com PDV Windows Online",
+    description: "Alternativa ao Anota AI para restaurante que quer PDV Windows, mesas, estoque, cardapio, WhatsApp e plano conectado.",
     h1: "Alternativa ao Anota AI para quem precisa de PDV Windows",
     lead: "Se a loja quer atendimento online, mas tambem precisa de caixa Windows, impressao, estoque, mesas e fechamento local, o Balcao Livre entra como operacao de PDV completa.",
     segment: "Alternativa",
     plan: "online",
     keywords: ["alternativa anota ai", "sistema parecido com anota ai", "pdv com whatsapp restaurante"],
     outcomes: ["Caixa Windows junto com atendimento online", "Operacao local e conectada", "Mais controle de estoque e fechamento"],
-    features: [...baseFeatures, ...connectedFeatures, "Caixa local offline", "Fechamento do dia", "Impressao no Windows"],
+    features: [...baseFeatures, ...connectedFeatures, "Caixa Windows", "Fechamento do dia", "Impressao no Windows"],
     faq: [
       ["E igual ao Anota AI?", "Nao. A proposta e operar o PDV Windows com recursos online, cardapio e WhatsApp no mesmo fluxo."],
-      ["Tem WhatsApp?", "Sim. O plano profissional inclui atendimento por WhatsApp."],
-      ["Tem caixa offline?", "Sim. O caixa local e uma diferenca importante para operacao no Windows."]
+      ["Tem WhatsApp?", "Sim. O plano Completo inclui atendimento por WhatsApp."],
+      ["Tem caixa Windows?", "Sim. O foco comercial agora é o PDV Online, com o app Windows como base do caixa."]
     ]
   },
   {
@@ -641,16 +641,16 @@ const commercialSeoPages = [
     metaTitle: "Alternativa ao Consumer para Restaurante com PDV Windows",
     description: "Alternativa ao Consumer para restaurante com caixa Windows, mesas, comandas, estoque, delivery, cardapio online, WhatsApp e NFC-e configuravel.",
     h1: "Alternativa ao Consumer para restaurante que quer caixa simples e conectado",
-    lead: "Para loja que procura um PDV direto, com caixa Windows, plano local barato e caminho para cardapio online, WhatsApp, equipe, entregadores e NFC-e.",
+    lead: "Para loja que procura um PDV direto, com caixa Windows, plano Básico acessível e caminho para cardapio online, WhatsApp, equipe, entregadores e NFC-e.",
     segment: "Alternativa",
     plan: "online",
     keywords: ["alternativa consumer", "sistema parecido com consumer", "pdv restaurante windows"],
-    outcomes: ["Plano local de entrada", "Upgrade para online", "Fluxo de restaurante sem trocar de sistema"],
-    features: [...baseFeatures, ...connectedFeatures, "Plano de R$29,90 para comecar", "Plano profissional para conectar a loja"],
+    outcomes: ["Plano Básico de entrada", "Upgrade para Completo", "Fluxo de restaurante sem trocar de sistema"],
+    features: [...baseFeatures, ...connectedFeatures, "Plano de R$29,99 para comecar", "Plano Completo para conectar a loja"],
     faq: [
       ["E uma copia do Consumer?", "Nao. E uma alternativa para quem quer fluxo de PDV Windows com opcao online no Balcao Livre."],
       ["Da para testar?", "Sim. O teste dura 7 dias."],
-      ["Qual plano comeca?", "Caixa local para entrada; Restaurante Profissional para loja conectada."]
+      ["Qual plano comeca?", "Básico Online para entrada; Completo Online para loja conectada."]
     ]
   },
   {
@@ -668,7 +668,7 @@ const commercialSeoPages = [
     features: [...baseFeatures, "Mesa e comanda", "Conta por cliente ou mesa", "Fechamento de consumo"],
     faq: [
       ["Serve para bar?", "Sim. Bar, lanchonete e restaurante podem trabalhar com mesa e comanda."],
-      ["Precisa de internet?", "Para caixa local, nao. Recursos online usam internet."],
+      ["Precisa de internet?", "O foco comercial agora é o PDV Online. Recursos online usam internet."],
       ["Imprime conta?", "Sim. O PDV imprime comprovante e fechamento."]
     ]
   },
@@ -735,7 +735,7 @@ export function seoPageJsonLd(page, canonicalUrl) {
       offers: {
         "@type": "Offer",
         priceCurrency: "BRL",
-        price: page.plan === "offline" ? "17.00" : "139.00",
+        price: page.plan === "offline" ? "29.99" : "99.99",
         availability: "https://schema.org/InStock"
       }
     },
@@ -755,7 +755,7 @@ export function seoPageJsonLd(page, canonicalUrl) {
 }
 
 export function checkoutHrefForPlan(planId) {
-  if (planId === "offline") return `${checkoutFunctionUrl}?plan=offline-mensal`;
-  if (planId === "online") return `${checkoutFunctionUrl}?plan=online-mensal`;
+  if (planId === "offline") return `${checkoutFunctionUrl}?plan=basico-mensal`;
+  if (planId === "online") return `${checkoutFunctionUrl}?plan=completo-mensal`;
   return sellers[1].href;
 }

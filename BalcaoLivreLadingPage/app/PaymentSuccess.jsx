@@ -19,14 +19,14 @@ export default function PaymentSuccess({ sessionId }) {
         if (!active) return;
 
         if (!response.ok || !data.ok) {
-          setState({ loading: false, data: null, error: data.message || "Pagamento ainda nao confirmado." });
+          setState({ loading: false, data: null, error: data.message || "Pagamento ainda não confirmado." });
           return;
         }
 
         setState({ loading: false, data, error: "" });
       } catch {
         if (active) {
-          setState({ loading: false, data: null, error: "Nao foi possivel carregar a chave agora." });
+          setState({ loading: false, data: null, error: "Não foi possível carregar a chave agora." });
         }
       }
     }
@@ -47,13 +47,13 @@ export default function PaymentSuccess({ sessionId }) {
         ) : state.error ? (
           <>
             <p>{state.error}</p>
-            <small>Se o pagamento acabou de ser feito, aguarde alguns segundos e atualize esta pagina.</small>
+            <small>Se o pagamento acabou de ser feito, aguarde alguns segundos e atualize esta página.</small>
           </>
         ) : (
           <>
             <p>Sua compra foi registrada e a chave abaixo ja ficou salva no banco de dados.</p>
             <div className="paymentLicenseBox">
-              <span>Chave de ativacao</span>
+              <span>Chave de ativação</span>
               <strong>{state.data.license.key}</strong>
             </div>
             <dl className="paymentLicenseMeta">
@@ -73,7 +73,7 @@ export default function PaymentSuccess({ sessionId }) {
             ) : null}
           </>
         )}
-        <a href="/" className="lpPlanButton paymentSuccessBack">Voltar para a pagina inicial</a>
+        <a href="/" className="lpPlanButton paymentSuccessBack">Voltar para a página inicial</a>
       </article>
     </section>
   );

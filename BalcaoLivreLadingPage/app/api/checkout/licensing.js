@@ -1,58 +1,76 @@
 import crypto from "crypto";
 
 const LICENSE_SECRET = "BalcaoLivrePDV-local-license-v1";
-const OFFLINE_INSTALLER_URL =
-  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.2.2026.1.exe";
 const ONLINE_INSTALLER_URL =
-  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.19.exe";
+  "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.27.exe";
 const DEFAULT_ADMIN_ANALYTICS_URL = "https://balcaolivrepdv.onrender.com/api/public/analytics";
-const ONLINE_FEATURES = ["pdv", "whatsapp", "cardapio", "garcom", "mercado-pago", "nfce", "equipe", "entregadores", "ifood"];
-const OFFLINE_FEATURES = ["pdv", "caixa", "estoque", "nfce"];
+const BASIC_ONLINE_FEATURES = ["pdv", "caixa", "produtos", "mesas", "comandas", "estoque", "relatorios"];
+const COMPLETE_ONLINE_FEATURES = [
+  ...BASIC_ONLINE_FEATURES,
+  "whatsapp",
+  "cardapio",
+  "garcom",
+  "delivery",
+  "mercado-pago",
+  "nfce",
+  "equipe",
+  "entregadores",
+  "ifood"
+];
+
+const basicMonthlyPlan = {
+  name: "Balcao Livre PDV Online Basico",
+  amount: 2999,
+  interval: "month",
+  periodAmount: 1,
+  periodUnit: "months",
+  clientKind: "windows-online"
+};
+const basicAnnualPlan = {
+  name: "Balcao Livre PDV Online Basico",
+  amount: 29990,
+  interval: "year",
+  periodAmount: 1,
+  periodUnit: "years",
+  clientKind: "windows-online"
+};
+const completeMonthlyPlan = {
+  name: "Balcao Livre PDV Online Completo",
+  amount: 9999,
+  interval: "month",
+  periodAmount: 1,
+  periodUnit: "months",
+  clientKind: "windows-online"
+};
+const completeAnnualPlan = {
+  name: "Balcao Livre PDV Online Completo",
+  amount: 99990,
+  interval: "year",
+  periodAmount: 1,
+  periodUnit: "years",
+  clientKind: "windows-online"
+};
 
 export const checkoutPlans = {
-  "offline-mensal": {
-    name: "Balcao Livre PDV Para Restaurantes Offline",
-    amount: 2990,
-    interval: "month",
-    periodAmount: 1,
-    periodUnit: "months",
-    clientKind: "windows-offline"
-  },
-  "offline-anual": {
-    name: "Balcao Livre PDV Para Restaurantes Offline",
-    amount: 22990,
-    interval: "year",
-    periodAmount: 1,
-    periodUnit: "years",
-    clientKind: "windows-offline"
-  },
-  "online-mensal": {
-    name: "Balcao Livre PDV Restaurante Profissional",
-    amount: 14900,
-    interval: "month",
-    periodAmount: 1,
-    periodUnit: "months",
-    clientKind: "windows-online"
-  },
-  "online-anual": {
-    name: "Balcao Livre PDV Restaurante Profissional",
-    amount: 139900,
-    interval: "year",
-    periodAmount: 1,
-    periodUnit: "years",
-    clientKind: "windows-online"
-  }
+  "basico-mensal": basicMonthlyPlan,
+  "basico-anual": basicAnnualPlan,
+  "completo-mensal": completeMonthlyPlan,
+  "completo-anual": completeAnnualPlan,
+  "offline-mensal": basicMonthlyPlan,
+  "offline-anual": basicAnnualPlan,
+  "online-mensal": completeMonthlyPlan,
+  "online-anual": completeAnnualPlan
 };
 
 export function getPlan(planId) {
-  return checkoutPlans[String(planId || "").toLowerCase()] || null;
+  return checkoutPlans[normalizeCheckoutPlanId(planId)] || null;
 }
 export function billingFromPlanId(planId) {
   return String(planId || "").split("-")[1] || "";
 }
 
 export function featuresForPlanId(planId) {
-  return String(planId || "").toLowerCase().includes("online") ? ONLINE_FEATURES : OFFLINE_FEATURES;
+  return isCompletePlanText(normalizeCheckoutPlanId(planId)) ? COMPLETE_ONLINE_FEATURES : BASIC_ONLINE_FEATURES;
 }
 
 export async function trackAdminAnalytics(type, data = {}) {
@@ -83,7 +101,7 @@ export function addPlanPeriod(date, plan) {
 
 export function createLicenseKey(expiresAt, planId) {
   const expiresText = activationExpirationText(expiresAt);
-  const prefix = String(planId || "").includes("online") || String(planId || "").includes("complete") ? "ONL" : "OFF";
+  const prefix = "ONL";
   const serial = `${prefix}${crypto.randomUUID().replaceAll("-", "").slice(0, 9).toUpperCase()}`;
   const signature = crypto
     .createHmac("sha256", LICENSE_SECRET)
@@ -221,9 +239,39 @@ function normalizeLicense(license) {
 }
 
 function installerUrlForClientKind(clientKind) {
-  return String(clientKind || "").toLowerCase().includes("online")
-    ? ONLINE_INSTALLER_URL
-    : OFFLINE_INSTALLER_URL;
+  return ONLINE_INSTALLER_URL;
+}
+
+function isCompletePlanText(text) {
+  return text.includes("completo")
+    || text.includes("complete")
+    || text.includes("profissional")
+    || text.includes("premium")
+    || text.includes("comercial")
+    || text.includes("hibrido")
+    || text.includes("integracoes")
+    || text.includes("online-mensal")
+    || text.includes("online-anual")
+    || text.includes("99")
+    || text.includes("149")
+    || text.includes("139");
+}
+
+function normalizePlanText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function normalizeCheckoutPlanId(value) {
+  const clean = normalizePlanText(value);
+  if (checkoutPlans[clean]) return clean;
+  const annual = clean.includes("anual") || clean.includes("annual") || clean.includes("year") || clean.includes("ano");
+  if (isCompletePlanText(clean) || clean === "online") return annual ? "completo-anual" : "completo-mensal";
+  if (clean.includes("basico") || clean.includes("basic") || clean.includes("offline")) return annual ? "basico-anual" : "basico-mensal";
+  return clean;
 }
 
 async function supabaseRequest(path, init = {}) {

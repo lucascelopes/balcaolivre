@@ -2,7 +2,7 @@ export const licenseFunctionUrl =
   "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/trial-download";
 
 export const downloadUrl =
-  `${licenseFunctionUrl}?plan=offline`;
+  `${licenseFunctionUrl}?plan=online`;
 
 export const onlineDownloadUrl =
   `${licenseFunctionUrl}?plan=online`;

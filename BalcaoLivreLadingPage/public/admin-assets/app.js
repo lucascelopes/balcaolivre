@@ -3,6 +3,7 @@ const state = {
   licenses: [],
   support: [],
   training: [],
+  tutorials: [],
   blockedIps: [],
   health: null,
   currentView: "dashboard",
@@ -137,6 +138,7 @@ function setView(view) {
     seo: ["SEO e vendas", "Paginas, buscas e funil para aumentar teste, WhatsApp e pagamento."],
     licenses: ["Licenças", "Chaves, status, computador vinculado e vencimento."],
     support: ["Suporte", "Conversas entre clientes e administradores."],
+    tutorials: ["Tutoriais do PDV", "Assuntos, artigos, passos com prints e vídeos exibidos dentro do aplicativo Windows."],
     training: ["Treinamento WhatsApp", "Machine learning operacional, regras globais e atendimento online por setor."],
     devices: ["Clientes", "Dados sincronizados pelos apps instalados."],
     downloads: ["Downloads", "Instaladores, checkout e manifesto de atualização."],
@@ -158,11 +160,12 @@ async function loadRealtimeData(options = {}) {
 
   try {
     const previousCustomerMessageAt = lastSupportCustomerMessageAt;
-    const [dashboard, licenses, support, training, health, blockedIps] = await Promise.all([
+    const [dashboard, licenses, support, training, tutorials, health, blockedIps] = await Promise.all([
       api("/api/dashboard"),
       api("/api/licenses"),
       api("/api/support"),
       api("/api/whatsapp-training"),
+      api("/api/help-content"),
       api("/api/health"),
       api("/api/blocked-ips")
     ]);
@@ -171,6 +174,7 @@ async function loadRealtimeData(options = {}) {
     state.licenses = Array.isArray(licenses) ? licenses : [];
     state.support = Array.isArray(support) ? support : [];
     state.training = Array.isArray(training) ? training : [];
+    state.tutorials = Array.isArray(tutorials) ? tutorials : [];
     state.blockedIps = Array.isArray(blockedIps) ? blockedIps : [];
     state.health = health;
     state.lastSyncAt = new Date();
@@ -200,6 +204,7 @@ function renderAll() {
   renderLicenses();
   renderSupport();
   renderTraining();
+  renderTutorials();
   renderDevices();
   renderBlockedIps();
   renderDownloads();
@@ -683,6 +688,202 @@ function renderTraining() {
       </article>
     `).join("")
     : `<div class="empty-row padded">Nenhum treinamento global cadastrado ainda.</div>`;
+}
+
+function tutorialCategoryLabel(value) {
+  const labels = {
+    caixa: "Caixa",
+    vendas: "Vendas",
+    pagamentos: "Pagamentos",
+    cozinha: "Cozinha",
+    produtos: "Produtos",
+    estoque: "Estoque",
+    clientes: "Clientes",
+    equipe: "Equipe e entregadores",
+    "garcom-web": "Garçom Web",
+    "mesas-e-comandas": "Mesas e comandas",
+    delivery: "Delivery",
+    ifood: "iFood",
+    "cardapio-digital": "Cardápio digital",
+    whatsapp: "WhatsApp",
+    impressoras: "Impressoras",
+    "fiscal-e-nfce": "Fiscal e NFC-e",
+    relatorios: "Relatórios",
+    "operacao-e-gestao": "Operação e gestão",
+    "backup-e-dados": "Backup e dados",
+    "ia-do-balcao": "IA do Balcão",
+    usuarios: "Usuários",
+    "licenca-e-planos": "Licença e planos",
+    configuracoes: "Configurações",
+    "privacidade-e-lgpd": "Privacidade e LGPD"
+  };
+  return labels[String(value || "").toLowerCase()] || "Caixa";
+}
+
+function renderTutorials() {
+  const target = qs("#tutorialList");
+  if (!target) return;
+  const query = (qs("#tutorialSearch")?.value || "").trim().toLowerCase();
+  const rows = [...(state.tutorials || [])]
+    .sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0))
+    .filter((item) => {
+      const haystack = `${tutorialCategoryLabel(item.category)} ${item.group || ""} ${item.title || ""} ${item.summary || ""}`.toLowerCase();
+      return !query || haystack.includes(query);
+    });
+  const published = rows.filter((item) => item.published !== false).length;
+  const badge = qs("#tutorialCountBadge");
+  if (badge) {
+    badge.textContent = `${number(published)} publicado(s) em ${number(new Set(rows.map((item) => item.category)).size)} assunto(s)`;
+    badge.className = "status-pill ok";
+  }
+
+  const grouped = rows.reduce((map, item) => {
+    const key = item.category || "caixa";
+    if (!map[key]) map[key] = [];
+    map[key].push(item);
+    return map;
+  }, {});
+  target.innerHTML = rows.length
+    ? Object.entries(grouped).map(([category, items]) => `
+      <section class="tutorial-category-block">
+        <div class="tutorial-category-title">
+          <strong>${escapeHtml(tutorialCategoryLabel(category))}</strong>
+          <span>${number(items.length)} artigo(s)</span>
+        </div>
+        ${items.map((item) => `
+          <button class="tutorial-list-item ${item.published === false ? "draft" : ""}" type="button" onclick="editTutorial('${escapeHtml(item.id)}')">
+            <span class="tutorial-list-copy">
+              <small>${escapeHtml(item.group || "Aprenda no PDV")}</small>
+              <strong>${escapeHtml(item.title)}</strong>
+              <em>${escapeHtml(item.summary || "Sem resumo")}</em>
+            </span>
+            <span class="tutorial-list-meta">
+              ${item.videoUrl ? "Vídeo" : "Sem vídeo"}<br>
+              ${number((item.steps || []).length)} passo(s)
+            </span>
+          </button>
+        `).join("")}
+      </section>
+    `).join("")
+    : `<div class="empty-row padded">Nenhum tutorial encontrado.</div>`;
+}
+
+function editTutorial(id) {
+  const item = (state.tutorials || []).find((row) => row.id === id);
+  if (!item) return;
+  qs("#tutorialId").value = item.id || "";
+  qs("#tutorialCategory").value = item.category || "caixa";
+  qs("#tutorialGroup").value = item.group || "";
+  qs("#tutorialTitle").value = item.title || "";
+  qs("#tutorialSummary").value = item.summary || "";
+  qs("#tutorialVideoUrl").value = item.videoUrl || "";
+  qs("#tutorialSteps").value = (item.steps || []).map((step) =>
+    `${step.title || "Passo"} | ${step.instruction || ""}${step.screenshotUrl ? ` | ${step.screenshotUrl}` : ""}`
+  ).join("\n");
+  qs("#tutorialSortOrder").value = Number(item.sortOrder || 100);
+  qs("#tutorialPublished").checked = item.published !== false;
+  qs("#tutorialEditorTitle").textContent = "Editar tutorial";
+  qs("#deleteTutorialButton").classList.remove("hidden");
+  qs("#tutorialMessage").textContent = "";
+  updateTutorialPublishBadge();
+}
+
+function resetTutorialForm() {
+  qs("#tutorialId").value = "";
+  qs("#tutorialCategory").value = "caixa";
+  qs("#tutorialGroup").value = "Primeiros passos";
+  qs("#tutorialTitle").value = "";
+  qs("#tutorialSummary").value = "";
+  qs("#tutorialVideoUrl").value = "";
+  qs("#tutorialSteps").value = "Passo 1 | Explique exatamente onde clicar no PDV |\nPasso 2 | Mostre o que conferir antes de salvar |";
+  qs("#tutorialSortOrder").value = 100;
+  qs("#tutorialPublished").checked = true;
+  qs("#tutorialEditorTitle").textContent = "Novo tutorial";
+  qs("#deleteTutorialButton").classList.add("hidden");
+  qs("#tutorialMessage").textContent = "";
+  updateTutorialPublishBadge();
+  qs("#tutorialTitle").focus();
+}
+
+function updateTutorialPublishBadge() {
+  const published = qs("#tutorialPublished")?.checked !== false;
+  const badge = qs("#tutorialPublishBadge");
+  if (!badge) return;
+  badge.textContent = published ? "publicado" : "rascunho";
+  badge.className = `mini-badge ${published ? "" : "muted"}`;
+}
+
+function parseTutorialSteps(value) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      const parts = line.split("|").map((part) => part.trim());
+      return {
+        title: parts[0] || `Passo ${index + 1}`,
+        instruction: parts[1] || "",
+        screenshotUrl: parts.slice(2).join("|").trim()
+      };
+    })
+    .filter((step) => step.instruction);
+}
+
+async function saveTutorial() {
+  const button = qs("#saveTutorialButton");
+  const message = qs("#tutorialMessage");
+  const payload = {
+    id: qs("#tutorialId").value.trim(),
+    category: qs("#tutorialCategory").value,
+    group: qs("#tutorialGroup").value.trim(),
+    title: qs("#tutorialTitle").value.trim(),
+    summary: qs("#tutorialSummary").value.trim(),
+    videoUrl: qs("#tutorialVideoUrl").value.trim(),
+    steps: parseTutorialSteps(qs("#tutorialSteps").value),
+    published: qs("#tutorialPublished").checked,
+    sortOrder: Number(qs("#tutorialSortOrder").value || 100)
+  };
+  message.textContent = "";
+  if (!payload.title || !payload.steps.length) {
+    message.textContent = "Informe o título e pelo menos um passo completo.";
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "Salvando...";
+  try {
+    const saved = await api("/api/help-content", { method: "POST", body: JSON.stringify(payload) });
+    state.tutorials = await api("/api/help-content");
+    renderTutorials();
+    editTutorial(saved.id);
+    message.textContent = "Tutorial salvo e disponível para o PDV.";
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = "Salvar no PDV";
+  }
+}
+
+async function deleteTutorial() {
+  const id = qs("#tutorialId").value.trim();
+  if (!id || !confirm("Excluir este tutorial do PDV?")) return;
+  try {
+    await api(`/api/help-content/${encodeURIComponent(id)}/delete`, { method: "POST" });
+    state.tutorials = await api("/api/help-content");
+    renderTutorials();
+    resetTutorialForm();
+  } catch (error) {
+    qs("#tutorialMessage").textContent = error.message;
+  }
+}
+
+function previewTutorialVideo() {
+  const url = qs("#tutorialVideoUrl").value.trim();
+  if (!/^https?:\/\//i.test(url)) {
+    qs("#tutorialMessage").textContent = "Cole uma URL http:// ou https:// para testar.";
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function renderTrainingStats(rows, activeRows, coveredIntents, coveredSectors, openSupport, lastUpdated) {
@@ -1239,6 +1440,12 @@ qs("#logoutButton").addEventListener("click", logout);
 qs("#createKeyButton").addEventListener("click", createKey);
 qs("#saveTrainingButton").addEventListener("click", saveTrainingRule);
 qs("#seedTrainingButton").addEventListener("click", seedTrainingRules);
+qs("#newTutorialButton")?.addEventListener("click", resetTutorialForm);
+qs("#saveTutorialButton")?.addEventListener("click", saveTutorial);
+qs("#deleteTutorialButton")?.addEventListener("click", deleteTutorial);
+qs("#previewTutorialVideoButton")?.addEventListener("click", previewTutorialVideo);
+qs("#tutorialSearch")?.addEventListener("input", renderTutorials);
+qs("#tutorialPublished")?.addEventListener("change", updateTutorialPublishBadge);
 qs("#copySeoPlanButton")?.addEventListener("click", copySeoPlan);
 qs("#licenseSearch").addEventListener("input", renderLicenses);
 qs("#supportSearch").addEventListener("input", renderSupport);

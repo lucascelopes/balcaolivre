@@ -1,55 +1,38 @@
-import { downloadUrl, sellers } from "./siteLinks";
+import { List } from "@phosphor-icons/react/ssr";
+import { downloadUrl } from "./siteLinks";
 
-const navLinks = [
-  ["Produto", "/#inicio"],
+const links = [
   ["Recursos", "/#recursos"],
-  ["Segmentos", "/#segmentos"],
   ["Planos", "/#planos"],
+  ["Clientes", "/#clientes"],
+  ["Suporte", "/#suporte"],
   ["Contato", "/#contato"]
 ];
 
-const whatsappHref = sellers[0]?.href || "https://wa.me/5527981267551";
+function Navigation() {
+  return links.map(([label, href]) => <a key={label} href={href}>{label}</a>);
+}
 
 export default function SiteHeader({ id }) {
   return (
-    <header className="blSiteHeader" id={id}>
-      <a className="blHeaderBrand" href="/#inicio" aria-label="Balcão Livre PDV">
-        <img src="/brand/bl-modern-icon.png" alt="" aria-hidden="true" />
-        <span>
-          <strong>Balcão Livre</strong>
-          <small>PDV</small>
-        </span>
-      </a>
+    <header className="bl2Header" id={id}>
+      <div className="bl2HeaderInner">
+        <a className="bl2Brand" href="/#inicio" aria-label="Balcão Livre PDV">
+          <img src="/brand/bl-orange-icon.png" alt="" aria-hidden="true" />
+          <span>Balcão Livre PDV</span>
+        </a>
 
-      <nav className="blHeaderNav" aria-label="Navegação principal">
-        {navLinks.map(([label, href]) => (
-          <a key={label} href={href}>
-            {label}
-          </a>
-        ))}
-      </nav>
+        <nav className="bl2Nav" aria-label="Navegação principal"><Navigation /></nav>
 
-      <div className="blHeaderActions">
-        <a className="blHeaderLogin" href="https://pdv.balcaolivrepdv.com.br">
-          Entrar
-        </a>
-        <a
-          className="blHeaderTrial"
-          href={downloadUrl}
-          data-analytics-action="trial_download"
-          data-analytics-location="header"
-          data-analytics-plan="offline"
-        >
-          Testar grátis
-        </a>
-        <a
-          className="blHeaderWhatsapp"
-          href={whatsappHref}
-          data-analytics-action="whatsapp_click"
-          data-analytics-location="header"
-        >
-          WhatsApp
-        </a>
+        <div className="bl2HeaderActions">
+          <a className="bl2Login" href="https://pdv.balcaolivrepdv.com.br">Entrar</a>
+          <a className="bl2Button bl2ButtonPrimary" href={downloadUrl} data-analytics-action="trial_download" data-analytics-location="header">Testar grátis</a>
+        </div>
+
+        <details className="bl2MobileMenu">
+          <summary aria-label="Abrir menu"><List size={24} weight="bold" /></summary>
+          <nav><Navigation /><a href="https://pdv.balcaolivrepdv.com.br">Entrar</a><a className="bl2Button bl2ButtonPrimary" href={downloadUrl}>Testar grátis</a></nav>
+        </details>
       </div>
     </header>
   );

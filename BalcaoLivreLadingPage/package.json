@@ -2,17 +2,27 @@
   "name": "balcao-livre-landing-page",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "sync:pdv": "node scripts/sync-pdv-assets.mjs",
     "dev": "npm run sync:pdv && next dev",
     "build": "npm run sync:pdv && next build",
-    "build:agenda-sites": "npm run build && node scripts/build-agenda-livre-sites.mjs",
-    "start": "next start"
+    "start": "next start",
+    "build:cloudflare": "npm run sync:pdv && opennextjs-cloudflare build",
+    "preview:cloudflare": "npm run build:cloudflare && opennextjs-cloudflare preview",
+    "deploy:cloudflare": "npm run build:cloudflare && opennextjs-cloudflare deploy"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "lucide-react": "^1.21.0",
-    "next": "14.2.35",
+    "next": "15.5.18",
     "react": "18.2.0",
     "react-dom": "18.2.0"
+  },
+  "devDependencies": {
+    "@opennextjs/cloudflare": "1.19.11",
+    "wrangler": "4.104.0"
   }
 }

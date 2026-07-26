@@ -5,6 +5,10 @@ const STRIPE_CHECKOUT_URL = "https://api.stripe.com/v1/checkout/sessions";
 const prices = {
   mensal: process.env.STRIPE_PRICE_OFFLINE_MENSAL || "",
   anual: process.env.STRIPE_PRICE_OFFLINE_ANUAL || "",
+  "basico-mensal": process.env.STRIPE_PRICE_BASICO_MENSAL || "",
+  "basico-anual": process.env.STRIPE_PRICE_BASICO_ANUAL || "",
+  "completo-mensal": process.env.STRIPE_PRICE_COMPLETO_MENSAL || "",
+  "completo-anual": process.env.STRIPE_PRICE_COMPLETO_ANUAL || "",
   "offline-mensal": process.env.STRIPE_PRICE_OFFLINE_MENSAL || "",
   "offline-anual": process.env.STRIPE_PRICE_OFFLINE_ANUAL || "",
   "online-mensal": process.env.STRIPE_PRICE_ONLINE_MENSAL || "",

@@ -129,7 +129,7 @@ export default function SeoLandingPage({ params }) {
         <span>Windows</span>
         <span>Teste grátis</span>
         <span>Impressora 58/80mm</span>
-        <span>Caixa offline</span>
+        <span>PDV Online</span>
         <span>Suporte na implantação</span>
       </section>
 

@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      width: 1120px;
+      height: 760px;
+      margin: 0;
+      overflow: hidden;
+      background: transparent;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: #071a2c;
+    }
+    body {
+      display: grid;
+      place-items: center;
+    }
+    .scene {
+      position: relative;
+      width: 1080px;
+      height: 720px;
+      border-radius: 34px;
+      background:
+        radial-gradient(circle at 12% 6%, rgba(21, 191, 178, .14), transparent 36%),
+        radial-gradient(circle at 88% 82%, rgba(10, 103, 209, .12), transparent 30%),
+        linear-gradient(145deg, #f7fbff 0%, #ffffff 54%, #eefbf8 100%);
+      box-shadow: 0 34px 86px rgba(7, 31, 61, .13);
+    }
+    .monitor {
+      position: absolute;
+      left: 250px;
+      top: 80px;
+      width: 640px;
+      height: 410px;
+      border: 12px solid #0a2038;
+      border-radius: 22px;
+      background: #fff;
+      overflow: hidden;
+      box-shadow: 0 26px 72px rgba(7, 31, 61, .24);
+    }
+    .monitor::after {
+      content: "";
+      position: absolute;
+      left: 260px;
+      bottom: -78px;
+      width: 120px;
+      height: 78px;
+      background: linear-gradient(180deg, #132d46, #0a2038);
+      border-radius: 0 0 20px 20px;
+    }
+    .top {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      background: #0b62e4;
+      color: #fff;
+      font-weight: 900;
+      letter-spacing: .01em;
+    }
+    .top small { opacity: .85; font-size: 12px; }
+    .app {
+      display: grid;
+      grid-template-columns: 120px 1fr 170px;
+      height: calc(100% - 48px);
+    }
+    .side {
+      padding: 16px 14px;
+      background: #09243d;
+      color: #dce8f5;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .side b { color: #fff; font-size: 17px; margin-bottom: 8px; display: block; }
+    .side span { display: block; padding: 9px 10px; border-radius: 9px; background: rgba(255,255,255,.08); }
+    .products {
+      padding: 18px;
+      background: #f4f8fc;
+    }
+    .search {
+      height: 38px;
+      border: 1px solid #d5e4f1;
+      border-radius: 10px;
+      background: #fff;
+      color: #60748d;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 14px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    .food {
+      height: 92px;
+      border: 1px solid #d6e4f0;
+      border-radius: 13px;
+      background: #fff;
+      padding: 10px;
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      gap: 5px;
+      box-shadow: 0 8px 18px rgba(7,31,61,.05);
+    }
+    .food i { font-style: normal; font-size: 28px; }
+    .food strong { font-size: 11px; }
+    .food span { color: #08a99b; font-weight: 900; font-size: 12px; }
+    .order {
+      padding: 18px;
+      background: #fff;
+      border-left: 1px solid #d8e5f2;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+    .order h3 { margin: 0 0 6px; font-size: 15px; }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #edf3f8;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .total {
+      padding: 16px;
+      border-radius: 14px;
+      background: #e9fbf8;
+      color: #05766d;
+      font-size: 22px;
+      font-weight: 1000;
+    }
+    .send {
+      height: 42px;
+      border-radius: 10px;
+      background: #12bf6d;
+      color: #06192a;
+      display: grid;
+      place-items: center;
+      font-size: 13px;
+      font-weight: 1000;
+    }
+    .drawer {
+      position: absolute;
+      left: 300px;
+      top: 512px;
+      width: 560px;
+      height: 92px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, #162e47, #081f36);
+      box-shadow: 0 22px 46px rgba(7,31,61,.22);
+    }
+    .drawer::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 180px;
+      height: 36px;
+      transform: translate(-50%, -50%);
+      border: 2px solid rgba(255,255,255,.14);
+      border-radius: 10px;
+    }
+    .terminal {
+      position: absolute;
+      left: 150px;
+      top: 390px;
+      width: 168px;
+      height: 250px;
+      transform: rotate(-8deg);
+      border-radius: 22px;
+      background: linear-gradient(160deg, #0b62e4, #05a8d8);
+      box-shadow: 0 24px 54px rgba(7,31,61,.22);
+      padding: 18px;
+      color: #fff;
+    }
+    .terminal .screen {
+      height: 92px;
+      border-radius: 14px;
+      background: #f6fbff;
+      color: #0b62e4;
+      display: grid;
+      place-items: center;
+      font-weight: 1000;
+      margin-bottom: 16px;
+    }
+    .keys {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .keys span {
+      height: 22px;
+      border-radius: 6px;
+      background: rgba(255,255,255,.8);
+    }
+    .phone {
+      position: absolute;
+      right: 102px;
+      top: 360px;
+      width: 182px;
+      height: 330px;
+      border: 10px solid #0a2038;
+      border-radius: 34px;
+      background: #fff;
+      overflow: hidden;
+      box-shadow: 0 24px 58px rgba(7,31,61,.24);
+    }
+    .phoneHead {
+      height: 52px;
+      background: #0b62e4;
+      color: white;
+      display: grid;
+      place-items: center;
+      font-size: 13px;
+      font-weight: 1000;
+    }
+    .phoneItem {
+      margin: 12px;
+      border: 1px solid #d8e5f2;
+      border-radius: 14px;
+      padding: 10px;
+      display: grid;
+      gap: 4px;
+    }
+    .phoneItem i { font-style: normal; font-size: 32px; }
+    .phoneItem strong { font-size: 12px; }
+    .phoneItem small { color: #08a99b; font-weight: 1000; }
+    .phoneItem b {
+      width: fit-content;
+      border-radius: 999px;
+      padding: 5px 9px;
+      background: #12bf6d;
+      color: #062118;
+      font-size: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="scene">
+    <div class="monitor">
+      <div class="top"><span>Balcão Livre PDV</span><small>Caixa aberto</small></div>
+      <div class="app">
+        <div class="side"><b>BL</b><span>Caixa</span><span>Mesas</span><span>Delivery</span><span>Estoque</span></div>
+        <div class="products">
+          <div class="search">Buscar produto...</div>
+          <div class="grid">
+            <div class="food"><i>🍔</i><strong>X-Burger</strong><span>R$ 29,90</span></div>
+            <div class="food"><i>🍟</i><strong>Batata</strong><span>R$ 15,00</span></div>
+            <div class="food"><i>🥤</i><strong>Refri</strong><span>R$ 7,00</span></div>
+            <div class="food"><i>🍕</i><strong>Pizza</strong><span>R$ 59,90</span></div>
+            <div class="food"><i>🍰</i><strong>Sobremesa</strong><span>R$ 12,90</span></div>
+            <div class="food"><i>☕</i><strong>Café</strong><span>R$ 6,00</span></div>
+          </div>
+        </div>
+        <div class="order">
+          <h3>Mesa 08</h3>
+          <div class="row"><span>2x X-Burger</span><b>R$ 59,80</b></div>
+          <div class="row"><span>1x Batata</span><b>R$ 15,00</b></div>
+          <div class="row"><span>1x Refri</span><b>R$ 7,00</b></div>
+          <div class="total">R$ 81,80</div>
+          <div class="send">Enviar pedido</div>
+        </div>
+      </div>
+    </div>
+    <div class="drawer"></div>
+    <div class="terminal">
+      <div class="screen">PIX</div>
+      <div class="keys"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    </div>
+    <div class="phone">
+      <div class="phoneHead">Cardápio Digital</div>
+      <div class="phoneItem"><i>🍔</i><strong>Burger artesanal</strong><small>R$ 29,00</small><b>Adicionar</b></div>
+      <div class="phoneItem"><i>🍟</i><strong>Batata frita</strong><small>R$ 15,00</small><b>Adicionar</b></div>
+    </div>
+  </div>
+</body>
+</html>
