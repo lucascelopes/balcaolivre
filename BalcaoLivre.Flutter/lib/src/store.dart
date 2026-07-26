@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'ifood_cloud.dart';
 import 'models.dart';
+import 'staff_security.dart';
 import 'whatsapp_cloud.dart';
 
 const _storageKey = 'balcao_livre_flutter_state_v1';
@@ -65,6 +67,11 @@ class BalcaoStore extends ChangeNotifier {
   String whatsappMessage = 'WhatsApp nao conectado';
   String whatsappOnboardingUrl = '';
   String whatsappLastSyncAt = '';
+  String securityMessage = '';
+  bool cloudBackupEnabled = true;
+  bool centralSyncEnabled = true;
+  String lastBackupAt = '';
+  String backupMessage = 'Nenhum backup gerado nesta instalacao.';
   bool pointConnected = false;
   String pointConnectionStatus = 'DISCONNECTED';
   String pointDeviceName = '';
@@ -278,6 +285,13 @@ class BalcaoStore extends ChangeNotifier {
         (whatsappConnected ? 'WhatsApp conectado.' : 'WhatsApp nao conectado');
     whatsappOnboardingUrl = json['whatsappOnboardingUrl'] as String? ?? '';
     whatsappLastSyncAt = json['whatsappLastSyncAt'] as String? ?? '';
+    securityMessage = json['securityMessage'] as String? ?? '';
+    cloudBackupEnabled = json['cloudBackupEnabled'] as bool? ?? true;
+    centralSyncEnabled = json['centralSyncEnabled'] as bool? ?? true;
+    lastBackupAt = json['lastBackupAt'] as String? ?? '';
+    backupMessage =
+        json['backupMessage'] as String? ??
+        'Nenhum backup gerado nesta instalacao.';
     pointConnected = json['pointConnected'] as bool? ?? false;
     pointConnectionStatus =
         json['pointConnectionStatus'] as String? ?? 'DISCONNECTED';
@@ -2271,25 +2285,256 @@ class BalcaoStore extends ChangeNotifier {
     required String number,
     required String name,
     required String role,
+    String pin = '',
   }) async {
     final cleanNumber = number.trim();
     final cleanName = name.trim().toUpperCase();
     final cleanRole = role.trim().toUpperCase();
-    if (cleanNumber.isEmpty || cleanName.isEmpty) return false;
+    final cleanPin = pin.trim();
+    if (cleanNumber.isEmpty || cleanName.isEmpty || cleanPin.isEmpty) {
+      securityMessage = 'Informe numero, nome e senha do operador.';
+      notifyListeners();
+      return false;
+    }
     if (teamMembers.any((member) => member.number == cleanNumber)) return false;
 
-    teamMembers.insert(
-      0,
-      TeamMember(
-        id: _id('team'),
-        number: cleanNumber,
-        name: cleanName,
-        role: cleanRole.isEmpty ? 'GARCOM' : cleanRole,
-      ),
+    final member = TeamMember(
+      id: _id('team'),
+      number: cleanNumber,
+      name: cleanName,
+      role: cleanRole.isEmpty ? 'GARCOM' : cleanRole,
+      pinHash: StaffSecurity.hashPin(cleanPin),
     );
+    member.normalizeRolePermissions();
+    teamMembers.insert(0, member);
+    securityMessage = 'Operador $cleanName cadastrado com senha protegida.';
     _enqueue('team_member_saved');
     await _saveAndNotify();
     return true;
+  }
+
+  Future<TeamMember?> authenticateTeamMember({
+    required String operator,
+    required String pin,
+    required StaffPermission permission,
+  }) async {
+    final cleanOperator = operator.trim().toUpperCase();
+    final cleanPin = pin.trim();
+    if (cleanOperator.isEmpty || cleanPin.isEmpty) {
+      securityMessage = 'Informe operador e senha.';
+      notifyListeners();
+      return null;
+    }
+    final member = teamMembers
+        .where(
+          (candidate) =>
+              candidate.active &&
+              (candidate.number.trim().toUpperCase() == cleanOperator ||
+                  candidate.name.trim().toUpperCase() == cleanOperator),
+        )
+        .firstOrNull;
+    if (member == null || !member.allows(permission)) {
+      securityMessage = 'Operador, senha ou permissao invalidos.';
+      notifyListeners();
+      return null;
+    }
+    var authenticated = StaffSecurity.verifyPin(member.pinHash, cleanPin);
+    if (!authenticated && member.pinHash.isEmpty) {
+      authenticated =
+          member.legacyPin == cleanPin ||
+          (member.legacyPin.isEmpty && member.number == cleanPin);
+      if (authenticated) {
+        member.pinHash = StaffSecurity.hashPin(cleanPin);
+        member.legacyPin = '';
+        _enqueue('team_pin_migrated');
+        await _saveAndNotify();
+      }
+    }
+    if (!authenticated) {
+      securityMessage = 'Operador, senha ou permissao invalidos.';
+      notifyListeners();
+      return null;
+    }
+    securityMessage = 'Autorizado por ${member.name}.';
+    notifyListeners();
+    return member;
+  }
+
+  Future<bool> applyDiscount({
+    required String amount,
+    required String reason,
+    required String operator,
+    required String pin,
+  }) async {
+    final order = selectedOrder;
+    if (order == null || !order.isOpen || order.items.isEmpty) {
+      securityMessage = 'Comanda sem valor para desconto.';
+      notifyListeners();
+      return false;
+    }
+    final value = _number(amount).abs();
+    if (value <= 0 || value >= order.subtotal) {
+      securityMessage = 'Valor de desconto invalido.';
+      notifyListeners();
+      return false;
+    }
+    final manager = await authenticateTeamMember(
+      operator: operator,
+      pin: pin,
+      permission: StaffPermission.discount,
+    );
+    if (manager == null) return false;
+    order.items.add(
+      OrderItem(
+        productId: _id('discount'),
+        code: 'DESC',
+        name: reason.trim().isEmpty ? 'DESCONTO' : reason.trim().toUpperCase(),
+        quantity: 1,
+        price: -value,
+        cost: 0,
+      ),
+    );
+    securityMessage =
+        'Desconto de ${value.toStringAsFixed(2)} autorizado por ${manager.name}.';
+    _enqueue('discount_applied');
+    await _saveAndNotify();
+    return true;
+  }
+
+  Future<void> updateBackupSettings({
+    required bool cloudBackup,
+    required bool centralSync,
+  }) async {
+    cloudBackupEnabled = cloudBackup;
+    centralSyncEnabled = centralSync;
+    backupMessage = 'Automacao de backup e sincronizacao atualizada.';
+    _enqueue('backup_settings_saved');
+    await _saveAndNotify();
+  }
+
+  Future<String?> createBackupJson({
+    required String operator,
+    required String pin,
+  }) async {
+    final authorized = await authenticateTeamMember(
+      operator: operator,
+      pin: pin,
+      permission: StaffPermission.backup,
+    );
+    if (authorized == null) {
+      backupMessage = securityMessage;
+      notifyListeners();
+      return null;
+    }
+    await _save();
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_storageKey);
+    if (raw == null || raw.trim().isEmpty) {
+      backupMessage = 'Nao foi possivel preparar os dados do backup.';
+      notifyListeners();
+      return null;
+    }
+    final payload = jsonDecode(raw);
+    if (payload is! Map<String, dynamic>) {
+      backupMessage = 'Estado local invalido para backup.';
+      notifyListeners();
+      return null;
+    }
+    final payloadJson = jsonEncode(payload);
+    final exportedAt = DateTime.now().toUtc().toIso8601String();
+    final envelope = {
+      'schema': 'balcao-livre-flutter-backup',
+      'version': 1,
+      'exportedAt': exportedAt,
+      'licenseKey': licenseKey.trim().toUpperCase(),
+      'businessName': businessName,
+      'authorizedBy': authorized.name,
+      'checksum': sha256.convert(utf8.encode(payloadJson)).toString(),
+      'payload': payload,
+    };
+    lastBackupAt = exportedAt;
+    backupMessage = 'Backup completo gerado por ${authorized.name}.';
+    _enqueue('backup_manual_created');
+    await _saveAndNotify();
+    return const JsonEncoder.withIndent('  ').convert(envelope);
+  }
+
+  Future<bool> restoreBackupJson({
+    required String backupJson,
+    required String operator,
+    required String pin,
+  }) async {
+    final authorized = await authenticateTeamMember(
+      operator: operator,
+      pin: pin,
+      permission: StaffPermission.backup,
+    );
+    if (authorized == null) {
+      backupMessage = securityMessage;
+      notifyListeners();
+      return false;
+    }
+    try {
+      final decoded = jsonDecode(backupJson);
+      if (decoded is! Map<String, dynamic> ||
+          decoded['schema'] != 'balcao-livre-flutter-backup' ||
+          decoded['version'] != 1 ||
+          decoded['payload'] is! Map<String, dynamic>) {
+        backupMessage = 'Arquivo de backup invalido ou incompatível.';
+        notifyListeners();
+        return false;
+      }
+      final payload = decoded['payload'] as Map<String, dynamic>;
+      if (payload['products'] is! List ||
+          payload['orders'] is! List ||
+          payload['teamMembers'] is! List) {
+        backupMessage = 'Backup incompleto: faltam dados operacionais.';
+        notifyListeners();
+        return false;
+      }
+      final payloadJson = jsonEncode(payload);
+      final checksum = sha256.convert(utf8.encode(payloadJson)).toString();
+      if (checksum != '${decoded['checksum'] ?? ''}') {
+        backupMessage = 'Backup alterado ou corrompido; restauracao bloqueada.';
+        notifyListeners();
+        return false;
+      }
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_storageKey, payloadJson);
+      await hydrate();
+      lastBackupAt = DateTime.now().toUtc().toIso8601String();
+      backupMessage = 'Backup restaurado por ${authorized.name}.';
+      _enqueue('backup_restored');
+      await _saveAndNotify();
+      return true;
+    } on FormatException {
+      backupMessage = 'Arquivo de backup nao contem JSON valido.';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  String productsCsv() {
+    String field(Object? value) {
+      final text = '$value'.replaceAll('"', '""');
+      return '"$text"';
+    }
+
+    final rows = <String>[
+      'codigo;nome;grupo;preco_compra;preco_venda;margem_percentual;estoque',
+      ...products.map(
+        (product) => [
+          product.code,
+          product.name,
+          product.category,
+          product.cost.toStringAsFixed(2),
+          product.price.toStringAsFixed(2),
+          product.margin.toStringAsFixed(2),
+          product.stock,
+        ].map(field).join(';'),
+      ),
+    ];
+    return rows.join('\r\n');
   }
 
   Future<void> connectIfood() async {
@@ -3002,18 +3247,43 @@ class BalcaoStore extends ChangeNotifier {
           number: '1',
           name: operatorName.toUpperCase(),
           role: 'CAIXA',
+          pinHash:
+              r'PBKDF2$120000$AAECAwQFBgcICQoLDA0ODw==$MM3KlKQuwzYe1OTSQPFAJ0QREJZOQge/8zWqoROvWTA=',
+          canCash: true,
+          canCancel: true,
+          canDiscount: true,
+          canDelivery: true,
         ),
         TeamMember(
           id: 'team-2',
           number: '2',
           name: 'LUCAS CESAR',
           role: 'GERENTE',
+          pinHash:
+              r'PBKDF2$120000$EBESExQVFhcYGRobHB0eHw==$zV3rw3sx0cCLGcKV2G7yh8n34lgL/N96TwUnSfDAjyE=',
+          canTransfer: true,
+          canCancel: true,
+          canDiscount: true,
+          canManageProducts: true,
+          canReports: true,
+          canCash: true,
+          canDelivery: true,
+          canInventory: true,
+          canKitchen: true,
+          canIFood: true,
+          canSettings: true,
+          canBackup: true,
+          canDeliveryZones: true,
+          canCentralSync: true,
         ),
         TeamMember(
           id: 'team-3',
           number: '3',
           name: 'ENTREGADOR APP',
           role: 'ENTREGADOR',
+          pinHash:
+              r'PBKDF2$120000$ICEiIyQlJicoKSorLC0uLw==$G6nVdLtJVx+nEbSzt4AVtcedir1/SRBbKy6FtPy2IJ0=',
+          canDelivery: true,
         ),
       ]);
     orders
@@ -3537,6 +3807,11 @@ class BalcaoStore extends ChangeNotifier {
         'whatsappMessage': whatsappMessage,
         'whatsappOnboardingUrl': whatsappOnboardingUrl,
         'whatsappLastSyncAt': whatsappLastSyncAt,
+        'securityMessage': securityMessage,
+        'cloudBackupEnabled': cloudBackupEnabled,
+        'centralSyncEnabled': centralSyncEnabled,
+        'lastBackupAt': lastBackupAt,
+        'backupMessage': backupMessage,
         'pointConnected': pointConnected,
         'pointConnectionStatus': pointConnectionStatus,
         'pointDeviceName': pointDeviceName,

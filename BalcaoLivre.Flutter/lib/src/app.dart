@@ -5494,6 +5494,11 @@ class _PdvRibbon extends StatelessWidget {
           openModule('iFood Online', _DeliveryModule(store: store));
         }),
       ]),
+      _RibbonGroupData('Sistema', [
+        _RibbonItem('BK', 'Backup', 'Exportar', Icons.backup_outlined, () {
+          openModule('Backup e exportacao', _BackupModule(store: store));
+        }),
+      ]),
     ];
     return Container(
       width: double.infinity,
@@ -14254,12 +14259,14 @@ class _TeamModule extends StatefulWidget {
 class _TeamModuleState extends State<_TeamModule> {
   final number = TextEditingController(text: '4');
   final name = TextEditingController();
+  final pin = TextEditingController();
   String role = 'GARCOM';
 
   @override
   void dispose() {
     number.dispose();
     name.dispose();
+    pin.dispose();
     super.dispose();
   }
 
@@ -14305,6 +14312,16 @@ class _TeamModuleState extends State<_TeamModule> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
+                    child: _DeskInput(
+                      key: const Key('teamMemberPin'),
+                      label: 'Senha',
+                      controller: pin,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
                     child: _DeskCommandButton(
                       key: const Key('teamMemberSave'),
                       label: 'Salvar equipe',
@@ -14345,6 +14362,7 @@ class _TeamModuleState extends State<_TeamModule> {
       number: number.text,
       name: name.text,
       role: role,
+      pin: pin.text,
     );
     if (!mounted || !saved) return;
     setState(() {
@@ -14354,6 +14372,7 @@ class _TeamModuleState extends State<_TeamModule> {
           1;
       number.text = '$next';
       name.clear();
+      pin.clear();
     });
   }
 }
@@ -16184,6 +16203,19 @@ class _QuickHubModule extends StatelessWidget {
                 ),
               ),
               _HubButton(
+                key: const Key('backupHub'),
+                icon: Icons.backup_outlined,
+                title: 'Backup',
+                subtitle: store.lastBackupAt.isEmpty
+                    ? 'Gerar ou restaurar'
+                    : 'Ultimo ${store.lastBackupAt}',
+                color: _navy2,
+                onTap: () => openModule(
+                  'Backup e exportacao',
+                  _BackupModule(store: store),
+                ),
+              ),
+              _HubButton(
                 icon: Icons.cloud_sync_rounded,
                 title: 'Sincronizar',
                 subtitle: '${store.pendingSyncCount} pendente(s)',
@@ -16599,6 +16631,235 @@ class _WhatsAppQrBox extends StatelessWidget {
   }
 }
 
+class _BackupModule extends StatefulWidget {
+  const _BackupModule({required this.store});
+
+  final BalcaoStore store;
+
+  @override
+  State<_BackupModule> createState() => _BackupModuleState();
+}
+
+class _BackupModuleState extends State<_BackupModule> {
+  final operator = TextEditingController(text: '2');
+  final pin = TextEditingController();
+  late bool cloudBackup = widget.store.cloudBackupEnabled;
+  late bool centralSync = widget.store.centralSyncEnabled;
+  String message = '';
+
+  @override
+  void dispose() {
+    operator.dispose();
+    pin.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveSettings() async {
+    await widget.store.updateBackupSettings(
+      cloudBackup: cloudBackup,
+      centralSync: centralSync,
+    );
+    if (!mounted) return;
+    setState(() => message = widget.store.backupMessage);
+  }
+
+  Future<void> _exportBackup() async {
+    final data = await widget.store.createBackupJson(
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (data == null) {
+      if (mounted) setState(() => message = widget.store.backupMessage);
+      return;
+    }
+    final now = DateTime.now();
+    final stamp =
+        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+    await FilePicker.platform.saveFile(
+      dialogTitle: 'Salvar backup do Balcao Livre',
+      fileName: 'balcao-livre-backup-$stamp.json',
+      type: FileType.custom,
+      allowedExtensions: const ['json'],
+      bytes: Uint8List.fromList(utf8.encode(data)),
+    );
+    if (!mounted) return;
+    setState(() {
+      message = '${widget.store.backupMessage} Download iniciado.';
+      pin.clear();
+    });
+  }
+
+  Future<void> _restoreBackup() async {
+    final picked = await FilePicker.platform.pickFiles(
+      dialogTitle: 'Restaurar backup do Balcao Livre',
+      type: FileType.custom,
+      allowedExtensions: const ['json'],
+      withData: true,
+    );
+    final bytes = picked?.files.firstOrNull?.bytes;
+    if (bytes == null || bytes.isEmpty) return;
+    final restored = await widget.store.restoreBackupJson(
+      backupJson: utf8.decode(bytes),
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      message = widget.store.backupMessage;
+      if (restored) pin.clear();
+    });
+  }
+
+  Future<void> _exportCsv() async {
+    final authorized = await widget.store.authenticateTeamMember(
+      operator: operator.text,
+      pin: pin.text,
+      permission: StaffPermission.backup,
+    );
+    if (authorized == null) {
+      if (mounted) setState(() => message = widget.store.securityMessage);
+      return;
+    }
+    await FilePicker.platform.saveFile(
+      dialogTitle: 'Exportar produtos',
+      fileName: 'produtos-balcao-livre.csv',
+      type: FileType.custom,
+      allowedExtensions: const ['csv'],
+      bytes: Uint8List.fromList(utf8.encode(widget.store.productsCsv())),
+    );
+    if (!mounted) return;
+    setState(() {
+      message = 'Resumo CSV exportado por ${authorized.name}.';
+      pin.clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = widget.store;
+    return _ModuleScroll(
+      children: [
+        _WindowPanel(
+          title: 'Protecao dos dados',
+          child: Column(
+            children: [
+              _ReportLine(
+                label: 'Backup completo',
+                detail: store.lastBackupAt.isEmpty
+                    ? 'ainda nao gerado nesta instalacao'
+                    : 'ultimo em ${store.lastBackupAt}',
+                value: store.cloudBackupEnabled ? 'ON' : 'OFF',
+                color: store.cloudBackupEnabled ? _teal : _warn,
+              ),
+              _ReportLine(
+                label: 'Sync central',
+                detail: store.syncStatus,
+                value: store.centralSyncEnabled ? 'ON' : 'OFF',
+                color: store.centralSyncEnabled ? _teal : _warn,
+              ),
+            ],
+          ),
+        ),
+        _WindowPanel(
+          title: 'Automacao',
+          child: Column(
+            children: [
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Backup completo versionado'),
+                subtitle: const Text(
+                  'Inclui operacao, produtos, clientes, equipe e configuracoes.',
+                ),
+                value: cloudBackup,
+                onChanged: (value) => setState(() => cloudBackup = value),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Sync central economico'),
+                subtitle: const Text(
+                  'Mantem o resumo operacional pronto para web e mobile.',
+                ),
+                value: centralSync,
+                onChanged: (value) => setState(() => centralSync = value),
+              ),
+              SizedBox(
+                width: double.infinity,
+                child: _DeskCommandButton(
+                  key: const Key('backupSaveSettings'),
+                  label: 'Salvar automacao',
+                  color: _navy2,
+                  onTap: _saveSettings,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _WindowPanel(
+          title: 'Autorizacao do gerente',
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('backupOperator'),
+                      label: 'Operador',
+                      controller: operator,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('backupPin'),
+                      label: 'Senha',
+                      controller: pin,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _DeskCommandButton(
+                    key: const Key('backupExport'),
+                    label: 'Gerar backup agora',
+                    color: _navy2,
+                    onTap: _exportBackup,
+                  ),
+                  _DeskCommandButton(
+                    key: const Key('backupRestore'),
+                    label: 'Restaurar arquivo',
+                    color: _warn,
+                    onTap: _restoreBackup,
+                  ),
+                  _DeskCommandButton(
+                    key: const Key('backupCsv'),
+                    label: 'Exportar resumo CSV',
+                    color: _teal,
+                    onTap: _exportCsv,
+                  ),
+                ],
+              ),
+              if (message.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                _InfoStrip(
+                  icon: Icons.info_outline_rounded,
+                  title: 'Resultado',
+                  text: message,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _MercadoPagoPointModule extends StatelessWidget {
   const _MercadoPagoPointModule({required this.store});
 
@@ -16969,13 +17230,48 @@ class _ModuleScroll extends StatelessWidget {
   }
 }
 
-class _DiscountDeskModule extends StatelessWidget {
+class _DiscountDeskModule extends StatefulWidget {
   const _DiscountDeskModule({required this.store});
 
   final BalcaoStore store;
 
   @override
+  State<_DiscountDeskModule> createState() => _DiscountDeskModuleState();
+}
+
+class _DiscountDeskModuleState extends State<_DiscountDeskModule> {
+  final amount = TextEditingController(text: '5,00');
+  final reason = TextEditingController(text: 'Desconto gerente');
+  final operator = TextEditingController(text: '2');
+  final pin = TextEditingController();
+  String message = '';
+
+  @override
+  void dispose() {
+    amount.dispose();
+    reason.dispose();
+    operator.dispose();
+    pin.dispose();
+    super.dispose();
+  }
+
+  Future<void> _apply() async {
+    final applied = await widget.store.applyDiscount(
+      amount: amount.text,
+      reason: reason.text,
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      message = widget.store.securityMessage;
+      if (applied) pin.clear();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final store = widget.store;
     final order = store.selectedOrder;
     if (order == null) {
       return const _ModuleScroll(
@@ -17024,7 +17320,83 @@ class _DiscountDeskModule extends StatelessWidget {
           ),
         ),
         _WindowPanel(
-          title: 'Permissoes rapidas',
+          title: 'Desconto autorizado',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('discountAmount'),
+                      label: 'Valor',
+                      controller: amount,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: _DeskInput(
+                      key: const Key('discountReason'),
+                      label: 'Motivo',
+                      controller: reason,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('discountOperator'),
+                      label: 'Operador autorizado',
+                      controller: operator,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('discountPin'),
+                      label: 'Senha',
+                      controller: pin,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (message.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    message,
+                    style: TextStyle(
+                      color: message.toLowerCase().contains('autorizado')
+                          ? _teal
+                          : _danger,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              SizedBox(
+                width: double.infinity,
+                child: _DeskCommandButton(
+                  key: const Key('discountApply'),
+                  label: 'Autorizar desconto',
+                  color: _danger,
+                  onTap: _apply,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _WindowPanel(
+          title: 'Taxas da comanda',
           child: Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -19573,17 +19945,20 @@ class _DeskInput extends StatelessWidget {
     required this.label,
     required this.controller,
     this.keyboardType,
+    this.obscureText = false,
   });
 
   final String label;
   final TextEditingController controller;
   final TextInputType? keyboardType;
+  final bool obscureText;
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
+      obscureText: obscureText,
       decoration: _deskDecoration(label),
     );
   }

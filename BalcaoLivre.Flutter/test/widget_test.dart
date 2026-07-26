@@ -562,11 +562,51 @@ void main() {
       find.byKey(const Key('teamMemberName')),
       'Maria Souza',
     );
+    await tester.enterText(find.byKey(const Key('teamMemberPin')), '4567');
     await tester.tap(find.byKey(const Key('teamMemberSave')));
     await tester.pumpAndSettle();
 
     expect(store.teamMembers.first.name, 'MARIA SOUZA');
     expect(find.text('MARIA SOUZA'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('discount requires an authorized operator and real password', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1920, 1020);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+    await store.addProduct(store.products.first);
+    final before = store.selectedOrder!.subtotal;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Desconto').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('discountOperator')), findsOneWidget);
+    expect(find.byKey(const Key('discountPin')), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('discountOperator')), '2');
+    await tester.enterText(find.byKey(const Key('discountPin')), '1234');
+    await tester.enterText(find.byKey(const Key('discountAmount')), '5,00');
+    await tester.tap(find.byKey(const Key('discountApply')));
+    await tester.pumpAndSettle();
+
+    expect(store.selectedOrder!.items.last.code, 'DESC');
+    expect(store.selectedOrder!.subtotal, closeTo(before - 5, 0.001));
+    expect(find.textContaining('autorizado por LUCAS CESAR'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -702,6 +742,69 @@ void main() {
     expect(find.text('WhatsApp Online'), findsWidgets);
     expect(find.byKey(const Key('whatsappConnect')), findsOneWidget);
     expect(find.byKey(const Key('whatsappRefresh')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('backup ribbon exposes protected cross-platform actions', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1920, 1020);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Backup').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Protecao dos dados'), findsOneWidget);
+    expect(find.byKey(const Key('backupOperator')), findsOneWidget);
+    expect(find.byKey(const Key('backupPin')), findsOneWidget);
+    expect(find.byKey(const Key('backupExport')), findsOneWidget);
+    expect(find.byKey(const Key('backupRestore')), findsOneWidget);
+    expect(find.byKey(const Key('backupCsv')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mobile reaches backup from the same connected More hub', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('mobileMore')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('backupHub')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Protecao dos dados'), findsOneWidget);
+    expect(find.byKey(const Key('backupExport')), findsOneWidget);
+    expect(find.byKey(const Key('backupRestore')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

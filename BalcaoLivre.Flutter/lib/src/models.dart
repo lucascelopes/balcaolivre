@@ -2,6 +2,24 @@ enum OrderKind { table, counter, delivery, ifood }
 
 enum OrderStatus { open, preparing, dispatched, delivered, closed, canceled }
 
+enum StaffPermission {
+  transfer,
+  cancel,
+  discount,
+  manageProducts,
+  reports,
+  cash,
+  delivery,
+  inventory,
+  kitchen,
+  ifood,
+  settings,
+  backup,
+  fiscal,
+  deliveryZones,
+  centralSync,
+}
+
 class Product {
   Product({
     required this.id,
@@ -133,7 +151,10 @@ class Order {
   bool get isOpen =>
       status != OrderStatus.closed && status != OrderStatus.canceled;
   double get itemsTotal => items.fold(0, (sum, item) => sum + item.total);
-  double get serviceAmount => itemsTotal * (servicePercent / 100);
+  double get serviceBase => items
+      .where((item) => item.code != 'DESC' && item.total > 0)
+      .fold(0, (sum, item) => sum + item.total);
+  double get serviceAmount => serviceBase * (servicePercent / 100);
   double get subtotal => itemsTotal + coverCharge + serviceAmount;
   double get costTotal => items.fold(0, (sum, item) => sum + item.totalCost);
   double get profit => subtotal - costTotal;
@@ -231,6 +252,24 @@ class TeamMember {
     required this.name,
     required this.role,
     this.active = true,
+    this.pinHash = '',
+    this.legacyPin = '',
+    this.isMaster = false,
+    this.canTransfer = false,
+    this.canCancel = false,
+    this.canDiscount = false,
+    this.canManageProducts = false,
+    this.canReports = false,
+    this.canCash = false,
+    this.canDelivery = false,
+    this.canInventory = false,
+    this.canKitchen = false,
+    this.canIFood = false,
+    this.canSettings = false,
+    this.canBackup = false,
+    this.canFiscal = false,
+    this.canDeliveryZones = false,
+    this.canCentralSync = false,
   });
 
   final String id;
@@ -238,6 +277,96 @@ class TeamMember {
   String name;
   String role;
   bool active;
+  String pinHash;
+  String legacyPin;
+  bool isMaster;
+  bool canTransfer;
+  bool canCancel;
+  bool canDiscount;
+  bool canManageProducts;
+  bool canReports;
+  bool canCash;
+  bool canDelivery;
+  bool canInventory;
+  bool canKitchen;
+  bool canIFood;
+  bool canSettings;
+  bool canBackup;
+  bool canFiscal;
+  bool canDeliveryZones;
+  bool canCentralSync;
+
+  void normalizeRolePermissions() {
+    final normalized = role.trim().toUpperCase();
+    if (isMaster || normalized == 'MASTER') {
+      isMaster = true;
+      canTransfer = true;
+      canCancel = true;
+      canDiscount = true;
+      canManageProducts = true;
+      canReports = true;
+      canCash = true;
+      canDelivery = true;
+      canInventory = true;
+      canKitchen = true;
+      canIFood = true;
+      canSettings = true;
+      canBackup = true;
+      canFiscal = true;
+      canDeliveryZones = true;
+      canCentralSync = true;
+      return;
+    }
+    if (normalized == 'GERENTE') {
+      canTransfer = true;
+      canCancel = true;
+      canDiscount = true;
+      canManageProducts = true;
+      canReports = true;
+      canCash = true;
+      canDelivery = true;
+      canInventory = true;
+      canKitchen = true;
+      canIFood = true;
+      canSettings = true;
+      canBackup = true;
+      canDeliveryZones = true;
+      canCentralSync = true;
+    } else if (normalized == 'CAIXA') {
+      canCash = true;
+      canCancel = true;
+      canDiscount = true;
+      canDelivery = true;
+    } else if (normalized == 'GARCOM') {
+      canTransfer = true;
+      canDelivery = true;
+    } else if (normalized == 'COZINHA') {
+      canKitchen = true;
+    } else if (normalized == 'ENTREGADOR') {
+      canDelivery = true;
+    }
+  }
+
+  bool allows(StaffPermission permission) {
+    if (!active) return false;
+    return switch (permission) {
+      StaffPermission.transfer => isMaster || canTransfer,
+      StaffPermission.cancel => isMaster || canCancel,
+      StaffPermission.discount => isMaster || canDiscount,
+      StaffPermission.manageProducts => isMaster || canManageProducts,
+      StaffPermission.reports => isMaster || canReports,
+      StaffPermission.cash => isMaster || canCash,
+      StaffPermission.delivery => isMaster || canDelivery,
+      StaffPermission.inventory => isMaster || canInventory,
+      StaffPermission.kitchen => isMaster || canKitchen,
+      StaffPermission.ifood => isMaster || canIFood,
+      StaffPermission.settings => isMaster || canSettings,
+      StaffPermission.backup => isMaster || canBackup,
+      StaffPermission.fiscal => isMaster || canFiscal,
+      StaffPermission.deliveryZones => isMaster || canDeliveryZones,
+      StaffPermission.centralSync => isMaster || canCentralSync,
+    };
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -246,15 +375,54 @@ class TeamMember {
     'name': name,
     'role': role,
     'active': active,
+    'pinHash': pinHash,
+    'isMaster': isMaster,
+    'canTransfer': canTransfer,
+    'canCancel': canCancel,
+    'canDiscount': canDiscount,
+    'canManageProducts': canManageProducts,
+    'canReports': canReports,
+    'canCash': canCash,
+    'canDelivery': canDelivery,
+    'canInventory': canInventory,
+    'canKitchen': canKitchen,
+    'canIFood': canIFood,
+    'canSettings': canSettings,
+    'canBackup': canBackup,
+    'canFiscal': canFiscal,
+    'canDeliveryZones': canDeliveryZones,
+    'canCentralSync': canCentralSync,
   };
 
-  factory TeamMember.fromJson(Map<String, dynamic> json) => TeamMember(
-    id: (json['id'] ?? json['number'] ?? json['employeeNumber']).toString(),
-    number: (json['number'] ?? json['employeeNumber'] ?? '').toString(),
-    name: (json['name'] ?? json['displayName'] ?? '').toString(),
-    role: (json['role'] ?? 'GARCOM').toString().toUpperCase(),
-    active: json['active'] as bool? ?? true,
-  );
+  factory TeamMember.fromJson(Map<String, dynamic> json) {
+    final member = TeamMember(
+      id: (json['id'] ?? json['number'] ?? json['employeeNumber']).toString(),
+      number: (json['number'] ?? json['employeeNumber'] ?? '').toString(),
+      name: (json['name'] ?? json['displayName'] ?? '').toString(),
+      role: (json['role'] ?? 'GARCOM').toString().toUpperCase(),
+      active: json['active'] as bool? ?? true,
+      pinHash: (json['pinHash'] ?? '').toString(),
+      legacyPin: (json['pin'] ?? '').toString(),
+      isMaster: json['isMaster'] as bool? ?? false,
+      canTransfer: json['canTransfer'] as bool? ?? false,
+      canCancel: json['canCancel'] as bool? ?? false,
+      canDiscount: json['canDiscount'] as bool? ?? false,
+      canManageProducts: json['canManageProducts'] as bool? ?? false,
+      canReports: json['canReports'] as bool? ?? false,
+      canCash: json['canCash'] as bool? ?? false,
+      canDelivery: json['canDelivery'] as bool? ?? false,
+      canInventory: json['canInventory'] as bool? ?? false,
+      canKitchen: json['canKitchen'] as bool? ?? false,
+      canIFood: json['canIFood'] as bool? ?? false,
+      canSettings: json['canSettings'] as bool? ?? false,
+      canBackup: json['canBackup'] as bool? ?? false,
+      canFiscal: json['canFiscal'] as bool? ?? false,
+      canDeliveryZones: json['canDeliveryZones'] as bool? ?? false,
+      canCentralSync: json['canCentralSync'] as bool? ?? false,
+    );
+    member.normalizeRolePermissions();
+    return member;
+  }
 }
 
 class CashMovement {

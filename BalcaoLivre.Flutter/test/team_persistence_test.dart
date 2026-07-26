@@ -16,12 +16,14 @@ void main() {
       number: '4',
       name: '  Maria Souza ',
       role: 'garcom',
+      pin: '4567',
     );
 
     expect(saved, isTrue);
     expect(store.teamMembers.first.number, '4');
     expect(store.teamMembers.first.name, 'MARIA SOUZA');
     expect(store.teamMembers.first.role, 'GARCOM');
+    expect(store.teamMembers.first.pinHash, startsWith(r'PBKDF2$120000$'));
 
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('balcao_livre_flutter_state_v1');
@@ -33,7 +35,9 @@ void main() {
         (member) =>
             member['number'] == '4' &&
             member['name'] == 'MARIA SOUZA' &&
-            member['role'] == 'GARCOM',
+            member['role'] == 'GARCOM' &&
+            '${member['pinHash']}'.startsWith(r'PBKDF2$120000$') &&
+            !member.containsKey('pin'),
       ),
       isTrue,
     );
@@ -50,6 +54,7 @@ void main() {
       number: '1',
       name: 'Outro operador',
       role: 'CAIXA',
+      pin: '9876',
     );
 
     expect(saved, isFalse);
