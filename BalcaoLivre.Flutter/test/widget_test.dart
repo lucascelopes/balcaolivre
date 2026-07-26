@@ -534,6 +534,42 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('team registration persists through the WPF ribbon flow', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1920, 1020);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Equipe'));
+    await tester.pumpAndSettle();
+    expect(find.text('Equipe cadastrada'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('teamMemberName')),
+      'Maria Souza',
+    );
+    await tester.tap(find.byKey(const Key('teamMemberSave')));
+    await tester.pumpAndSettle();
+
+    expect(store.teamMembers.first.name, 'MARIA SOUZA');
+    expect(find.text('MARIA SOUZA'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('cash reconciliation matches the WPF split dialog on desktop', (
     WidgetTester tester,
   ) async {

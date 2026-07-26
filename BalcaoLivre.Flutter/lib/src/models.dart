@@ -224,6 +224,39 @@ class Customer {
   );
 }
 
+class TeamMember {
+  TeamMember({
+    required this.id,
+    required this.number,
+    required this.name,
+    required this.role,
+    this.active = true,
+  });
+
+  final String id;
+  String number;
+  String name;
+  String role;
+  bool active;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'number': number,
+    'employeeNumber': number,
+    'name': name,
+    'role': role,
+    'active': active,
+  };
+
+  factory TeamMember.fromJson(Map<String, dynamic> json) => TeamMember(
+    id: (json['id'] ?? json['number'] ?? json['employeeNumber']).toString(),
+    number: (json['number'] ?? json['employeeNumber'] ?? '').toString(),
+    name: (json['name'] ?? json['displayName'] ?? '').toString(),
+    role: (json['role'] ?? 'GARCOM').toString().toUpperCase(),
+    active: json['active'] as bool? ?? true,
+  );
+}
+
 class CashMovement {
   CashMovement({
     required this.id,

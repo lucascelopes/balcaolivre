@@ -14254,11 +14254,6 @@ class _TeamModuleState extends State<_TeamModule> {
   final number = TextEditingController(text: '4');
   final name = TextEditingController();
   String role = 'GARCOM';
-  late final List<_TeamEntry> entries = [
-    _TeamEntry('1', widget.store.operatorName, 'CAIXA', widget.store.soldToday),
-    const _TeamEntry('2', 'LUCAS CESAR', 'GERENTE', 0),
-    const _TeamEntry('3', 'ENTREGADOR APP', 'ENTREGADOR', 0),
-  ];
 
   @override
   void dispose() {
@@ -14280,11 +14275,19 @@ class _TeamModuleState extends State<_TeamModule> {
                 children: [
                   SizedBox(
                     width: 86,
-                    child: _DeskInput(label: 'Numero', controller: number),
+                    child: _DeskInput(
+                      key: const Key('teamMemberNumber'),
+                      label: 'Numero',
+                      controller: number,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _DeskInput(label: 'Nome', controller: name),
+                    child: _DeskInput(
+                      key: const Key('teamMemberName'),
+                      label: 'Nome',
+                      controller: name,
+                    ),
                   ),
                 ],
               ),
@@ -14302,6 +14305,7 @@ class _TeamModuleState extends State<_TeamModule> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: _DeskCommandButton(
+                      key: const Key('teamMemberSave'),
                       label: 'Salvar equipe',
                       color: _teal,
                       onTap: _save,
@@ -14316,13 +14320,15 @@ class _TeamModuleState extends State<_TeamModule> {
         _WindowPanel(
           title: 'Equipe cadastrada',
           child: Column(
-            children: entries
+            children: widget.store.teamMembers
                 .map(
-                  (entry) => _TeamRow(
-                    number: entry.number,
-                    name: entry.name,
-                    role: entry.role,
-                    sales: entry.sales,
+                  (member) => _TeamRow(
+                    number: member.number,
+                    name: member.name,
+                    role: member.role,
+                    sales: widget.store.closedOrders
+                        .where((order) => order.waiter == member.number)
+                        .fold(0, (sum, order) => sum + order.subtotal),
                   ),
                 )
                 .toList(),
@@ -14332,27 +14338,23 @@ class _TeamModuleState extends State<_TeamModule> {
     );
   }
 
-  void _save() {
+  Future<void> _save() async {
     if (name.text.trim().isEmpty) return;
+    final saved = await widget.store.saveTeamMember(
+      number: number.text,
+      name: name.text,
+      role: role,
+    );
+    if (!mounted || !saved) return;
     setState(() {
-      entries.insert(
-        0,
-        _TeamEntry(number.text.trim(), name.text.trim().toUpperCase(), role, 0),
-      );
-      final next = (int.tryParse(number.text.trim()) ?? entries.length) + 1;
+      final next =
+          (int.tryParse(number.text.trim()) ??
+              widget.store.teamMembers.length) +
+          1;
       number.text = '$next';
       name.clear();
     });
   }
-}
-
-class _TeamEntry {
-  const _TeamEntry(this.number, this.name, this.role, this.sales);
-
-  final String number;
-  final String name;
-  final String role;
-  final double sales;
 }
 
 class _TeamRow extends StatelessWidget {
@@ -19327,6 +19329,7 @@ const _settingsSections = [
 
 class _DeskInput extends StatelessWidget {
   const _DeskInput({
+    super.key,
     required this.label,
     required this.controller,
     this.keyboardType,
@@ -19417,6 +19420,7 @@ InputDecoration _deskDecoration(String label) {
 
 class _DeskCommandButton extends StatelessWidget {
   const _DeskCommandButton({
+    super.key,
     required this.label,
     required this.color,
     required this.onTap,

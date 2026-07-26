@@ -78,6 +78,7 @@ class BalcaoStore extends ChangeNotifier {
   final List<Product> products = [];
   final List<Order> orders = [];
   final List<Customer> customers = [];
+  final List<TeamMember> teamMembers = [];
   final List<CashMovement> movements = [];
   final List<StockMovement> stockMovements = [];
   final List<String> syncQueue = [];
@@ -299,6 +300,16 @@ class BalcaoStore extends ChangeNotifier {
           (item) => Customer.fromJson(item as Map<String, dynamic>),
         ),
       );
+    final savedTeam = json['teamMembers'] as List<dynamic>? ?? const [];
+    if (savedTeam.isNotEmpty) {
+      teamMembers
+        ..clear()
+        ..addAll(
+          savedTeam.map(
+            (item) => TeamMember.fromJson(item as Map<String, dynamic>),
+          ),
+        );
+    }
     movements
       ..clear()
       ..addAll(
@@ -831,6 +842,15 @@ class BalcaoStore extends ChangeNotifier {
       customers
         ..clear()
         ..addAll(customerRows.map(_customerFromSnapshot));
+    }
+
+    final teamRows = _list(
+      snapshot['teamMembers'] ?? snapshot['users'],
+    ).map(_map).toList();
+    if (teamRows.isNotEmpty) {
+      teamMembers
+        ..clear()
+        ..addAll(teamRows.map(TeamMember.fromJson));
     }
 
     final movementRows = _list(
@@ -2161,6 +2181,31 @@ class BalcaoStore extends ChangeNotifier {
     await _saveAndNotify();
   }
 
+  Future<bool> saveTeamMember({
+    required String number,
+    required String name,
+    required String role,
+  }) async {
+    final cleanNumber = number.trim();
+    final cleanName = name.trim().toUpperCase();
+    final cleanRole = role.trim().toUpperCase();
+    if (cleanNumber.isEmpty || cleanName.isEmpty) return false;
+    if (teamMembers.any((member) => member.number == cleanNumber)) return false;
+
+    teamMembers.insert(
+      0,
+      TeamMember(
+        id: _id('team'),
+        number: cleanNumber,
+        name: cleanName,
+        role: cleanRole.isEmpty ? 'GARCOM' : cleanRole,
+      ),
+    );
+    _enqueue('team_member_saved');
+    await _saveAndNotify();
+    return true;
+  }
+
   Future<void> simulateIfoodOrder() async {
     final order = Order(
       id: _id('ifood'),
@@ -2449,6 +2494,28 @@ class BalcaoStore extends ChangeNotifier {
           points: 9,
         ),
       ]);
+    teamMembers
+      ..clear()
+      ..addAll([
+        TeamMember(
+          id: 'team-1',
+          number: '1',
+          name: operatorName.toUpperCase(),
+          role: 'CAIXA',
+        ),
+        TeamMember(
+          id: 'team-2',
+          number: '2',
+          name: 'LUCAS CESAR',
+          role: 'GERENTE',
+        ),
+        TeamMember(
+          id: 'team-3',
+          number: '3',
+          name: 'ENTREGADOR APP',
+          role: 'ENTREGADOR',
+        ),
+      ]);
     orders
       ..clear()
       ..addAll([
@@ -2652,6 +2719,8 @@ class BalcaoStore extends ChangeNotifier {
       'products': products.map((item) => item.toJson()).toList(),
       'orders': orders.map((item) => item.toJson()).toList(),
       'customers': customers.map((item) => item.toJson()).toList(),
+      'teamMembers': teamMembers.map((item) => item.toJson()).toList(),
+      'users': teamMembers.map((item) => item.toJson()).toList(),
       'cashMovements': movements.map((item) => item.toJson()).toList(),
       'stockMovements': stockMovements.map((item) => item.toJson()).toList(),
     };
@@ -3006,6 +3075,7 @@ class BalcaoStore extends ChangeNotifier {
         'products': products.map((item) => item.toJson()).toList(),
         'orders': orders.map((item) => item.toJson()).toList(),
         'customers': customers.map((item) => item.toJson()).toList(),
+        'teamMembers': teamMembers.map((item) => item.toJson()).toList(),
         'movements': movements.map((item) => item.toJson()).toList(),
         'stockMovements': stockMovements.map((item) => item.toJson()).toList(),
         'syncQueue': syncQueue,
