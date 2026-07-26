@@ -777,6 +777,97 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('settings expose the protected WPF Fiscal and TEF module', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1920, 1020);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Configurações').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pagamentos e NF').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('fiscalEnabled')), findsOneWidget);
+    expect(find.byKey(const Key('fiscalMerchantCode')), findsOneWidget);
+    expect(find.byKey(const Key('fiscalOperator')), findsOneWidget);
+    expect(find.byKey(const Key('fiscalPin')), findsOneWidget);
+    expect(find.byKey(const Key('fiscalSave')), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('fiscalEnabled')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('fiscalEnabled')));
+    await tester.enterText(find.byKey(const Key('fiscalPin')), '1234');
+    await tester.ensureVisible(find.byKey(const Key('fiscalSave')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('fiscalSave')));
+    await tester.pumpAndSettle();
+
+    expect(store.fiscalEnabled, isTrue);
+    expect(store.fiscalMessage, contains('LUCAS CESAR'));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('new delivery opens and saves protected radius fees', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1920, 1020);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+    store.cashOpen = true;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Delivery').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delivery').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Taxas por raio no mapa'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Taxas de entrega'), findsOneWidget);
+    expect(find.byKey(const Key('deliveryZoneRadius')), findsOneWidget);
+    expect(find.byKey(const Key('deliveryZoneFee')), findsOneWidget);
+    expect(find.byKey(const Key('deliveryZonePin')), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('deliveryZoneRadius')), '2,0');
+    await tester.enterText(find.byKey(const Key('deliveryZoneFee')), '6,00');
+    await tester.enterText(find.byKey(const Key('deliveryZonePin')), '1234');
+    await tester.ensureVisible(find.byKey(const Key('deliveryZoneSave')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('deliveryZoneSave')));
+    await tester.pumpAndSettle();
+
+    expect(store.deliveryZones, hasLength(1));
+    expect(store.deliveryZones.single.fee, 6);
+    expect(find.textContaining('salva por LUCAS CESAR'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('mobile reaches backup from the same connected More hub', (
     WidgetTester tester,
   ) async {

@@ -17937,6 +17937,269 @@ class _ProductManageLine extends StatelessWidget {
   }
 }
 
+class _DeliveryZonesModule extends StatefulWidget {
+  const _DeliveryZonesModule({required this.store});
+
+  final BalcaoStore store;
+
+  @override
+  State<_DeliveryZonesModule> createState() => _DeliveryZonesModuleState();
+}
+
+class _DeliveryZonesModuleState extends State<_DeliveryZonesModule> {
+  final radius = TextEditingController(text: '1,0');
+  final fee = TextEditingController(text: '0,00');
+  final minimum = TextEditingController(text: '0,00');
+  final operator = TextEditingController(text: '2');
+  final pin = TextEditingController();
+  String? selectedId;
+  bool active = true;
+  String message = '';
+
+  @override
+  void dispose() {
+    radius.dispose();
+    fee.dispose();
+    minimum.dispose();
+    operator.dispose();
+    pin.dispose();
+    super.dispose();
+  }
+
+  void _select(DeliveryZone zone) {
+    setState(() {
+      selectedId = zone.id;
+      radius.text = zone.radiusKm.toStringAsFixed(1).replaceAll('.', ',');
+      fee.text = zone.fee.toStringAsFixed(2).replaceAll('.', ',');
+      minimum.text = zone.minimumOrder.toStringAsFixed(2).replaceAll('.', ',');
+      active = zone.active;
+      message = '';
+    });
+  }
+
+  void _newZone() {
+    final next = widget.store.deliveryZones.isEmpty
+        ? 1.0
+        : widget.store.deliveryZones
+                  .map((zone) => zone.radiusKm)
+                  .reduce(math.max)
+                  .ceilToDouble() +
+              1;
+    setState(() {
+      selectedId = null;
+      radius.text = next.toStringAsFixed(1).replaceAll('.', ',');
+      fee.text = '0,00';
+      minimum.text = '0,00';
+      active = true;
+      message = '';
+    });
+  }
+
+  Future<void> _save() async {
+    final radiusValue =
+        double.tryParse(radius.text.trim().replaceAll(',', '.')) ?? -1;
+    final saved = await widget.store.saveDeliveryZone(
+      id: selectedId,
+      radiusKm: radius.text,
+      fee: fee.text,
+      minimumOrder: minimum.text,
+      active: active,
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      message = widget.store.securityMessage;
+      if (saved) {
+        pin.clear();
+        selectedId = widget.store.deliveryZones
+            .where((zone) => (zone.radiusKm - radiusValue).abs() < 0.001)
+            .firstOrNull
+            ?.id;
+      }
+    });
+  }
+
+  Future<void> _delete() async {
+    if (selectedId == null) {
+      setState(() => message = 'Selecione uma faixa para excluir.');
+      return;
+    }
+    final deleted = await widget.store.deleteDeliveryZone(
+      id: selectedId!,
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      message = widget.store.securityMessage;
+      if (deleted) {
+        pin.clear();
+        selectedId = null;
+      }
+    });
+  }
+
+  Future<void> _openMap() async {
+    final query = Uri.encodeQueryComponent(
+      '${widget.store.businessAddress}, ${widget.store.businessCity}, ${widget.store.businessUf}',
+    );
+    final uri = Uri.parse('https://www.openstreetmap.org/search?query=$query');
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
+        mounted) {
+      setState(() => message = 'Nao consegui abrir o mapa agora.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _ModuleScroll(
+      children: [
+        _WindowPanel(
+          title: 'Taxas de entrega',
+          action: _StatusPill(
+            text: '${widget.store.deliveryZones.length} faixa(s)',
+            color: _teal,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Cadastre faixas por distancia. O PDV usa a menor faixa ativa e sugere a taxa no novo delivery.',
+                style: TextStyle(color: _textSecondary),
+              ),
+              const SizedBox(height: 10),
+              if (widget.store.deliveryZones.isEmpty)
+                const _Empty(text: 'Nenhum raio salvo.')
+              else
+                ...widget.store.deliveryZones.map(
+                  (zone) => ListTile(
+                    selected: selectedId == zone.id,
+                    leading: Icon(
+                      Icons.radio_button_checked_rounded,
+                      color: zone.active ? _teal : _textSecondary,
+                    ),
+                    title: Text(zone.display),
+                    subtitle: Text(zone.active ? 'Ativa' : 'Desativada'),
+                    trailing: const Icon(Icons.edit_outlined),
+                    onTap: () => _select(zone),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        _WindowPanel(
+          title: 'Cadastrar faixa',
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('deliveryZoneRadius'),
+                      label: 'Raio (km)',
+                      controller: radius,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('deliveryZoneFee'),
+                      label: 'Taxa',
+                      controller: fee,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('deliveryZoneMinimum'),
+                      label: 'Pedido minimo',
+                      controller: minimum,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Faixa ativa'),
+                value: active,
+                onChanged: (value) => setState(() => active = value ?? true),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('deliveryZoneOperator'),
+                      label: 'Operador autorizado',
+                      controller: operator,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('deliveryZonePin'),
+                      label: 'Senha',
+                      controller: pin,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _DeskCommandButton(
+                    key: const Key('deliveryZoneSave'),
+                    label: 'Salvar raio',
+                    color: _teal,
+                    onTap: _save,
+                  ),
+                  _DeskCommandButton(
+                    label: 'Novo',
+                    color: _navy2,
+                    onTap: _newZone,
+                  ),
+                  _DeskCommandButton(
+                    key: const Key('deliveryZoneDelete'),
+                    label: 'Excluir selecionado',
+                    color: _danger,
+                    onTap: _delete,
+                  ),
+                  _DeskCommandButton(
+                    label: 'Abrir mapa da loja',
+                    color: _warn,
+                    onTap: _openMap,
+                  ),
+                ],
+              ),
+              if (message.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                _InfoStrip(
+                  icon: Icons.delivery_dining_outlined,
+                  title: 'Resultado',
+                  text: message,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _NewDeliveryOrderModule extends StatefulWidget {
   const _NewDeliveryOrderModule({required this.store});
 
@@ -17958,6 +18221,15 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
   String type = 'Entrega';
   String courier = '';
   bool autoPrint = true;
+  String zoneHint =
+      'Sem circulo cadastrado. Informe a taxa manual ou cadastre raios.';
+
+  @override
+  void initState() {
+    super.initState();
+    district.addListener(_applySuggestedFee);
+    _applySuggestedFee();
+  }
 
   @override
   void dispose() {
@@ -17971,7 +18243,43 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
     super.dispose();
   }
 
-  void _create() {
+  void _applySuggestedFee() {
+    final zone = widget.store.suggestedDeliveryZone;
+    if (zone == null) {
+      if (mounted) {
+        setState(() {
+          zoneHint =
+              'Sem circulo cadastrado. Informe a taxa manual ou cadastre raios.';
+        });
+      }
+      return;
+    }
+    fee.text = zone.fee.toStringAsFixed(2).replaceAll('.', ',');
+    if (mounted) {
+      setState(() {
+        zoneHint =
+            'Taxa sugerida: ate ${zone.radiusKm.toStringAsFixed(1)} km (${money(zone.fee)})'
+            '${zone.minimumOrder > 0 ? ' | pedido minimo ${money(zone.minimumOrder)}' : ''}.';
+      });
+    }
+  }
+
+  Future<void> _showDeliveryZones() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.all(18),
+        child: SizedBox(
+          width: 860,
+          height: 680,
+          child: _DeliveryZonesModule(store: widget.store),
+        ),
+      ),
+    );
+    _applySuggestedFee();
+  }
+
+  Future<void> _create() async {
     final cleanCustomer = customer.text.trim().isEmpty
         ? 'CLIENTE BALCAO'
         : customer.text.trim();
@@ -17980,12 +18288,18 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
         : address.text.trim().isEmpty
         ? 'Endereco nao informado'
         : address.text.trim();
-    widget.store.openOrder(
+    await widget.store.openOrder(
       type == 'Balcao' ? OrderKind.counter : OrderKind.delivery,
       customer: cleanCustomer,
+      customerPhone: phone.text,
       address: cleanAddress,
+      district: district.text,
+      notes: note.text,
+      deliveryFee: type == 'Balcao' ? '0' : fee.text,
+      courier: courier,
+      autoPrint: autoPrint,
     );
-    Navigator.of(context).maybePop();
+    if (mounted) Navigator.of(context).maybePop();
   }
 
   @override
@@ -18053,7 +18367,7 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
                                 child: _OutlineActionTile(
                                   icon: Icons.delivery_dining_outlined,
                                   label: 'Taxas por raio no mapa',
-                                  onTap: () {},
+                                  onTap: _showDeliveryZones,
                                 ),
                               ),
                             ],
@@ -18135,9 +18449,9 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
                         keyboardType: TextInputType.number,
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'Sem circulo cadastrado. Informe a taxa manual ou cadastre raios no mapa.',
-                        style: TextStyle(
+                      Text(
+                        zoneHint,
+                        style: const TextStyle(
                           color: Color(0xFF9B5D00),
                           fontSize: 12,
                           fontWeight: FontWeight.w800,
@@ -19060,6 +19374,20 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
   late final TextEditingController bridgeLocalUrl = TextEditingController(
     text: widget.store.windowsBridgeLocalUrl,
   );
+  late final TextEditingController fiscalMerchantCode = TextEditingController(
+    text: widget.store.fiscalMerchantCode,
+  );
+  late final TextEditingController fiscalCscId = TextEditingController(
+    text: widget.store.fiscalCscId,
+  );
+  final fiscalOperator = TextEditingController(text: '2');
+  final fiscalPin = TextEditingController();
+  late bool fiscalEnabled = widget.store.fiscalEnabled;
+  late bool requireFiscal = widget.store.requireFiscalBeforeReceipt;
+  late String fiscalProvider = widget.store.fiscalProvider;
+  late String tefProvider = widget.store.tefProvider;
+  late String fiscalEnvironment = widget.store.fiscalEnvironment;
+  String fiscalResult = '';
   int section = 0;
 
   @override
@@ -19075,6 +19403,10 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
     address.dispose();
     bridgeUrl.dispose();
     bridgeLocalUrl.dispose();
+    fiscalMerchantCode.dispose();
+    fiscalCscId.dispose();
+    fiscalOperator.dispose();
+    fiscalPin.dispose();
     super.dispose();
   }
 
@@ -19264,13 +19596,107 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
                 ? 'Pix Mercado Pago, debito, credito e link ficam disponiveis no fechamento.'
                 : 'O caixa mostra Dinheiro, Pix, Debito, Credito e Fiado sem depender do Mercado Pago.',
           ),
-          const SizedBox(height: 10),
-          const _InfoStrip(
-            icon: Icons.receipt_long_rounded,
-            title: 'NFC-e',
-            text:
-                'Modulo fiscal fica preparado para emitir pelo PDV Windows sem travar o caixa.',
+          const SizedBox(height: 12),
+          const Divider(),
+          SwitchListTile(
+            key: const Key('fiscalEnabled'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Ativar modulo fiscal/TEF separado'),
+            subtitle: const Text(
+              'NFC-e, SAT, MFE e maquininha ficam isolados do caixa.',
+            ),
+            value: fiscalEnabled,
+            onChanged: (value) => setState(() => fiscalEnabled = value),
           ),
+          const SizedBox(height: 8),
+          _settingsPair(
+            _DeskSelect(
+              label: 'Fiscal',
+              value: fiscalProvider,
+              items: const ['NAO CONFIGURADO', 'NFC-E', 'SAT', 'MFE', 'OUTRO'],
+              onChanged: (value) => setState(() => fiscalProvider = value),
+            ),
+            _DeskSelect(
+              label: 'TEF / maquininha',
+              value: tefProvider,
+              items: const [
+                'NAO CONFIGURADO',
+                'STONE',
+                'CIELO',
+                'REDE',
+                'PAGSEGURO',
+                'TEF DISCADO',
+                'OUTRO',
+              ],
+              onChanged: (value) => setState(() => tefProvider = value),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _settingsPair(
+            _DeskInput(
+              key: const Key('fiscalMerchantCode'),
+              label: 'Codigo do estabelecimento / afiliacao',
+              controller: fiscalMerchantCode,
+            ),
+            _DeskInput(
+              key: const Key('fiscalCscId'),
+              label: 'CSC/Token fiscal ou referencia tecnica',
+              controller: fiscalCscId,
+              obscureText: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _DeskSelect(
+            label: 'Ambiente',
+            value: fiscalEnvironment,
+            items: const ['HOMOLOGACAO', 'PRODUCAO'],
+            onChanged: (value) => setState(() => fiscalEnvironment = value),
+          ),
+          CheckboxListTile(
+            key: const Key('fiscalRequireBeforeReceipt'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              'Exigir fiscal antes de imprimir comprovante de venda',
+            ),
+            value: requireFiscal,
+            onChanged: (value) =>
+                setState(() => requireFiscal = value ?? false),
+          ),
+          const SizedBox(height: 8),
+          _settingsPair(
+            _DeskInput(
+              key: const Key('fiscalOperator'),
+              label: 'Operador autorizado',
+              controller: fiscalOperator,
+            ),
+            _DeskInput(
+              key: const Key('fiscalPin'),
+              label: 'Senha',
+              controller: fiscalPin,
+              keyboardType: TextInputType.number,
+              obscureText: true,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: _DeskCommandButton(
+              key: const Key('fiscalSave'),
+              label: 'Salvar modulo fiscal/TEF',
+              color: _teal,
+              onTap: _saveFiscalSettings,
+            ),
+          ),
+          if (fiscalResult.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _InfoStrip(
+              icon: Icons.receipt_long_rounded,
+              title: fiscalEnabled
+                  ? 'Modulo fiscal ativo'
+                  : 'Modulo fiscal salvo',
+              text: fiscalResult,
+            ),
+          ],
         ],
       ),
     );
@@ -19433,6 +19859,25 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
       localUrl: bridgeLocalUrl.text,
     );
     if (mounted) setState(() {});
+  }
+
+  Future<void> _saveFiscalSettings() async {
+    final saved = await widget.store.saveFiscalSettings(
+      enabled: fiscalEnabled,
+      fiscal: fiscalProvider,
+      tef: tefProvider,
+      merchantCode: fiscalMerchantCode.text,
+      cscId: fiscalCscId.text,
+      environment: fiscalEnvironment,
+      requireBeforeReceipt: requireFiscal,
+      operator: fiscalOperator.text,
+      pin: fiscalPin.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      fiscalResult = widget.store.fiscalMessage;
+      if (saved) fiscalPin.clear();
+    });
   }
 
   Widget _settingsPair(Widget left, Widget right, {double? rightWidth}) {

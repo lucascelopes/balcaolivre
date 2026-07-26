@@ -125,8 +125,14 @@ class Order {
     required this.status,
     required this.createdAt,
     this.customerName = '',
+    this.customerPhone = '',
     this.waiter = '1',
     this.address = '',
+    this.district = '',
+    this.notes = '',
+    this.deliveryFee = 0,
+    this.courier = '',
+    this.autoPrint = true,
     this.paymentMethod = '',
     this.ifoodRepasse = 0,
     this.coverCharge = 0,
@@ -140,8 +146,14 @@ class Order {
   OrderStatus status;
   DateTime createdAt;
   String customerName;
+  String customerPhone;
   String waiter;
   String address;
+  String district;
+  String notes;
+  double deliveryFee;
+  String courier;
+  bool autoPrint;
   String paymentMethod;
   double ifoodRepasse;
   double coverCharge;
@@ -155,7 +167,7 @@ class Order {
       .where((item) => item.code != 'DESC' && item.total > 0)
       .fold(0, (sum, item) => sum + item.total);
   double get serviceAmount => serviceBase * (servicePercent / 100);
-  double get subtotal => itemsTotal + coverCharge + serviceAmount;
+  double get subtotal => itemsTotal + coverCharge + serviceAmount + deliveryFee;
   double get costTotal => items.fold(0, (sum, item) => sum + item.totalCost);
   double get profit => subtotal - costTotal;
   int get itemsCount => items.fold(0, (sum, item) => sum + item.quantity);
@@ -167,8 +179,14 @@ class Order {
     'status': status.name,
     'createdAt': createdAt.toIso8601String(),
     'customerName': customerName,
+    'customerPhone': customerPhone,
     'waiter': waiter,
     'address': address,
+    'district': district,
+    'notes': notes,
+    'deliveryFee': deliveryFee,
+    'courier': courier,
+    'autoPrint': autoPrint,
     'paymentMethod': paymentMethod,
     'ifoodRepasse': ifoodRepasse,
     'coverCharge': coverCharge,
@@ -183,8 +201,14 @@ class Order {
     status: OrderStatus.values.byName(json['status'] as String),
     createdAt: DateTime.parse(json['createdAt'] as String),
     customerName: json['customerName'] as String? ?? '',
+    customerPhone: json['customerPhone'] as String? ?? '',
     waiter: json['waiter'] as String? ?? '1',
     address: json['address'] as String? ?? '',
+    district: json['district'] as String? ?? '',
+    notes: json['notes'] as String? ?? '',
+    deliveryFee: (json['deliveryFee'] as num?)?.toDouble() ?? 0,
+    courier: json['courier'] as String? ?? '',
+    autoPrint: json['autoPrint'] as bool? ?? true,
     paymentMethod: json['paymentMethod'] as String? ?? '',
     ifoodRepasse: (json['ifoodRepasse'] as num?)?.toDouble() ?? 0,
     coverCharge: (json['coverCharge'] as num?)?.toDouble() ?? 0,
@@ -192,6 +216,44 @@ class Order {
     items: (json['items'] as List<dynamic>? ?? [])
         .map((item) => OrderItem.fromJson(item as Map<String, dynamic>))
         .toList(),
+  );
+}
+
+class DeliveryZone {
+  DeliveryZone({
+    required this.id,
+    required this.radiusKm,
+    required this.fee,
+    required this.minimumOrder,
+    this.active = true,
+  });
+
+  final String id;
+  double radiusKm;
+  double fee;
+  double minimumOrder;
+  bool active;
+
+  String get name => 'ATE ${radiusKm.toStringAsFixed(1)} KM';
+  String get display =>
+      '$name | R\$ ${fee.toStringAsFixed(2)}'
+      '${minimumOrder > 0 ? ' | minimo R\$ ${minimumOrder.toStringAsFixed(2)}' : ''}';
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'zone': name,
+    'radiusKm': radiusKm,
+    'fee': fee,
+    'minimumOrder': minimumOrder,
+    'active': active,
+  };
+
+  factory DeliveryZone.fromJson(Map<String, dynamic> json) => DeliveryZone(
+    id: (json['id'] ?? json['zone'] ?? '').toString(),
+    radiusKm: (json['radiusKm'] as num?)?.toDouble() ?? 0,
+    fee: (json['fee'] as num?)?.toDouble() ?? 0,
+    minimumOrder: (json['minimumOrder'] as num?)?.toDouble() ?? 0,
+    active: json['active'] as bool? ?? true,
   );
 }
 
@@ -330,6 +392,7 @@ class TeamMember {
       canIFood = true;
       canSettings = true;
       canBackup = true;
+      canFiscal = true;
       canDeliveryZones = true;
       canCentralSync = true;
     } else if (normalized == 'CAIXA') {

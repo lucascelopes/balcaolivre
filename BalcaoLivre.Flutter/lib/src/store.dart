@@ -72,6 +72,14 @@ class BalcaoStore extends ChangeNotifier {
   bool centralSyncEnabled = true;
   String lastBackupAt = '';
   String backupMessage = 'Nenhum backup gerado nesta instalacao.';
+  bool fiscalEnabled = false;
+  String fiscalProvider = 'NAO CONFIGURADO';
+  String tefProvider = 'NAO CONFIGURADO';
+  String fiscalMerchantCode = '';
+  String fiscalCscId = '';
+  String fiscalEnvironment = 'HOMOLOGACAO';
+  bool requireFiscalBeforeReceipt = false;
+  String fiscalMessage = 'Modulo Fiscal/TEF ainda nao configurado.';
   bool pointConnected = false;
   String pointConnectionStatus = 'DISCONNECTED';
   String pointDeviceName = '';
@@ -108,6 +116,7 @@ class BalcaoStore extends ChangeNotifier {
   final List<Order> orders = [];
   final List<Customer> customers = [];
   final List<TeamMember> teamMembers = [];
+  final List<DeliveryZone> deliveryZones = [];
   final List<CashMovement> movements = [];
   final List<StockMovement> stockMovements = [];
   final List<String> syncQueue = [];
@@ -292,6 +301,17 @@ class BalcaoStore extends ChangeNotifier {
     backupMessage =
         json['backupMessage'] as String? ??
         'Nenhum backup gerado nesta instalacao.';
+    fiscalEnabled = json['fiscalEnabled'] as bool? ?? false;
+    fiscalProvider = json['fiscalProvider'] as String? ?? 'NAO CONFIGURADO';
+    tefProvider = json['tefProvider'] as String? ?? 'NAO CONFIGURADO';
+    fiscalMerchantCode = json['fiscalMerchantCode'] as String? ?? '';
+    fiscalCscId = json['fiscalCscId'] as String? ?? '';
+    fiscalEnvironment = json['fiscalEnvironment'] as String? ?? 'HOMOLOGACAO';
+    requireFiscalBeforeReceipt =
+        json['requireFiscalBeforeReceipt'] as bool? ?? false;
+    fiscalMessage =
+        json['fiscalMessage'] as String? ??
+        'Modulo Fiscal/TEF ainda nao configurado.';
     pointConnected = json['pointConnected'] as bool? ?? false;
     pointConnectionStatus =
         json['pointConnectionStatus'] as String? ?? 'DISCONNECTED';
@@ -358,6 +378,13 @@ class BalcaoStore extends ChangeNotifier {
       ..addAll(
         (json['customers'] as List<dynamic>? ?? []).map(
           (item) => Customer.fromJson(item as Map<String, dynamic>),
+        ),
+      );
+    deliveryZones
+      ..clear()
+      ..addAll(
+        (json['deliveryZones'] as List<dynamic>? ?? []).map(
+          (item) => DeliveryZone.fromJson(item as Map<String, dynamic>),
         ),
       );
     final savedTeam = json['teamMembers'] as List<dynamic>? ?? const [];
@@ -743,11 +770,14 @@ class BalcaoStore extends ChangeNotifier {
         row['table_label'],
         _kindName(kind),
       ]),
-      address: [
-        _text(row['address']),
-        _text(row['district']),
+      customerPhone: _text(row['customer_phone']),
+      address: _text(row['address']),
+      district: _text(row['district']),
+      notes: [
         _text(row['reference']),
+        _text(row['notes']),
       ].where((part) => part.isNotEmpty).join(' - '),
+      deliveryFee: _number(row['delivery_fee']),
       ifoodRepasse: kind == OrderKind.ifood ? _number(row['total']) * 0.88 : 0,
     );
     final items = _list(row['items']);
@@ -773,7 +803,13 @@ class BalcaoStore extends ChangeNotifier {
           code: '',
           name: 'Pedido online',
           quantity: 1,
-          price: _number(row['total']),
+          price: _number(
+            row['subtotal'] ??
+                (_number(row['total']) - order.deliveryFee).clamp(
+                  0,
+                  double.maxFinite,
+                ),
+          ),
           cost: 0,
         ),
       );
@@ -883,6 +919,31 @@ class BalcaoStore extends ChangeNotifier {
       settings['ifoodLastSyncAt'],
       ifoodLastSyncAt,
     ]);
+    if (settings.containsKey('fiscalEnabled')) {
+      fiscalEnabled = _bool(settings['fiscalEnabled']);
+    }
+    fiscalProvider = _firstText([
+      settings['fiscalProvider'],
+      fiscalProvider,
+    ]).toUpperCase();
+    tefProvider = _firstText([
+      settings['tefProvider'],
+      tefProvider,
+    ]).toUpperCase();
+    fiscalMerchantCode = _firstText([
+      settings['fiscalMerchantCode'],
+      fiscalMerchantCode,
+    ]);
+    fiscalCscId = _firstText([settings['fiscalCscId'], fiscalCscId]);
+    fiscalEnvironment = _firstText([
+      settings['fiscalEnvironment'],
+      fiscalEnvironment,
+    ]).toUpperCase();
+    if (settings.containsKey('requireFiscalBeforeReceipt')) {
+      requireFiscalBeforeReceipt = _bool(
+        settings['requireFiscalBeforeReceipt'],
+      );
+    }
     final bridgeUrl = _normalizeBridgeBaseUrl(
       _firstText([
         settings['windowsBridgeUrl'],
@@ -922,6 +983,15 @@ class BalcaoStore extends ChangeNotifier {
       customers
         ..clear()
         ..addAll(customerRows.map(_customerFromSnapshot));
+    }
+
+    final deliveryZoneRows = _list(
+      snapshot['deliveryZones'],
+    ).map(_map).toList();
+    if (deliveryZoneRows.isNotEmpty) {
+      deliveryZones
+        ..clear()
+        ..addAll(deliveryZoneRows.map(DeliveryZone.fromJson));
     }
 
     final teamRows = _list(
@@ -1091,8 +1161,14 @@ class BalcaoStore extends ChangeNotifier {
         row['tableLabel'],
         row['title'],
       ]),
+      customerPhone: _text(row['customerPhone']),
       waiter: _firstText([row['waiter'], '1']),
-      address: _firstText([row['address'], row['district']]),
+      address: _text(row['address']),
+      district: _text(row['district']),
+      notes: _firstText([row['notes'], row['reference']]),
+      deliveryFee: _number(row['deliveryFee']),
+      courier: _text(row['courier']),
+      autoPrint: row['autoPrint'] as bool? ?? true,
       paymentMethod: _text(row['paymentMethod']),
       ifoodRepasse: _number(row['ifoodRepasse']),
       coverCharge: _number(row['coverCharge'] ?? row['couvert']),
@@ -1332,7 +1408,13 @@ class BalcaoStore extends ChangeNotifier {
   Future<void> openOrder(
     OrderKind kind, {
     String customer = '',
+    String customerPhone = '',
     String address = '',
+    String district = '',
+    String notes = '',
+    String deliveryFee = '',
+    String courier = '',
+    bool autoPrint = true,
     String number = '',
   }) async {
     final prefix = switch (kind) {
@@ -1354,7 +1436,13 @@ class BalcaoStore extends ChangeNotifier {
           : OrderStatus.open,
       createdAt: DateTime.now(),
       customerName: customer,
+      customerPhone: customerPhone,
       address: address,
+      district: district,
+      notes: notes,
+      deliveryFee: _number(deliveryFee).clamp(0, 99999).toDouble(),
+      courier: courier,
+      autoPrint: autoPrint,
       ifoodRepasse: kind == OrderKind.ifood ? 0 : 0,
     );
     orders.insert(0, order);
@@ -2313,6 +2401,100 @@ class BalcaoStore extends ChangeNotifier {
     return true;
   }
 
+  DeliveryZone? get suggestedDeliveryZone {
+    final active = deliveryZones.where((zone) => zone.active).toList()
+      ..sort((left, right) {
+        final leftRadius = left.radiusKm <= 0
+            ? double.maxFinite
+            : left.radiusKm;
+        final rightRadius = right.radiusKm <= 0
+            ? double.maxFinite
+            : right.radiusKm;
+        return leftRadius.compareTo(rightRadius);
+      });
+    return active.firstOrNull;
+  }
+
+  Future<bool> saveDeliveryZone({
+    String? id,
+    required String radiusKm,
+    required String fee,
+    required String minimumOrder,
+    required bool active,
+    required String operator,
+    required String pin,
+  }) async {
+    final authorized = await authenticateTeamMember(
+      operator: operator,
+      pin: pin,
+      permission: StaffPermission.deliveryZones,
+    );
+    if (authorized == null) return false;
+    final radius = _number(radiusKm);
+    final deliveryFee = _number(fee);
+    final minimum = _number(minimumOrder);
+    if (radius <= 0 || deliveryFee < 0 || minimum < 0) {
+      securityMessage = 'Informe raio, taxa e pedido minimo validos.';
+      notifyListeners();
+      return false;
+    }
+
+    final existing = deliveryZones
+        .where(
+          (zone) => zone.id == id || (zone.radiusKm - radius).abs() < 0.001,
+        )
+        .firstOrNull;
+    if (existing == null) {
+      deliveryZones.add(
+        DeliveryZone(
+          id: _id('delivery-zone'),
+          radiusKm: radius,
+          fee: deliveryFee,
+          minimumOrder: minimum,
+          active: active,
+        ),
+      );
+    } else {
+      existing
+        ..radiusKm = radius
+        ..fee = deliveryFee
+        ..minimumOrder = minimum
+        ..active = active;
+    }
+    deliveryZones.sort(
+      (left, right) => left.radiusKm.compareTo(right.radiusKm),
+    );
+    securityMessage =
+        'Faixa de entrega salva por ${authorized.name}: ate ${radius.toStringAsFixed(1)} km.';
+    _enqueue('delivery_zone_saved');
+    await _saveAndNotify();
+    return true;
+  }
+
+  Future<bool> deleteDeliveryZone({
+    required String id,
+    required String operator,
+    required String pin,
+  }) async {
+    final authorized = await authenticateTeamMember(
+      operator: operator,
+      pin: pin,
+      permission: StaffPermission.deliveryZones,
+    );
+    if (authorized == null) return false;
+    final before = deliveryZones.length;
+    deliveryZones.removeWhere((zone) => zone.id == id);
+    if (deliveryZones.length == before) {
+      securityMessage = 'Faixa de entrega nao encontrada.';
+      notifyListeners();
+      return false;
+    }
+    securityMessage = 'Faixa de entrega removida por ${authorized.name}.';
+    _enqueue('delivery_zone_deleted');
+    await _saveAndNotify();
+    return true;
+  }
+
   Future<TeamMember?> authenticateTeamMember({
     required String operator,
     required String pin,
@@ -2535,6 +2717,48 @@ class BalcaoStore extends ChangeNotifier {
       ),
     ];
     return rows.join('\r\n');
+  }
+
+  Future<bool> saveFiscalSettings({
+    required bool enabled,
+    required String fiscal,
+    required String tef,
+    required String merchantCode,
+    required String cscId,
+    required String environment,
+    required bool requireBeforeReceipt,
+    required String operator,
+    required String pin,
+  }) async {
+    final authorized = await authenticateTeamMember(
+      operator: operator,
+      pin: pin,
+      permission: StaffPermission.fiscal,
+    );
+    if (authorized == null) {
+      fiscalMessage = securityMessage;
+      notifyListeners();
+      return false;
+    }
+    fiscalEnabled = enabled;
+    fiscalProvider = fiscal.trim().toUpperCase().isEmpty
+        ? 'NAO CONFIGURADO'
+        : fiscal.trim().toUpperCase();
+    tefProvider = tef.trim().toUpperCase().isEmpty
+        ? 'NAO CONFIGURADO'
+        : tef.trim().toUpperCase();
+    fiscalMerchantCode = merchantCode.trim();
+    fiscalCscId = cscId.trim();
+    fiscalEnvironment = environment.trim().toUpperCase() == 'PRODUCAO'
+        ? 'PRODUCAO'
+        : 'HOMOLOGACAO';
+    requireFiscalBeforeReceipt = requireBeforeReceipt;
+    fiscalMessage = fiscalEnabled
+        ? 'Modulo Fiscal/TEF ativado por ${authorized.name}.'
+        : 'Modulo Fiscal/TEF salvo, mas ainda desativado.';
+    _enqueue('fiscal_tef_settings_saved');
+    await _saveAndNotify();
+    return true;
   }
 
   Future<void> connectIfood() async {
@@ -3273,6 +3497,7 @@ class BalcaoStore extends ChangeNotifier {
           canIFood: true,
           canSettings: true,
           canBackup: true,
+          canFiscal: true,
           canDeliveryZones: true,
           canCentralSync: true,
         ),
@@ -3451,6 +3676,11 @@ class BalcaoStore extends ChangeNotifier {
         'supabaseRealtime': true,
         'windowsBridgeUrl': windowsBridgeUrl,
         'windowsBridgeLocalUrl': windowsBridgeLocalUrl,
+        'fiscalEnabled': fiscalEnabled,
+        'fiscalProvider': fiscalProvider,
+        'tefProvider': tefProvider,
+        'fiscalEnvironment': fiscalEnvironment,
+        'requireFiscalBeforeReceipt': requireFiscalBeforeReceipt,
       },
       'metrics': {
         'openOrders': openOrders.length,
@@ -3479,6 +3709,13 @@ class BalcaoStore extends ChangeNotifier {
         'ifoodMerchantId': ifoodMerchantId,
         'ifoodMerchantName': ifoodMerchantName,
         'ifoodLastSyncAt': ifoodLastSyncAt,
+        'fiscalEnabled': fiscalEnabled,
+        'fiscalProvider': fiscalProvider,
+        'tefProvider': tefProvider,
+        'fiscalMerchantCode': fiscalMerchantCode,
+        'fiscalCscId': fiscalCscId,
+        'fiscalEnvironment': fiscalEnvironment,
+        'requireFiscalBeforeReceipt': requireFiscalBeforeReceipt,
       },
       'profile': {
         'email': authEmail,
@@ -3494,6 +3731,7 @@ class BalcaoStore extends ChangeNotifier {
       'products': products.map((item) => item.toJson()).toList(),
       'orders': orders.map((item) => item.toJson()).toList(),
       'customers': customers.map((item) => item.toJson()).toList(),
+      'deliveryZones': deliveryZones.map((item) => item.toJson()).toList(),
       'teamMembers': teamMembers.map((item) => item.toJson()).toList(),
       'users': teamMembers.map((item) => item.toJson()).toList(),
       'cashMovements': movements.map((item) => item.toJson()).toList(),
@@ -3812,6 +4050,14 @@ class BalcaoStore extends ChangeNotifier {
         'centralSyncEnabled': centralSyncEnabled,
         'lastBackupAt': lastBackupAt,
         'backupMessage': backupMessage,
+        'fiscalEnabled': fiscalEnabled,
+        'fiscalProvider': fiscalProvider,
+        'tefProvider': tefProvider,
+        'fiscalMerchantCode': fiscalMerchantCode,
+        'fiscalCscId': fiscalCscId,
+        'fiscalEnvironment': fiscalEnvironment,
+        'requireFiscalBeforeReceipt': requireFiscalBeforeReceipt,
+        'fiscalMessage': fiscalMessage,
         'pointConnected': pointConnected,
         'pointConnectionStatus': pointConnectionStatus,
         'pointDeviceName': pointDeviceName,
@@ -3844,6 +4090,7 @@ class BalcaoStore extends ChangeNotifier {
         'products': products.map((item) => item.toJson()).toList(),
         'orders': orders.map((item) => item.toJson()).toList(),
         'customers': customers.map((item) => item.toJson()).toList(),
+        'deliveryZones': deliveryZones.map((item) => item.toJson()).toList(),
         'teamMembers': teamMembers.map((item) => item.toJson()).toList(),
         'movements': movements.map((item) => item.toJson()).toList(),
         'stockMovements': stockMovements.map((item) => item.toJson()).toList(),
