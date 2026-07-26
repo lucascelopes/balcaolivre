@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'ifood_cloud.dart';
 import 'models.dart';
 
 const _storageKey = 'balcao_livre_flutter_state_v1';
@@ -24,6 +25,9 @@ const _appVersion = String.fromEnvironment(
 );
 
 class BalcaoStore extends ChangeNotifier {
+  BalcaoStore({IFoodCloudClient? ifoodClient})
+    : _ifoodClient = ifoodClient ?? IFoodCloudClient();
+
   bool hydrated = false;
   bool loggedIn = false;
   bool authBusy = false;
@@ -73,6 +77,15 @@ class BalcaoStore extends ChangeNotifier {
   String windowsBridgeLocalUrl = 'http://localhost:5050';
   String windowsBridgeStatus = 'Windows bridge nao conectado';
   String windowsBridgeLastPrintAt = '';
+  bool ifoodBusy = false;
+  String ifoodConnectionId = '';
+  String ifoodConnectionStatus = 'DISCONNECTED';
+  String ifoodMerchantId = '';
+  String ifoodMerchantName = '';
+  String ifoodMessage = 'iFood nao conectado';
+  String ifoodVerificationUrl = '';
+  String ifoodUserCode = '';
+  String ifoodLastSyncAt = '';
   final List<MercadoPagoTerminal> pointTerminals = [];
 
   final List<Product> products = [];
@@ -87,6 +100,7 @@ class BalcaoStore extends ChangeNotifier {
   StreamSubscription<List<Map<String, dynamic>>>? _orderSubscription;
   Timer? _syncDebounce;
   bool _syncRunning = false;
+  final IFoodCloudClient _ifoodClient;
 
   List<String> get categories => [
     'LANCHES',
@@ -132,6 +146,9 @@ class BalcaoStore extends ChangeNotifier {
   int get lowStockCount =>
       products.where((product) => product.stock <= product.minStock).length;
   int get pendingSyncCount => syncQueue.length;
+  bool get ifoodConnected =>
+      ifoodConnectionId.trim().isNotEmpty &&
+      ifoodConnectionStatus.toUpperCase() == 'CONNECTED';
   bool get pointHasPending => pointPendingAmount > 0;
   bool get pointHasLicense => licenseKey.trim().isNotEmpty;
   bool get pointHasTerminal => pointTerminalId.trim().isNotEmpty;
@@ -179,6 +196,7 @@ class BalcaoStore extends ChangeNotifier {
   void dispose() {
     _syncDebounce?.cancel();
     _cancelRealtime();
+    _ifoodClient.dispose();
     super.dispose();
   }
 
@@ -269,6 +287,15 @@ class BalcaoStore extends ChangeNotifier {
         'Windows bridge nao conectado';
     windowsBridgeLastPrintAt =
         json['windowsBridgeLastPrintAt'] as String? ?? '';
+    ifoodConnectionId = json['ifoodConnectionId'] as String? ?? '';
+    ifoodConnectionStatus =
+        json['ifoodConnectionStatus'] as String? ?? 'DISCONNECTED';
+    ifoodMerchantId = json['ifoodMerchantId'] as String? ?? '';
+    ifoodMerchantName = json['ifoodMerchantName'] as String? ?? '';
+    ifoodMessage = json['ifoodMessage'] as String? ?? 'iFood nao conectado';
+    ifoodVerificationUrl = json['ifoodVerificationUrl'] as String? ?? '';
+    ifoodUserCode = json['ifoodUserCode'] as String? ?? '';
+    ifoodLastSyncAt = json['ifoodLastSyncAt'] as String? ?? '';
     if (pointConnected &&
         pointTerminalId.trim().isEmpty &&
         pointSerial == 'MP-BL-001') {
@@ -803,6 +830,26 @@ class BalcaoStore extends ChangeNotifier {
         _text(settings['unreconciledCashOpenedAt']),
       );
     }
+    ifoodConnectionId = _firstText([
+      settings['ifoodConnectionId'],
+      ifoodConnectionId,
+    ]);
+    ifoodConnectionStatus = _firstText([
+      settings['ifoodConnectionStatus'],
+      ifoodConnectionStatus,
+    ]).toUpperCase();
+    ifoodMerchantId = _firstText([
+      settings['ifoodMerchantId'],
+      ifoodMerchantId,
+    ]);
+    ifoodMerchantName = _firstText([
+      settings['ifoodMerchantName'],
+      ifoodMerchantName,
+    ]);
+    ifoodLastSyncAt = _firstText([
+      settings['ifoodLastSyncAt'],
+      ifoodLastSyncAt,
+    ]);
     final bridgeUrl = _normalizeBridgeBaseUrl(
       _firstText([
         settings['windowsBridgeUrl'],
@@ -2060,6 +2107,15 @@ class BalcaoStore extends ChangeNotifier {
   }
 
   Future<void> cancelOrder(Order order) async {
+    if (order.kind == OrderKind.ifood &&
+        ifoodConnected &&
+        await sendIfoodOrderAction(
+          order,
+          'cancel',
+          reason: '501 - Loja sem produto',
+        )) {
+      return;
+    }
     order.status = OrderStatus.canceled;
     if (selectedOrderId == order.id && openOrders.isNotEmpty) {
       selectedOrderId = openOrders.first.id;
@@ -2069,6 +2125,17 @@ class BalcaoStore extends ChangeNotifier {
   }
 
   Future<void> updateOrderStatus(Order order, OrderStatus status) async {
+    if (order.kind == OrderKind.ifood && ifoodConnected) {
+      final action = switch (status) {
+        OrderStatus.preparing => 'confirm',
+        OrderStatus.dispatched || OrderStatus.delivered => 'dispatch',
+        OrderStatus.canceled => 'cancel',
+        _ => '',
+      };
+      if (action.isNotEmpty && await sendIfoodOrderAction(order, action)) {
+        return;
+      }
+    }
     order.status = status;
     _enqueue('order_status_changed');
     await _saveAndNotify();
@@ -2204,6 +2271,271 @@ class BalcaoStore extends ChangeNotifier {
     _enqueue('team_member_saved');
     await _saveAndNotify();
     return true;
+  }
+
+  Future<void> connectIfood() async {
+    if (ifoodBusy) return;
+    if (licenseKey.trim().isEmpty) {
+      ifoodConnectionStatus = 'ERROR';
+      ifoodMessage = 'Entre na conta da loja antes de conectar o iFood.';
+      notifyListeners();
+      return;
+    }
+    ifoodBusy = true;
+    ifoodMessage = 'Conectando com o iFood...';
+    notifyListeners();
+    try {
+      final response = await _ifoodClient.startConnection(_ifoodContext());
+      ifoodConnectionId = _text(response['connectionId']);
+      ifoodConnectionStatus = _firstText([
+        response['status'],
+        ifoodConnectionId.isEmpty ? 'DISCONNECTED' : 'CONNECTED',
+      ]).toUpperCase();
+      ifoodMerchantId = _text(response['merchantId']);
+      ifoodMerchantName = _text(response['merchantName']);
+      ifoodMessage = _firstText([
+        response['message'],
+        ifoodConnected ? 'iFood conectado.' : 'Conexao iFood iniciada.',
+      ]);
+      ifoodVerificationUrl = _firstText([
+        response['verificationUrlComplete'],
+        response['verificationUrl'],
+      ]);
+      ifoodUserCode = _text(response['userCode']);
+      _enqueue('ifood_connected');
+      await _saveAndNotify();
+    } on IFoodCloudException catch (error) {
+      ifoodConnectionStatus = 'ERROR';
+      ifoodMessage = error.message;
+      notifyListeners();
+    } finally {
+      ifoodBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> finishIfoodConnection(String authorizationCode) async {
+    if (ifoodBusy || ifoodConnectionId.isEmpty) return;
+    ifoodBusy = true;
+    ifoodMessage = 'Finalizando autorizacao iFood...';
+    notifyListeners();
+    try {
+      final response = await _ifoodClient.finishConnection(
+        _ifoodContext(),
+        connectionId: ifoodConnectionId,
+        authorizationCode: authorizationCode.trim(),
+      );
+      ifoodConnectionStatus = 'CONNECTED';
+      ifoodMerchantId = _firstText([response['merchantId'], ifoodMerchantId]);
+      ifoodMerchantName = _firstText([
+        response['merchantName'],
+        ifoodMerchantName,
+      ]);
+      ifoodMessage = _firstText([response['message'], 'iFood conectado.']);
+      ifoodVerificationUrl = '';
+      ifoodUserCode = '';
+      _enqueue('ifood_connected');
+      await _saveAndNotify();
+    } on IFoodCloudException catch (error) {
+      ifoodConnectionStatus = 'ERROR';
+      ifoodMessage = error.message;
+      notifyListeners();
+    } finally {
+      ifoodBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<int> syncIfoodOrders() async {
+    if (ifoodBusy || ifoodConnectionId.isEmpty) return 0;
+    ifoodBusy = true;
+    ifoodMessage = 'Buscando pedidos iFood...';
+    notifyListeners();
+    try {
+      final response = await _ifoodClient.syncOrders(
+        _ifoodContext(),
+        connectionId: ifoodConnectionId,
+      );
+      var imported = 0;
+      for (final row in _rows(response['orders'])) {
+        if (_upsertIfoodOrder(row)) imported++;
+      }
+      ifoodConnectionStatus = 'CONNECTED';
+      ifoodLastSyncAt = _firstText([
+        response['syncedAt'],
+        DateTime.now().toIso8601String(),
+      ]);
+      ifoodMessage = _firstText([
+        response['message'],
+        '$imported pedido(s) iFood sincronizado(s).',
+      ]);
+      _enqueue('ifood_orders_synced');
+      await _saveAndNotify();
+      return imported;
+    } on IFoodCloudException catch (error) {
+      ifoodConnectionStatus = 'ERROR';
+      ifoodMessage = error.message;
+      notifyListeners();
+      return 0;
+    } finally {
+      ifoodBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> sendIfoodOrderAction(
+    Order order,
+    String action, {
+    String reason = '',
+  }) async {
+    if (ifoodBusy || !ifoodConnected || order.kind != OrderKind.ifood) {
+      return false;
+    }
+    final externalId = order.id.replaceFirst(RegExp(r'^ifood-'), '');
+    ifoodBusy = true;
+    ifoodMessage = 'Enviando acao ao iFood...';
+    notifyListeners();
+    try {
+      final response = await _ifoodClient.sendOrderAction(
+        _ifoodContext(),
+        connectionId: ifoodConnectionId,
+        orderId: externalId,
+        action: action,
+        reason: reason,
+      );
+      order.status = _ifoodOrderStatus(response['status'] ?? action);
+      ifoodMessage = _firstText([
+        response['message'],
+        'Pedido iFood atualizado.',
+      ]);
+      _enqueue('ifood_order_action');
+      await _saveAndNotify();
+      return true;
+    } on IFoodCloudException catch (error) {
+      ifoodMessage = error.message;
+      notifyListeners();
+      return false;
+    } finally {
+      ifoodBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Map<String, dynamic> _ifoodContext() {
+    return {
+      'licenseKey': licenseKey.trim().toUpperCase(),
+      'machineHash': _machineHash,
+      'machineCode': _machineCode,
+      'businessName': businessName,
+      'legalName': businessLegalName,
+      'cnpj': businessDocument,
+      'phone': businessPhone,
+      'address': businessAddress,
+      'city': businessCity,
+      'state': businessUf,
+      'appVersion': _appVersion,
+    };
+  }
+
+  bool _upsertIfoodOrder(Map<String, dynamic> row) {
+    final externalId = _firstText([row['orderId'], row['id']]);
+    if (externalId.isEmpty) return false;
+    final id = 'ifood-$externalId';
+    final existing = orders.where((order) => order.id == id).firstOrNull;
+    final rawItems = _rows(row['items']);
+    final items = rawItems.map((item) {
+      final code = _firstText([
+        item['code'],
+        item['externalCode'],
+        item['productId'],
+      ]);
+      final product = products
+          .where(
+            (candidate) =>
+                candidate.id == _text(item['productId']) ||
+                candidate.code == code,
+          )
+          .firstOrNull;
+      return OrderItem(
+        productId: product?.id ?? _firstText([item['productId'], code]),
+        code: code,
+        name: _firstText([item['name'], 'Item iFood']),
+        quantity: _number(item['quantity']).round().clamp(1, 999),
+        price: _number(item['unitPrice'] ?? item['price']),
+        cost: product?.cost ?? 0,
+      );
+    }).toList();
+    final status = _ifoodOrderStatus(row['status']);
+    if (existing != null) {
+      existing
+        ..number = _firstText([row['displayId'], existing.number])
+        ..status = status
+        ..customerName = _firstText([
+          row['customerName'],
+          existing.customerName,
+        ])
+        ..address = [
+          _text(row['address']),
+          _text(row['district']),
+        ].where((part) => part.isNotEmpty).join(' - ')
+        ..paymentMethod = _firstText([
+          row['paymentMethod'],
+          row['paymentSummary'],
+          existing.paymentMethod,
+        ])
+        ..ifoodRepasse = _number(row['total']) * 0.88
+        ..servicePercent = 0;
+      if (items.isNotEmpty) {
+        existing.items
+          ..clear()
+          ..addAll(items);
+      }
+      return false;
+    }
+
+    final order = Order(
+      id: id,
+      number: _firstText([
+        row['displayId'],
+        'I${(orders.length + 1).toString().padLeft(5, '0')}',
+      ]),
+      kind: OrderKind.ifood,
+      status: status,
+      createdAt: DateTime.tryParse(_text(row['createdAt'])) ?? DateTime.now(),
+      customerName: _firstText([row['customerName'], 'CLIENTE IFOOD']),
+      address: [
+        _text(row['address']),
+        _text(row['district']),
+      ].where((part) => part.isNotEmpty).join(' - '),
+      paymentMethod: _firstText([row['paymentMethod'], row['paymentSummary']]),
+      ifoodRepasse: _number(row['total']) * 0.88,
+      servicePercent: 0,
+      items: items,
+    );
+    orders.insert(0, order);
+    selectedOrderId = order.id;
+    return true;
+  }
+
+  OrderStatus _ifoodOrderStatus(Object? value) {
+    final status = _text(value).toUpperCase();
+    if (status.contains('CANCEL')) return OrderStatus.canceled;
+    if (status.contains('DELIVER') || status.contains('CONCLUDE')) {
+      return OrderStatus.delivered;
+    }
+    if (status.contains('DISPATCH') ||
+        status.contains('DESPACH') ||
+        status.contains('READY') ||
+        status.contains('PRONTO') ||
+        status.contains('PICKUP')) {
+      return OrderStatus.dispatched;
+    }
+    if (status.contains('CONFIRM') ||
+        status.contains('PREPAR') ||
+        status == 'CFM') {
+      return OrderStatus.preparing;
+    }
+    return OrderStatus.open;
   }
 
   Future<void> simulateIfoodOrder() async {
@@ -2704,6 +3036,11 @@ class BalcaoStore extends ChangeNotifier {
         'autoSync': 1,
         'cashOpen': cashOpen ? 1 : 0,
         'lastSyncAt': DateTime.now().toIso8601String(),
+        'ifoodConnectionId': ifoodConnectionId,
+        'ifoodConnectionStatus': ifoodConnectionStatus,
+        'ifoodMerchantId': ifoodMerchantId,
+        'ifoodMerchantName': ifoodMerchantName,
+        'ifoodLastSyncAt': ifoodLastSyncAt,
       },
       'profile': {
         'email': authEmail,
@@ -3072,6 +3409,14 @@ class BalcaoStore extends ChangeNotifier {
         'windowsBridgeLocalUrl': windowsBridgeLocalUrl,
         'windowsBridgeStatus': windowsBridgeStatus,
         'windowsBridgeLastPrintAt': windowsBridgeLastPrintAt,
+        'ifoodConnectionId': ifoodConnectionId,
+        'ifoodConnectionStatus': ifoodConnectionStatus,
+        'ifoodMerchantId': ifoodMerchantId,
+        'ifoodMerchantName': ifoodMerchantName,
+        'ifoodMessage': ifoodMessage,
+        'ifoodVerificationUrl': ifoodVerificationUrl,
+        'ifoodUserCode': ifoodUserCode,
+        'ifoodLastSyncAt': ifoodLastSyncAt,
         'products': products.map((item) => item.toJson()).toList(),
         'orders': orders.map((item) => item.toJson()).toList(),
         'customers': customers.map((item) => item.toJson()).toList(),

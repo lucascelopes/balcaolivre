@@ -1214,6 +1214,7 @@ class _MobilePdvTopBar extends StatelessWidget {
             ),
           ),
           IconButton(
+            key: const Key('mobileMore'),
             onPressed: onMore,
             icon: const Icon(Icons.more_vert_rounded),
             color: Colors.white,
@@ -5490,7 +5491,7 @@ class _PdvRibbon extends StatelessWidget {
       ]),
       _RibbonGroupData('Pedidos', [
         _RibbonItem('IF', 'iFood', 'Pedidos', Icons.storefront_outlined, () {
-          openModule('iFood em manutencao', _DeliveryModule(store: store));
+          openModule('iFood Online', _DeliveryModule(store: store));
         }),
       ]),
     ];
@@ -16161,11 +16162,15 @@ class _QuickHubModule extends StatelessWidget {
                 onTap: store.flushSync,
               ),
               _HubButton(
+                key: const Key('ifoodHub'),
                 icon: Icons.restaurant_rounded,
-                title: 'iFood',
-                subtitle: 'Pedidos e catalogo',
+                title: store.ifoodConnected ? 'iFood ligado' : 'iFood',
+                subtitle: store.ifoodConnected
+                    ? store.ifoodMerchantName
+                    : 'Conectar pedidos',
                 color: Colors.red,
-                onTap: store.simulateIfoodOrder,
+                onTap: () =>
+                    openModule('iFood Online', _DeliveryModule(store: store)),
               ),
               _HubButton(
                 icon: Icons.contactless_rounded,
@@ -16231,6 +16236,7 @@ class _QuickHubModule extends StatelessWidget {
 
 class _HubButton extends StatelessWidget {
   const _HubButton({
+    super.key,
     required this.icon,
     required this.title,
     required this.subtitle,
@@ -17975,46 +17981,201 @@ class _OutlineActionTile extends StatelessWidget {
   }
 }
 
-class _DeliveryModule extends StatelessWidget {
+class _DeliveryModule extends StatefulWidget {
   const _DeliveryModule({required this.store});
 
   final BalcaoStore store;
 
   @override
+  State<_DeliveryModule> createState() => _DeliveryModuleState();
+}
+
+class _DeliveryModuleState extends State<_DeliveryModule> {
+  final authorizationCode = TextEditingController();
+
+  BalcaoStore get store => widget.store;
+
+  @override
+  void dispose() {
+    authorizationCode.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return _ModuleScroll(
+    return Column(
       children: [
-        _WindowPanel(
-          title: 'Entrada de pedidos',
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _DeskCommandButton(
-                label: 'Novo delivery',
-                color: _navy2,
-                onTap: () => store.openOrder(
-                  OrderKind.delivery,
-                  customer: 'Cliente delivery',
-                  address: 'Endereco delivery',
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: _WindowPanel(
+            title: 'iFood Online',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _ReportLine(
+                  label: store.ifoodMerchantName.isEmpty
+                      ? 'Conexao iFood'
+                      : store.ifoodMerchantName,
+                  detail: store.ifoodMessage,
+                  value: store.ifoodBusy
+                      ? '...'
+                      : store.ifoodConnected
+                      ? 'ON'
+                      : 'OFF',
+                  color: store.ifoodConnected ? _teal : Colors.red,
                 ),
-              ),
-              _DeskCommandButton(
-                label: 'Simular iFood',
-                color: Colors.red,
-                onTap: store.simulateIfoodOrder,
-              ),
-              _DeskCommandButton(
-                label: 'Sincronizar',
-                color: _teal,
-                onTap: store.flushSync,
+                if (store.ifoodLastSyncAt.isNotEmpty)
+                  _ReportLine(
+                    label: 'Ultima sincronizacao',
+                    detail: store.ifoodLastSyncAt,
+                    value:
+                        '${store.orders.where((order) => order.kind == OrderKind.ifood).length}',
+                    color: _navy2,
+                  ),
+                if (store.ifoodVerificationUrl.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  _AccessLinkBox(
+                    label: 'Autorizar no iFood',
+                    value: store.ifoodVerificationUrl,
+                    status: store.ifoodUserCode.isEmpty
+                        ? 'abrir'
+                        : store.ifoodUserCode,
+                    color: Colors.red,
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _DeskInput(
+                          key: const Key('ifoodAuthorizationCode'),
+                          label: 'Codigo de autorizacao',
+                          controller: authorizationCode,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _DeskCommandButton(
+                          key: const Key('ifoodFinishConnection'),
+                          label: 'Finalizar conexao',
+                          color: Colors.red,
+                          onTap: () => _finishConnection(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _DeskCommandButton(
+                      key: const Key('ifoodConnect'),
+                      label: store.ifoodConnected
+                          ? 'Reconectar iFood'
+                          : 'Conectar iFood',
+                      color: Colors.red,
+                      onTap: () => _connect(),
+                    ),
+                    _DeskCommandButton(
+                      key: const Key('ifoodSyncOrders'),
+                      label: 'Buscar pedidos',
+                      color: _teal,
+                      onTap: store.ifoodConnected ? () => _syncOrders() : () {},
+                    ),
+                    _DeskCommandButton(
+                      label: 'Novo delivery',
+                      color: _navy2,
+                      onTap: () => store.openOrder(
+                        OrderKind.delivery,
+                        customer: 'Cliente delivery',
+                        address: 'Endereco delivery',
+                      ),
+                    ),
+                    if (store.ifoodVerificationUrl.isNotEmpty)
+                      _DeskCommandButton(
+                        label: 'Abrir autorizacao',
+                        color: _navy2,
+                        onTap: () => _openAuthorization(),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            children: [
+              _WindowPanel(
+                title: 'Pedidos iFood recebidos',
+                child: Column(
+                  children: store.orders
+                      .where((order) => order.kind == OrderKind.ifood)
+                      .map(
+                        (order) => ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                          ),
+                          leading: const CircleAvatar(
+                            backgroundColor: Color(0xFFFFE9E6),
+                            foregroundColor: Colors.red,
+                            child: Icon(Icons.restaurant_rounded),
+                          ),
+                          title: Text(
+                            '${order.number} - ${order.customerName}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                          subtitle: Text(
+                            '${statusLabel(order.status)} | ${order.itemsCount} item(ns)',
+                          ),
+                          trailing: Text(
+                            money(order.subtotal),
+                            style: const TextStyle(
+                              color: _navy2,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          onTap: () => store.selectOrder(order.id),
+                        ),
+                      )
+                      .toList(),
+                ),
               ),
             ],
           ),
         ),
-        _DeliveryDesk(store: store),
       ],
     );
+  }
+
+  Future<void> _connect() async {
+    await store.connectIfood();
+    if (mounted) setState(() {});
+    if (store.ifoodVerificationUrl.isNotEmpty) {
+      await _openAuthorization();
+    }
+  }
+
+  Future<void> _finishConnection() async {
+    await store.finishIfoodConnection(authorizationCode.text);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _syncOrders() async {
+    await store.syncIfoodOrders();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openAuthorization() async {
+    final uri = Uri.tryParse(store.ifoodVerificationUrl);
+    if (uri == null) return;
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      await Clipboard.setData(ClipboardData(text: store.ifoodVerificationUrl));
+    }
   }
 }
 
@@ -18725,10 +18886,9 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
           ),
           _ReportLine(
             label: 'iFood',
-            detail:
-                'catalogo, estoque e pedidos em tempo real quando habilitado',
-            value: 'AUTO',
-            color: Colors.red,
+            detail: widget.store.ifoodMessage,
+            value: widget.store.ifoodConnected ? 'ON' : 'OFF',
+            color: widget.store.ifoodConnected ? _teal : Colors.red,
           ),
         ],
       ),

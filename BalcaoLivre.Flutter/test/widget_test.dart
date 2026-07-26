@@ -570,6 +570,67 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('iFood ribbon exposes the real cloud connection flow', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1920, 1020);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('iFood').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('iFood Online'), findsWidgets);
+    expect(find.byKey(const Key('ifoodConnect')), findsOneWidget);
+    expect(find.byKey(const Key('ifoodSyncOrders')), findsOneWidget);
+    expect(find.text('Simular iFood'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mobile reaches the same iFood cloud flow from More', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('mobileMore')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ifoodHub')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('iFood Online'), findsWidgets);
+    expect(find.byKey(const Key('ifoodConnect')), findsOneWidget);
+    expect(find.byKey(const Key('ifoodSyncOrders')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('cash reconciliation matches the WPF split dialog on desktop', (
     WidgetTester tester,
   ) async {
