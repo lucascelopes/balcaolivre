@@ -1,0 +1,830 @@
+import 'package:flutter/material.dart';
+
+@immutable
+class AgendaThemeTokens extends ThemeExtension<AgendaThemeTokens> {
+  const AgendaThemeTokens({
+    required this.appBackground,
+    required this.panel,
+    required this.accent,
+    required this.accentDark,
+    required this.accentSoft,
+    required this.blueSoft,
+    required this.warmSoft,
+    required this.line,
+    required this.ink,
+    required this.muted,
+    required this.sidebarBackground,
+    required this.sidebarActive,
+    required this.sidebarBorder,
+    required this.sidebarText,
+    required this.redSoft,
+    required this.yellowSoft,
+    required this.graySoft,
+  });
+
+  final Color appBackground;
+  final Color panel;
+  final Color accent;
+  final Color accentDark;
+  final Color accentSoft;
+  final Color blueSoft;
+  final Color warmSoft;
+  final Color line;
+  final Color ink;
+  final Color muted;
+  final Color sidebarBackground;
+  final Color sidebarActive;
+  final Color sidebarBorder;
+  final Color sidebarText;
+  final Color redSoft;
+  final Color yellowSoft;
+  final Color graySoft;
+
+  static AgendaThemeTokens of(BuildContext context) =>
+      Theme.of(context).extension<AgendaThemeTokens>()!;
+
+  @override
+  AgendaThemeTokens copyWith({
+    Color? appBackground,
+    Color? panel,
+    Color? accent,
+    Color? accentDark,
+    Color? accentSoft,
+    Color? blueSoft,
+    Color? warmSoft,
+    Color? line,
+    Color? ink,
+    Color? muted,
+    Color? sidebarBackground,
+    Color? sidebarActive,
+    Color? sidebarBorder,
+    Color? sidebarText,
+    Color? redSoft,
+    Color? yellowSoft,
+    Color? graySoft,
+  }) {
+    return AgendaThemeTokens(
+      appBackground: appBackground ?? this.appBackground,
+      panel: panel ?? this.panel,
+      accent: accent ?? this.accent,
+      accentDark: accentDark ?? this.accentDark,
+      accentSoft: accentSoft ?? this.accentSoft,
+      blueSoft: blueSoft ?? this.blueSoft,
+      warmSoft: warmSoft ?? this.warmSoft,
+      line: line ?? this.line,
+      ink: ink ?? this.ink,
+      muted: muted ?? this.muted,
+      sidebarBackground: sidebarBackground ?? this.sidebarBackground,
+      sidebarActive: sidebarActive ?? this.sidebarActive,
+      sidebarBorder: sidebarBorder ?? this.sidebarBorder,
+      sidebarText: sidebarText ?? this.sidebarText,
+      redSoft: redSoft ?? this.redSoft,
+      yellowSoft: yellowSoft ?? this.yellowSoft,
+      graySoft: graySoft ?? this.graySoft,
+    );
+  }
+
+  @override
+  AgendaThemeTokens lerp(AgendaThemeTokens? other, double t) {
+    if (other == null) return this;
+    return AgendaThemeTokens(
+      appBackground: Color.lerp(appBackground, other.appBackground, t)!,
+      panel: Color.lerp(panel, other.panel, t)!,
+      accent: Color.lerp(accent, other.accent, t)!,
+      accentDark: Color.lerp(accentDark, other.accentDark, t)!,
+      accentSoft: Color.lerp(accentSoft, other.accentSoft, t)!,
+      blueSoft: Color.lerp(blueSoft, other.blueSoft, t)!,
+      warmSoft: Color.lerp(warmSoft, other.warmSoft, t)!,
+      line: Color.lerp(line, other.line, t)!,
+      ink: Color.lerp(ink, other.ink, t)!,
+      muted: Color.lerp(muted, other.muted, t)!,
+      sidebarBackground: Color.lerp(
+        sidebarBackground,
+        other.sidebarBackground,
+        t,
+      )!,
+      sidebarActive: Color.lerp(sidebarActive, other.sidebarActive, t)!,
+      sidebarBorder: Color.lerp(sidebarBorder, other.sidebarBorder, t)!,
+      sidebarText: Color.lerp(sidebarText, other.sidebarText, t)!,
+      redSoft: Color.lerp(redSoft, other.redSoft, t)!,
+      yellowSoft: Color.lerp(yellowSoft, other.yellowSoft, t)!,
+      graySoft: Color.lerp(graySoft, other.graySoft, t)!,
+    );
+  }
+}
+
+@immutable
+class AgendaThemeSpec {
+  AgendaThemeSpec({
+    required this.id,
+    required this.name,
+    required this.fontFamily,
+    required String appBackground,
+    required String panel,
+    required String accent,
+    required String accentDark,
+    required String accentSoft,
+    required String blueSoft,
+    required String warmSoft,
+    required String line,
+    required String ink,
+    required String muted,
+    required String sidebarBackground,
+    required String sidebarActive,
+    required String sidebarBorder,
+    required String sidebarText,
+    required String redSoft,
+    required String yellowSoft,
+    required String graySoft,
+  }) : tokens = AgendaThemeTokens(
+         appBackground: _hex(appBackground),
+         panel: _hex(panel),
+         accent: _hex(accent),
+         accentDark: _hex(accentDark),
+         accentSoft: _hex(accentSoft),
+         blueSoft: _hex(blueSoft),
+         warmSoft: _hex(warmSoft),
+         line: _hex(line),
+         ink: _hex(ink),
+         muted: _hex(muted),
+         sidebarBackground: _hex(sidebarBackground),
+         sidebarActive: _hex(sidebarActive),
+         sidebarBorder: _hex(sidebarBorder),
+         sidebarText: _hex(sidebarText),
+         redSoft: _hex(redSoft),
+         yellowSoft: _hex(yellowSoft),
+         graySoft: _hex(graySoft),
+       );
+
+  final String id;
+  final String name;
+  final String fontFamily;
+  final AgendaThemeTokens tokens;
+
+  bool get usesDarkSidebar => id.isEmpty;
+
+  String get previewAsset =>
+      'assets/themes/${id.isEmpty ? 'default-warm' : id}.png';
+
+  ThemeData toThemeData() {
+    final t = tokens;
+    // Keep the primary action aligned with the WPF PrimaryActionBackground:
+    // every theme uses its Accent color, including the lighter palettes.
+    final primaryAction = t.accent;
+    final primaryActionForeground = _highestContrastForeground(
+      primaryAction,
+      t.ink,
+    );
+    final secondaryForeground = _highestContrastForeground(t.accentDark, t.ink);
+    final scheme =
+        ColorScheme.fromSeed(
+          seedColor: t.accent,
+          brightness: Brightness.light,
+          surface: t.panel,
+          error: const Color(0xFFDC2626),
+        ).copyWith(
+          primary: primaryAction,
+          onPrimary: primaryActionForeground,
+          secondary: t.accentDark,
+          onSecondary: secondaryForeground,
+          surface: t.panel,
+          onSurface: t.ink,
+          outline: t.line,
+          outlineVariant: t.line,
+        );
+    final base = ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: t.appBackground,
+      // O WPF mantém o corpo em Segoe UI; Georgia entra apenas em títulos
+      // de alguns temas, nunca em todos os controles.
+      fontFamily: 'Segoe UI',
+      dividerColor: t.line,
+      splashFactory: InkRipple.splashFactory,
+      visualDensity: VisualDensity.standard,
+    );
+    return base.copyWith(
+      textTheme: base.textTheme.apply(bodyColor: t.ink, displayColor: t.ink),
+      iconTheme: IconThemeData(color: t.muted, size: 20),
+      snackBarTheme: const SnackBarThemeData(
+        backgroundColor: Color(0x99000000),
+        behavior: SnackBarBehavior.floating,
+        insetPadding: EdgeInsets.fromLTRB(16, 12, 16, 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(14)),
+        ),
+        contentTextStyle: TextStyle(color: Colors.white),
+        actionTextColor: Colors.white,
+        disabledActionTextColor: Color(0xB3FFFFFF),
+        closeIconColor: Colors.white,
+      ),
+      cardTheme: CardThemeData(
+        color: t.panel,
+        elevation: 0,
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: t.line),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: t.panel,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 13,
+          vertical: 13,
+        ),
+        hintStyle: TextStyle(color: t.muted, fontSize: 13),
+        labelStyle: TextStyle(color: t.muted, fontSize: 13),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(9),
+          borderSide: BorderSide(color: t.line),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(9),
+          borderSide: BorderSide(color: t.line),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(9),
+          borderSide: BorderSide(color: t.accent, width: 1.4),
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          elevation: 0,
+          backgroundColor: primaryAction,
+          foregroundColor: primaryActionForeground,
+          minimumSize: const Size(98, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          textStyle: const TextStyle(
+            fontFamily: 'Segoe UI',
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: t.ink,
+          side: BorderSide(color: t.line),
+          minimumSize: const Size(86, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 15),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
+      extensions: [t],
+    );
+  }
+}
+
+Color _highestContrastForeground(Color background, Color darkForeground) {
+  const lightForeground = Colors.white;
+  return _contrastRatio(background, darkForeground) >=
+          _contrastRatio(background, lightForeground)
+      ? darkForeground
+      : lightForeground;
+}
+
+double _contrastRatio(Color first, Color second) {
+  final firstLuminance = first.computeLuminance();
+  final secondLuminance = second.computeLuminance();
+  final lighter = firstLuminance > secondLuminance
+      ? firstLuminance
+      : secondLuminance;
+  final darker = firstLuminance < secondLuminance
+      ? firstLuminance
+      : secondLuminance;
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+Color _hex(String value) {
+  final normalized = value.replaceFirst('#', '');
+  return Color(int.parse('FF$normalized', radix: 16));
+}
+
+AgendaThemeSpec _spec(
+  String id,
+  String name,
+  String font,
+  List<String> colors,
+) {
+  return AgendaThemeSpec(
+    id: id,
+    name: name,
+    fontFamily: font,
+    appBackground: colors[0],
+    panel: colors[1],
+    accent: colors[2],
+    accentDark: colors[3],
+    accentSoft: colors[4],
+    blueSoft: colors[5],
+    warmSoft: colors[6],
+    line: colors[7],
+    ink: colors[8],
+    muted: colors[9],
+    sidebarBackground: colors[10],
+    sidebarActive: colors[11],
+    sidebarBorder: colors[12],
+    sidebarText: colors[13],
+    redSoft: colors[14],
+    yellowSoft: colors[15],
+    graySoft: colors[16],
+  );
+}
+
+class AgendaThemes {
+  AgendaThemes._();
+
+  static final List<AgendaThemeSpec> all = [
+    _spec('', 'Agenda Livre', 'Segoe UI', [
+      '#FAF9F7',
+      '#FFFFFF',
+      '#ED6823',
+      '#C95016',
+      '#FFF1E9',
+      '#FCE4D8',
+      '#FFF8F3',
+      '#E8E3DE',
+      '#1C1B1A',
+      '#716B66',
+      '#FFFFFF',
+      '#FFF1E9',
+      '#ECE7E2',
+      '#48423D',
+      '#FCE5E2',
+      '#FFF0D8',
+      '#F5F3F0',
+    ]),
+    _spec('salon-classic-gold', 'Clássico dourado', 'Georgia', [
+      '#FFFCF5',
+      '#FFFFFF',
+      '#F4D195',
+      '#A86808',
+      '#F9E0B8',
+      '#FBEDCF',
+      '#FFF9ED',
+      '#EAD5AC',
+      '#2A201A',
+      '#756A58',
+      '#FFF9ED',
+      '#F9E0B8',
+      '#E4C48A',
+      '#5A3D0F',
+      '#FCE8E8',
+      '#FFF0C7',
+      '#F5F0E7',
+    ]),
+    _spec('salon-lilac-glow', 'Lilás glow', 'Georgia', [
+      '#FCF9FF',
+      '#FFFFFF',
+      '#8757D9',
+      '#6F42C1',
+      '#F3EAFE',
+      '#EDE0FF',
+      '#FBF7FF',
+      '#E4D8F5',
+      '#241A34',
+      '#6F6380',
+      '#9D79D7',
+      '#FFFFFF',
+      '#8E68CB',
+      '#FFFFFF',
+      '#FDE7EE',
+      '#FFF2D7',
+      '#F4EFFA',
+    ]),
+    _spec('salon-rose-luxe', 'Rose luxe', 'Georgia', [
+      '#FFF7FA',
+      '#FFFFFF',
+      '#C23A6A',
+      '#9E244E',
+      '#FFE8F1',
+      '#FADCE9',
+      '#FFF5F8',
+      '#F0CBD8',
+      '#2E1823',
+      '#7C6470',
+      '#B85A74',
+      '#FFE7EF',
+      '#A94C66',
+      '#FFFFFF',
+      '#FFE3EA',
+      '#FFF2D7',
+      '#F7EEF2',
+    ]),
+    _spec('barber-midnight', 'Preto clássico', 'Segoe UI', [
+      '#F6F7F8',
+      '#FFFFFF',
+      '#202830',
+      '#141A20',
+      '#EEF0F2',
+      '#E7EAED',
+      '#F5F6F7',
+      '#DDE3E8',
+      '#111827',
+      '#5E6874',
+      '#20272D',
+      '#38434D',
+      '#3D474F',
+      '#F8FAFC',
+      '#FDE8E8',
+      '#FFF4D6',
+      '#EFF2F5',
+    ]),
+    _spec('barber-emerald', 'Verde barbearia', 'Segoe UI', [
+      '#F6FAF9',
+      '#FFFFFF',
+      '#00796B',
+      '#005A50',
+      '#DFF4F0',
+      '#E8F7F4',
+      '#F6FCFA',
+      '#D7E8E4',
+      '#10201E',
+      '#5E716D',
+      '#003D38',
+      '#E8F5F2',
+      '#0B5B53',
+      '#F8FFFD',
+      '#FDE8E8',
+      '#FFF4D6',
+      '#EDF5F3',
+    ]),
+    _spec('barber-navy', 'Azul naval', 'Segoe UI', [
+      '#F7FAFE',
+      '#FFFFFF',
+      '#062F63',
+      '#031D3C',
+      '#E7EEF9',
+      '#EAF1FA',
+      '#F8FBFF',
+      '#D9E5F2',
+      '#0D1B2F',
+      '#5C6878',
+      '#062B55',
+      '#F7F2EC',
+      '#22466E',
+      '#F8FAFC',
+      '#FDE8E8',
+      '#FFF4D6',
+      '#EEF3FA',
+    ]),
+    _spec('medical-teal', 'Teal clínico', 'Segoe UI', [
+      '#F7FCFC',
+      '#FFFFFF',
+      '#07989A',
+      '#05777B',
+      '#DDF6F5',
+      '#EAF7F8',
+      '#FAFDFD',
+      '#CFE7E8',
+      '#10233D',
+      '#64778A',
+      '#088E91',
+      '#E1F7F5',
+      '#2AA0A2',
+      '#FFFFFF',
+      '#FCE8E8',
+      '#FFF4D6',
+      '#EFF7F7',
+    ]),
+    _spec('medical-green', 'Verde acolhe', 'Segoe UI', [
+      '#F8FCFA',
+      '#FFFFFF',
+      '#2F9B76',
+      '#1F7E5F',
+      '#E2F4ED',
+      '#EAF6F1',
+      '#FBFEFC',
+      '#D5E7DF',
+      '#10231D',
+      '#61736A',
+      '#118762',
+      '#E4F5EE',
+      '#47A882',
+      '#FFFFFF',
+      '#FCE8E8',
+      '#FFF4D6',
+      '#EFF7F3',
+    ]),
+    _spec('medical-blue', 'Azul saúde', 'Segoe UI', [
+      '#F8FBFF',
+      '#FFFFFF',
+      '#2478E6',
+      '#145EC2',
+      '#E6F0FF',
+      '#EAF2FF',
+      '#FBFDFF',
+      '#D3E2F8',
+      '#10213A',
+      '#607188',
+      '#0D6DDE',
+      '#E4EFFF',
+      '#2C82E6',
+      '#FFFFFF',
+      '#FCE8E8',
+      '#FFF4D6',
+      '#EEF4FB',
+    ]),
+    _spec('pet-coral', 'Coral pet', 'Segoe UI', [
+      '#FFF8F5',
+      '#FFFFFF',
+      '#EB6F62',
+      '#C8574B',
+      '#FDE8E2',
+      '#FCEDE9',
+      '#FFFBF8',
+      '#F0D2CB',
+      '#241B1A',
+      '#756562',
+      '#D95E52',
+      '#FFE9E3',
+      '#F28274',
+      '#FFFFFF',
+      '#FCE8E8',
+      '#FFF1D6',
+      '#F7EEEA',
+    ]),
+    _spec('pet-lilac', 'Lilás pet', 'Segoe UI', [
+      '#FCF9FF',
+      '#FFFFFF',
+      '#8354D8',
+      '#6A3DBD',
+      '#F0E7FF',
+      '#EDE2FF',
+      '#FBF7FF',
+      '#E3D6F5',
+      '#211932',
+      '#6D6380',
+      '#8152CF',
+      '#F3EAFF',
+      '#A17BE2',
+      '#FFFFFF',
+      '#FDE7EE',
+      '#FFF3D8',
+      '#F4EFFA',
+    ]),
+    _spec('pet-teal', 'Verde pet', 'Segoe UI', [
+      '#F6FCFB',
+      '#FFFFFF',
+      '#0A9B94',
+      '#077A74',
+      '#DDF6F2',
+      '#E7F7F5',
+      '#F8FDFC',
+      '#CFE7E4',
+      '#0F2424',
+      '#5E7472',
+      '#078F89',
+      '#E0F6F3',
+      '#29AEA6',
+      '#FFFFFF',
+      '#FCE8E8',
+      '#FFF4D6',
+      '#ECF7F5',
+    ]),
+    _spec('workshop-gold', 'Mecânica ouro', 'Segoe UI', [
+      '#FAF8F2',
+      '#FFFFFF',
+      '#C99B2B',
+      '#9B741D',
+      '#FFF2D6',
+      '#F8F0D7',
+      '#FFFCF6',
+      '#E7D8B8',
+      '#171815',
+      '#6E695C',
+      '#333425',
+      '#6B6030',
+      '#5A5132',
+      '#FFFFFF',
+      '#FCE8E8',
+      '#FFF2D5',
+      '#F3EFE6',
+    ]),
+    _spec('workshop-olive', 'Verde automotivo', 'Segoe UI', [
+      '#F8FAF3',
+      '#FFFFFF',
+      '#6F8220',
+      '#4F6112',
+      '#EDF3D8',
+      '#EEF4DC',
+      '#FCFDF8',
+      '#D9E2BD',
+      '#151A10',
+      '#646F54',
+      '#2F3E16',
+      '#6A772C',
+      '#536329',
+      '#FFFFFF',
+      '#FCE8E8',
+      '#FFF4D6',
+      '#EEF2E6',
+    ]),
+    _spec('workshop-graphite', 'Grafite oficina', 'Segoe UI', [
+      '#F7F8F8',
+      '#FFFFFF',
+      '#5D6B6B',
+      '#3D484A',
+      '#E8ECEC',
+      '#EDF1F1',
+      '#FBFCFC',
+      '#D9DFDF',
+      '#101820',
+      '#66757A',
+      '#111A20',
+      '#37434A',
+      '#2C363D',
+      '#FFFFFF',
+      '#FCE8E8',
+      '#FFF4D6',
+      '#EEF1F2',
+    ]),
+    _spec('aesthetic-lavender', 'Lavanda wellness', 'Segoe UI', [
+      '#FBF9FF',
+      '#FFFFFF',
+      '#7B62B8',
+      '#654FA1',
+      '#EFE9FB',
+      '#EAE4F7',
+      '#FCFAFF',
+      '#E4DAF2',
+      '#1F1D2E',
+      '#6D6682',
+      '#FCFAFF',
+      '#ECE6F8',
+      '#E3D9F1',
+      '#66548F',
+      '#FCE8E8',
+      '#FFF4D6',
+      '#F3EFF8',
+    ]),
+    _spec('aesthetic-sage', 'Sálvia natural', 'Georgia', [
+      '#FBFBF6',
+      '#FFFFFF',
+      '#748463',
+      '#5E6E4F',
+      '#EEF3E7',
+      '#E9EFE1',
+      '#FCFBF6',
+      '#DFE6D5',
+      '#20251D',
+      '#68715F',
+      '#FCFBF6',
+      '#EEF1E6',
+      '#E2E7D9',
+      '#5C674F',
+      '#FCE8E8',
+      '#F8EFCF',
+      '#F1F2EA',
+    ]),
+    _spec('aesthetic-coral', 'Coral glow', 'Segoe UI', [
+      '#FFF9F7',
+      '#FFFFFF',
+      '#D87364',
+      '#B85A4D',
+      '#FBE5E0',
+      '#F8DDD8',
+      '#FFFBFA',
+      '#F1D5CF',
+      '#2F1D1A',
+      '#7B6762',
+      '#FFFBFA',
+      '#F5D6CF',
+      '#EED5CF',
+      '#7C514B',
+      '#FCE8E8',
+      '#FFF1D6',
+      '#F7EEEB',
+    ]),
+    _spec('podology-terracotta', 'Essencial terracota', 'Segoe UI', [
+      '#FFFBF8',
+      '#FFFFFF',
+      '#C85632',
+      '#A94527',
+      '#FBE3DB',
+      '#F8E7E0',
+      '#FFF8F4',
+      '#EED6CD',
+      '#2D211D',
+      '#75665F',
+      '#FFFBF8',
+      '#F8D7C9',
+      '#EDD5CC',
+      '#7A4A3A',
+      '#FCE8E8',
+      '#FFF1D6',
+      '#F5EEE9',
+    ]),
+    _spec('podology-mint', 'Bem-estar verde', 'Segoe UI', [
+      '#F8FEFC',
+      '#FFFFFF',
+      '#43A67E',
+      '#2F8A68',
+      '#E3F4ED',
+      '#DEF0E9',
+      '#FBFFFD',
+      '#D6E8E0',
+      '#17231F',
+      '#60736B',
+      '#FBFFFD',
+      '#E1F2EA',
+      '#D4E7DF',
+      '#3F705E',
+      '#FCE8E8',
+      '#FFF4D6',
+      '#ECF5F1',
+    ]),
+    _spec('podology-blue', 'Azul podologia', 'Segoe UI', [
+      '#F8FBFF',
+      '#FFFFFF',
+      '#0F74D3',
+      '#0B5EAD',
+      '#E7F1FE',
+      '#E4EFFD',
+      '#FBFDFF',
+      '#D8E6F7',
+      '#10213A',
+      '#5E6E82',
+      '#FBFDFF',
+      '#E4F0FD',
+      '#D6E5F7',
+      '#315B87',
+      '#FCE8E8',
+      '#FFF4D6',
+      '#EEF4FB',
+    ]),
+    _spec('spa-aqua', 'Água calma', 'Segoe UI', [
+      '#F7FBFF',
+      '#FFFFFF',
+      '#6EA7D3',
+      '#4E7FA8',
+      '#E4F3FC',
+      '#DDEFFB',
+      '#F9FCFF',
+      '#D7E7F4',
+      '#102B4B',
+      '#607E99',
+      '#2F6288',
+      '#DCEEFF',
+      '#497FA5',
+      '#FFFFFF',
+      '#FCE8E8',
+      '#F3EDFF',
+      '#EEF7FD',
+    ]),
+    _spec('spa-sand', 'Areia serena', 'Georgia', [
+      '#FFF9FB',
+      '#FFFFFF',
+      '#B46D82',
+      '#8E5265',
+      '#F8E7EC',
+      '#F9EEF1',
+      '#FFFBFC',
+      '#E9D2DA',
+      '#2A1C22',
+      '#77636B',
+      '#7E5260',
+      '#F5DFE6',
+      '#9A6171',
+      '#FFFFFF',
+      '#FCE7EC',
+      '#F8EFD5',
+      '#F6EEF1',
+    ]),
+    _spec('spa-forest', 'Floresta zen', 'Georgia', [
+      '#FCFBF6',
+      '#FFFFFF',
+      '#536B3E',
+      '#40532F',
+      '#E8EEDC',
+      '#E3EAD7',
+      '#FFFDF7',
+      '#DDE4D0',
+      '#20281B',
+      '#6A7460',
+      '#3F532F',
+      '#E7EBD9',
+      '#63724F',
+      '#FFFFFF',
+      '#FCE8E8',
+      '#F6EDCF',
+      '#EFF2E8',
+    ]),
+  ];
+
+  static AgendaThemeSpec byId(String? id) {
+    final normalized = (id ?? '').trim().toLowerCase();
+    return all.firstWhere(
+      (theme) => theme.id == normalized,
+      orElse: () => all.first,
+    );
+  }
+}
