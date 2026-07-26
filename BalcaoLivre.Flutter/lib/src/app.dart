@@ -1214,6 +1214,7 @@ class _MobilePdvTopBar extends StatelessWidget {
             ),
           ),
           IconButton(
+            key: const Key('mobileMore'),
             onPressed: onMore,
             icon: const Icon(Icons.more_vert_rounded),
             color: Colors.white,
@@ -5490,7 +5491,12 @@ class _PdvRibbon extends StatelessWidget {
       ]),
       _RibbonGroupData('Pedidos', [
         _RibbonItem('IF', 'iFood', 'Pedidos', Icons.storefront_outlined, () {
-          openModule('iFood em manutencao', _DeliveryModule(store: store));
+          openModule('iFood Online', _DeliveryModule(store: store));
+        }),
+      ]),
+      _RibbonGroupData('Sistema', [
+        _RibbonItem('BK', 'Backup', 'Exportar', Icons.backup_outlined, () {
+          openModule('Backup e exportacao', _BackupModule(store: store));
         }),
       ]),
     ];
@@ -14253,17 +14259,14 @@ class _TeamModule extends StatefulWidget {
 class _TeamModuleState extends State<_TeamModule> {
   final number = TextEditingController(text: '4');
   final name = TextEditingController();
+  final pin = TextEditingController();
   String role = 'GARCOM';
-  late final List<_TeamEntry> entries = [
-    _TeamEntry('1', widget.store.operatorName, 'CAIXA', widget.store.soldToday),
-    const _TeamEntry('2', 'LUCAS CESAR', 'GERENTE', 0),
-    const _TeamEntry('3', 'ENTREGADOR APP', 'ENTREGADOR', 0),
-  ];
 
   @override
   void dispose() {
     number.dispose();
     name.dispose();
+    pin.dispose();
     super.dispose();
   }
 
@@ -14280,11 +14283,19 @@ class _TeamModuleState extends State<_TeamModule> {
                 children: [
                   SizedBox(
                     width: 86,
-                    child: _DeskInput(label: 'Numero', controller: number),
+                    child: _DeskInput(
+                      key: const Key('teamMemberNumber'),
+                      label: 'Numero',
+                      controller: number,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _DeskInput(label: 'Nome', controller: name),
+                    child: _DeskInput(
+                      key: const Key('teamMemberName'),
+                      label: 'Nome',
+                      controller: name,
+                    ),
                   ),
                 ],
               ),
@@ -14301,7 +14312,18 @@ class _TeamModuleState extends State<_TeamModule> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
+                    child: _DeskInput(
+                      key: const Key('teamMemberPin'),
+                      label: 'Senha',
+                      controller: pin,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
                     child: _DeskCommandButton(
+                      key: const Key('teamMemberSave'),
                       label: 'Salvar equipe',
                       color: _teal,
                       onTap: _save,
@@ -14316,13 +14338,15 @@ class _TeamModuleState extends State<_TeamModule> {
         _WindowPanel(
           title: 'Equipe cadastrada',
           child: Column(
-            children: entries
+            children: widget.store.teamMembers
                 .map(
-                  (entry) => _TeamRow(
-                    number: entry.number,
-                    name: entry.name,
-                    role: entry.role,
-                    sales: entry.sales,
+                  (member) => _TeamRow(
+                    number: member.number,
+                    name: member.name,
+                    role: member.role,
+                    sales: widget.store.closedOrders
+                        .where((order) => order.waiter == member.number)
+                        .fold(0, (sum, order) => sum + order.subtotal),
                   ),
                 )
                 .toList(),
@@ -14332,27 +14356,25 @@ class _TeamModuleState extends State<_TeamModule> {
     );
   }
 
-  void _save() {
+  Future<void> _save() async {
     if (name.text.trim().isEmpty) return;
+    final saved = await widget.store.saveTeamMember(
+      number: number.text,
+      name: name.text,
+      role: role,
+      pin: pin.text,
+    );
+    if (!mounted || !saved) return;
     setState(() {
-      entries.insert(
-        0,
-        _TeamEntry(number.text.trim(), name.text.trim().toUpperCase(), role, 0),
-      );
-      final next = (int.tryParse(number.text.trim()) ?? entries.length) + 1;
+      final next =
+          (int.tryParse(number.text.trim()) ??
+              widget.store.teamMembers.length) +
+          1;
       number.text = '$next';
       name.clear();
+      pin.clear();
     });
   }
-}
-
-class _TeamEntry {
-  const _TeamEntry(this.number, this.name, this.role, this.sales);
-
-  final String number;
-  final String name;
-  final String role;
-  final double sales;
 }
 
 class _TeamRow extends StatelessWidget {
@@ -16138,6 +16160,7 @@ class _QuickHubModule extends StatelessWidget {
             runSpacing: 8,
             children: [
               _HubButton(
+                key: const Key('whatsappHub'),
                 icon: Icons.qr_code_2_rounded,
                 title: store.whatsappConnected
                     ? 'WhatsApp ligado'
@@ -16159,11 +16182,15 @@ class _QuickHubModule extends StatelessWidget {
                 onTap: store.flushSync,
               ),
               _HubButton(
+                key: const Key('ifoodHub'),
                 icon: Icons.restaurant_rounded,
-                title: 'iFood',
-                subtitle: 'Pedidos e catalogo',
+                title: store.ifoodConnected ? 'iFood ligado' : 'iFood',
+                subtitle: store.ifoodConnected
+                    ? store.ifoodMerchantName
+                    : 'Conectar pedidos',
                 color: Colors.red,
-                onTap: store.simulateIfoodOrder,
+                onTap: () =>
+                    openModule('iFood Online', _DeliveryModule(store: store)),
               ),
               _HubButton(
                 icon: Icons.contactless_rounded,
@@ -16173,6 +16200,19 @@ class _QuickHubModule extends StatelessWidget {
                 onTap: () => openModule(
                   'Mercado Pago Point',
                   _MercadoPagoPointModule(store: store),
+                ),
+              ),
+              _HubButton(
+                key: const Key('backupHub'),
+                icon: Icons.backup_outlined,
+                title: 'Backup',
+                subtitle: store.lastBackupAt.isEmpty
+                    ? 'Gerar ou restaurar'
+                    : 'Ultimo ${store.lastBackupAt}',
+                color: _navy2,
+                onTap: () => openModule(
+                  'Backup e exportacao',
+                  _BackupModule(store: store),
                 ),
               ),
               _HubButton(
@@ -16229,6 +16269,7 @@ class _QuickHubModule extends StatelessWidget {
 
 class _HubButton extends StatelessWidget {
   const _HubButton({
+    super.key,
     required this.icon,
     required this.title,
     required this.subtitle,
@@ -16317,6 +16358,17 @@ class _WhatsAppModuleState extends State<_WhatsAppModule> {
     text: widget.store.whatsappNumber,
   );
 
+  Future<void> _openOnboarding() async {
+    final uri = Uri.tryParse(widget.store.whatsappOnboardingUrl);
+    if (uri == null || !uri.hasScheme) return;
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nao consegui abrir a conexao agora.')),
+      );
+    }
+  }
+
   @override
   void dispose() {
     number.dispose();
@@ -16326,156 +16378,197 @@ class _WhatsAppModuleState extends State<_WhatsAppModule> {
   @override
   Widget build(BuildContext context) {
     final store = widget.store;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final desktop = constraints.maxWidth >= 720;
-        final qrPanel = _WindowPanel(
-          title: 'Escaneie o QR',
-          action: _StatusPill(
-            text: store.whatsappConnected ? 'conectado' : 'aguardando',
-            color: store.whatsappConnected ? _teal : _warn,
-          ),
-          child: Column(
-            children: [
-              _WhatsAppQrBox(store: store, size: 246),
-              const SizedBox(height: 10),
-              Text(
-                store.businessName,
-                textAlign: TextAlign.center,
-                softWrap: true,
-                style: const TextStyle(
-                  color: _navy,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 18,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                store.whatsappSessionId.isEmpty
-                    ? 'Sessao isolada por loja'
-                    : store.whatsappSessionId,
-                textAlign: TextAlign.center,
-                softWrap: true,
-                style: const TextStyle(
-                  color: _textSecondary,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-        );
-        final statusPanel = _WindowPanel(
-          title: 'WhatsApp Online',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (!desktop) ...[
-                Center(child: _WhatsAppQrBox(store: store, size: 214)),
-                const SizedBox(height: 10),
-              ],
-              _ReportLine(
-                label: 'Conta da loja',
-                detail: store.businessName,
-                value: store.whatsappConnected ? 'ON' : 'QR',
-                color: store.whatsappConnected ? _teal : _warn,
-              ),
-              _ReportLine(
-                label: 'Recebimento',
-                detail: 'pedidos do cardapio entram em tempo real',
-                value: 'ativo',
-                color: _teal,
-              ),
-              _ReportLine(
-                label: 'Anti-flood',
-                detail: 'mensagem inicial uma vez por conversa/cooldown',
-                value: 'ON',
-                color: _navy2,
-              ),
-              const SizedBox(height: 8),
-              _DeskInput(label: 'Numero conectado', controller: number),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: _DeskCommandButton(
-                      label: 'Confirmar conectado',
-                      color: _teal,
-                      onTap: () => store.connectWhatsApp(number.text),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _DeskCommandButton(
-                      label: 'Novo QR',
-                      color: _navy2,
-                      onTap: store.refreshWhatsAppQr,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: _DeskCommandButton(
-                  label: 'Desconectar WhatsApp',
-                  color: _danger,
-                  onTap: store.disconnectWhatsApp,
-                ),
-              ),
-            ],
-          ),
-        );
-        final queuePanel = _WindowPanel(
-          title: 'Fila em tempo real',
-          child: Column(
-            children: [
-              _ReportLine(
-                label: 'Mensagem inicial',
-                detail: 'sem repetir para cada mensagem recebida',
-                value: '1x',
-                color: _teal,
-              ),
-              _ReportLine(
-                label: 'Cliente pediu',
-                detail: 'notifica o PDV quando a loja aceita',
-                value: 'push',
-                color: _navy2,
-              ),
-              _ReportLine(
-                label: 'Pedidos cardapio',
-                detail: 'vinculados a ${store.businessName}',
-                value: '${store.openOrders.length}',
-                color: _warn,
-              ),
-            ],
-          ),
-        );
-        if (desktop) {
-          return Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return AnimatedBuilder(
+      animation: store,
+      builder: (context, _) => LayoutBuilder(
+        builder: (context, constraints) {
+          final desktop = constraints.maxWidth >= 720;
+          final qrPanel = _WindowPanel(
+            title: store.whatsappOnboardingUrl.isEmpty
+                ? 'Conexao oficial'
+                : 'Escaneie ou abra o QR',
+            action: _StatusPill(
+              text: store.whatsappBusy
+                  ? 'consultando'
+                  : store.whatsappConnected
+                  ? 'conectado'
+                  : store.whatsappConnectionStatus == 'ERROR'
+                  ? 'erro'
+                  : 'aguardando',
+              color: store.whatsappConnected
+                  ? _teal
+                  : store.whatsappConnectionStatus == 'ERROR'
+                  ? _danger
+                  : _warn,
+            ),
+            child: Column(
               children: [
-                SizedBox(width: 340, child: qrPanel),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      children: [
-                        statusPanel,
-                        const SizedBox(height: 10),
-                        queuePanel,
-                      ],
-                    ),
+                _WhatsAppQrBox(store: store, size: 246),
+                const SizedBox(height: 10),
+                Text(
+                  store.businessName,
+                  textAlign: TextAlign.center,
+                  softWrap: true,
+                  style: const TextStyle(
+                    color: _navy,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  store.whatsappConnected
+                      ? 'Numero validado pelo gateway da loja'
+                      : store.whatsappOnboardingUrl.isEmpty
+                      ? 'Informe o numero e gere a conexao'
+                      : 'QR seguro gerado pelo gateway Supabase',
+                  textAlign: TextAlign.center,
+                  softWrap: true,
+                  style: const TextStyle(
+                    color: _textSecondary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
                   ),
                 ),
               ],
             ),
           );
-        }
-        return _ModuleScroll(children: [qrPanel, statusPanel, queuePanel]);
-      },
+          final statusPanel = _WindowPanel(
+            title: 'WhatsApp Online',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!desktop) ...[
+                  Center(child: _WhatsAppQrBox(store: store, size: 214)),
+                  const SizedBox(height: 10),
+                ],
+                _ReportLine(
+                  label: 'Conta da loja',
+                  detail: store.businessName,
+                  value: store.whatsappConnected ? 'ON' : 'QR',
+                  color: store.whatsappConnected ? _teal : _warn,
+                ),
+                _ReportLine(
+                  label: 'Recebimento',
+                  detail: 'pedidos do cardapio entram em tempo real',
+                  value: store.whatsappConnected ? 'ativo' : 'pausado',
+                  color: store.whatsappConnected ? _teal : _warn,
+                ),
+                _ReportLine(
+                  label: 'Gateway',
+                  detail: store.whatsappMessage,
+                  value: store.whatsappConnectionStatus,
+                  color: store.whatsappConnectionStatus == 'ERROR'
+                      ? _danger
+                      : _navy2,
+                ),
+                const SizedBox(height: 8),
+                _DeskInput(
+                  key: const Key('whatsappStorePhone'),
+                  label: 'Numero da loja com DDD',
+                  controller: number,
+                  keyboardType: TextInputType.phone,
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _DeskCommandButton(
+                        key: const Key('whatsappConnect'),
+                        label: store.whatsappBusy
+                            ? 'Conectando...'
+                            : 'Conectar numero',
+                        color: _teal,
+                        onTap: () => store.connectWhatsApp(number.text),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _DeskCommandButton(
+                        key: const Key('whatsappRefresh'),
+                        label: 'Atualizar status / QR',
+                        color: _navy2,
+                        onTap: store.refreshWhatsAppQr,
+                      ),
+                    ),
+                  ],
+                ),
+                if (store.whatsappOnboardingUrl.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: _DeskCommandButton(
+                      key: const Key('whatsappOpenOnboarding'),
+                      label: 'Abrir conexao oficial',
+                      color: _warn,
+                      onTap: _openOnboarding,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: _DeskCommandButton(
+                    key: const Key('whatsappDisconnect'),
+                    label: 'Desconectar WhatsApp',
+                    color: _danger,
+                    onTap: store.disconnectWhatsApp,
+                  ),
+                ),
+              ],
+            ),
+          );
+          final queuePanel = _WindowPanel(
+            title: 'Fila em tempo real',
+            child: Column(
+              children: [
+                _ReportLine(
+                  label: 'Mensagem inicial',
+                  detail: 'sem repetir para cada mensagem recebida',
+                  value: '1x',
+                  color: _teal,
+                ),
+                _ReportLine(
+                  label: 'Cliente pediu',
+                  detail: 'notifica o PDV quando a loja aceita',
+                  value: 'push',
+                  color: _navy2,
+                ),
+                _ReportLine(
+                  label: 'Pedidos cardapio',
+                  detail: 'vinculados a ${store.businessName}',
+                  value: '${store.openOrders.length}',
+                  color: _warn,
+                ),
+              ],
+            ),
+          );
+          if (desktop) {
+            return Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(width: 340, child: qrPanel),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          statusPanel,
+                          const SizedBox(height: 10),
+                          queuePanel,
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          return _ModuleScroll(children: [qrPanel, statusPanel, queuePanel]);
+        },
+      ),
     );
   }
 }
@@ -16497,16 +16590,272 @@ class _WhatsAppQrBox extends StatelessWidget {
         borderRadius: BorderRadius.circular(7),
         border: Border.all(color: _line),
       ),
-      child: QrImageView(
-        data: store.whatsappQrPayload(),
-        version: QrVersions.auto,
-        backgroundColor: Colors.white,
-        eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: _navy),
-        dataModuleStyle: const QrDataModuleStyle(
-          dataModuleShape: QrDataModuleShape.square,
-          color: _navy,
+      child: store.whatsappQrPayload.isNotEmpty
+          ? QrImageView(
+              data: store.whatsappQrPayload,
+              version: QrVersions.auto,
+              backgroundColor: Colors.white,
+              eyeStyle: const QrEyeStyle(
+                eyeShape: QrEyeShape.square,
+                color: _navy,
+              ),
+              dataModuleStyle: const QrDataModuleStyle(
+                dataModuleShape: QrDataModuleShape.square,
+                color: _navy,
+              ),
+            )
+          : Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  store.whatsappConnected
+                      ? Icons.verified_rounded
+                      : Icons.qr_code_2_rounded,
+                  color: store.whatsappConnected ? _teal : _navy2,
+                  size: size * 0.36,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  store.whatsappConnected
+                      ? 'WhatsApp conectado'
+                      : 'QR ainda nao gerado',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: _navy,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+class _BackupModule extends StatefulWidget {
+  const _BackupModule({required this.store});
+
+  final BalcaoStore store;
+
+  @override
+  State<_BackupModule> createState() => _BackupModuleState();
+}
+
+class _BackupModuleState extends State<_BackupModule> {
+  final operator = TextEditingController(text: '2');
+  final pin = TextEditingController();
+  late bool cloudBackup = widget.store.cloudBackupEnabled;
+  late bool centralSync = widget.store.centralSyncEnabled;
+  String message = '';
+
+  @override
+  void dispose() {
+    operator.dispose();
+    pin.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveSettings() async {
+    await widget.store.updateBackupSettings(
+      cloudBackup: cloudBackup,
+      centralSync: centralSync,
+    );
+    if (!mounted) return;
+    setState(() => message = widget.store.backupMessage);
+  }
+
+  Future<void> _exportBackup() async {
+    final data = await widget.store.createBackupJson(
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (data == null) {
+      if (mounted) setState(() => message = widget.store.backupMessage);
+      return;
+    }
+    final now = DateTime.now();
+    final stamp =
+        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+    await FilePicker.platform.saveFile(
+      dialogTitle: 'Salvar backup do Balcao Livre',
+      fileName: 'balcao-livre-backup-$stamp.json',
+      type: FileType.custom,
+      allowedExtensions: const ['json'],
+      bytes: Uint8List.fromList(utf8.encode(data)),
+    );
+    if (!mounted) return;
+    setState(() {
+      message = '${widget.store.backupMessage} Download iniciado.';
+      pin.clear();
+    });
+  }
+
+  Future<void> _restoreBackup() async {
+    final picked = await FilePicker.platform.pickFiles(
+      dialogTitle: 'Restaurar backup do Balcao Livre',
+      type: FileType.custom,
+      allowedExtensions: const ['json'],
+      withData: true,
+    );
+    final bytes = picked?.files.firstOrNull?.bytes;
+    if (bytes == null || bytes.isEmpty) return;
+    final restored = await widget.store.restoreBackupJson(
+      backupJson: utf8.decode(bytes),
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      message = widget.store.backupMessage;
+      if (restored) pin.clear();
+    });
+  }
+
+  Future<void> _exportCsv() async {
+    final authorized = await widget.store.authenticateTeamMember(
+      operator: operator.text,
+      pin: pin.text,
+      permission: StaffPermission.backup,
+    );
+    if (authorized == null) {
+      if (mounted) setState(() => message = widget.store.securityMessage);
+      return;
+    }
+    await FilePicker.platform.saveFile(
+      dialogTitle: 'Exportar produtos',
+      fileName: 'produtos-balcao-livre.csv',
+      type: FileType.custom,
+      allowedExtensions: const ['csv'],
+      bytes: Uint8List.fromList(utf8.encode(widget.store.productsCsv())),
+    );
+    if (!mounted) return;
+    setState(() {
+      message = 'Resumo CSV exportado por ${authorized.name}.';
+      pin.clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = widget.store;
+    return _ModuleScroll(
+      children: [
+        _WindowPanel(
+          title: 'Protecao dos dados',
+          child: Column(
+            children: [
+              _ReportLine(
+                label: 'Backup completo',
+                detail: store.lastBackupAt.isEmpty
+                    ? 'ainda nao gerado nesta instalacao'
+                    : 'ultimo em ${store.lastBackupAt}',
+                value: store.cloudBackupEnabled ? 'ON' : 'OFF',
+                color: store.cloudBackupEnabled ? _teal : _warn,
+              ),
+              _ReportLine(
+                label: 'Sync central',
+                detail: store.syncStatus,
+                value: store.centralSyncEnabled ? 'ON' : 'OFF',
+                color: store.centralSyncEnabled ? _teal : _warn,
+              ),
+            ],
+          ),
         ),
-      ),
+        _WindowPanel(
+          title: 'Automacao',
+          child: Column(
+            children: [
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Backup completo versionado'),
+                subtitle: const Text(
+                  'Inclui operacao, produtos, clientes, equipe e configuracoes.',
+                ),
+                value: cloudBackup,
+                onChanged: (value) => setState(() => cloudBackup = value),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Sync central economico'),
+                subtitle: const Text(
+                  'Mantem o resumo operacional pronto para web e mobile.',
+                ),
+                value: centralSync,
+                onChanged: (value) => setState(() => centralSync = value),
+              ),
+              SizedBox(
+                width: double.infinity,
+                child: _DeskCommandButton(
+                  key: const Key('backupSaveSettings'),
+                  label: 'Salvar automacao',
+                  color: _navy2,
+                  onTap: _saveSettings,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _WindowPanel(
+          title: 'Autorizacao do gerente',
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('backupOperator'),
+                      label: 'Operador',
+                      controller: operator,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('backupPin'),
+                      label: 'Senha',
+                      controller: pin,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _DeskCommandButton(
+                    key: const Key('backupExport'),
+                    label: 'Gerar backup agora',
+                    color: _navy2,
+                    onTap: _exportBackup,
+                  ),
+                  _DeskCommandButton(
+                    key: const Key('backupRestore'),
+                    label: 'Restaurar arquivo',
+                    color: _warn,
+                    onTap: _restoreBackup,
+                  ),
+                  _DeskCommandButton(
+                    key: const Key('backupCsv'),
+                    label: 'Exportar resumo CSV',
+                    color: _teal,
+                    onTap: _exportCsv,
+                  ),
+                ],
+              ),
+              if (message.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                _InfoStrip(
+                  icon: Icons.info_outline_rounded,
+                  title: 'Resultado',
+                  text: message,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -16881,13 +17230,48 @@ class _ModuleScroll extends StatelessWidget {
   }
 }
 
-class _DiscountDeskModule extends StatelessWidget {
+class _DiscountDeskModule extends StatefulWidget {
   const _DiscountDeskModule({required this.store});
 
   final BalcaoStore store;
 
   @override
+  State<_DiscountDeskModule> createState() => _DiscountDeskModuleState();
+}
+
+class _DiscountDeskModuleState extends State<_DiscountDeskModule> {
+  final amount = TextEditingController(text: '5,00');
+  final reason = TextEditingController(text: 'Desconto gerente');
+  final operator = TextEditingController(text: '2');
+  final pin = TextEditingController();
+  String message = '';
+
+  @override
+  void dispose() {
+    amount.dispose();
+    reason.dispose();
+    operator.dispose();
+    pin.dispose();
+    super.dispose();
+  }
+
+  Future<void> _apply() async {
+    final applied = await widget.store.applyDiscount(
+      amount: amount.text,
+      reason: reason.text,
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      message = widget.store.securityMessage;
+      if (applied) pin.clear();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final store = widget.store;
     final order = store.selectedOrder;
     if (order == null) {
       return const _ModuleScroll(
@@ -16936,7 +17320,83 @@ class _DiscountDeskModule extends StatelessWidget {
           ),
         ),
         _WindowPanel(
-          title: 'Permissoes rapidas',
+          title: 'Desconto autorizado',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('discountAmount'),
+                      label: 'Valor',
+                      controller: amount,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: _DeskInput(
+                      key: const Key('discountReason'),
+                      label: 'Motivo',
+                      controller: reason,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('discountOperator'),
+                      label: 'Operador autorizado',
+                      controller: operator,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('discountPin'),
+                      label: 'Senha',
+                      controller: pin,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (message.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    message,
+                    style: TextStyle(
+                      color: message.toLowerCase().contains('autorizado')
+                          ? _teal
+                          : _danger,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              SizedBox(
+                width: double.infinity,
+                child: _DeskCommandButton(
+                  key: const Key('discountApply'),
+                  label: 'Autorizar desconto',
+                  color: _danger,
+                  onTap: _apply,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _WindowPanel(
+          title: 'Taxas da comanda',
           child: Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -17477,6 +17937,269 @@ class _ProductManageLine extends StatelessWidget {
   }
 }
 
+class _DeliveryZonesModule extends StatefulWidget {
+  const _DeliveryZonesModule({required this.store});
+
+  final BalcaoStore store;
+
+  @override
+  State<_DeliveryZonesModule> createState() => _DeliveryZonesModuleState();
+}
+
+class _DeliveryZonesModuleState extends State<_DeliveryZonesModule> {
+  final radius = TextEditingController(text: '1,0');
+  final fee = TextEditingController(text: '0,00');
+  final minimum = TextEditingController(text: '0,00');
+  final operator = TextEditingController(text: '2');
+  final pin = TextEditingController();
+  String? selectedId;
+  bool active = true;
+  String message = '';
+
+  @override
+  void dispose() {
+    radius.dispose();
+    fee.dispose();
+    minimum.dispose();
+    operator.dispose();
+    pin.dispose();
+    super.dispose();
+  }
+
+  void _select(DeliveryZone zone) {
+    setState(() {
+      selectedId = zone.id;
+      radius.text = zone.radiusKm.toStringAsFixed(1).replaceAll('.', ',');
+      fee.text = zone.fee.toStringAsFixed(2).replaceAll('.', ',');
+      minimum.text = zone.minimumOrder.toStringAsFixed(2).replaceAll('.', ',');
+      active = zone.active;
+      message = '';
+    });
+  }
+
+  void _newZone() {
+    final next = widget.store.deliveryZones.isEmpty
+        ? 1.0
+        : widget.store.deliveryZones
+                  .map((zone) => zone.radiusKm)
+                  .reduce(math.max)
+                  .ceilToDouble() +
+              1;
+    setState(() {
+      selectedId = null;
+      radius.text = next.toStringAsFixed(1).replaceAll('.', ',');
+      fee.text = '0,00';
+      minimum.text = '0,00';
+      active = true;
+      message = '';
+    });
+  }
+
+  Future<void> _save() async {
+    final radiusValue =
+        double.tryParse(radius.text.trim().replaceAll(',', '.')) ?? -1;
+    final saved = await widget.store.saveDeliveryZone(
+      id: selectedId,
+      radiusKm: radius.text,
+      fee: fee.text,
+      minimumOrder: minimum.text,
+      active: active,
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      message = widget.store.securityMessage;
+      if (saved) {
+        pin.clear();
+        selectedId = widget.store.deliveryZones
+            .where((zone) => (zone.radiusKm - radiusValue).abs() < 0.001)
+            .firstOrNull
+            ?.id;
+      }
+    });
+  }
+
+  Future<void> _delete() async {
+    if (selectedId == null) {
+      setState(() => message = 'Selecione uma faixa para excluir.');
+      return;
+    }
+    final deleted = await widget.store.deleteDeliveryZone(
+      id: selectedId!,
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      message = widget.store.securityMessage;
+      if (deleted) {
+        pin.clear();
+        selectedId = null;
+      }
+    });
+  }
+
+  Future<void> _openMap() async {
+    final query = Uri.encodeQueryComponent(
+      '${widget.store.businessAddress}, ${widget.store.businessCity}, ${widget.store.businessUf}',
+    );
+    final uri = Uri.parse('https://www.openstreetmap.org/search?query=$query');
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
+        mounted) {
+      setState(() => message = 'Nao consegui abrir o mapa agora.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _ModuleScroll(
+      children: [
+        _WindowPanel(
+          title: 'Taxas de entrega',
+          action: _StatusPill(
+            text: '${widget.store.deliveryZones.length} faixa(s)',
+            color: _teal,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Cadastre faixas por distancia. O PDV usa a menor faixa ativa e sugere a taxa no novo delivery.',
+                style: TextStyle(color: _textSecondary),
+              ),
+              const SizedBox(height: 10),
+              if (widget.store.deliveryZones.isEmpty)
+                const _Empty(text: 'Nenhum raio salvo.')
+              else
+                ...widget.store.deliveryZones.map(
+                  (zone) => ListTile(
+                    selected: selectedId == zone.id,
+                    leading: Icon(
+                      Icons.radio_button_checked_rounded,
+                      color: zone.active ? _teal : _textSecondary,
+                    ),
+                    title: Text(zone.display),
+                    subtitle: Text(zone.active ? 'Ativa' : 'Desativada'),
+                    trailing: const Icon(Icons.edit_outlined),
+                    onTap: () => _select(zone),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        _WindowPanel(
+          title: 'Cadastrar faixa',
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('deliveryZoneRadius'),
+                      label: 'Raio (km)',
+                      controller: radius,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('deliveryZoneFee'),
+                      label: 'Taxa',
+                      controller: fee,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('deliveryZoneMinimum'),
+                      label: 'Pedido minimo',
+                      controller: minimum,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Faixa ativa'),
+                value: active,
+                onChanged: (value) => setState(() => active = value ?? true),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('deliveryZoneOperator'),
+                      label: 'Operador autorizado',
+                      controller: operator,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('deliveryZonePin'),
+                      label: 'Senha',
+                      controller: pin,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _DeskCommandButton(
+                    key: const Key('deliveryZoneSave'),
+                    label: 'Salvar raio',
+                    color: _teal,
+                    onTap: _save,
+                  ),
+                  _DeskCommandButton(
+                    label: 'Novo',
+                    color: _navy2,
+                    onTap: _newZone,
+                  ),
+                  _DeskCommandButton(
+                    key: const Key('deliveryZoneDelete'),
+                    label: 'Excluir selecionado',
+                    color: _danger,
+                    onTap: _delete,
+                  ),
+                  _DeskCommandButton(
+                    label: 'Abrir mapa da loja',
+                    color: _warn,
+                    onTap: _openMap,
+                  ),
+                ],
+              ),
+              if (message.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                _InfoStrip(
+                  icon: Icons.delivery_dining_outlined,
+                  title: 'Resultado',
+                  text: message,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _NewDeliveryOrderModule extends StatefulWidget {
   const _NewDeliveryOrderModule({required this.store});
 
@@ -17498,6 +18221,15 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
   String type = 'Entrega';
   String courier = '';
   bool autoPrint = true;
+  String zoneHint =
+      'Sem circulo cadastrado. Informe a taxa manual ou cadastre raios.';
+
+  @override
+  void initState() {
+    super.initState();
+    district.addListener(_applySuggestedFee);
+    _applySuggestedFee();
+  }
 
   @override
   void dispose() {
@@ -17511,7 +18243,43 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
     super.dispose();
   }
 
-  void _create() {
+  void _applySuggestedFee() {
+    final zone = widget.store.suggestedDeliveryZone;
+    if (zone == null) {
+      if (mounted) {
+        setState(() {
+          zoneHint =
+              'Sem circulo cadastrado. Informe a taxa manual ou cadastre raios.';
+        });
+      }
+      return;
+    }
+    fee.text = zone.fee.toStringAsFixed(2).replaceAll('.', ',');
+    if (mounted) {
+      setState(() {
+        zoneHint =
+            'Taxa sugerida: ate ${zone.radiusKm.toStringAsFixed(1)} km (${money(zone.fee)})'
+            '${zone.minimumOrder > 0 ? ' | pedido minimo ${money(zone.minimumOrder)}' : ''}.';
+      });
+    }
+  }
+
+  Future<void> _showDeliveryZones() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.all(18),
+        child: SizedBox(
+          width: 860,
+          height: 680,
+          child: _DeliveryZonesModule(store: widget.store),
+        ),
+      ),
+    );
+    _applySuggestedFee();
+  }
+
+  Future<void> _create() async {
     final cleanCustomer = customer.text.trim().isEmpty
         ? 'CLIENTE BALCAO'
         : customer.text.trim();
@@ -17520,12 +18288,18 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
         : address.text.trim().isEmpty
         ? 'Endereco nao informado'
         : address.text.trim();
-    widget.store.openOrder(
+    await widget.store.openOrder(
       type == 'Balcao' ? OrderKind.counter : OrderKind.delivery,
       customer: cleanCustomer,
+      customerPhone: phone.text,
       address: cleanAddress,
+      district: district.text,
+      notes: note.text,
+      deliveryFee: type == 'Balcao' ? '0' : fee.text,
+      courier: courier,
+      autoPrint: autoPrint,
     );
-    Navigator.of(context).maybePop();
+    if (mounted) Navigator.of(context).maybePop();
   }
 
   @override
@@ -17593,7 +18367,7 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
                                 child: _OutlineActionTile(
                                   icon: Icons.delivery_dining_outlined,
                                   label: 'Taxas por raio no mapa',
-                                  onTap: () {},
+                                  onTap: _showDeliveryZones,
                                 ),
                               ),
                             ],
@@ -17675,9 +18449,9 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
                         keyboardType: TextInputType.number,
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'Sem circulo cadastrado. Informe a taxa manual ou cadastre raios no mapa.',
-                        style: TextStyle(
+                      Text(
+                        zoneHint,
+                        style: const TextStyle(
                           color: Color(0xFF9B5D00),
                           fontSize: 12,
                           fontWeight: FontWeight.w800,
@@ -17973,46 +18747,201 @@ class _OutlineActionTile extends StatelessWidget {
   }
 }
 
-class _DeliveryModule extends StatelessWidget {
+class _DeliveryModule extends StatefulWidget {
   const _DeliveryModule({required this.store});
 
   final BalcaoStore store;
 
   @override
+  State<_DeliveryModule> createState() => _DeliveryModuleState();
+}
+
+class _DeliveryModuleState extends State<_DeliveryModule> {
+  final authorizationCode = TextEditingController();
+
+  BalcaoStore get store => widget.store;
+
+  @override
+  void dispose() {
+    authorizationCode.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return _ModuleScroll(
+    return Column(
       children: [
-        _WindowPanel(
-          title: 'Entrada de pedidos',
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _DeskCommandButton(
-                label: 'Novo delivery',
-                color: _navy2,
-                onTap: () => store.openOrder(
-                  OrderKind.delivery,
-                  customer: 'Cliente delivery',
-                  address: 'Endereco delivery',
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: _WindowPanel(
+            title: 'iFood Online',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _ReportLine(
+                  label: store.ifoodMerchantName.isEmpty
+                      ? 'Conexao iFood'
+                      : store.ifoodMerchantName,
+                  detail: store.ifoodMessage,
+                  value: store.ifoodBusy
+                      ? '...'
+                      : store.ifoodConnected
+                      ? 'ON'
+                      : 'OFF',
+                  color: store.ifoodConnected ? _teal : Colors.red,
                 ),
-              ),
-              _DeskCommandButton(
-                label: 'Simular iFood',
-                color: Colors.red,
-                onTap: store.simulateIfoodOrder,
-              ),
-              _DeskCommandButton(
-                label: 'Sincronizar',
-                color: _teal,
-                onTap: store.flushSync,
+                if (store.ifoodLastSyncAt.isNotEmpty)
+                  _ReportLine(
+                    label: 'Ultima sincronizacao',
+                    detail: store.ifoodLastSyncAt,
+                    value:
+                        '${store.orders.where((order) => order.kind == OrderKind.ifood).length}',
+                    color: _navy2,
+                  ),
+                if (store.ifoodVerificationUrl.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  _AccessLinkBox(
+                    label: 'Autorizar no iFood',
+                    value: store.ifoodVerificationUrl,
+                    status: store.ifoodUserCode.isEmpty
+                        ? 'abrir'
+                        : store.ifoodUserCode,
+                    color: Colors.red,
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _DeskInput(
+                          key: const Key('ifoodAuthorizationCode'),
+                          label: 'Codigo de autorizacao',
+                          controller: authorizationCode,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _DeskCommandButton(
+                          key: const Key('ifoodFinishConnection'),
+                          label: 'Finalizar conexao',
+                          color: Colors.red,
+                          onTap: () => _finishConnection(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _DeskCommandButton(
+                      key: const Key('ifoodConnect'),
+                      label: store.ifoodConnected
+                          ? 'Reconectar iFood'
+                          : 'Conectar iFood',
+                      color: Colors.red,
+                      onTap: () => _connect(),
+                    ),
+                    _DeskCommandButton(
+                      key: const Key('ifoodSyncOrders'),
+                      label: 'Buscar pedidos',
+                      color: _teal,
+                      onTap: store.ifoodConnected ? () => _syncOrders() : () {},
+                    ),
+                    _DeskCommandButton(
+                      label: 'Novo delivery',
+                      color: _navy2,
+                      onTap: () => store.openOrder(
+                        OrderKind.delivery,
+                        customer: 'Cliente delivery',
+                        address: 'Endereco delivery',
+                      ),
+                    ),
+                    if (store.ifoodVerificationUrl.isNotEmpty)
+                      _DeskCommandButton(
+                        label: 'Abrir autorizacao',
+                        color: _navy2,
+                        onTap: () => _openAuthorization(),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            children: [
+              _WindowPanel(
+                title: 'Pedidos iFood recebidos',
+                child: Column(
+                  children: store.orders
+                      .where((order) => order.kind == OrderKind.ifood)
+                      .map(
+                        (order) => ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                          ),
+                          leading: const CircleAvatar(
+                            backgroundColor: Color(0xFFFFE9E6),
+                            foregroundColor: Colors.red,
+                            child: Icon(Icons.restaurant_rounded),
+                          ),
+                          title: Text(
+                            '${order.number} - ${order.customerName}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                          subtitle: Text(
+                            '${statusLabel(order.status)} | ${order.itemsCount} item(ns)',
+                          ),
+                          trailing: Text(
+                            money(order.subtotal),
+                            style: const TextStyle(
+                              color: _navy2,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          onTap: () => store.selectOrder(order.id),
+                        ),
+                      )
+                      .toList(),
+                ),
               ),
             ],
           ),
         ),
-        _DeliveryDesk(store: store),
       ],
     );
+  }
+
+  Future<void> _connect() async {
+    await store.connectIfood();
+    if (mounted) setState(() {});
+    if (store.ifoodVerificationUrl.isNotEmpty) {
+      await _openAuthorization();
+    }
+  }
+
+  Future<void> _finishConnection() async {
+    await store.finishIfoodConnection(authorizationCode.text);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _syncOrders() async {
+    await store.syncIfoodOrders();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openAuthorization() async {
+    final uri = Uri.tryParse(store.ifoodVerificationUrl);
+    if (uri == null) return;
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      await Clipboard.setData(ClipboardData(text: store.ifoodVerificationUrl));
+    }
   }
 }
 
@@ -18445,6 +19374,20 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
   late final TextEditingController bridgeLocalUrl = TextEditingController(
     text: widget.store.windowsBridgeLocalUrl,
   );
+  late final TextEditingController fiscalMerchantCode = TextEditingController(
+    text: widget.store.fiscalMerchantCode,
+  );
+  late final TextEditingController fiscalCscId = TextEditingController(
+    text: widget.store.fiscalCscId,
+  );
+  final fiscalOperator = TextEditingController(text: '2');
+  final fiscalPin = TextEditingController();
+  late bool fiscalEnabled = widget.store.fiscalEnabled;
+  late bool requireFiscal = widget.store.requireFiscalBeforeReceipt;
+  late String fiscalProvider = widget.store.fiscalProvider;
+  late String tefProvider = widget.store.tefProvider;
+  late String fiscalEnvironment = widget.store.fiscalEnvironment;
+  String fiscalResult = '';
   int section = 0;
 
   @override
@@ -18460,6 +19403,10 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
     address.dispose();
     bridgeUrl.dispose();
     bridgeLocalUrl.dispose();
+    fiscalMerchantCode.dispose();
+    fiscalCscId.dispose();
+    fiscalOperator.dispose();
+    fiscalPin.dispose();
     super.dispose();
   }
 
@@ -18649,13 +19596,107 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
                 ? 'Pix Mercado Pago, debito, credito e link ficam disponiveis no fechamento.'
                 : 'O caixa mostra Dinheiro, Pix, Debito, Credito e Fiado sem depender do Mercado Pago.',
           ),
-          const SizedBox(height: 10),
-          const _InfoStrip(
-            icon: Icons.receipt_long_rounded,
-            title: 'NFC-e',
-            text:
-                'Modulo fiscal fica preparado para emitir pelo PDV Windows sem travar o caixa.',
+          const SizedBox(height: 12),
+          const Divider(),
+          SwitchListTile(
+            key: const Key('fiscalEnabled'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Ativar modulo fiscal/TEF separado'),
+            subtitle: const Text(
+              'NFC-e, SAT, MFE e maquininha ficam isolados do caixa.',
+            ),
+            value: fiscalEnabled,
+            onChanged: (value) => setState(() => fiscalEnabled = value),
           ),
+          const SizedBox(height: 8),
+          _settingsPair(
+            _DeskSelect(
+              label: 'Fiscal',
+              value: fiscalProvider,
+              items: const ['NAO CONFIGURADO', 'NFC-E', 'SAT', 'MFE', 'OUTRO'],
+              onChanged: (value) => setState(() => fiscalProvider = value),
+            ),
+            _DeskSelect(
+              label: 'TEF / maquininha',
+              value: tefProvider,
+              items: const [
+                'NAO CONFIGURADO',
+                'STONE',
+                'CIELO',
+                'REDE',
+                'PAGSEGURO',
+                'TEF DISCADO',
+                'OUTRO',
+              ],
+              onChanged: (value) => setState(() => tefProvider = value),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _settingsPair(
+            _DeskInput(
+              key: const Key('fiscalMerchantCode'),
+              label: 'Codigo do estabelecimento / afiliacao',
+              controller: fiscalMerchantCode,
+            ),
+            _DeskInput(
+              key: const Key('fiscalCscId'),
+              label: 'CSC/Token fiscal ou referencia tecnica',
+              controller: fiscalCscId,
+              obscureText: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _DeskSelect(
+            label: 'Ambiente',
+            value: fiscalEnvironment,
+            items: const ['HOMOLOGACAO', 'PRODUCAO'],
+            onChanged: (value) => setState(() => fiscalEnvironment = value),
+          ),
+          CheckboxListTile(
+            key: const Key('fiscalRequireBeforeReceipt'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              'Exigir fiscal antes de imprimir comprovante de venda',
+            ),
+            value: requireFiscal,
+            onChanged: (value) =>
+                setState(() => requireFiscal = value ?? false),
+          ),
+          const SizedBox(height: 8),
+          _settingsPair(
+            _DeskInput(
+              key: const Key('fiscalOperator'),
+              label: 'Operador autorizado',
+              controller: fiscalOperator,
+            ),
+            _DeskInput(
+              key: const Key('fiscalPin'),
+              label: 'Senha',
+              controller: fiscalPin,
+              keyboardType: TextInputType.number,
+              obscureText: true,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: _DeskCommandButton(
+              key: const Key('fiscalSave'),
+              label: 'Salvar modulo fiscal/TEF',
+              color: _teal,
+              onTap: _saveFiscalSettings,
+            ),
+          ),
+          if (fiscalResult.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _InfoStrip(
+              icon: Icons.receipt_long_rounded,
+              title: fiscalEnabled
+                  ? 'Modulo fiscal ativo'
+                  : 'Modulo fiscal salvo',
+              text: fiscalResult,
+            ),
+          ],
         ],
       ),
     );
@@ -18723,10 +19764,9 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
           ),
           _ReportLine(
             label: 'iFood',
-            detail:
-                'catalogo, estoque e pedidos em tempo real quando habilitado',
-            value: 'AUTO',
-            color: Colors.red,
+            detail: widget.store.ifoodMessage,
+            value: widget.store.ifoodConnected ? 'ON' : 'OFF',
+            color: widget.store.ifoodConnected ? _teal : Colors.red,
           ),
         ],
       ),
@@ -18819,6 +19859,25 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
       localUrl: bridgeLocalUrl.text,
     );
     if (mounted) setState(() {});
+  }
+
+  Future<void> _saveFiscalSettings() async {
+    final saved = await widget.store.saveFiscalSettings(
+      enabled: fiscalEnabled,
+      fiscal: fiscalProvider,
+      tef: tefProvider,
+      merchantCode: fiscalMerchantCode.text,
+      cscId: fiscalCscId.text,
+      environment: fiscalEnvironment,
+      requireBeforeReceipt: requireFiscal,
+      operator: fiscalOperator.text,
+      pin: fiscalPin.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      fiscalResult = widget.store.fiscalMessage;
+      if (saved) fiscalPin.clear();
+    });
   }
 
   Widget _settingsPair(Widget left, Widget right, {double? rightWidth}) {
@@ -19327,20 +20386,24 @@ const _settingsSections = [
 
 class _DeskInput extends StatelessWidget {
   const _DeskInput({
+    super.key,
     required this.label,
     required this.controller,
     this.keyboardType,
+    this.obscureText = false,
   });
 
   final String label;
   final TextEditingController controller;
   final TextInputType? keyboardType;
+  final bool obscureText;
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
+      obscureText: obscureText,
       decoration: _deskDecoration(label),
     );
   }
@@ -19417,6 +20480,7 @@ InputDecoration _deskDecoration(String label) {
 
 class _DeskCommandButton extends StatelessWidget {
   const _DeskCommandButton({
+    super.key,
     required this.label,
     required this.color,
     required this.onTap,
