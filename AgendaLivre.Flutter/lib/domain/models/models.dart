@@ -1,0 +1,17 @@
+export 'agenda_data.dart';
+export 'agenda_settings.dart';
+export 'appointment.dart';
+export 'appointment_product_line.dart';
+export 'appointment_service_line.dart';
+export 'appointment_status.dart';
+export 'customer.dart';
+export 'customer_receivable.dart';
+export 'expense_item.dart';
+export 'manual_payment.dart';
+export 'marketing_catalog_publication.dart';
+export 'product_item.dart';
+export 'product_sale.dart';
+export 'professional.dart';
+export 'service_item.dart';
+export 'whatsapp_message.dart';
+export 'whatsapp_lead.dart';
