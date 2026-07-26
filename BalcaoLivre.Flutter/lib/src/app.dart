@@ -16141,6 +16141,7 @@ class _QuickHubModule extends StatelessWidget {
             runSpacing: 8,
             children: [
               _HubButton(
+                key: const Key('whatsappHub'),
                 icon: Icons.qr_code_2_rounded,
                 title: store.whatsappConnected
                     ? 'WhatsApp ligado'
@@ -16325,6 +16326,17 @@ class _WhatsAppModuleState extends State<_WhatsAppModule> {
     text: widget.store.whatsappNumber,
   );
 
+  Future<void> _openOnboarding() async {
+    final uri = Uri.tryParse(widget.store.whatsappOnboardingUrl);
+    if (uri == null || !uri.hasScheme) return;
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nao consegui abrir a conexao agora.')),
+      );
+    }
+  }
+
   @override
   void dispose() {
     number.dispose();
@@ -16334,156 +16346,197 @@ class _WhatsAppModuleState extends State<_WhatsAppModule> {
   @override
   Widget build(BuildContext context) {
     final store = widget.store;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final desktop = constraints.maxWidth >= 720;
-        final qrPanel = _WindowPanel(
-          title: 'Escaneie o QR',
-          action: _StatusPill(
-            text: store.whatsappConnected ? 'conectado' : 'aguardando',
-            color: store.whatsappConnected ? _teal : _warn,
-          ),
-          child: Column(
-            children: [
-              _WhatsAppQrBox(store: store, size: 246),
-              const SizedBox(height: 10),
-              Text(
-                store.businessName,
-                textAlign: TextAlign.center,
-                softWrap: true,
-                style: const TextStyle(
-                  color: _navy,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 18,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                store.whatsappSessionId.isEmpty
-                    ? 'Sessao isolada por loja'
-                    : store.whatsappSessionId,
-                textAlign: TextAlign.center,
-                softWrap: true,
-                style: const TextStyle(
-                  color: _textSecondary,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-        );
-        final statusPanel = _WindowPanel(
-          title: 'WhatsApp Online',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (!desktop) ...[
-                Center(child: _WhatsAppQrBox(store: store, size: 214)),
-                const SizedBox(height: 10),
-              ],
-              _ReportLine(
-                label: 'Conta da loja',
-                detail: store.businessName,
-                value: store.whatsappConnected ? 'ON' : 'QR',
-                color: store.whatsappConnected ? _teal : _warn,
-              ),
-              _ReportLine(
-                label: 'Recebimento',
-                detail: 'pedidos do cardapio entram em tempo real',
-                value: 'ativo',
-                color: _teal,
-              ),
-              _ReportLine(
-                label: 'Anti-flood',
-                detail: 'mensagem inicial uma vez por conversa/cooldown',
-                value: 'ON',
-                color: _navy2,
-              ),
-              const SizedBox(height: 8),
-              _DeskInput(label: 'Numero conectado', controller: number),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: _DeskCommandButton(
-                      label: 'Confirmar conectado',
-                      color: _teal,
-                      onTap: () => store.connectWhatsApp(number.text),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _DeskCommandButton(
-                      label: 'Novo QR',
-                      color: _navy2,
-                      onTap: store.refreshWhatsAppQr,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: _DeskCommandButton(
-                  label: 'Desconectar WhatsApp',
-                  color: _danger,
-                  onTap: store.disconnectWhatsApp,
-                ),
-              ),
-            ],
-          ),
-        );
-        final queuePanel = _WindowPanel(
-          title: 'Fila em tempo real',
-          child: Column(
-            children: [
-              _ReportLine(
-                label: 'Mensagem inicial',
-                detail: 'sem repetir para cada mensagem recebida',
-                value: '1x',
-                color: _teal,
-              ),
-              _ReportLine(
-                label: 'Cliente pediu',
-                detail: 'notifica o PDV quando a loja aceita',
-                value: 'push',
-                color: _navy2,
-              ),
-              _ReportLine(
-                label: 'Pedidos cardapio',
-                detail: 'vinculados a ${store.businessName}',
-                value: '${store.openOrders.length}',
-                color: _warn,
-              ),
-            ],
-          ),
-        );
-        if (desktop) {
-          return Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return AnimatedBuilder(
+      animation: store,
+      builder: (context, _) => LayoutBuilder(
+        builder: (context, constraints) {
+          final desktop = constraints.maxWidth >= 720;
+          final qrPanel = _WindowPanel(
+            title: store.whatsappOnboardingUrl.isEmpty
+                ? 'Conexao oficial'
+                : 'Escaneie ou abra o QR',
+            action: _StatusPill(
+              text: store.whatsappBusy
+                  ? 'consultando'
+                  : store.whatsappConnected
+                  ? 'conectado'
+                  : store.whatsappConnectionStatus == 'ERROR'
+                  ? 'erro'
+                  : 'aguardando',
+              color: store.whatsappConnected
+                  ? _teal
+                  : store.whatsappConnectionStatus == 'ERROR'
+                  ? _danger
+                  : _warn,
+            ),
+            child: Column(
               children: [
-                SizedBox(width: 340, child: qrPanel),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      children: [
-                        statusPanel,
-                        const SizedBox(height: 10),
-                        queuePanel,
-                      ],
-                    ),
+                _WhatsAppQrBox(store: store, size: 246),
+                const SizedBox(height: 10),
+                Text(
+                  store.businessName,
+                  textAlign: TextAlign.center,
+                  softWrap: true,
+                  style: const TextStyle(
+                    color: _navy,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  store.whatsappConnected
+                      ? 'Numero validado pelo gateway da loja'
+                      : store.whatsappOnboardingUrl.isEmpty
+                      ? 'Informe o numero e gere a conexao'
+                      : 'QR seguro gerado pelo gateway Supabase',
+                  textAlign: TextAlign.center,
+                  softWrap: true,
+                  style: const TextStyle(
+                    color: _textSecondary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
                   ),
                 ),
               ],
             ),
           );
-        }
-        return _ModuleScroll(children: [qrPanel, statusPanel, queuePanel]);
-      },
+          final statusPanel = _WindowPanel(
+            title: 'WhatsApp Online',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!desktop) ...[
+                  Center(child: _WhatsAppQrBox(store: store, size: 214)),
+                  const SizedBox(height: 10),
+                ],
+                _ReportLine(
+                  label: 'Conta da loja',
+                  detail: store.businessName,
+                  value: store.whatsappConnected ? 'ON' : 'QR',
+                  color: store.whatsappConnected ? _teal : _warn,
+                ),
+                _ReportLine(
+                  label: 'Recebimento',
+                  detail: 'pedidos do cardapio entram em tempo real',
+                  value: store.whatsappConnected ? 'ativo' : 'pausado',
+                  color: store.whatsappConnected ? _teal : _warn,
+                ),
+                _ReportLine(
+                  label: 'Gateway',
+                  detail: store.whatsappMessage,
+                  value: store.whatsappConnectionStatus,
+                  color: store.whatsappConnectionStatus == 'ERROR'
+                      ? _danger
+                      : _navy2,
+                ),
+                const SizedBox(height: 8),
+                _DeskInput(
+                  key: const Key('whatsappStorePhone'),
+                  label: 'Numero da loja com DDD',
+                  controller: number,
+                  keyboardType: TextInputType.phone,
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _DeskCommandButton(
+                        key: const Key('whatsappConnect'),
+                        label: store.whatsappBusy
+                            ? 'Conectando...'
+                            : 'Conectar numero',
+                        color: _teal,
+                        onTap: () => store.connectWhatsApp(number.text),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _DeskCommandButton(
+                        key: const Key('whatsappRefresh'),
+                        label: 'Atualizar status / QR',
+                        color: _navy2,
+                        onTap: store.refreshWhatsAppQr,
+                      ),
+                    ),
+                  ],
+                ),
+                if (store.whatsappOnboardingUrl.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: _DeskCommandButton(
+                      key: const Key('whatsappOpenOnboarding'),
+                      label: 'Abrir conexao oficial',
+                      color: _warn,
+                      onTap: _openOnboarding,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: _DeskCommandButton(
+                    key: const Key('whatsappDisconnect'),
+                    label: 'Desconectar WhatsApp',
+                    color: _danger,
+                    onTap: store.disconnectWhatsApp,
+                  ),
+                ),
+              ],
+            ),
+          );
+          final queuePanel = _WindowPanel(
+            title: 'Fila em tempo real',
+            child: Column(
+              children: [
+                _ReportLine(
+                  label: 'Mensagem inicial',
+                  detail: 'sem repetir para cada mensagem recebida',
+                  value: '1x',
+                  color: _teal,
+                ),
+                _ReportLine(
+                  label: 'Cliente pediu',
+                  detail: 'notifica o PDV quando a loja aceita',
+                  value: 'push',
+                  color: _navy2,
+                ),
+                _ReportLine(
+                  label: 'Pedidos cardapio',
+                  detail: 'vinculados a ${store.businessName}',
+                  value: '${store.openOrders.length}',
+                  color: _warn,
+                ),
+              ],
+            ),
+          );
+          if (desktop) {
+            return Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(width: 340, child: qrPanel),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          statusPanel,
+                          const SizedBox(height: 10),
+                          queuePanel,
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          return _ModuleScroll(children: [qrPanel, statusPanel, queuePanel]);
+        },
+      ),
     );
   }
 }
@@ -16505,16 +16558,43 @@ class _WhatsAppQrBox extends StatelessWidget {
         borderRadius: BorderRadius.circular(7),
         border: Border.all(color: _line),
       ),
-      child: QrImageView(
-        data: store.whatsappQrPayload(),
-        version: QrVersions.auto,
-        backgroundColor: Colors.white,
-        eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: _navy),
-        dataModuleStyle: const QrDataModuleStyle(
-          dataModuleShape: QrDataModuleShape.square,
-          color: _navy,
-        ),
-      ),
+      child: store.whatsappQrPayload.isNotEmpty
+          ? QrImageView(
+              data: store.whatsappQrPayload,
+              version: QrVersions.auto,
+              backgroundColor: Colors.white,
+              eyeStyle: const QrEyeStyle(
+                eyeShape: QrEyeShape.square,
+                color: _navy,
+              ),
+              dataModuleStyle: const QrDataModuleStyle(
+                dataModuleShape: QrDataModuleShape.square,
+                color: _navy,
+              ),
+            )
+          : Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  store.whatsappConnected
+                      ? Icons.verified_rounded
+                      : Icons.qr_code_2_rounded,
+                  color: store.whatsappConnected ? _teal : _navy2,
+                  size: size * 0.36,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  store.whatsappConnected
+                      ? 'WhatsApp conectado'
+                      : 'QR ainda nao gerado',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: _navy,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
     );
   }
 }

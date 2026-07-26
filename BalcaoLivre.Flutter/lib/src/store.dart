@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'ifood_cloud.dart';
 import 'models.dart';
+import 'whatsapp_cloud.dart';
 
 const _storageKey = 'balcao_livre_flutter_state_v1';
 const _paymentsApiUrl = String.fromEnvironment(
@@ -25,8 +26,11 @@ const _appVersion = String.fromEnvironment(
 );
 
 class BalcaoStore extends ChangeNotifier {
-  BalcaoStore({IFoodCloudClient? ifoodClient})
-    : _ifoodClient = ifoodClient ?? IFoodCloudClient();
+  BalcaoStore({
+    IFoodCloudClient? ifoodClient,
+    WhatsAppCloudClient? whatsappClient,
+  }) : _ifoodClient = ifoodClient ?? IFoodCloudClient(),
+       _whatsappClient = whatsappClient ?? WhatsAppCloudClient();
 
   bool hydrated = false;
   bool loggedIn = false;
@@ -54,8 +58,13 @@ class BalcaoStore extends ChangeNotifier {
   String search = '';
   String lastSync = '';
   bool whatsappConnected = false;
+  bool whatsappBusy = false;
   String whatsappNumber = '';
   String whatsappSessionId = '';
+  String whatsappConnectionStatus = 'DISCONNECTED';
+  String whatsappMessage = 'WhatsApp nao conectado';
+  String whatsappOnboardingUrl = '';
+  String whatsappLastSyncAt = '';
   bool pointConnected = false;
   String pointConnectionStatus = 'DISCONNECTED';
   String pointDeviceName = '';
@@ -101,6 +110,7 @@ class BalcaoStore extends ChangeNotifier {
   Timer? _syncDebounce;
   bool _syncRunning = false;
   final IFoodCloudClient _ifoodClient;
+  final WhatsAppCloudClient _whatsappClient;
 
   List<String> get categories => [
     'LANCHES',
@@ -197,6 +207,7 @@ class BalcaoStore extends ChangeNotifier {
     _syncDebounce?.cancel();
     _cancelRealtime();
     _ifoodClient.dispose();
+    _whatsappClient.dispose();
     super.dispose();
   }
 
@@ -259,6 +270,14 @@ class BalcaoStore extends ChangeNotifier {
     whatsappConnected = json['whatsappConnected'] as bool? ?? false;
     whatsappNumber = json['whatsappNumber'] as String? ?? '';
     whatsappSessionId = json['whatsappSessionId'] as String? ?? '';
+    whatsappConnectionStatus =
+        json['whatsappConnectionStatus'] as String? ??
+        (whatsappConnected ? 'CONNECTED' : 'DISCONNECTED');
+    whatsappMessage =
+        json['whatsappMessage'] as String? ??
+        (whatsappConnected ? 'WhatsApp conectado.' : 'WhatsApp nao conectado');
+    whatsappOnboardingUrl = json['whatsappOnboardingUrl'] as String? ?? '';
+    whatsappLastSyncAt = json['whatsappLastSyncAt'] as String? ?? '';
     pointConnected = json['pointConnected'] as bool? ?? false;
     pointConnectionStatus =
         json['pointConnectionStatus'] as String? ?? 'DISCONNECTED';
@@ -2573,45 +2592,194 @@ class BalcaoStore extends ChangeNotifier {
     await _saveAndNotify();
   }
 
-  String whatsappQrPayload() {
-    final session = whatsappSessionId.isEmpty
-        ? 'wa-${businessName.hashCode.abs()}'
-        : whatsappSessionId;
-    final storeKey = licenseKey.isEmpty
-        ? _slugKey(businessName)
-        : licenseKey.toLowerCase();
-    return jsonEncode({
-      'provider': 'evolution',
-      'app': 'balcao-livre-pdv',
-      'store': businessName,
-      'storeKey': storeKey,
-      'session': session,
-      'sync': 'real-time',
-    });
+  String get whatsappQrPayload => whatsappOnboardingUrl.trim();
+
+  Future<void> connectWhatsApp(String number) async {
+    if (whatsappBusy) return;
+    final phone = number.trim();
+    if (licenseKey.trim().isEmpty) {
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage = 'Entre na conta da loja antes de conectar o WhatsApp.';
+      notifyListeners();
+      return;
+    }
+    if (phone.isEmpty) {
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage = 'Informe o numero do WhatsApp da loja com DDD.';
+      notifyListeners();
+      return;
+    }
+    whatsappBusy = true;
+    whatsappMessage = 'Conectando o numero da loja...';
+    notifyListeners();
+    try {
+      final response = await _whatsappClient.activate(
+        _whatsappContext('whatsapp.activate'),
+        storePhone: phone,
+      );
+      _applyWhatsAppResponse(response, fallbackPhone: phone);
+      _enqueue(
+        whatsappConnected
+            ? 'whatsapp_connected'
+            : 'whatsapp_connection_pending',
+      );
+      await _saveAndNotify();
+    } on WhatsAppCloudException catch (error) {
+      whatsappConnected = false;
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage = error.message;
+      notifyListeners();
+    } finally {
+      whatsappBusy = false;
+      notifyListeners();
+    }
   }
 
   Future<void> refreshWhatsAppQr() async {
-    whatsappSessionId = _id('wa');
-    whatsappConnected = false;
-    whatsappNumber = '';
-    _enqueue('whatsapp_qr_refreshed');
-    await _saveAndNotify();
+    if (whatsappBusy) return;
+    if (licenseKey.trim().isEmpty) {
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage = 'Entre na conta da loja antes de consultar o WhatsApp.';
+      notifyListeners();
+      return;
+    }
+    whatsappBusy = true;
+    whatsappMessage = 'Consultando conexao do WhatsApp...';
+    notifyListeners();
+    try {
+      final response = await _whatsappClient.status(
+        _whatsappContext('whatsapp.status'),
+        storePhone: whatsappNumber,
+      );
+      _applyWhatsAppResponse(response, fallbackPhone: whatsappNumber);
+      whatsappLastSyncAt = DateTime.now().toIso8601String();
+      _enqueue('whatsapp_status_synced');
+      await _saveAndNotify();
+    } on WhatsAppCloudException catch (error) {
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage = error.message;
+      notifyListeners();
+    } finally {
+      whatsappBusy = false;
+      notifyListeners();
+    }
   }
 
-  Future<void> connectWhatsApp(String number) async {
-    whatsappConnected = true;
-    whatsappNumber = number.trim().isEmpty ? '+55 conectado' : number.trim();
-    if (whatsappSessionId.isEmpty) whatsappSessionId = _id('wa');
-    _enqueue('whatsapp_connected');
-    await _saveAndNotify();
+  Future<bool> sendWhatsAppMessage({
+    required String customerPhone,
+    required String message,
+    String messageId = '',
+    String customerName = '',
+    String boardKind = '',
+    String boardNumber = '',
+    double total = 0,
+  }) async {
+    if (whatsappBusy || licenseKey.trim().isEmpty) return false;
+    whatsappBusy = true;
+    whatsappMessage = 'Enviando WhatsApp...';
+    notifyListeners();
+    try {
+      final response = await _whatsappClient.send(
+        _whatsappContext('whatsapp.send'),
+        storePhone: whatsappNumber,
+        customerPhone: customerPhone,
+        message: message,
+        messageId: messageId,
+        customerName: customerName,
+        boardKind: boardKind,
+        boardNumber: boardNumber,
+        total: total,
+      );
+      _applyWhatsAppResponse(response, fallbackPhone: whatsappNumber);
+      _enqueue(
+        whatsappConnected ? 'whatsapp_message_sent' : 'whatsapp_send_pending',
+      );
+      await _saveAndNotify();
+      return whatsappConnected;
+    } on WhatsAppCloudException catch (error) {
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage = error.message;
+      notifyListeners();
+      return false;
+    } finally {
+      whatsappBusy = false;
+      notifyListeners();
+    }
   }
 
   Future<void> disconnectWhatsApp() async {
-    whatsappConnected = false;
-    whatsappNumber = '';
-    whatsappSessionId = _id('wa');
-    _enqueue('whatsapp_disconnected');
-    await _saveAndNotify();
+    if (whatsappBusy) return;
+    if (licenseKey.trim().isEmpty) {
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage =
+          'Entre na conta da loja antes de desconectar o WhatsApp.';
+      notifyListeners();
+      return;
+    }
+    whatsappBusy = true;
+    whatsappMessage = 'Desconectando WhatsApp...';
+    notifyListeners();
+    try {
+      final response = await _whatsappClient.disconnect(
+        _whatsappContext('whatsapp.disconnect'),
+      );
+      whatsappConnected = false;
+      whatsappConnectionStatus = 'DISCONNECTED';
+      whatsappMessage = _firstText([
+        response['message'],
+        'WhatsApp desconectado.',
+      ]);
+      whatsappNumber = '';
+      whatsappSessionId = '';
+      whatsappOnboardingUrl = '';
+      whatsappLastSyncAt = DateTime.now().toIso8601String();
+      _enqueue('whatsapp_disconnected');
+      await _saveAndNotify();
+    } on WhatsAppCloudException catch (error) {
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage = error.message;
+      notifyListeners();
+    } finally {
+      whatsappBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Map<String, dynamic> _whatsappContext(String eventName) {
+    return {
+      ..._baseLicensePayload(eventName),
+      'localWhen': DateTime.now().toIso8601String(),
+    };
+  }
+
+  void _applyWhatsAppResponse(
+    Map<String, dynamic> response, {
+    required String fallbackPhone,
+  }) {
+    final pending = response['pending'] == true;
+    final connected = response['ok'] == true && !pending;
+    whatsappConnected = connected;
+    whatsappConnectionStatus = connected
+        ? 'CONNECTED'
+        : pending
+        ? 'PENDING'
+        : 'ERROR';
+    whatsappNumber = _firstText([response['storePhone'], fallbackPhone]);
+    whatsappMessage = _firstText([
+      response['message'],
+      connected
+          ? 'WhatsApp conectado.'
+          : pending
+          ? 'Conexao do WhatsApp aguardando confirmacao.'
+          : 'WhatsApp nao conectado.',
+    ]);
+    whatsappOnboardingUrl = connected ? '' : _text(response['onboardingUrl']);
+    whatsappSessionId = _firstText([
+      response['phoneNumberId'],
+      response['wabaId'],
+      whatsappSessionId,
+    ]);
+    whatsappLastSyncAt = DateTime.now().toIso8601String();
   }
 
   Future<void> updateBusinessName(String value) async {
@@ -3288,29 +3456,6 @@ class BalcaoStore extends ChangeNotifier {
     return clean;
   }
 
-  String _slugKey(String value) {
-    final buffer = StringBuffer();
-    var previousDash = false;
-    for (final code in value.toLowerCase().codeUnits) {
-      final allowed = (code >= 97 && code <= 122) || (code >= 48 && code <= 57);
-      if (allowed) {
-        buffer.writeCharCode(code);
-        previousDash = false;
-      } else if (!previousDash) {
-        buffer.write('-');
-        previousDash = true;
-      }
-    }
-    var clean = buffer.toString();
-    while (clean.startsWith('-')) {
-      clean = clean.substring(1);
-    }
-    while (clean.endsWith('-')) {
-      clean = clean.substring(0, clean.length - 1);
-    }
-    return clean.isEmpty ? 'loja' : clean;
-  }
-
   String _kindName(OrderKind kind) {
     return switch (kind) {
       OrderKind.table => 'Mesa',
@@ -3388,6 +3533,10 @@ class BalcaoStore extends ChangeNotifier {
         'whatsappConnected': whatsappConnected,
         'whatsappNumber': whatsappNumber,
         'whatsappSessionId': whatsappSessionId,
+        'whatsappConnectionStatus': whatsappConnectionStatus,
+        'whatsappMessage': whatsappMessage,
+        'whatsappOnboardingUrl': whatsappOnboardingUrl,
+        'whatsappLastSyncAt': whatsappLastSyncAt,
         'pointConnected': pointConnected,
         'pointConnectionStatus': pointConnectionStatus,
         'pointDeviceName': pointDeviceName,

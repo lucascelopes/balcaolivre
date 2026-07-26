@@ -631,6 +631,80 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('WhatsApp ribbon exposes the real cloud onboarding flow', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1920, 1020);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('WhatsApp').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('WhatsApp Online'), findsWidgets);
+    expect(find.byKey(const Key('whatsappStorePhone')), findsOneWidget);
+    expect(find.byKey(const Key('whatsappConnect')), findsOneWidget);
+    expect(find.byKey(const Key('whatsappRefresh')), findsOneWidget);
+    expect(find.text('Confirmar conectado'), findsNothing);
+
+    await tester.enterText(
+      find.byKey(const Key('whatsappStorePhone')),
+      '5533999999999',
+    );
+    await tester.tap(find.byKey(const Key('whatsappConnect')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Entre na conta da loja antes de conectar o WhatsApp.'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mobile reaches the same WhatsApp cloud flow from More', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('mobileMore')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('whatsappHub')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('WhatsApp Online'), findsWidgets);
+    expect(find.byKey(const Key('whatsappConnect')), findsOneWidget);
+    expect(find.byKey(const Key('whatsappRefresh')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('cash reconciliation matches the WPF split dialog on desktop', (
     WidgetTester tester,
   ) async {
