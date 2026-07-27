@@ -1,0 +1,194 @@
+name: iFood distributed validation
+
+on:
+  push:
+    branches:
+      - codex/ifood-distributed-validation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Deno edge function
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check iFood function
+        run: deno check --reload supabase/functions/ifood/index.ts
+      - name: Verify compatible connection routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          source="supabase/functions/ifood/index.ts"
+          grep -F 'route === "/connect/start"' "$source"
+          grep -F 'handleLegacyConnectStart(req)' "$source"
+          grep -F 'route === "/connect/distributed/start"' "$source"
+          grep -F 'handleConnectStart(req)' "$source"
+
+  database:
+    name: Postgres migration contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Apply base schema and seed duplicate events
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f supabase/migrations/20260526000000_ifood_integration.sql
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          insert into public.bv_ifood_connections (license_key, machine_hash, status)
+          values ('CI-IFOOD', 'CI-MACHINE', 'connected');
+
+          insert into public.bv_ifood_webhook_events (
+            event_id,
+            connection_id,
+            merchant_id,
+            order_id,
+            payload
+          )
+          select
+            'CI-EVENT',
+            id,
+            'CI-MERCHANT',
+            'CI-ORDER',
+            '{"source":"validation"}'::jsonb
+          from public.bv_ifood_connections
+          where license_key = 'CI-IFOOD';
+
+          insert into public.bv_ifood_webhook_events (
+            event_id,
+            connection_id,
+            merchant_id,
+            order_id,
+            payload
+          )
+          select
+            'CI-EVENT',
+            id,
+            'CI-MERCHANT',
+            'CI-ORDER',
+            '{"source":"duplicate"}'::jsonb
+          from public.bv_ifood_connections
+          where license_key = 'CI-IFOOD';
+          SQL
+      - name: Apply and verify iFood distributed migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f supabase/migrations/20260717000000_ifood_event_dedup.sql
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f supabase/tests/ifood_distributed_deploy_verify.sql
+          duplicate_count="$(psql -h localhost -U postgres -d postgres -Atc "select count(*) from public.bv_ifood_webhook_events where event_id = 'CI-EVENT';")"
+          if [ "$duplicate_count" != "1" ]; then
+            echo "::error::Expected one deduplicated iFood event, found $duplicate_count."
+            exit 1
+          fi
+
+  deploy_contract:
+    name: Supabase deploy workflow contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf
+        with:
+          version: 2.109.1
+      - name: Verify pinned Supabase CLI commands
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase --version | grep -F "2.109.1"
+          supabase link --help >/dev/null
+          supabase db query --help >/dev/null
+          supabase migration list --help >/dev/null
+          supabase migration repair --help >/dev/null
+          supabase secrets set --help >/dev/null
+          supabase functions deploy --help >/dev/null
+      - name: Verify production workflow safeguards
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow=".github/workflows/ifood-distributed-deploy.yml"
+          grep -F 'PROJECT_ID: hzvplpotsdzxygkxrgyi' "$workflow"
+          grep -F 'MIGRATION_VERSION: "20260717000000"' "$workflow"
+          grep -F 'SUPABASE_DB_PASSWORD:' "$workflow"
+          grep -F 'IFOOD_DISTRIBUTED_CLIENT_ID:' "$workflow"
+          grep -F 'IFOOD_DISTRIBUTED_CLIENT_SECRET:' "$workflow"
+          grep -F 'version: 2.109.1' "$workflow"
+          grep -F 'environment: production' "$workflow"
+          grep -F 'verify_jwt = false' supabase/config.toml
+          if grep -Fq 'version: latest' "$workflow"; then
+            echo "::error::Supabase CLI must not use an unpinned latest version."
+            exit 1
+          fi
+
+  windows:
+    name: Windows iFood contract
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - name: Compile iFood cloud client in isolation
+        shell: pwsh
+        run: |
+          dotnet new classlib --framework net9.0 --output .ci/IFoodClientValidation --force
+          Remove-Item .ci/IFoodClientValidation/Class1.cs
+          Copy-Item BalcaoLivre.Online.Windows/IFoodCloudClient.cs .ci/IFoodClientValidation/IFoodCloudClient.cs
+          Copy-Item BalcaoLivre.Online.Windows/IFoodModels.cs .ci/IFoodClientValidation/IFoodModels.cs
+          Copy-Item BalcaoLivre.Online.Windows/IFoodIntegrationSettings.cs .ci/IFoodClientValidation/IFoodIntegrationSettings.cs
+          dotnet build .ci/IFoodClientValidation/IFoodClientValidation.csproj -c Release
+      - name: Verify distributed authorization wiring
+        shell: pwsh
+        run: |
+          $source = Get-Content BalcaoLivre.Online.Windows/MainWindow.xaml.cs -Raw
+          $clientSource = Get-Content BalcaoLivre.Online.Windows/IFoodCloudClient.cs -Raw
+          if (-not $clientSource.Contains('"connect/distributed/start"')) {
+            throw 'New Windows client must opt in to the distributed iFood route.'
+          }
+          $required = @(
+            'var authorizationCard = BorderCard();',
+            'StartConnectionAsync(',
+            'FinishConnectionAsync(',
+            'DisconnectConnectionAsync(',
+            'awaiting_merchant',
+            'Verificar liberacao',
+            'Concluir autorizacao'
+          )
+          foreach ($needle in $required) {
+            if (-not $source.Contains($needle)) {
+              throw "Missing distributed iFood UI wiring: $needle"
+            }
+          }

@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.7";
 
 const IFOOD_API_BASE = "https://merchant-api.ifood.com.br";
 const DEFAULT_FUNCTION_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/ifood";
@@ -27,13 +27,24 @@ type ConnectionRow = {
   id: string;
   license_key: string;
   machine_hash: string;
+  status: string;
+  user_code: string | null;
   authorization_code_verifier: string | null;
+  verification_url: string | null;
+  verification_url_complete: string | null;
   merchant_id: string | null;
   merchant_name: string | null;
   access_token: string | null;
   refresh_token: string | null;
   token_expires_at: string | null;
+  webhook_url: string | null;
 };
+
+class IFoodHttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -53,11 +64,19 @@ Deno.serve(async (req) => {
     }
 
     if (route === "/connect/start") {
+      return await handleLegacyConnectStart(req);
+    }
+
+    if (route === "/connect/distributed/start") {
       return await handleConnectStart(req);
     }
 
     if (route === "/connect/finish") {
       return await handleConnectFinish(req);
+    }
+
+    if (route === "/connect/disconnect") {
+      return await handleConnectDisconnect(req);
     }
 
     if (route === "/orders/sync") {
@@ -82,20 +101,26 @@ Deno.serve(async (req) => {
 
     return json({ ok: false, message: "Rota iFood nao encontrada." }, 404);
   } catch (error) {
-    return json({ ok: false, message: messageFromError(error) }, 500);
+    const status = error instanceof IFoodHttpError ? error.status : 500;
+    return json({ ok: false, message: messageFromError(error) }, status);
   }
 });
 
 async function handleWebhook(req: Request) {
-  const payload = await readJson(req);
-  const events = Array.isArray(payload) ? payload : Array.isArray(payload?.events) ? payload.events : [payload];
+  const payload = await readJson(req) as Record<string, unknown> | Record<string, unknown>[];
+  const events = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload.events)
+      ? payload.events.filter(isRecord)
+      : [payload];
   const supabase = serviceClient();
   const ackIds: string[] = [];
 
   for (const event of events) {
     const merchantId = eventMerchantId(event);
-    const orderId = text(event?.orderId ?? event?.metadata?.orderId);
-    const eventId = text(event?.id ?? event?.eventId);
+    const metadata = isRecord(event.metadata) ? event.metadata : {};
+    const orderId = text(event.orderId ?? metadata.orderId);
+    const eventId = text(event.id ?? event.eventId);
     let connectionId: string | null = null;
     let connection: ConnectionRow | null = null;
 
@@ -109,13 +134,20 @@ async function handleWebhook(req: Request) {
       connectionId = connection?.id ?? null;
     }
 
-    await supabase.from("bv_ifood_webhook_events").insert({
+    const rawEvent = {
       event_id: eventId || null,
       connection_id: connectionId,
       merchant_id: merchantId || null,
       order_id: orderId || null,
       payload: event,
-    });
+    };
+    const stored = eventId && connectionId
+      ? await supabase.from("bv_ifood_webhook_events").upsert(rawEvent, {
+          onConflict: "connection_id,event_id",
+          ignoreDuplicates: true,
+        })
+      : await supabase.from("bv_ifood_webhook_events").insert(rawEvent);
+    if (stored.error) throw stored.error;
 
     if (eventId) {
       ackIds.push(eventId);
@@ -164,15 +196,81 @@ async function handleWebhook(req: Request) {
 
 async function handleConnectStart(req: Request) {
   const context = await readJson(req) as StoreContext;
-  const webhookUrl = publicFunctionUrl() + "/webhook";
-  return await connectCentralizedApp(context, webhookUrl);
+  const identity = await requireIFoodLicense(context);
+  const code = await ifoodForm("/authentication/v1.0/oauth/userCode", {
+    clientId: distributedClientId(),
+  });
+
+  const userCode = text(code.userCode);
+  const authorizationCodeVerifier = text(code.authorizationCodeVerifier);
+  const verificationUrl = text(code.verificationUrl);
+  const verificationUrlComplete = text(code.verificationUrlComplete);
+  const expiresInValue = Number(code.expiresIn ?? 600);
+  const expiresIn = Number.isFinite(expiresInValue) ? Math.max(60, expiresInValue) : 600;
+
+  if (!userCode || !authorizationCodeVerifier) {
+    throw new IFoodHttpError(
+      "O iFood nao retornou os dados necessarios para autorizar este dispositivo.",
+      502,
+    );
+  }
+
+  const row = {
+    license_key: identity.licenseKey,
+    machine_hash: identity.machineHash,
+    machine_code: text(context.machineCode),
+    business_name: text(context.businessName),
+    legal_name: text(context.legalName),
+    cnpj: text(context.cnpj),
+    phone: text(context.phone),
+    address: text(context.address),
+    city: text(context.city),
+    state: text(context.state),
+    app_version: text(context.appVersion),
+    status: "awaiting_authorization",
+    user_code: userCode,
+    authorization_code_verifier: authorizationCodeVerifier,
+    verification_url: verificationUrl,
+    verification_url_complete: verificationUrlComplete,
+    merchant_id: null,
+    merchant_name: null,
+    access_token: null,
+    refresh_token: null,
+    token_expires_at: null,
+    webhook_url: "",
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await serviceClient()
+    .from("bv_ifood_connections")
+    .upsert(row, { onConflict: "license_key,machine_hash" })
+    .select("id")
+    .single();
+  if (error) throw error;
+
+  return json({
+    ok: true,
+    status: "awaiting_authorization",
+    message: "Abra o endereco do iFood e autorize este dispositivo com o codigo informado.",
+    connectionId: data.id,
+    merchantId: "",
+    merchantName: "",
+    userCode,
+    verificationUrl,
+    verificationUrlComplete,
+    expiresIn,
+    webhookUrl: "",
+  });
 }
 
-async function connectCentralizedApp(context: StoreContext, webhookUrl: string) {
+async function handleLegacyConnectStart(req: Request) {
+  const context = await readJson(req) as StoreContext;
+  const identity = await requireIFoodLicense(context);
+  const webhookUrl = publicFunctionUrl() + "/webhook";
   const token = await ifoodForm("/authentication/v1.0/oauth/token", {
     grantType: "client_credentials",
-    clientId: requiredEnv("IFOOD_CLIENT_ID"),
-    clientSecret: requiredEnv("IFOOD_CLIENT_SECRET"),
+    clientId: legacyClientId(),
+    clientSecret: legacyClientSecret(),
   });
 
   const accessToken = text(token.accessToken);
@@ -183,29 +281,46 @@ async function connectCentralizedApp(context: StoreContext, webhookUrl: string) 
   const merchantName = text(merchant.name ?? merchant.corporateName) || "Loja iFood";
 
   if (!merchantId) {
-    return json({
-      ok: false,
-      message: "iFood conectado, mas nenhuma loja foi identificada. Gere um pedido de teste ou confira a permissao da loja no portal iFood.",
-      webhookUrl,
-    }, 400);
+    throw new IFoodHttpError(
+      "iFood conectado, mas nenhuma loja foi identificada. Gere um pedido de teste ou confira a permissao da loja no portal iFood.",
+      400,
+    );
   }
 
-  const expiresAt = new Date(Date.now() + Math.max(60, Number(token.expiresIn ?? 3600)) * 1000).toISOString();
-  const row = baseConnectionRow(context, webhookUrl, {
+  const expiresAt = new Date(
+    Date.now() + Math.max(60, Number(token.expiresIn ?? 3600)) * 1000,
+  ).toISOString();
+  const row = {
+    license_key: identity.licenseKey,
+    machine_hash: identity.machineHash,
+    machine_code: text(context.machineCode),
+    business_name: text(context.businessName),
+    legal_name: text(context.legalName),
+    cnpj: text(context.cnpj),
+    phone: text(context.phone),
+    address: text(context.address),
+    city: text(context.city),
+    state: text(context.state),
+    app_version: text(context.appVersion),
     status: "connected",
+    user_code: null,
+    authorization_code_verifier: null,
+    verification_url: null,
+    verification_url_complete: null,
     merchant_id: merchantId,
     merchant_name: merchantName,
     access_token: accessToken,
     refresh_token: text(token.refreshToken),
     token_expires_at: expiresAt,
-  });
+    webhook_url: webhookUrl,
+    updated_at: new Date().toISOString(),
+  };
 
   const { data, error } = await serviceClient()
     .from("bv_ifood_connections")
     .upsert(row, { onConflict: "license_key,machine_hash" })
     .select("id")
     .single();
-
   if (error) throw error;
 
   return json({
@@ -223,68 +338,182 @@ async function connectCentralizedApp(context: StoreContext, webhookUrl: string) 
   });
 }
 
-function baseConnectionRow(context: StoreContext, webhookUrl: string, extra: Record<string, unknown>) {
-  return {
-    license_key: normalized(context.licenseKey, "SEM-LICENCA"),
-    machine_hash: normalized(context.machineHash, "SEM-MAQUINA"),
-    machine_code: text(context.machineCode),
-    business_name: text(context.businessName),
-    legal_name: text(context.legalName),
-    cnpj: text(context.cnpj),
-    phone: text(context.phone),
-    address: text(context.address),
-    city: text(context.city),
-    state: text(context.state),
-    app_version: text(context.appVersion),
-    webhook_url: webhookUrl,
-    updated_at: new Date().toISOString(),
-    ...extra,
-  };
-}
-
 async function handleConnectFinish(req: Request) {
   const body = await readJson(req) as StoreContext & { connectionId?: string; authorizationCode?: string };
+  let connection = await findConnection(body);
   const authorizationCode = text(body.authorizationCode);
-  if (!authorizationCode) {
-    return json({ ok: false, message: "Informe o codigo de autorizacao do iFood." }, 400);
+
+  const accessTokenValid = Boolean(
+    connection.access_token &&
+    connection.token_expires_at &&
+    new Date(connection.token_expires_at).getTime() > Date.now() + 120_000
+  );
+
+  if (!accessTokenValid) {
+    if (connection.refresh_token) {
+      connection = await ensureToken(connection, true);
+    } else {
+      if (!authorizationCode) {
+        throw new IFoodHttpError("Informe o codigo de autorizacao do iFood.", 400);
+      }
+      if (!connection.authorization_code_verifier) {
+        throw new IFoodHttpError("Gere o vinculo do iFood antes de finalizar.", 400);
+      }
+
+      const token = await requestAuthorizationToken(
+        authorizationCode,
+        connection.authorization_code_verifier,
+      );
+      const accessToken = text(token.accessToken);
+      const refreshToken = text(token.refreshToken);
+      if (!accessToken || !refreshToken) {
+        throw new IFoodHttpError(
+          "O iFood nao retornou os tokens necessarios. Gere uma nova autorizacao.",
+          502,
+        );
+      }
+
+      const expiresAt = new Date(
+        Date.now() + Math.max(60, Number(token.expiresIn ?? 3600)) * 1000,
+      ).toISOString();
+      const { error } = await serviceClient()
+        .from("bv_ifood_connections")
+        .update({
+          status: "awaiting_merchant",
+          access_token: accessToken,
+          refresh_token: refreshToken,
+          token_expires_at: expiresAt,
+          webhook_url: "",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", connection.id)
+        .eq("license_key", connection.license_key)
+        .eq("machine_hash", connection.machine_hash);
+      if (error) throw error;
+
+      connection = {
+        ...connection,
+        status: "awaiting_merchant",
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        token_expires_at: expiresAt,
+        webhook_url: "",
+      };
+    }
   }
 
-  const connection = await findConnection(body);
-  if (!connection.authorization_code_verifier) {
-    return json({ ok: false, message: "Gere o vinculo do iFood antes de finalizar." }, 400);
+  let merchants: Record<string, unknown>[];
+  try {
+    merchants = await listMerchants(text(connection.access_token));
+  } catch (error) {
+    await markAwaitingMerchant(connection);
+    return json({
+      ok: true,
+      status: "awaiting_merchant",
+      message: "Autorizacao recebida. A permissao da loja ainda esta propagando no iFood; verifique novamente em alguns minutos.",
+      connectionId: connection.id,
+      merchantId: "",
+      merchantName: "",
+      webhookUrl: "",
+      retryAfterSeconds: 30,
+      detail: messageFromError(error),
+    }, 202);
   }
 
-  const token = await requestAuthorizationToken(authorizationCode, connection.authorization_code_verifier);
-  const expiresAt = new Date(Date.now() + Math.max(60, Number(token.expiresIn ?? 3600)) * 1000).toISOString();
-  const merchants = await listMerchants(text(token.accessToken));
-  const merchant = merchants[0] ?? {};
+  if (merchants.length === 0) {
+    await markAwaitingMerchant(connection);
+    return json({
+      ok: true,
+      status: "awaiting_merchant",
+      message: "Autorizacao recebida. A loja ainda nao apareceu para este aplicativo; verifique novamente em alguns minutos.",
+      connectionId: connection.id,
+      merchantId: "",
+      merchantName: "",
+      webhookUrl: "",
+      retryAfterSeconds: 30,
+    }, 202);
+  }
+
+  if (merchants.length > 1) {
+    throw new IFoodHttpError(
+      "Mais de uma loja foi autorizada. Gere um novo vinculo selecionando somente a loja deste PDV.",
+      409,
+    );
+  }
+
+  const merchant = merchants[0];
   const merchantId = text(merchant.id);
   const merchantName = text(merchant.name ?? merchant.corporateName);
-  const webhookUrl = publicFunctionUrl() + "/webhook";
+  if (!merchantId) {
+    throw new IFoodHttpError("O iFood retornou uma loja sem identificador.", 502);
+  }
 
   const { error } = await serviceClient()
     .from("bv_ifood_connections")
     .update({
       status: "connected",
-      merchant_id: merchantId || null,
+      merchant_id: merchantId,
       merchant_name: merchantName || null,
-      access_token: text(token.accessToken),
-      refresh_token: text(token.refreshToken),
-      token_expires_at: expiresAt,
-      webhook_url: webhookUrl,
+      authorization_code_verifier: null,
+      user_code: null,
+      verification_url: null,
+      verification_url_complete: null,
+      webhook_url: "",
       updated_at: new Date().toISOString(),
     })
-    .eq("id", connection.id);
-
+    .eq("id", connection.id)
+    .eq("license_key", connection.license_key)
+    .eq("machine_hash", connection.machine_hash);
   if (error) throw error;
 
   return json({
     ok: true,
+    status: "connected",
     message: merchantName ? `iFood conectado: ${merchantName}.` : "iFood conectado.",
     connectionId: connection.id,
     merchantId,
     merchantName,
-    webhookUrl,
+    webhookUrl: "",
+  });
+}
+
+async function markAwaitingMerchant(connection: ConnectionRow) {
+  const { error } = await serviceClient()
+    .from("bv_ifood_connections")
+    .update({ status: "awaiting_merchant", updated_at: new Date().toISOString() })
+    .eq("id", connection.id)
+    .eq("license_key", connection.license_key)
+    .eq("machine_hash", connection.machine_hash);
+  if (error) throw error;
+}
+
+async function handleConnectDisconnect(req: Request) {
+  const body = await readJson(req) as StoreContext & { connectionId?: string };
+  const connection = await findConnection(body);
+  const { error } = await serviceClient()
+    .from("bv_ifood_connections")
+    .update({
+      status: "disconnected",
+      user_code: null,
+      authorization_code_verifier: null,
+      verification_url: null,
+      verification_url_complete: null,
+      merchant_id: null,
+      merchant_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      webhook_url: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", connection.id)
+    .eq("license_key", connection.license_key)
+    .eq("machine_hash", connection.machine_hash);
+  if (error) throw error;
+
+  return json({
+    ok: true,
+    message: "Conexao iFood removida deste PDV. A permissao externa pode ser revogada no Portal do Parceiro.",
   });
 }
 
@@ -294,52 +523,124 @@ async function handleOrdersSync(req: Request) {
   connection = await ensureToken(connection);
 
   const storedOrders = await loadStoredOrders(connection);
-  const orders = storedOrders;
-  const ackIds: string[] = [];
-  let pollingWarning = "";
-
+  let events: Record<string, unknown>[];
   try {
-    const events = await pollEventsWithFreshToken(connection);
-    for (const event of events) {
-      const orderId = text(event.orderId ?? event.metadata?.orderId);
-      const eventId = text(event.id);
-      if (!orderId) continue;
+    events = (await pollEventsWithFreshToken(connection)).filter(isRecord);
+  } catch (error) {
+    return json({
+      ok: false,
+      message: `Falha no polling iFood: ${messageFromError(error)}`,
+      pollingOk: false,
+      pollingWarning: messageFromError(error),
+      orders: storedOrders,
+    }, 502);
+  }
 
-      ackIds.push(eventId);
+  const ackIds: string[] = [];
+  const currentOrderIds = new Set<string>();
+  for (const event of events) {
+    const eventId = text(event.id ?? event.eventId);
+    const orderId = text(event.orderId ?? (isRecord(event.metadata) ? event.metadata.orderId : ""));
+    const merchantId = eventMerchantId(event) || text(connection.merchant_id);
+    const raw = {
+      event_id: eventId || null,
+      connection_id: connection.id,
+      merchant_id: merchantId || null,
+      order_id: orderId || null,
+      payload: event,
+    };
 
-      const order = await ifoodJson(`/order/v1.0/orders/${encodeURIComponent(orderId)}`, connection.access_token ?? "");
-      await serviceClient().from("bv_ifood_orders").upsert({
+    const persisted = eventId
+      ? await serviceClient()
+          .from("bv_ifood_webhook_events")
+          .upsert(raw, {
+            onConflict: "connection_id,event_id",
+            ignoreDuplicates: true,
+          })
+      : await serviceClient().from("bv_ifood_webhook_events").insert(raw);
+    if (persisted.error) throw persisted.error;
+
+    if (eventId) ackIds.push(eventId);
+    if (orderId) currentOrderIds.add(orderId);
+  }
+
+  if (ackIds.length > 0) {
+    try {
+      await acknowledgeEventIds(connection.access_token ?? "", ackIds);
+    } catch (error) {
+      return json({
+        ok: false,
+        message: `Eventos salvos, mas o ACK do iFood falhou: ${messageFromError(error)}`,
+        pollingOk: false,
+        pollingWarning: messageFromError(error),
+        orders: storedOrders,
+      }, 502);
+    }
+  }
+
+  const existingOrderIds = new Set(storedOrders.map((order) => text(order.orderId)).filter(Boolean));
+  const backlog = await serviceClient()
+    .from("bv_ifood_webhook_events")
+    .select("order_id")
+    .eq("connection_id", connection.id)
+    .not("order_id", "is", null)
+    .gte("received_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+    .order("received_at", { ascending: false })
+    .limit(200);
+  if (backlog.error) throw backlog.error;
+
+  const orderIdsToProcess = new Set(currentOrderIds);
+  for (const row of backlog.data ?? []) {
+    const orderId = text(row.order_id);
+    if (orderId && !existingOrderIds.has(orderId)) {
+      orderIdsToProcess.add(orderId);
+    }
+  }
+
+  const freshOrders: Record<string, unknown>[] = [];
+  const orderWarnings: string[] = [];
+  for (const orderId of orderIdsToProcess) {
+    try {
+      const order = await ifoodJson(
+        `/order/v1.0/orders/${encodeURIComponent(orderId)}`,
+        connection.access_token ?? "",
+      );
+      const saved = await serviceClient().from("bv_ifood_orders").upsert({
         order_id: orderId,
         connection_id: connection.id,
         merchant_id: connection.merchant_id,
         payload: order,
       }, { onConflict: "order_id" });
-
-      orders.push(mapOrder(order, orderId));
+      if (saved.error) throw saved.error;
+      freshOrders.push(mapOrder(order, orderId));
+    } catch (error) {
+      orderWarnings.push(`${orderId}: ${messageFromError(error)}`);
     }
-
-    if (ackIds.length > 0) {
-      await acknowledgeEventIds(connection.access_token ?? "", ackIds);
-    }
-  } catch (error) {
-    pollingWarning = messageFromError(error);
-    console.error("iFood polling skipped", pollingWarning);
   }
+
+  const merged = new Map<string, Record<string, unknown>>();
+  for (const order of [...storedOrders, ...freshOrders]) {
+    const orderId = text(order.orderId);
+    if (orderId) merged.set(orderId, order);
+  }
+  const orders = [...merged.values()];
 
   await serviceClient()
     .from("bv_ifood_connections")
     .update({ last_sync_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq("id", connection.id);
+    .eq("id", connection.id)
+    .eq("license_key", connection.license_key)
+    .eq("machine_hash", connection.machine_hash);
 
   return json({
     ok: true,
-    message: orders.length === 0
-      ? pollingWarning
-        ? "Nenhum pedido novo recebido agora. iFood indisponivel para consulta automatica."
-        : "Nenhum pedido novo recebido do iFood."
-      : `${orders.length} pedido(s) iFood recebido(s).`,
+    message: events.length === 0
+      ? "Nenhum evento novo recebido do iFood."
+      : `${events.length} evento(s) iFood recebido(s) e confirmado(s).`,
     syncedAt: new Date().toISOString(),
-    pollingWarning,
+    pollingOk: true,
+    pollingWarning: "",
+    orderWarnings,
     orders,
   });
 }
@@ -974,7 +1275,12 @@ async function updateIFoodProductImage(
 async function findIFoodCatalogProductLink(
   merchantId: string,
   accessToken: string,
-  target: { productId: string; externalCode: string },
+  target: {
+    productId: string;
+    externalCode: string;
+    productName?: string;
+    imageDataUrl?: string;
+  },
 ) {
   const products = new Map<string, CatalogProduct>();
   const warnings: string[] = [];
@@ -1189,23 +1495,29 @@ async function handleMerchantStatus(req: Request) {
   });
 }
 
-async function findConnection(body: StoreContext & { connectionId?: string }): Promise<ConnectionRow> {
+async function findConnection(
+  body: StoreContext & { connectionId?: string },
+): Promise<ConnectionRow> {
+  const identity = await requireIFoodLicense(body);
   let query = serviceClient()
     .from("bv_ifood_connections")
     .select("*")
+    .eq("license_key", identity.licenseKey)
+    .eq("machine_hash", identity.machineHash)
     .limit(1);
 
   if (body.connectionId) {
     query = query.eq("id", body.connectionId);
-  } else {
-    query = query
-      .eq("license_key", normalized(body.licenseKey, "SEM-LICENCA"))
-      .eq("machine_hash", normalized(body.machineHash, "SEM-MAQUINA"));
   }
 
   const { data, error } = await query.maybeSingle();
   if (error) throw error;
-  if (!data) throw new Error("Vinculo iFood nao encontrado. Clique em Conectar iFood primeiro.");
+  if (!data) {
+    throw new IFoodHttpError(
+      "Vinculo iFood nao encontrado para esta licenca e este computador. Clique em Conectar iFood primeiro.",
+      404,
+    );
+  }
   return data as ConnectionRow;
 }
 
@@ -1213,32 +1525,51 @@ async function ensureToken(connection: ConnectionRow, forceRefresh = false): Pro
   if (!forceRefresh
     && connection.access_token
     && connection.token_expires_at
-    && new Date(connection.token_expires_at).getTime() > Date.now() + 120000) {
+    && new Date(connection.token_expires_at).getTime() > Date.now() + 120_000) {
     return connection;
   }
 
-  const token = connection.refresh_token
-    ? await ifoodForm("/authentication/v1.0/oauth/token", {
-        grantType: "refresh_token",
-        clientId: requiredEnv("IFOOD_CLIENT_ID"),
-        clientSecret: requiredEnv("IFOOD_CLIENT_SECRET"),
-        refreshToken: connection.refresh_token,
-      })
-    : await ifoodForm("/authentication/v1.0/oauth/token", {
-        grantType: "client_credentials",
-        clientId: requiredEnv("IFOOD_CLIENT_ID"),
-        clientSecret: requiredEnv("IFOOD_CLIENT_SECRET"),
-      });
+  const distributed = !text(connection.webhook_url);
+  const clientId = distributed ? distributedClientId() : legacyClientId();
+  const clientSecret = distributed ? distributedClientSecret() : legacyClientSecret();
+  let token: Record<string, unknown>;
 
-  const expiresAt = new Date(Date.now() + Math.max(60, Number(token.expiresIn ?? 3600)) * 1000).toISOString();
-  const next = {
+  if (connection.refresh_token) {
+    token = await ifoodForm("/authentication/v1.0/oauth/token", {
+      grantType: "refresh_token",
+      clientId,
+      clientSecret,
+      refreshToken: connection.refresh_token,
+    });
+  } else {
+    if (distributed) {
+      throw new IFoodHttpError(
+        "A autorizacao distribuida do iFood expirou. Reconecte a loja para continuar.",
+        401,
+      );
+    }
+    token = await ifoodForm("/authentication/v1.0/oauth/token", {
+      grantType: "client_credentials",
+      clientId,
+      clientSecret,
+    });
+  }
+
+  const accessToken = text(token.accessToken);
+  if (!accessToken) {
+    throw new IFoodHttpError("O iFood nao retornou accessToken.", 502);
+  }
+  const expiresAt = new Date(
+    Date.now() + Math.max(60, Number(token.expiresIn ?? 3600)) * 1000,
+  ).toISOString();
+  const next: ConnectionRow = {
     ...connection,
-    access_token: text(token.accessToken),
+    access_token: accessToken,
     refresh_token: text(token.refreshToken) || connection.refresh_token || "",
     token_expires_at: expiresAt,
   };
 
-  await serviceClient()
+  const { error } = await serviceClient()
     .from("bv_ifood_connections")
     .update({
       access_token: next.access_token,
@@ -1246,7 +1577,10 @@ async function ensureToken(connection: ConnectionRow, forceRefresh = false): Pro
       token_expires_at: next.token_expires_at,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", connection.id);
+    .eq("id", connection.id)
+    .eq("license_key", connection.license_key)
+    .eq("machine_hash", connection.machine_hash);
+  if (error) throw error;
 
   return next;
 }
@@ -1254,8 +1588,8 @@ async function ensureToken(connection: ConnectionRow, forceRefresh = false): Pro
 async function requestAuthorizationToken(authorizationCode: string, verifier: string) {
   return await ifoodForm("/authentication/v1.0/oauth/token", {
     grantType: "authorization_code",
-    clientId: requiredEnv("IFOOD_CLIENT_ID"),
-    clientSecret: requiredEnv("IFOOD_CLIENT_SECRET"),
+    clientId: distributedClientId(),
+    clientSecret: distributedClientSecret(),
     authorizationCode,
     authorizationCodeVerifier: verifier,
   });
@@ -1264,8 +1598,8 @@ async function requestAuthorizationToken(authorizationCode: string, verifier: st
 async function clientCredentialsAccessToken() {
   const token = await ifoodForm("/authentication/v1.0/oauth/token", {
     grantType: "client_credentials",
-    clientId: requiredEnv("IFOOD_CLIENT_ID"),
-    clientSecret: requiredEnv("IFOOD_CLIENT_SECRET"),
+    clientId: legacyClientId(),
+    clientSecret: legacyClientSecret(),
   });
   return text(token.accessToken);
 }
@@ -1561,37 +1895,19 @@ async function latestWebhookMerchant() {
 }
 
 async function pollEvents(connection: ConnectionRow) {
-  const headers: HeadersInit = {
-    Authorization: `Bearer ${connection.access_token}`,
-    Accept: "application/json",
-  };
-  if (connection.merchant_id) {
-    headers["x-polling-merchants"] = connection.merchant_id;
+  const merchantId = text(connection.merchant_id);
+  if (!merchantId) {
+    throw new IFoodHttpError("Loja iFood nao identificada para o polling.", 409);
   }
 
-  const paths = [
-    "/events/v1.0/events:polling?category=FOOD",
-    "/events/v1.0/events:polling?category=FOOD&limit=50",
-    "/events/v1.0/events:polling?limit=50",
-    "/events/v1.0/events:polling",
-    "/events/v1.0/events:polling?category=FOOD&groups=ORDER_STATUS",
-    "/events/v1.0/events:polling?groups=ORDER_STATUS&limit=50",
-    "/order/v1.0/orders:polling?limit=50",
-  ];
-  let lastError = "";
-
-  for (const path of paths) {
-    try {
-      const response = await fetch(`${IFOOD_API_BASE}${path}`, { headers });
-      const events = await eventsFromPollingResponse(response);
-      return events;
-    } catch (error) {
-      lastError = `${path}: ${messageFromError(error)}`;
-      console.error(`iFood polling failed ${path}`, lastError);
-    }
-  }
-
-  throw new Error(lastError || "iFood nao retornou eventos agora.");
+  const response = await fetch(`${IFOOD_API_BASE}/events/v1.0/events:polling`, {
+    headers: {
+      Authorization: `Bearer ${connection.access_token}`,
+      Accept: "application/json",
+      "x-polling-merchants": merchantId,
+    },
+  });
+  return await eventsFromPollingResponse(response);
 }
 
 async function pollEventsWithFreshToken(connection: ConnectionRow) {
@@ -1604,7 +1920,8 @@ async function pollEventsWithFreshToken(connection: ConnectionRow) {
     }
 
     const refreshed = await ensureToken(connection, true);
-    return await pollEvents(refreshed);
+    Object.assign(connection, refreshed);
+    return await pollEvents(connection);
   }
 }
 
@@ -1617,35 +1934,24 @@ async function eventsFromPollingResponse(response: Response) {
 }
 
 async function acknowledgeEventIds(accessToken: string, ids: string[]) {
-  if (!accessToken || ids.length === 0) return;
+  const uniqueIds = [...new Set(ids.map(text).filter(Boolean))];
+  if (!accessToken || uniqueIds.length === 0) return;
 
-  const uniqueIds = ids.filter(Boolean);
-  const response = await fetch(`${IFOOD_API_BASE}/order/v1.0/orders:acknowledgment`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
+  const response = await fetch(
+    `${IFOOD_API_BASE}/events/v1.0/events/acknowledgment`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(uniqueIds.map((id) => ({ id }))),
     },
-    body: JSON.stringify({ acknowledgedEventIds: uniqueIds }),
-  });
+  );
 
-  if (response.ok) {
-    return;
-  }
-
-  const fallback = await fetch(`${IFOOD_API_BASE}/events/v1.0/events/acknowledgment`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify(uniqueIds),
-  });
-
-  if (!fallback.ok) {
-    throw new Error(await fallback.text() || `ACK iFood retornou ${fallback.status}.`);
+  if (!response.ok) {
+    throw new Error(await response.text() || `ACK iFood retornou ${response.status}.`);
   }
 }
 
@@ -2396,6 +2702,81 @@ function requiredEnv(name: string) {
   return value;
 }
 
+function distributedClientId() {
+  return requiredEnv("IFOOD_DISTRIBUTED_CLIENT_ID");
+}
+
+function distributedClientSecret() {
+  return requiredEnv("IFOOD_DISTRIBUTED_CLIENT_SECRET");
+}
+
+function legacyClientId() {
+  return requiredEnv("IFOOD_CLIENT_ID");
+}
+
+function legacyClientSecret() {
+  return requiredEnv("IFOOD_CLIENT_SECRET");
+}
+
+async function requireIFoodLicense(context: StoreContext) {
+  const licenseKey = normalizeLicenseKey(context.licenseKey);
+  const machineHash = text(context.machineHash);
+  if (!licenseKey || !machineHash) {
+    throw new IFoodHttpError("Chave da licenca e identificacao do computador sao obrigatorias.", 400);
+  }
+
+  const { data, error } = await serviceClient()
+    .from("bv_licenses")
+    .select("key,status,expires_at,machine_hash,profile,plan,client_kind")
+    .eq("key", licenseKey)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    throw new IFoodHttpError("Licenca nao encontrada no servidor.", 401);
+  }
+  if (text(data.status).toUpperCase() !== "ATIVA") {
+    throw new IFoodHttpError("Licenca inativa ou bloqueada.", 401);
+  }
+
+  const expiresAt = Date.parse(text(data.expires_at));
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    throw new IFoodHttpError("Licenca expirada.", 401);
+  }
+
+  const licensedMachine = text(data.machine_hash);
+  if (licensedMachine && licensedMachine !== machineHash) {
+    throw new IFoodHttpError("Esta licenca pertence a outro computador.", 401);
+  }
+
+  const profile = isRecord(data.profile) ? data.profile : {};
+  const features = Array.isArray(profile.features)
+    ? profile.features.map((item) => text(item).toLowerCase().replaceAll("_", "-"))
+    : [];
+  const planText = `${text(data.plan)} ${text(data.client_kind)}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const paidOnlineFallback = !planText.includes("teste") &&
+    !planText.includes("trial") &&
+    ["online", "hibrido", "completo", "profissional", "comercial", "integracoes", "139"]
+      .some((item) => planText.includes(item));
+  const ifoodEnabled = profile.ifood_enabled === true ||
+    features.includes("ifood") ||
+    (features.length === 0 && paidOnlineFallback);
+  if (!ifoodEnabled) {
+    throw new IFoodHttpError("A integracao iFood nao esta liberada nesta licenca.", 403);
+  }
+
+  return { licenseKey, machineHash };
+}
+
+function normalizeLicenseKey(value: unknown) {
+  return text(value)
+    .toUpperCase()
+    .replaceAll(" ", "")
+    .replaceAll("_", "-");
+}
+
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -2405,11 +2786,6 @@ function json(data: unknown, status = 200) {
 
 function text(value: unknown) {
   return String(value ?? "").trim();
-}
-
-function normalized(value: unknown, fallback: string) {
-  const content = text(value).toUpperCase();
-  return content || fallback;
 }
 
 function valueAt(source: Record<string, unknown>, keys: string[]) {
