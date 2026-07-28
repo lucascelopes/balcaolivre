@@ -49,13 +49,13 @@ const screens = [
     id: "delivery",
     title: "Delivery, retirada e pedidos online",
     image: "/guide/windows-pdv/03-delivery-pedidos.png",
-    caption: "Fila operacional para pedidos manuais, retirada, delivery, cardapio digital, iFood e WhatsApp no plano profissional.",
+    caption: "Fila operacional para pedidos manuais, retirada, delivery, cardapio digital, iFood e WhatsApp no plano Completo.",
     points: [
       "Crie pedidos manuais com cliente, telefone, endereco, bairro, taxa, observacao e itens.",
       "Pedidos online entram na mesma rotina quando o plano e integracao estiverem liberados.",
       "Use status de pedido para separar novo, confirmado, preparo, saiu para entrega e finalizado.",
       "A cozinha pode receber impressao por setor quando os setores e impressoras estiverem cadastrados.",
-      "iFood, WhatsApp e automacoes conectadas dependem do plano profissional, credenciais e aprovacao dos terceiros."
+      "iFood, WhatsApp e automacoes conectadas dependem do plano Completo, credenciais e aprovacao dos terceiros; iFood esta temporariamente em manutencao."
     ]
   }
 ];
@@ -68,7 +68,7 @@ const chapters = [
       "Baixe o instalador pelo site oficial e execute no computador Windows que sera usado no caixa.",
       "Na primeira abertura, informe a chave de ativacao. Se a chave ja estiver vinculada ao e-mail no Supabase/painel, o login deve liberar o uso sem criar outra compra.",
       "Use um computador estavel, com usuario do Windows conhecido, impressora instalada e internet disponivel na primeira ativacao.",
-      "No plano Offline, a venda local deve continuar funcionando mesmo se a internet cair. Recursos online dependem de conexao.",
+      "Balcao Livre passa a trabalhar comercialmente com o PDV Online nos planos Basico e Completo. Recursos de nuvem dependem de conexao.",
       "Guarde a chave, e-mail de compra e contato do suporte. Eles ajudam em troca de computador, renovacao e recuperacao."
     ],
     tip: "Antes de colocar em producao, faca uma venda de teste, imprima comprovante e feche um caixa de exemplo."
@@ -164,7 +164,7 @@ const chapters = [
       "Cardapio digital publica produtos ativos com preco, foto, categoria, disponibilidade e dados da loja.",
       "Descontos e fidelidade so devem aparecer quando forem criados no sistema.",
       "Garcom no celular permite lancar itens pelo aparelho dentro da rede/local ou no modo online, conforme plano.",
-      "WhatsApp com IA basica entra no plano profissional; iFood, WhatsApp e automacoes avancadas dependem de configuracao, homologacao e regras de terceiros.",
+      "WhatsApp com IA basica entra no plano Completo; iFood esta temporariamente em manutencao e tambem depende de configuracao, homologacao e regras de terceiros.",
       "Pedidos online devem cair no PDV sem o caixa precisar buscar manualmente."
     ],
     tip: "Nao mostre recurso online falso para cliente final. Se a loja nao configurou, a pagina deve ficar limpa."

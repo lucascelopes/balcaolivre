@@ -1,26 +1,48 @@
-# Balcão Livre Landing Page
+# Balcao Livre Landing Page
 
 Landing page em Next.js, sem Tailwind e sem bibliotecas visuais externas para manter o projeto leve.
 
-## Preview sem baixar dependências
+## Cloudflare Next.js
 
-Abra `preview.html` no navegador para conferir o visual sem rodar `npm install`.
+O deploy principal roda no Cloudflare Workers com OpenNext. O middleware do Next le o host e reescreve `nomedaloja.balcaolivrepdv.com.br` para `/agenda/nomedaloja`.
 
-Na publicacao pela raiz do repositorio, o build da Netlify deixa a landing no dominio principal, o admin em `admin.balcaolivrepdv.com.br`, o PDV web em `pdv.balcaolivrepdv.com.br` e cada cardapio em `cardapio.balcaolivrepdv.com.br/slug-da-loja`. O link `Login` da landing aponta para `https://pdv.balcaolivrepdv.com.br`.
-
-Dominios esperados no mesmo site Netlify:
+Dominios esperados no mesmo Worker:
 
 - `balcaolivrepdv.com.br`
 - `www.balcaolivrepdv.com.br`
-- `admin.balcaolivrepdv.com.br`
-- `pdv.balcaolivrepdv.com.br`
-- `cardapio.balcaolivrepdv.com.br`
+- `*.balcaolivrepdv.com.br` para sites publicos de agendamento
+
+## Agenda Livre publico
+
+O site de agendamento usa o subdominio como slug da loja. A raiz de `nomedaloja.balcaolivrepdv.com.br` renderiza o site publico daquele parceiro.
+
+Para colocar em producao:
+
+1. Aponte um wildcard DNS `*.balcaolivrepdv.com.br` para o Worker da landing no Cloudflare.
+2. Configure o wildcard route no `wrangler.jsonc`.
+3. Rode a migration `supabase/migrations/*_agenda_public_booking.sql`.
+4. Configure `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` como secrets do Worker.
+
+As solicitacoes entram na tabela `public.agenda_public_booking_requests`. A tabela fica com RLS ativo e sem acesso publico direto; o insert passa pela rota server-side `/api/agenda/appointments`.
 
 ## Rodar local
 
 ```powershell
 npm install
 npm run dev
+```
+
+## Deploy Cloudflare
+
+Use Node 22 ou superior, porque o Wrangler atual exige esse runtime.
+
+```powershell
+npm install
+npm run build
+npm run build:cloudflare
+npx wrangler secret put SUPABASE_URL
+npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+npm run deploy:cloudflare
 ```
 
 ## Stripe Checkout
@@ -38,7 +60,7 @@ Os planos usam estes Price IDs:
 - Mensal: `price_1Tb3fcGTOG08DTzfMZxooHqI`
 - Anual: `price_1Tb3fcGTOG08DTzfsyFfmjRZ`
 
-## Build
+## Build local
 
 ```powershell
 npm run build

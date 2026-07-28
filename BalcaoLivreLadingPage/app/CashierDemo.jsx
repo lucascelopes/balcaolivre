@@ -25,7 +25,7 @@ const products = [
   { code: "000020", name: "TAXA DE ENTREGA", group: "DELIVERY", price: 8, cost: 0, stock: 999, min: 0 }
 ];
 
-const paymentMethods = ["Dinheiro", "Pix", "Credito", "Debito"];
+const paymentMethods = ["Dinheiro", "Pix", "Crédito", "Débito"];
 
 const qrCells = [
   1, 1, 1, 0, 1, 0, 1, 1, 0,
@@ -119,7 +119,7 @@ export default function CashierDemo() {
     const product = products.find((item) => item.code === typedCode);
 
     if (!product) {
-      setMessage("Codigo nao encontrado. Use 000001 a 000020 nesta demo.");
+      setMessage("Código não encontrado. Use 000001 a 000020 nesta demo.");
       return;
     }
 
@@ -194,7 +194,7 @@ export default function CashierDemo() {
   }
 
   return (
-    <section className="appDemo cashierDemoSection" aria-label="Teste do caixa do Balcao Livre PDV">
+    <section className="appDemo cashierDemoSection" aria-label="Teste do caixa do Balcão Livre PDV">
       <div className="sectionIntro">
         <p className="eyebrow">Teste o caixa</p>
         <h2>Teste uma venda no PDV</h2>
@@ -212,7 +212,7 @@ export default function CashierDemo() {
       <div className="cashierDemo">
         <div className="cashierTop">
           <div>
-            <span>Balcao Livre PDV</span>
+            <span>Balcão Livre PDV</span>
             <strong>Caixa demonstrativo</strong>
           </div>
           <b>Caixa aberto {money(184 + total)}</b>
@@ -220,7 +220,7 @@ export default function CashierDemo() {
 
         <div className="cashierTabs" aria-label="Modos de venda">
           <button className="active" type="button">Comandas</button>
-          <button type="button">Balcao</button>
+          <button type="button">Balcão</button>
           <button type="button">Delivery</button>
         </div>
 
@@ -258,7 +258,7 @@ export default function CashierDemo() {
 
           <section className="productConsole">
             <div className="codeEntry">
-              <label htmlFor="demo-product-code">Codigo do produto</label>
+              <label htmlFor="demo-product-code">Código do produto</label>
               <div>
                 <input
                   id="demo-product-code"
@@ -311,7 +311,7 @@ export default function CashierDemo() {
               <b>{money(change)}</b>
             </div>
             <div className="payButtons">
-              {["Dinheiro", "Pix", "Credito"].map((option) => (
+              {["Dinheiro", "Pix", "Crédito"].map((option) => (
                 <button
                   className={method === option ? "active" : undefined}
                   key={option}
@@ -334,7 +334,7 @@ export default function CashierDemo() {
 
         <div className="demoStatus">
           <span>{message}</span>
-          <b>Comprovante: NAO E DOCUMENTO FISCAL</b>
+          <b>Comprovante: NÃO É DOCUMENTO FISCAL</b>
         </div>
 
         {receiptReady && (
@@ -348,7 +348,7 @@ export default function CashierDemo() {
               <h3>BALCAO LIVRE PDV</h3>
               <p>COMPROVANTE GERADO</p>
               <p>COMANDA 000012 | GARCOM 2</p>
-              <p>NAO E DOCUMENTO FISCAL</p>
+              <p>NÃO É DOCUMENTO FISCAL</p>
               <div className="receiptLine" />
               {items.map((item) => (
                 <div className="receiptProduct" key={item.code}>

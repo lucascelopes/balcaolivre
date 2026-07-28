@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "balcaolivre-next",
+  "compatibility_date": "2026-06-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": ".open-next/worker.js",
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "routes": [
+    {
+      "pattern": "balcaolivrepdv.com.br/*",
+      "zone_name": "balcaolivrepdv.com.br"
+    },
+    {
+      "pattern": "www.balcaolivrepdv.com.br/*",
+      "zone_name": "balcaolivrepdv.com.br"
+    },
+    {
+      "pattern": "*.balcaolivrepdv.com.br/*",
+      "zone_name": "balcaolivrepdv.com.br"
+    }
+  ],
+  "vars": {
+    "AGENDA_PUBLIC_BOOKING_TABLE": "agenda_public_booking_requests",
+    "NEXT_PUBLIC_SITE_URL": "https://balcaolivrepdv.com.br"
+  }
+}

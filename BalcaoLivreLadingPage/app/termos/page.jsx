@@ -83,8 +83,8 @@ export default function TermsPage() {
                 A liberacao do uso depende do plano contratado, da confirmacao de pagamento e da ativacao tecnica quando aplicavel. Precos, promocoes e condicoes exibidos no site podem mudar; o valor valido e o que estiver confirmado na proposta, checkout, contrato, recibo ou conversa comercial documentada.
               </p>
               <ul>
-                <li><strong>Balcao Livre PDV Offline:</strong> foco em operacao local no Windows, com ativacao por chave, instalador Windows, PDV offline e atualizacoes inclusas no periodo contratado. Referencia comercial atual: R$ 29,90 mensal ou R$ 229,90 anual.</li>
-                <li><strong>Balcao Livre PDV Restaurante Profissional:</strong> recursos conectados, uso web, cardapio online, WhatsApp com IA basica, iFood e/ou integracoes de delivery, zonas de entrega, garcom no celular em tempo real, sincronizacao e rotinas em nuvem conforme contratacao. Mensalidade padrao exibida no site; adicionais, alto volume de WhatsApp e projetos especiais podem ser cobrados separadamente.</li>
+                <li><strong>Balcao Livre PDV Online Basico:</strong> PDV Windows Online com caixa e venda rapida, controle de produtos, abertura e fechamento de caixa, mesas e comandas, estoque basico e relatorios basicos. Referencia comercial atual: R$ 29,99 mensal.</li>
+                <li><strong>Balcao Livre PDV Online Completo:</strong> tudo do Basico mais cardapio digital, garcom pelo celular, delivery proprio, estoque e relatorios avancados, Mercado Pago integrado e integracao iFood quando disponivel. Referencia comercial atual: R$ 99,99 mensal; iFood pode ficar temporariamente indisponivel por manutencao ou baixa procura.</li>
                 <li>Taxas de app stores, gateway de pagamento, maquininha, iFood, Meta, provedor cloud, hospedagem especial, dominio, certificado, integracao personalizada ou implantacao fora do padrao podem ser cobradas separadamente.</li>
               </ul>
               <p>
@@ -190,8 +190,8 @@ export default function TermsPage() {
                 O Balcao Livre PDV adota medidas proporcionais ao porte e ao recurso contratado, como controles de acesso, separacao de perfis, registros tecnicos, atualizacoes, protecao de credenciais, conexoes seguras quando aplicavel e backups em rotinas online. Nenhum sistema e imune a falhas, ataques, erros de configuracao, indisponibilidade de internet ou problemas de terceiros.
               </p>
               <ul>
-                <li>No plano Offline, o cliente deve proteger o computador, Windows, senha, antivirus, energia, impressora, rede local e copias de seguranca.</li>
-                <li>No plano Online, disponibilidade depende tambem de internet, nuvem, banco de dados, app stores, provedores externos e manutencoes programadas ou emergenciais.</li>
+                <li>Nos planos Online, o cliente deve proteger computador, Windows, senha, antivirus, energia, impressora, rede local e copias de seguranca.</li>
+                <li>A disponibilidade depende tambem de internet, nuvem, banco de dados, app stores, provedores externos e manutencoes programadas ou emergenciais.</li>
                 <li>Credenciais, tokens, senhas, chaves de ativacao e acessos administrativos devem ser mantidos em sigilo pelo cliente.</li>
                 <li>Incidentes relevantes serao tratados conforme a lei aplicavel, impacto, evidencias disponiveis e canais de contato informados pelo cliente.</li>
               </ul>

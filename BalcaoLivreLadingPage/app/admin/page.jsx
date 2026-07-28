@@ -31,6 +31,7 @@ const adminMarkup = `<main id="loginView" class="login-shell">
         <button class="nav" data-view="seo">SEO e vendas</button>
         <button class="nav" data-view="licenses">Licencas</button>
         <button class="nav" data-view="support">Suporte</button>
+        <button class="nav" data-view="tutorials">Tutoriais PDV</button>
         <button class="nav" data-view="training">Treinamento WA</button>
         <button class="nav" data-view="devices">Clientes</button>
         <button class="nav" data-view="downloads">Downloads</button>
@@ -313,6 +314,94 @@ const adminMarkup = `<main id="loginView" class="login-shell">
         </article>
       </section>
 
+      <section id="tutorialsView" class="view hidden">
+        <section class="training-hero panel tutorial-hero">
+          <div>
+            <span class="section-kicker">Central de ajuda do aplicativo</span>
+            <h2>Tutoriais que aparecem dentro do PDV</h2>
+            <p class="panel-copy">Organize por assunto, ensine em passos com prints reais e cole o link do vídeo do YouTube. Ao salvar, o conteúdo publicado fica disponível no Windows.</p>
+          </div>
+          <div class="training-hero-actions">
+            <span id="tutorialCountBadge" class="status-pill pending">Carregando tutoriais</span>
+            <button id="newTutorialButton" class="secondary" type="button">Novo tutorial</button>
+          </div>
+        </section>
+
+        <section class="tutorial-admin-layout">
+          <article class="panel tutorial-browser">
+            <div class="panel-head compact">
+              <div>
+                <h2>Conteúdo publicado</h2>
+                <p class="panel-copy">Clique em um artigo para editar.</p>
+              </div>
+              <input id="tutorialSearch" placeholder="Buscar tópico ou artigo">
+            </div>
+            <div id="tutorialList" class="tutorial-list"></div>
+          </article>
+
+          <article class="panel tutorial-editor">
+            <div class="panel-head compact">
+              <div>
+                <h2 id="tutorialEditorTitle">Novo tutorial</h2>
+                <p class="panel-copy">Os campos abaixo são exibidos na Ajuda e suporte do PDV.</p>
+              </div>
+              <span id="tutorialPublishBadge" class="mini-badge">publicado</span>
+            </div>
+            <input id="tutorialId" type="hidden">
+            <div class="tutorial-form-grid">
+              <label>Assunto</label>
+              <select id="tutorialCategory">
+                <option value="caixa">Caixa</option>
+                <option value="vendas">Vendas</option>
+                <option value="pagamentos">Pagamentos</option>
+                <option value="cozinha">Cozinha</option>
+                <option value="produtos">Produtos</option>
+                <option value="estoque">Estoque</option>
+                <option value="clientes">Clientes</option>
+                <option value="equipe">Equipe e entregadores</option>
+                <option value="garcom-web">Garçom Web</option>
+                <option value="mesas-e-comandas">Mesas e comandas</option>
+                <option value="delivery">Delivery</option>
+                <option value="ifood">iFood</option>
+                <option value="cardapio-digital">Cardápio digital</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="impressoras">Impressoras</option>
+                <option value="fiscal-e-nfce">Fiscal e NFC-e</option>
+                <option value="relatorios">Relatórios</option>
+                <option value="operacao-e-gestao">Operação e gestão</option>
+                <option value="backup-e-dados">Backup e dados</option>
+                <option value="ia-do-balcao">IA do Balcão</option>
+                <option value="usuarios">Usuários</option>
+                <option value="licenca-e-planos">Licença e planos</option>
+                <option value="configuracoes">Configurações</option>
+                <option value="privacidade-e-lgpd">Privacidade e LGPD</option>
+              </select>
+              <label>Grupo</label>
+              <input id="tutorialGroup" placeholder="Ex: Primeiros passos">
+              <label class="tutorial-wide">Título do artigo</label>
+              <input id="tutorialTitle" class="tutorial-wide" placeholder="Ex: Como abrir o caixa">
+              <label class="tutorial-wide">Resumo</label>
+              <textarea id="tutorialSummary" class="tutorial-wide" rows="2" placeholder="Explique em uma frase o que a pessoa vai aprender."></textarea>
+              <label class="tutorial-wide">URL do vídeo (YouTube)</label>
+              <input id="tutorialVideoUrl" class="tutorial-wide" type="url" placeholder="https://www.youtube.com/watch?v=...">
+              <div class="tutorial-wide tutorial-field-help">O botão “Assistir no YouTube” do PDV usa este endereço.</div>
+              <label class="tutorial-wide">Passos com prints</label>
+              <textarea id="tutorialSteps" class="tutorial-wide tutorial-steps-input" rows="8" placeholder="Um passo por linha:&#10;Abra o caixa | No menu lateral, clique em Caixa e depois Abrir caixa | https://.../print-caixa.png&#10;Informe o saldo | Digite o dinheiro inicial e confirme | https://.../print-saldo.png"></textarea>
+              <div class="tutorial-wide tutorial-field-help">Formato: título | instrução | URL do print. A URL do print é opcional; o PDV usa um print real padrão quando ela estiver vazia.</div>
+              <label>Ordem</label>
+              <input id="tutorialSortOrder" type="number" min="0" max="9999" value="100">
+              <label class="tutorial-check"><input id="tutorialPublished" type="checkbox" checked> Publicado no PDV</label>
+            </div>
+            <div id="tutorialMessage" class="message"></div>
+            <div class="tutorial-editor-actions">
+              <button id="deleteTutorialButton" class="secondary danger-outline hidden" type="button">Excluir</button>
+              <button id="previewTutorialVideoButton" class="secondary" type="button">Testar vídeo</button>
+              <button id="saveTutorialButton" type="button">Salvar no PDV</button>
+            </div>
+          </article>
+        </section>
+      </section>
+
       <section id="licensesView" class="view hidden">
         <article class="panel">
           <div class="panel-head">
@@ -418,9 +507,9 @@ const adminMarkup = `<main id="loginView" class="login-shell">
 export default function AdminPage() {
   return (
     <>
-      <link rel="stylesheet" href="/admin-assets/styles.css?v=20260609-seo-sales" />
+      <link rel="stylesheet" href="/admin-assets/styles.css?v=20260722-pdv-help" />
       <div dangerouslySetInnerHTML={{ __html: adminMarkup }} />
-      <script src="/admin-assets/app.js?v=20260609-seo-sales" />
+      <script src="/admin-assets/app.js?v=20260722-pdv-help" />
     </>
   );
 }

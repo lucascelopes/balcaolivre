@@ -8,7 +8,7 @@ export const defaultTitle =
   "Balcão Livre PDV | Sistema Windows para restaurantes";
 
 export const defaultDescription =
-  "PDV para restaurante com teste de 7 dias, WhatsApp, cardápio online, garçom no celular, NFC-e configurável, equipe, entregadores, Mercado Pago e iFood no plano de R$149/mês.";
+  "PDV Online para restaurante com teste de 7 dias, plano Básico de R$29,99/mês e Completo de R$99,99/mês com cardápio, garçom, delivery, Mercado Pago e iFood em manutenção.";
 
 export const seoKeywords = [
   "PDV para restaurante",
