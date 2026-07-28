@@ -222,6 +222,10 @@ async function handleAdminApi(path, request, env, auth) {
     return json(buildDashboard(store, stripe));
   }
 
+  if (path === "/payments/manual" && request.method === "POST") {
+    return saveManualPayment(request, env, auth);
+  }
+
   if (path === "/client-intelligence" && request.method === "GET") {
     const store = await readAdminStore(env);
     return json(buildClientIntelligence(store));
@@ -433,6 +437,57 @@ async function updateSupport(id, action, request, env, auth) {
   ticket.updatedAt = now;
   await writeAdminStore(env, store);
   return json(ticket);
+}
+
+async function saveManualPayment(request, env, auth) {
+  const body = await safeJson(request);
+  const visitId = cleanText(body?.visitId, 120);
+  const company = cleanText(body?.company, 160);
+  const amountCents = Math.round(Number(body?.amountCents || 0));
+  const method = String(body?.method || "").trim().toUpperCase();
+  if (!visitId || !company) {
+    return json({ message: "Visita e empresa sao obrigatorias." }, 400);
+  }
+  if (!Number.isFinite(amountCents) || amountCents <= 0) {
+    return json({ message: "Informe um valor recebido valido." }, 400);
+  }
+  if (!["PIX", "DINHEIRO", "CARTAO", "STRIPE"].includes(method)) {
+    return json({ message: "Forma de pagamento invalida." }, 400);
+  }
+
+  const store = await readAdminStore(env);
+  const now = new Date().toISOString();
+  let payment = store.manualPayments.find((item) => String(item.visitId || "") === visitId);
+  if (!payment) {
+    payment = {
+      id: crypto.randomUUID().replaceAll("-", ""),
+      visitId,
+      createdAt: now
+    };
+    store.manualPayments.push(payment);
+  }
+
+  Object.assign(payment, {
+    source: "manual",
+    status: "RECEBIDO",
+    company,
+    visitDate: cleanText(body?.visitDate, 30),
+    amountCents,
+    currency: "BRL",
+    method,
+    responsible: cleanText(body?.responsible, 120),
+    when: now,
+    adminUser: auth.email || ""
+  });
+  appendEvent(
+    store,
+    "payment.manual",
+    `Pagamento recebido em visita: ${company} (${formatMoneyBr(amountCents)})`,
+    "",
+    auth.email
+  );
+  await writeAdminStore(env, store);
+  return json(payment);
 }
 
 async function readAdminStore(env) {
@@ -764,6 +819,7 @@ function emptyAdminStore() {
     devices: [],
     supportTickets: [],
     blockedIps: [],
+    manualPayments: [],
     events: [],
     siteAnalytics: {}
   };
@@ -771,7 +827,7 @@ function emptyAdminStore() {
 
 function normalizeAdminStore(value) {
   const store = value && typeof value === "object" ? value : emptyAdminStore();
-  for (const key of ["licenses", "devices", "supportTickets", "blockedIps", "events"]) {
+  for (const key of ["licenses", "devices", "supportTickets", "blockedIps", "manualPayments", "events"]) {
     if (!Array.isArray(store[key])) store[key] = [];
   }
   if (!store.siteAnalytics || typeof store.siteAnalytics !== "object") store.siteAnalytics = {};
@@ -808,6 +864,7 @@ function trimStore(store) {
   store.supportTickets = sortSupport(store.supportTickets).slice(0, 300);
   store.events = sortByDate(store.events, "when").slice(0, 500);
   store.blockedIps = sortByDate(store.blockedIps, "updatedAt").slice(0, 1000);
+  store.manualPayments = sortByDate(store.manualPayments, "when").slice(0, 1000);
 }
 
 function appendEvent(store, type, message, licenseKey = "", adminUser = "") {
@@ -831,6 +888,13 @@ function sortSupport(items) {
 
 function sortByDate(items, field) {
   return [...items].sort((a, b) => Date.parse(b?.[field] || 0) - Date.parse(a?.[field] || 0));
+}
+
+function formatMoneyBr(amountCents) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL"
+  }).format(Number(amountCents || 0) / 100);
 }
 
 function normalizeSupportStatus(value) {

@@ -92,7 +92,7 @@ const wholeMoneyFromCents = (value, currency = "BRL") =>
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format((Number(value) || 0) / 100);
-const isLocalPreview = false;
+const isLocalPreview = ["localhost", "127.0.0.1"].includes(location.hostname);
 const adminApiBase = (() => {
   const configured = window.BALCAO_ADMIN_API_BASE || "";
   if (configured) return configured.replace(/\/$/, "");
@@ -3344,7 +3344,7 @@ function editManualVisit(id) {
   openManualVisitForm();
 }
 
-function saveManualVisit(event) {
+async function saveManualVisit(event) {
   event.preventDefault();
   const company = qs("#manualVisitCompany").value.trim();
   if (!company) {
@@ -3387,10 +3387,42 @@ function saveManualVisit(event) {
   else manualVisitsState.visits.push(next);
   manualVisitsState.date = manualVisitDateFromKey(next.date);
   persistManualVisits();
+
+  let paymentSynced = true;
+  if (paymentEnabled && !isLocalPreview) {
+    try {
+      const savedPayment = await api("/api/payments/manual", {
+        method: "POST",
+        body: JSON.stringify({
+          visitId: next.id,
+          company: next.company,
+          visitDate: `${next.date}T${next.time}:00`,
+          amountCents: next.payment.amountCents,
+          method: next.payment.method,
+          responsible: next.contact
+        })
+      });
+      next.payment = {
+        source: "manual",
+        status: "received",
+        method: savedPayment.method || next.payment.method,
+        amountCents: Number(savedPayment.amountCents || next.payment.amountCents),
+        when: savedPayment.when || next.payment.when,
+        id: savedPayment.id || ""
+      };
+      persistManualVisits();
+    } catch (error) {
+      paymentSynced = false;
+      console.error("Falha ao sincronizar recebimento da visita.", error);
+    }
+  }
+
   resetManualVisitForm();
   renderManualVisits();
   showVisitsNotice(paymentEnabled
-    ? `${moneyFromCents(paymentAmountCents, "BRL")} recebido de ${company}.`
+    ? paymentSynced
+      ? `${moneyFromCents(paymentAmountCents, "BRL")} recebido de ${company}.`
+      : "Recebimento salvo neste navegador, mas a sincronização falhou. Tente salvar novamente."
     : existing ? "Visita atualizada." : `${company} foi adicionada à agenda.`);
 }
 

@@ -207,6 +207,73 @@ app.MapGet("/api/dashboard", (HttpContext context, AdminSessionService sessions,
     return Results.Ok(AdminDashboard.From(snapshot, stripe));
 });
 
+app.MapPost("/api/payments/manual", async (
+    HttpContext context,
+    AdminSessionService sessions,
+    AdminStoreService store) =>
+{
+    if (!sessions.IsValid(context)) return Results.Unauthorized();
+    var request = await context.Request.ReadFromJsonAsync<ManualPaymentRequest>(AdminJson.Options)
+        ?? new ManualPaymentRequest();
+    var visitId = (request.VisitId ?? "").Trim();
+    var company = (request.Company ?? "").Trim();
+    var method = (request.Method ?? "").Trim().ToUpperInvariant();
+    if (string.IsNullOrWhiteSpace(visitId) || string.IsNullOrWhiteSpace(company))
+    {
+        return Results.Json(
+            new { message = "Visita e empresa são obrigatórias." },
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+    if (request.AmountCents <= 0)
+    {
+        return Results.Json(
+            new { message = "Informe um valor recebido válido." },
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+    if (method is not ("PIX" or "DINHEIRO" or "CARTAO" or "STRIPE"))
+    {
+        return Results.Json(
+            new { message = "Forma de pagamento inválida." },
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var payment = store.Update(data =>
+    {
+        data.ManualPayments ??= [];
+        var now = DateTimeOffset.UtcNow;
+        var current = data.ManualPayments.FirstOrDefault(item =>
+            string.Equals(item.VisitId, visitId, StringComparison.Ordinal));
+        if (current is null)
+        {
+            current = new ManualPaymentRecord
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                VisitId = visitId,
+                CreatedAt = now
+            };
+            data.ManualPayments.Add(current);
+        }
+
+        current.Source = "manual";
+        current.Status = "RECEBIDO";
+        current.Company = company;
+        current.VisitDate = request.VisitDate;
+        current.AmountCents = request.AmountCents;
+        current.Currency = "BRL";
+        current.Method = method;
+        current.Responsible = (request.Responsible ?? "").Trim();
+        current.When = now;
+        data.Events.Add(new AdminEvent
+        {
+            Type = "payment.manual",
+            Message = $"Pagamento recebido em visita: {company} (R$ {request.AmountCents / 100m:N2})",
+            When = now
+        });
+        return current;
+    });
+    return Results.Ok(payment);
+});
+
 app.MapGet("/api/client-intelligence", (HttpContext context, AdminSessionService sessions, AdminStoreService store) =>
 {
     if (!sessions.IsValid(context)) return Results.Unauthorized();
@@ -2630,6 +2697,14 @@ sealed class AdminStoreService
 
     private static void TrimEvents(AdminStore store)
     {
+        if (store.ManualPayments.Count > 1000)
+        {
+            store.ManualPayments = store.ManualPayments
+                .OrderByDescending(item => item.When)
+                .Take(1000)
+                .ToList();
+        }
+
         if (store.Events.Count <= 500)
         {
             return;
@@ -2686,7 +2761,24 @@ sealed class AdminStore
     public List<LicenseRecord> Licenses { get; set; } = [];
     public List<DeviceRecord> Devices { get; set; } = [];
     public List<SupportTicketRecord> SupportTickets { get; set; } = [];
+    public List<ManualPaymentRecord> ManualPayments { get; set; } = [];
     public List<AdminEvent> Events { get; set; } = [];
+}
+
+sealed class ManualPaymentRecord
+{
+    public string Id { get; set; } = "";
+    public string VisitId { get; set; } = "";
+    public string Source { get; set; } = "manual";
+    public string Status { get; set; } = "RECEBIDO";
+    public string Company { get; set; } = "";
+    public string VisitDate { get; set; } = "";
+    public int AmountCents { get; set; }
+    public string Currency { get; set; } = "BRL";
+    public string Method { get; set; } = "";
+    public string Responsible { get; set; } = "";
+    public DateTimeOffset When { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
 sealed class AdminUserRecord
@@ -2974,6 +3066,16 @@ sealed class UpdateFulfillmentStatusRequest
 {
     public string? Status { get; set; }
     public string? TrackingCode { get; set; }
+}
+
+sealed class ManualPaymentRequest
+{
+    public string? VisitId { get; set; }
+    public string? Company { get; set; }
+    public string? VisitDate { get; set; }
+    public int AmountCents { get; set; }
+    public string? Method { get; set; }
+    public string? Responsible { get; set; }
 }
 
 sealed class UpdateSupportStatusRequest
