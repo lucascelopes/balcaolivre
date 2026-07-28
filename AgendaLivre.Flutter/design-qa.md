@@ -1,58 +1,44 @@
-# Design QA — Agenda Livre (21/07/2026)
+# Design QA — ativação e renovação da assinatura
 
-## Escopo e fontes
+## Fonte e estado validado
 
-- Fonte visual anterior:
-  - `C:/Users/isabe/.codex/state/plugins/product-design/assets/agenda-livre-ux-audit-desktop-overview-2026-07-21.jpg`
-  - `C:/Users/isabe/.codex/state/plugins/product-design/assets/agenda-livre-ux-audit-mobile-overview-2026-07-21.jpg`
-  - `C:/Users/isabe/.codex/state/plugins/product-design/assets/agenda-livre-ux-audit-critical-flows-2026-07-21.jpg`
-- Implementação validada: `C:/Users/isabe/Downloads/balcaolivre-main/balcaolivre-main/AgendaLivre.Flutter/lib`
-- Referência estrutural adicional: `C:/Users/isabe/Downloads/balcaolivre-main/balcaolivre-main/AgendaLivre.Windows`
-- Viewports principais: `1366 × 768` e `390 × 844`, escala 1.
-- Viewports de resiliência: `1200 × 640`, `844 × 390`, `800 × 600` e `320 × 568`.
-- Estados: Home, Agenda vazia e preenchida, atendimento selecionado, edição de agendamento, horário legado fora da agenda atual, recebimento vinculado, Financeiro, Relatórios, Marketing, Estabelecimento e Configurações.
+- Fonte selecionada: `C:\Users\isabe\.codex\generated_images\019fa06c-04e2-7033-a6fb-83932b02519e\call_naoErYR7UCMlW75LURcrLQAk.png`
+- Implementação desktop: `artifacts/subscription-activation-desktop-final-v5.png`
+- Comparação lado a lado: `artifacts/subscription-activation-comparison-final-v2.png`
+- Implementação mobile: `artifacts/subscription-activation-mobile-top-final-v4.png`
+- Continuação mobile: `artifacts/subscription-activation-mobile-lower-final-v4.png`
+- Cadastro acionado pelo CTA: `artifacts/subscription-auth-mobile-final-v4.png`
+- Renovação desktop com cartão salvo: `artifacts/subscription-renewal-desktop-final-v2.png`
+- Renovação mobile com cartão salvo: `artifacts/subscription-renewal-mobile-final-v2.png`
+- Estado: pagamento confirmado, assinatura ainda não vinculada, usuário sem sessão.
+- Desktop: 1280 × 911, DPR 1.
+- Mobile: 390 × 844, DPR 1.
+- A fonte foi normalizada para 1280 × 911 antes da comparação.
 
-## Comparações combinadas inspecionadas
+## Regiões comparadas
 
-- Página completa desktop, antes/depois: `artifacts/ux-product-audit-2026-07-21/33-design-qa-desktop-before-after.jpg`
-- Página completa mobile, antes/depois: `artifacts/ux-product-audit-2026-07-21/34-design-qa-mobile-before-after.jpg`
-- Fluxos críticos, antes/depois: `artifacts/ux-product-audit-2026-07-21/35-design-qa-critical-before-after.jpg`
-- Recortes focados de Home, Agenda e Financeiro: `artifacts/ux-product-audit-2026-07-21/36-design-qa-focused-home-agenda-finance.jpg`
-- Capturas finais individuais: `artifacts/ux-product-audit-2026-07-21/01-home-desktop.png` a `29-editar-agendamento-legado-dia-fechado.png`.
+- Cabeçalho e marca.
+- Confirmação do pagamento e e-mail mascarado.
+- Linha horizontal de três etapas.
+- Título, descrição e CTAs de cadastro/entrada.
+- Escolha Web/Windows e nota de segurança.
+- Fluxo mobile completo, incluindo rolagem e abertura do cadastro.
+- Bloqueio de licença expirada, resumo seguro do cartão e CTAs de renovação.
 
-As referências e a implementação foram colocadas lado a lado na mesma imagem antes da avaliação. Depois das correções, uma segunda inspeção confirmou a hierarquia visual, o ritmo, a densidade, os estados e a responsividade.
+## Histórico de correções
 
-## Resultado visual e funcional
+1. P1: proporções verticais, hierarquia e progresso divergentes. Corrigidos com layout dividido, tipografia editorial e progresso horizontal.
+2. P2: fonte do título e densidade visual. Corrigidos com Libre Baskerville, espaçamento e escala equivalentes à referência.
+3. P1 mobile: título quebrava no meio das palavras e o espaçamento vertical era excessivo. Corrigidos com escala e paddings responsivos.
+4. P2: texto técnico mencionava Supabase para o usuário. Trocado por linguagem de produto.
 
-- Tipografia e hierarquia: títulos, métricas, legendas e ações mantêm a escala e os pesos do sistema visual existente. Rótulos longos do Marketing foram encurtados para eliminar cortes.
-- Espaçamento e layout: a Home não estoura mais cartões curtos da agenda; a Agenda selecionada cria uma área de decisão clara; desktop, tablet e mobile não apresentam overflow.
-- Cores e superfícies: paleta coral, faixa de métricas escura, cartões, estados semânticos, bordas e raios permanecem coerentes com o WPF e com os demais clientes.
-- Ícones: Material Icons e Font Awesome continuam sendo usados de forma consistente; não foram introduzidos símbolos de texto, emojis ou ilustrações falsas.
-- Imagens: somente os assets reais já existentes no produto foram usados; nenhuma imagem de produto foi simulada.
-- Conteúdo: ações que prometiam comportamento inexistente foram corrigidas. Relatórios agora usam “Pré-visualizar” e “Copiar CSV”; Marketing indica publicação manual; Financeiro vincula o recebimento ao atendimento real.
-- Responsividade: abaixo de 900 px o shell usa o modo mobile. A navegação inferior conserva rótulos em larguras normais e adota controles apenas com ícones e semântica em larguras muito estreitas.
-- Acessibilidade: ações principais têm alvo mínimo de 44 px, estados selecionados possuem semântica, textos críticos aceitam truncamento seguro e a navegação permanece alcançável em telas pequenas.
+## Verificação funcional e visual final
 
-## Correções confirmadas
-
-1. P1 — tocar em um atendimento abria cobrança imediatamente. Agora seleciona o atendimento e mostra Confirmar/Chegou/Iniciar/Finalizar/Receber/WhatsApp/Editar.
-2. P1 — recebimento pendente no Financeiro podia abrir um lançamento genérico. Agora abre o checkout do atendimento escolhido.
-3. P1 — editar um agendamento antigo em um dia hoje fechado bloqueava qualquer alteração. Agora dados não temporais podem ser salvos sem mudar a data, com aviso claro.
-4. P1 — a Home apresentava overflow em agendamentos curtos. O cartão ganhou composição densa e truncamento sem perda da informação essencial.
-5. P1 — a barra superior desktop era aplicada como busca/data em áreas onde isso não fazia sentido. Agora cada área possui contexto coerente.
-6. P1 — o shell desktop quebrava em tablets estreitos. O breakpoint foi recalibrado e o modo mobile passou a cobrir essa faixa.
-7. P2 — o selo “WhatsApp + Instagram manual” estourava com fonte de teste ampliada. O texto agora reflowa/trunca com segurança.
-8. P2 — botões de Marketing cortavam “Atualizar prévia”, “Abrir WhatsApp” e “Abrir Instagram”. Os rótulos ficaram curtos e completos.
-9. P2 — os controles de data, modo e ações na Agenda tinham alvos pequenos. Foram ampliados e reorganizados para desktop e mobile.
-10. P2 — a suíte visual podia travar ao decodificar a comparação WPF dentro do relógio falso do widget test. A decodificação agora roda em tempo real e o comparativo permanece verificável.
-
-## Verificações finais
-
-- `flutter test --concurrency=1 --reporter=compact`: 229 testes aprovados.
-- `flutter analyze`: sem problemas.
-- `flutter build web --release --no-wasm-dry-run`: concluído; saída em `build/web`.
-- Capturas regressivas: 25 estados aprovados no conjunto `ux_product_audit_capture_test.dart`.
-- Comparação WPF/Flutter normalizada: aprovada no conjunto `visual_audit_current_test.dart`.
-- Preview local: `http://127.0.0.1:4185/`, HTTP 200.
+- Nenhum erro ou aviso no console do preview.
+- CTA “Criar minha conta” abre o cadastro correto.
+- CTA “Já tenho conta” compartilha o mesmo fluxo autenticado.
+- Layout mobile rola sem corte e mantém os dois CTAs e as escolhas de acesso visíveis.
+- Renovação mostra somente bandeira, quatro últimos dígitos e validade; os dados completos continuam no Stripe.
+- Desvio P3 intencional: a implementação usa a marca oficial real do Agenda Livre e omite as curvas decorativas geradas da referência.
 
 final result: passed

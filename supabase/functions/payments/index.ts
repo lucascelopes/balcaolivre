@@ -83,19 +83,19 @@ Deno.serve(async (req) => {
     }
 
     if (route === "/mercadopago/oauth/callback" && req.method === "GET") {
-      return mercadoPagoOAuthCallback(req);
+      return await mercadoPagoOAuthCallback(req);
     }
 
     if (route === "/pagbank/oauth/callback" && req.method === "GET") {
-      return pagBankOAuthCallback(req);
+      return await pagBankOAuthCallback(req);
     }
 
     if (route === "/mercadopago/webhook" && req.method === "POST") {
-      return mercadoPagoWebhook(req);
+      return await mercadoPagoWebhook(req);
     }
 
     if (route === "/pagbank/webhook" && req.method === "POST") {
-      return pagBankWebhook(req);
+      return await pagBankWebhook(req);
     }
 
     if (req.method !== "POST") {
@@ -103,55 +103,59 @@ Deno.serve(async (req) => {
     }
 
     if (route === "/mercadopago/connect/start") {
-      return startMercadoPagoConnect(req);
+      return await startMercadoPagoConnect(req);
     }
 
     if (route === "/mercadopago/status") {
-      return getMercadoPagoStatus(req);
+      return await getMercadoPagoStatus(req);
     }
 
     if (route === "/mercadopago/terminals") {
-      return listMercadoPagoTerminals(req);
+      return await listMercadoPagoTerminals(req);
     }
 
     if (route === "/mercadopago/terminal/select") {
-      return selectMercadoPagoTerminal(req);
+      return await selectMercadoPagoTerminal(req);
     }
 
     if (route === "/mercadopago/point/charge") {
-      return createMercadoPagoPointCharge(req);
+      return await createMercadoPagoPointCharge(req);
     }
 
     if (route === "/mercadopago/point/status") {
-      return getMercadoPagoPointStatus(req);
+      return await getMercadoPagoPointStatus(req);
+    }
+
+    if (route === "/mercadopago/point/cancel") {
+      return await cancelMercadoPagoPointCharge(req);
     }
 
     if (route === "/mercadopago/web/charge") {
-      return createMercadoPagoWebCharge(req);
+      return await createMercadoPagoWebCharge(req);
     }
 
     if (route === "/mercadopago/web/status") {
-      return getMercadoPagoWebStatus(req);
+      return await getMercadoPagoWebStatus(req);
     }
 
     if (route === "/pagbank/connect/start") {
-      return startPagBankConnect(req);
+      return await startPagBankConnect(req);
     }
 
     if (route === "/pagbank/status") {
-      return getPagBankStatus(req);
+      return await getPagBankStatus(req);
     }
 
     if (route === "/pagbank/terminal/select") {
-      return selectPagBankTerminal(req);
+      return await selectPagBankTerminal(req);
     }
 
     if (route === "/pagbank/web/charge") {
-      return createPagBankWebCharge(req);
+      return await createPagBankWebCharge(req);
     }
 
     if (route === "/pagbank/web/status") {
-      return getPagBankWebStatus(req);
+      return await getPagBankWebStatus(req);
     }
 
     return json({ ok: false, message: "Rota de pagamentos nao encontrada." }, 404);
@@ -214,34 +218,46 @@ async function mercadoPagoOAuthCallback(req: Request) {
     return html("Mercado Pago", "Conexao expirada. Volte ao PDV e tente de novo.", false);
   }
 
-  const token = await exchangeMercadoPagoToken({
-    grant_type: "authorization_code",
-    code,
-    redirect_uri: mercadoPagoRedirectUri(),
-  });
-  const now = new Date().toISOString();
-  const saved = await supabase.from("bv_mercadopago_connections").upsert({
-    license_key: stringValue(stateRow.license_key),
-    machine_hash: stringValue(stateRow.machine_hash),
-    status: "CONNECTED",
-    seller_user_id: stringValue(token.user_id),
-    access_token: stringValue(token.access_token),
-    refresh_token: stringValue(token.refresh_token),
-    public_key: stringValue(token.public_key),
-    token_type: stringValue(token.token_type),
-    scope: stringValue(token.scope),
-    expires_at: tokenExpiresAt(token),
-    connected_at: now,
-    last_sync_at: now,
-    last_error: "",
-    updated_at: now,
-  }, { onConflict: "license_key" });
-  if (saved.error) {
-    return html("Mercado Pago", `Supabase recusou salvar conexao: ${saved.error.message}`, false);
-  }
+  try {
+    const token = await exchangeMercadoPagoToken({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: mercadoPagoRedirectUri(),
+    });
+    const now = new Date().toISOString();
+    const saved = await supabase.from("bv_mercadopago_connections").upsert({
+      license_key: stringValue(stateRow.license_key),
+      machine_hash: stringValue(stateRow.machine_hash),
+      status: "CONNECTED",
+      seller_user_id: stringValue(token.user_id),
+      access_token: stringValue(token.access_token),
+      refresh_token: stringValue(token.refresh_token),
+      public_key: stringValue(token.public_key),
+      token_type: stringValue(token.token_type),
+      scope: stringValue(token.scope),
+      expires_at: tokenExpiresAt(token),
+      connected_at: now,
+      last_sync_at: now,
+      last_error: "",
+      updated_at: now,
+    }, { onConflict: "license_key" });
+    if (saved.error) {
+      return html("Mercado Pago", `Supabase recusou salvar conexao: ${saved.error.message}`, false);
+    }
 
-  await supabase.from("bv_mercadopago_oauth_states").update({ used_at: now }).eq("state", state);
-  return html("Mercado Pago conectado", "Conta conectada. Volte ao Balcao Livre PDV e atualize as maquininhas.", true);
+    await supabase.from("bv_mercadopago_oauth_states").update({ used_at: now }).eq("state", state);
+    return html(
+      "Mercado Pago conectado",
+      "Conta conectada na nuvem. Volte ao Agenda Livre; a tela confirma o vinculo automaticamente.",
+      true,
+    );
+  } catch (error) {
+    return html(
+      "Mercado Pago nao conectado",
+      messageFromError(error),
+      false,
+    );
+  }
 }
 
 async function getMercadoPagoStatus(req: Request) {
@@ -522,7 +538,13 @@ async function createMercadoPagoPointCharge(req: Request) {
 
   const order = await mpFetch(token.accessToken, "/v1/orders", {
     method: "POST",
-    headers: { "X-Idempotency-Key": crypto.randomUUID() },
+    headers: {
+      "X-Idempotency-Key": await mercadoPagoIdempotencyKey(
+        licenseKey,
+        "point-charge",
+        localReference,
+      ),
+    },
     body: JSON.stringify(body),
   });
   const payment = firstPayment(order);
@@ -616,6 +638,57 @@ async function getMercadoPagoPointStatus(req: Request) {
   });
 }
 
+async function cancelMercadoPagoPointCharge(req: Request) {
+  const payload = normalizePayloadKeys(await readJson<StatusPayload>(req));
+  const validation = await ensureLicense(payload);
+  if (!validation.ok) return json(validation, validation.status);
+
+  const licenseKey = normalizeLicense(payload.licenseKey);
+  const current = await findPaymentAttempt(licenseKey, payload);
+  if (!current.ok) return json(current, current.status);
+
+  const row = current.row;
+  const orderId = stringValue(row.order_id || payload.orderId);
+  if (!orderId) return json({ ok: false, message: "Ordem Mercado Pago nao encontrada para cancelar." }, 404);
+
+  const token = await ensureAccessToken(licenseKey);
+  if (!token.ok) return json({ ok: false, message: token.message }, token.status);
+
+  const order = await mpFetch(token.accessToken, `/v1/orders/${encodeURIComponent(orderId)}/cancel`, {
+    method: "POST",
+    headers: {
+      "X-Idempotency-Key": await mercadoPagoIdempotencyKey(
+        licenseKey,
+        "point-cancel",
+        orderId,
+      ),
+    },
+  });
+  const payment = firstPayment(order);
+  const status = normalizeOrderStatus(order);
+  const statusDetail = stringValue(order.status_detail || payment.status_detail);
+  await serviceClient()
+    .from("bv_mercadopago_payment_attempts")
+    .update({
+      status,
+      status_detail: statusDetail,
+      payment_id: stringValue(payment.id) || stringValue(row.payment_id),
+      raw_response: order,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", stringValue(row.id));
+
+  return json({
+    ok: true,
+    message: "Cobranca cancelada e removida da fila da Point.",
+    attemptId: stringValue(row.id),
+    orderId,
+    paymentId: stringValue(payment.id) || stringValue(row.payment_id),
+    status,
+    statusDetail,
+  });
+}
+
 async function createMercadoPagoWebCharge(req: Request) {
   const payload = normalizePayloadKeys(await readJson<WebChargePayload>(req));
   const validation = await ensureLicense(payload);
@@ -652,7 +725,13 @@ async function createMercadoPagoWebCharge(req: Request) {
 
     const payment = await mpFetch(token.accessToken, "/v1/payments", {
       method: "POST",
-      headers: { "X-Idempotency-Key": crypto.randomUUID() },
+      headers: {
+        "X-Idempotency-Key": await mercadoPagoIdempotencyKey(
+          licenseKey,
+          "pix-charge",
+          localReference,
+        ),
+      },
       body: JSON.stringify(paymentBody),
     });
     const transactionData = paymentTransactionData(payment);
@@ -691,7 +770,13 @@ async function createMercadoPagoWebCharge(req: Request) {
   const preferenceAdditionalInfo = buildPreferenceAdditionalInfo(description, chargeItems);
   const preference = await mpFetch(token.accessToken, "/checkout/preferences", {
     method: "POST",
-    headers: { "X-Idempotency-Key": crypto.randomUUID() },
+    headers: {
+      "X-Idempotency-Key": await mercadoPagoIdempotencyKey(
+        licenseKey,
+        "checkout-preference",
+        localReference,
+      ),
+    },
     body: JSON.stringify({
       items: preferenceItems,
       additional_info: preferenceAdditionalInfo,
@@ -1509,6 +1594,21 @@ async function setupMercadoPagoTerminalForPdv(accessToken: string, terminalId: s
   if (!id) return { ok: false, message: "Maquininha Mercado Pago invalida.", status: 400 };
 
   try {
+    // Mercado Pago orienta a nao repetir o PATCH quando o terminal ja esta em
+    // modo PDV. Alguns modelos recusam essa reconfiguracao, o que impedia a
+    // criacao da order mesmo com a Point corretamente vinculada.
+    const current = await findMercadoPagoTerminal(accessToken, id);
+    if (!current) {
+      return {
+        ok: false,
+        status: 404,
+        message: "A Point selecionada nao foi encontrada na conta Mercado Pago conectada. Reconnecte usando a conta dona da maquininha e salve a Point de novo.",
+      };
+    }
+
+    const currentMode = stringValue(current.operating_mode).toUpperCase();
+    if (currentMode === "PDV") return { ok: true, operatingMode: currentMode };
+
     const response = await mpFetch(accessToken, "/terminals/v1/setup", {
       method: "PATCH",
       body: JSON.stringify({
@@ -1547,6 +1647,17 @@ async function setupMercadoPagoTerminalForPdv(accessToken: string, terminalId: s
       message: `${message}. Confirme se a Point esta associada a uma loja/caixa da conta Mercado Pago e reinicie a maquininha em modo PDV.`,
     };
   }
+}
+
+async function findMercadoPagoTerminal(accessToken: string, terminalId: string) {
+  const response = await mpFetch(accessToken, "/terminals/v1/list?limit=50&offset=0");
+  const data = response.data as Record<string, unknown> | undefined;
+  const terminals = Array.isArray(data?.terminals)
+    ? data.terminals as Record<string, unknown>[]
+    : Array.isArray(response.terminals)
+      ? response.terminals as Record<string, unknown>[]
+      : [];
+  return terminals.find((terminal) => stringValue(terminal.id) === terminalId) ?? null;
 }
 
 async function setupMercadoPagoTerminalStandalone(accessToken: string, terminalId: string): Promise<
@@ -1654,20 +1765,10 @@ function mercadoPagoClientSecret() {
 }
 
 function mercadoPagoOAuthScope() {
-  return [
-    "offline_access",
-    "payments",
-    "read",
-    "write",
-    "urn:global:admin:oauth:/read-write",
-    "urn:mp:instore:terminal:list/read-only",
-    "urn:mp:instore:terminal:setup/read-only",
-    "urn:mp:instore:terminal:actions/read-only",
-    "urn:mp:online:payments/read-only",
-    "urn:mp:online:payments:cancel/read-only",
-    "urn:mp:online:payments:refunds/read-only",
-    "urn:mp:online:preference/read-write",
-  ].join(" ");
+  // Mercado Pago OAuth only accepts these public scopes. Point permissions
+  // are enabled on the Mercado Pago application itself, not as URN scopes in
+  // the authorization URL.
+  return "offline_access read write";
 }
 
 function mercadoPagoRedirectUri() {
@@ -1727,16 +1828,33 @@ function pagBankTokenExpiresAt(token: Record<string, unknown>) {
 
 function terminalToClient(terminal: Record<string, unknown>) {
   const id = stringValue(terminal.id);
-  const serial = id.includes("__") ? id.split("__").pop() || id : id;
+  const parts = id.split("__");
+  const modelCode = parts.length > 1 ? parts[0] : "";
+  const serial = parts.length > 1 ? parts.slice(1).join("__") : id;
+  const modelName = mercadoPagoTerminalModelName(modelCode);
   const operatingMode = stringValue(terminal.operating_mode);
   return {
     id,
-    label: terminalLabelWithMode(serial, operatingMode),
+    label: terminalLabelWithMode(modelCode ? `${modelName} · ${serial}` : serial, operatingMode),
+    modelCode,
+    modelName,
+    serial,
     posId: stringValue(terminal.pos_id),
     storeId: stringValue(terminal.store_id),
     externalPosId: stringValue(terminal.external_pos_id),
     operatingMode,
   };
+}
+
+function mercadoPagoTerminalModelName(modelCode: string) {
+  switch (stringValue(modelCode).toUpperCase()) {
+    case "NEWLAND_N950": return "Point Smart 2";
+    case "INGENICO_MOVE2500": return "Point Pro";
+    case "GERTEC_MP35P": return "Point Pro 2";
+    case "PAX_A910": return "Point Smart";
+    case "PAX_Q92": return "Point Pro 3";
+    default: return stringValue(modelCode).replaceAll("_", " ") || "Point Mercado Pago";
+  }
 }
 
 function terminalLabelWithMode(label: string, operatingMode: string) {
@@ -2007,6 +2125,20 @@ function sanitizeReference(value: unknown) {
   return (clean || crypto.randomUUID()).slice(0, 64);
 }
 
+async function mercadoPagoIdempotencyKey(
+  licenseKey: string,
+  operation: string,
+  localReference: string,
+) {
+  const source = new TextEncoder().encode(
+    `agenda-livre|${normalizeLicense(licenseKey)}|${operation}|${sanitizeReference(localReference)}`,
+  );
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", source));
+  return Array.from(digest)
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 async function readJson<T>(req: Request): Promise<T> {
   try {
     return await req.json() as T;
@@ -2172,14 +2304,17 @@ function providerHtml(provider: string, title: string, message: string, ok: bool
     <div class="badge">${statusText}</div>
     <h1>${escapeHtml(title)}</h1>
     <p>${escapeHtml(message)}</p>
-    <p>Volte ao Balcao Livre PDV. A janela de configuracao confirma a conexao automaticamente.</p>
+    <p>Volte ao Agenda Livre. A janela de configuracao confirma a conexao na nuvem automaticamente.</p>
     <div class="actions">
       <button onclick="window.close()">Fechar esta aba</button>
-      <a href="https://www.balcaolivrepdv.com.br">Site Balcao Livre</a>
+      <a href="https://app.minhaagendalivre.com.br/" target="_blank" rel="noopener">Voltar ao Agenda Livre</a>
     </div>
   </main>
   <script>
-    try { window.opener && window.opener.postMessage(${payloadScript}, "*"); } catch (_) {}
+    try {
+      window.opener && window.opener.postMessage(${payloadScript}, "*");
+      ${ok ? "setTimeout(() => window.close(), 1400);" : ""}
+    } catch (_) {}
   </script>
 </body>
 </html>`, {

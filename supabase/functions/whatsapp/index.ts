@@ -221,11 +221,11 @@ Deno.serve((req) => {
     }
 
     if (route === "/onboarding/start" && req.method === "GET") {
-      return startOnboarding(url);
+      return startOnboarding(url, req.headers);
     }
 
     if (route === "/onboarding/callback" && req.method === "GET") {
-      return completeOnboardingCallback(url);
+      return completeOnboardingCallback(url, req.headers);
     }
 
     if (route === "/onboarding/complete" && req.method === "POST") {
@@ -296,10 +296,10 @@ async function receiveWebhook(req: Request) {
   });
 }
 
-function startOnboarding(url: URL) {
+function startOnboarding(url: URL, headers?: Headers) {
   const state = String(url.searchParams.get("state") ?? "").trim();
   if (onboardingProviderFromState(state) !== "evolution") {
-    return startMetaOnboarding(url);
+    return startMetaOnboarding(url, headers);
   }
 
   const provider = resolveWhatsAppProvider();
@@ -312,7 +312,7 @@ function startOnboarding(url: URL) {
   return startEvolutionOnboarding(url, provider.config);
 }
 
-async function startMetaOnboarding(url: URL) {
+async function startMetaOnboarding(url: URL, headers?: Headers) {
   const state = String(url.searchParams.get("state") ?? "").trim();
   if (!state) {
     return text("Link invalido. Abra a conexao pelo botao WhatsApp dentro do PDV.", 400);
@@ -334,7 +334,7 @@ async function startMetaOnboarding(url: URL) {
     configId,
     graphVersion: graphVersion(),
     state,
-    redirectUri: functionRouteUrl(url, "/onboarding/callback"),
+    redirectUri: functionRouteUrl(url, "/onboarding/callback", headers),
   }), 302);
 }
 
@@ -348,7 +348,7 @@ async function completeOnboarding(req: Request) {
   return json(result.body, result.status);
 }
 
-async function completeOnboardingCallback(url: URL) {
+async function completeOnboardingCallback(url: URL, headers?: Headers) {
   const error = String(url.searchParams.get("error_message") || url.searchParams.get("error_description") || url.searchParams.get("error") || "").trim();
   if (error) {
     return text(`Meta recusou a conexao: ${error}`, 400);
@@ -356,7 +356,7 @@ async function completeOnboardingCallback(url: URL) {
 
   const stateKey = String(url.searchParams.get("state") ?? "").trim();
   const code = String(url.searchParams.get("code") ?? "").trim();
-  const result = await finishOnboarding(stateKey, code, {}, functionRouteUrl(url, "/onboarding/callback"));
+  const result = await finishOnboarding(stateKey, code, {}, functionRouteUrl(url, "/onboarding/callback", headers));
   return text(result.body.message || (result.body.ok ? "WhatsApp conectado. Pode voltar para o PDV." : "Falha ao conectar WhatsApp."), result.status);
 }
 
@@ -1652,7 +1652,7 @@ async function createOnboardingStateSession(
 
   if (error) return { ok: false, message: error.message, url: "" };
 
-  const url = new URL(functionRouteUrl(new URL(req.url), "/onboarding/start"));
+  const url = new URL(functionRouteUrl(new URL(req.url), "/onboarding/start", req.headers));
   url.searchParams.set("state", state);
   return { ok: true, message: "", url: url.toString() };
 }
@@ -1983,11 +1983,23 @@ function camelizeKeys(value: unknown): unknown {
 }
 
 function routeFromPath(pathname: string) {
-  const marker = "/whatsapp";
-  const index = pathname.indexOf(marker);
-  if (index < 0) return "/";
-  const route = pathname.slice(index + marker.length) || "/";
-  return route.endsWith("/") && route.length > 1 ? route.slice(0, -1) : route;
+  const normalized = normalizeRoute(pathname);
+  if (!normalized) return "/";
+
+  const markerRoutes = identifyRouteFromKnownPaths(normalized);
+  if (markerRoutes) return markerRoutes;
+
+  const markerCandidates = ["/functions/v1/whatsapp", "/whatsapp"];
+  for (const marker of markerCandidates) {
+    const index = normalized.lastIndexOf(marker);
+    if (index >= 0) {
+      return normalizeRoute(normalized.slice(index + marker.length) || "/");
+    }
+  }
+
+  const segments = normalizeRoute(normalized).split("/").filter(Boolean);
+  const lastSegment = segments.at(-1);
+  return lastSegment ? `/${lastSegment}` : "/";
 }
 
 async function hasMetaAccessToken() {
@@ -2330,17 +2342,168 @@ function metaOAuthUrl(options: { appId: string; configId: string; graphVersion: 
   return url.toString();
 }
 
-function functionRouteUrl(url: URL, route: string) {
-  const next = new URL(url.toString());
-  const functionMarker = "/functions/v1/whatsapp";
-  const functionIndex = url.pathname.indexOf(functionMarker);
-  const pathname = functionIndex >= 0
-    ? `${url.pathname.slice(0, functionIndex + functionMarker.length)}${route}`
-    : `${functionMarker}${route}`;
-  next.protocol = "https:";
+function functionRouteUrl(url: URL, route: string, headers?: Headers) {
+  const next = requestAwareUrl(url, headers);
+  const basePath = resolveFunctionBasePath(next.pathname);
+  const pathname = `${basePath}${route}`.replace(/\/{2,}/g, "/");
   next.pathname = pathname;
   next.search = "";
   return next.toString();
+}
+
+function requestAwareUrl(url: URL, headers?: Headers) {
+  if (!headers) {
+    const fallback = new URL(url.toString());
+    fallback.protocol = "https:";
+    return fallback;
+  }
+
+  const next = new URL(url.toString());
+
+  const forwardedHost = firstFilledString(
+    headers.get("x-forwarded-host"),
+    headers.get("x-original-host"),
+    headers.get("host"),
+  );
+  if (forwardedHost) {
+    next.host = forwardedHost;
+  }
+
+  const forwardedProto = firstFilledString(
+    headers.get("x-forwarded-proto"),
+    headers.get("x-forwarded-scheme"),
+    extractProtocolFromHeader(headers.get("cf-visitor")),
+  );
+  if (forwardedProto) {
+    next.protocol = normalizeProtocolScheme(forwardedProto);
+  } else {
+    next.protocol = "https:";
+  }
+
+  const forwardedPath = firstFilledString(
+    headers.get("x-forwarded-uri"),
+    headers.get("x-original-uri"),
+    headers.get("x-forwarded-path"),
+    headers.get("cf-connecting-url"),
+    headers.get("x-original-url"),
+  );
+  if (forwardedPath) {
+    const normalized = parsePathFromUrlLike(forwardedPath);
+    if (normalized) {
+      next.pathname = normalized;
+    }
+  }
+
+  return next;
+}
+
+function extractProtocolFromHeader(value: string | null) {
+  if (!value) return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed) as { scheme?: string };
+    return (parsed?.scheme ?? "").trim();
+  } catch (_error) {
+    return "";
+  }
+}
+
+function parsePathFromUrlLike(value: string) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return "";
+  const withoutFragment = trimmed.split("#", 2)[0];
+  const withoutQuery = withoutFragment.split("?", 2)[0];
+  if (!withoutQuery) return "";
+  if (withoutQuery.startsWith("/")) return normalizeRoute(withoutQuery);
+  if (!withoutQuery.includes("://")) return "";
+  try {
+    return normalizeRoute(new URL(withoutQuery).pathname);
+  } catch (_error) {
+    return "";
+  }
+}
+
+function firstFilledString(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    const normalized = String(value ?? "").split(",")[0].trim();
+    if (normalized) return normalized;
+  }
+  return "";
+}
+
+function normalizeProtocolScheme(value: string) {
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed.endsWith(":")) return trimmed;
+  return `${trimmed}:`;
+}
+
+function identifyRouteFromKnownPaths(pathname: string) {
+  const knownRoutes = [
+    "/onboarding/start",
+    "/onboarding/callback",
+    "/onboarding/complete",
+    "/webhook",
+    "/health",
+    "/activate",
+    "/status",
+    "/send",
+    "/messages",
+    "/disconnect",
+  ];
+
+  for (const route of knownRoutes)
+  {
+    if (pathname === route || pathname.endsWith(route))
+    {
+      return route;
+    }
+  }
+
+  return "";
+}
+
+function resolveFunctionBasePath(pathname: string) {
+  const normalized = normalizeRoute(pathname);
+  if (!normalized) return "/";
+
+  const markerCandidates = ["/functions/v1/whatsapp", "/whatsapp"];
+  for (const marker of markerCandidates) {
+    const index = normalized.lastIndexOf(marker);
+    if (index >= 0) {
+      return normalizeBasePath(normalized.slice(0, index + marker.length));
+    }
+  }
+
+  const markerRoute = identifyRouteFromKnownPaths(normalized);
+  if (markerRoute) {
+    const index = normalized.lastIndexOf(markerRoute);
+    if (index <= 0) return "/";
+    return normalizeBasePath(normalized.slice(0, index));
+  }
+
+  return "/";
+}
+
+function normalizeBasePath(value: string) {
+  const path = normalizePath(value);
+  if (!path) return "/";
+  if (path === "/") return "/";
+  const normalized = path.endsWith("/") ? path.slice(0, -1) : path;
+  return normalized || "/";
+}
+
+function normalizeRoute(pathname: string) {
+  if (!pathname || pathname === "/") return "/";
+  const hasLeadingSlash = pathname.startsWith("/");
+  const value = hasLeadingSlash ? pathname : `/${pathname}`;
+  const collapsed = value.replace(/\/{2,}/g, "/");
+  return collapsed.endsWith("/") && collapsed.length > 1 ? collapsed.slice(0, -1) : collapsed;
+}
+
+function normalizePath(pathname: string) {
+  const trimmed = String(pathname ?? "").trim();
+  return trimmed || "/";
 }
 
 function _onboardingMessagePage(title: string, message: string) {

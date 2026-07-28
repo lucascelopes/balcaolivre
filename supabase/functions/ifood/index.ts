@@ -290,41 +290,10 @@ async function handleConnectFinish(req: Request) {
 
 async function handleOrdersSync(req: Request) {
   const body = await readJson(req) as StoreContext & { connectionId?: string };
-  let connection = await findConnection(body);
-  connection = await ensureToken(connection);
+  const connection = await findConnection(body);
 
   const storedOrders = await loadStoredOrders(connection);
   const orders = storedOrders;
-  const ackIds: string[] = [];
-  let pollingWarning = "";
-
-  try {
-    const events = await pollEventsWithFreshToken(connection);
-    for (const event of events) {
-      const orderId = text(event.orderId ?? event.metadata?.orderId);
-      const eventId = text(event.id);
-      if (!orderId) continue;
-
-      ackIds.push(eventId);
-
-      const order = await ifoodJson(`/order/v1.0/orders/${encodeURIComponent(orderId)}`, connection.access_token ?? "");
-      await serviceClient().from("bv_ifood_orders").upsert({
-        order_id: orderId,
-        connection_id: connection.id,
-        merchant_id: connection.merchant_id,
-        payload: order,
-      }, { onConflict: "order_id" });
-
-      orders.push(mapOrder(order, orderId));
-    }
-
-    if (ackIds.length > 0) {
-      await acknowledgeEventIds(connection.access_token ?? "", ackIds);
-    }
-  } catch (error) {
-    pollingWarning = messageFromError(error);
-    console.error("iFood polling skipped", pollingWarning);
-  }
 
   await serviceClient()
     .from("bv_ifood_connections")
@@ -334,12 +303,9 @@ async function handleOrdersSync(req: Request) {
   return json({
     ok: true,
     message: orders.length === 0
-      ? pollingWarning
-        ? "Nenhum pedido novo recebido agora. iFood indisponivel para consulta automatica."
-        : "Nenhum pedido novo recebido do iFood."
+      ? "Nenhum pedido novo recebido do iFood."
       : `${orders.length} pedido(s) iFood recebido(s).`,
     syncedAt: new Date().toISOString(),
-    pollingWarning,
     orders,
   });
 }

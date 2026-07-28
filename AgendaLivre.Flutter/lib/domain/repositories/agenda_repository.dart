@@ -43,3 +43,9 @@ abstract interface class AgendaSyncRepository {
 
   Future<void> retrySync();
 }
+
+abstract interface class AgendaEntitlementRepository {
+  String get entitlementStatus;
+
+  bool get entitlementCanUse;
+}

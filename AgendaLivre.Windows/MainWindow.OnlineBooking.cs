@@ -10,8 +10,8 @@ namespace AgendaLivre.Windows;
 
 public partial class MainWindow
 {
-    private const string DefaultPublicBookingApiUrl = "https://agenda-livre-next.edodoy.chatgpt.site";
-    private const string LegacyPublicBookingApiUrl = "https://minhaagendalivre.com.br";
+    private const string DefaultPublicBookingApiUrl = "https://minhaagendalivre.com.br";
+    private const string LegacyPublicBookingApiUrl = "https://agenda-livre-next.edodoy.chatgpt.site";
     private const string PublicBookingRootDomain = "minhaagendalivre.com.br";
     private static readonly TimeSpan OnlineBookingSyncInterval = TimeSpan.FromSeconds(12);
     private static readonly TimeSpan OnlineBookingReminderMinimum = TimeSpan.FromMinutes(15);
@@ -122,12 +122,15 @@ public partial class MainWindow
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var desiredSlug = _data.Settings.PublicBookingSlug.Trim();
+        var publishedCatalog = MarketingCatalogPublicationForSync();
+        var desiredSlug = publishedCatalog?.Slug.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(desiredSlug))
+        {
+            desiredSlug = _data.Settings.PublicBookingSlug.Trim();
+        }
         if (string.IsNullOrWhiteSpace(desiredSlug))
         {
             desiredSlug = SlugifyPublicBookingStore(BusinessDisplayName());
-            _data.Settings.PublicBookingSlug = desiredSlug;
-            _store.Save(_data);
         }
 
         var theme = ThemeById(_data.Settings.ThemeId);
@@ -165,6 +168,103 @@ public partial class MainWindow
             themePayload["logoUrl"] = _onlineBookingCachedLogoDataUrl;
         }
 
+        Dictionary<string, object?>? catalogPayload = null;
+        var catalogHeroFingerprint = "";
+        var shouldSyncCatalogHero = false;
+        if (publishedCatalog is not null)
+        {
+            catalogHeroFingerprint = MarketingCatalogHeroFingerprint(publishedCatalog.HeroImagePath);
+            shouldSyncCatalogHero = !string.Equals(
+                catalogHeroFingerprint,
+                _onlineBookingLastSyncedCatalogHeroFingerprint,
+                StringComparison.Ordinal);
+            catalogPayload = new Dictionary<string, object?>
+            {
+                ["title"] = publishedCatalog.Title,
+                ["supportText"] = publishedCatalog.SupportText,
+                ["buttonText"] = publishedCatalog.ButtonText,
+                ["accentColor"] = publishedCatalog.AccentColor,
+                ["alignment"] = publishedCatalog.Alignment,
+                ["spacing"] = publishedCatalog.Spacing,
+                ["titleFont"] = publishedCatalog.TitleFont,
+                ["imageContrast"] = publishedCatalog.ImageContrast,
+                ["showButton"] = publishedCatalog.ShowButton,
+                ["header"] = new Dictionary<string, object?>
+                {
+                    ["businessName"] = publishedCatalog.Header.BusinessName,
+                    ["subtitle"] = publishedCatalog.Header.Subtitle,
+                    ["buttonText"] = publishedCatalog.Header.ButtonText,
+                    ["showLogo"] = publishedCatalog.Header.ShowLogo,
+                    ["showNavigation"] = publishedCatalog.Header.ShowNavigation,
+                    ["showButton"] = publishedCatalog.Header.ShowButton,
+                    ["sticky"] = publishedCatalog.Header.Sticky,
+                    ["background"] = publishedCatalog.Header.Background
+                },
+                ["footer"] = new Dictionary<string, object?>
+                {
+                    ["businessName"] = publishedCatalog.Footer.BusinessName,
+                    ["description"] = publishedCatalog.Footer.Description,
+                    ["address"] = publishedCatalog.Footer.Address,
+                    ["phone"] = publishedCatalog.Footer.Phone,
+                    ["hours"] = publishedCatalog.Footer.Hours,
+                    ["instagram"] = publishedCatalog.Footer.Instagram,
+                    ["whatsApp"] = publishedCatalog.Footer.WhatsApp,
+                    ["showContact"] = publishedCatalog.Footer.ShowContact,
+                    ["showHours"] = publishedCatalog.Footer.ShowHours,
+                    ["showSocial"] = publishedCatalog.Footer.ShowSocial
+                },
+                ["design"] = new Dictionary<string, object?>
+                {
+                    ["colorScheme"] = publishedCatalog.Design.ColorScheme,
+                    ["buttonStyle"] = publishedCatalog.Design.ButtonStyle,
+                    ["cornerStyle"] = publishedCatalog.Design.CornerStyle,
+                    ["contentWidth"] = publishedCatalog.Design.ContentWidth
+                },
+                ["sections"] = BuildMarketingCatalogSectionsPayload(publishedCatalog.Sections),
+                ["mediaUploads"] = BuildMarketingCatalogMediaUploads(publishedCatalog.Sections),
+                ["seo"] = new Dictionary<string, object?>
+                {
+                    ["title"] = publishedCatalog.SeoTitle,
+                    ["description"] = publishedCatalog.SeoDescription
+                },
+                ["promotion"] = publishedCatalog.Promotion is { IsPublished: true } promotion
+                    ? new Dictionary<string, object?>
+                    {
+                        ["name"] = promotion.Name,
+                        ["startDate"] = promotion.StartDate.ToString("O", CultureInfo.InvariantCulture),
+                        ["endDate"] = promotion.EndDate.ToString("O", CultureInfo.InvariantCulture),
+                        ["limitPerCustomer"] = promotion.LimitPerCustomer,
+                        ["highlightInCatalog"] = promotion.HighlightInCatalog,
+                        ["isPublished"] = promotion.IsPublished,
+                        ["publishedAt"] = promotion.PublishedAt?.ToString("O", CultureInfo.InvariantCulture) ?? "",
+                        ["items"] = promotion.Items.Select(item => new Dictionary<string, object?>
+                        {
+                            ["serviceId"] = item.ServiceId,
+                            ["serviceName"] = item.ServiceName,
+                            ["originalPrice"] = item.OriginalPrice,
+                            ["promotionalPrice"] = item.PromotionalPrice
+                        }).ToList()
+                    }
+                    : null,
+                ["publishedAt"] = publishedCatalog.PublishedAt?.ToString("O", CultureInfo.InvariantCulture) ?? ""
+            };
+            if (shouldSyncCatalogHero)
+            {
+                if (!string.Equals(
+                        catalogHeroFingerprint,
+                        _onlineBookingCachedCatalogHeroFingerprint,
+                        StringComparison.Ordinal))
+                {
+                    _onlineBookingCachedCatalogHeroFingerprint = catalogHeroFingerprint;
+                    _onlineBookingCachedCatalogHeroDataUrl = BuildMarketingCatalogHeroDataUrl(publishedCatalog.HeroImagePath);
+                }
+                if (!string.IsNullOrWhiteSpace(_onlineBookingCachedCatalogHeroDataUrl))
+                {
+                    catalogPayload["heroImageDataUrl"] = _onlineBookingCachedCatalogHeroDataUrl;
+                }
+            }
+        }
+
         var payload = new
         {
             instance = WhatsAppRealtimeInstanceName(),
@@ -173,15 +273,28 @@ public partial class MainWindow
             segment = _data.Settings.BusinessSegment,
             generatedAt = DateTimeOffset.Now.ToString("O", CultureInfo.InvariantCulture),
             theme = themePayload,
+            catalog = catalogPayload,
+            customDomain = publishedCatalog?.CustomDomain,
             bookingServices = BuildWhatsAppBookingServicesSnapshot(DateTime.Today)
         };
 
-        using var request = CreateOnlineBookingRequest(HttpMethod.Post, "/api/internal/agenda/sync", payload);
+        var accountAccessToken = _syncCoordinator is null
+            ? ""
+            : await _syncCoordinator.GetAccountAccessTokenAsync(cancellationToken);
+        using var request = CreateOnlineBookingRequest(
+            HttpMethod.Post,
+            "/api/internal/agenda/sync",
+            payload,
+            accountAccessToken);
         using var response = await _onlineBookingClient.SendAsync(request, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             Debug.WriteLine($"Online booking sync returned HTTP {(int)response.StatusCode}: {CompactOnlineBookingError(body)}");
+            if (publishedCatalog is not null && MarketingSiteSavedStatusText is not null)
+            {
+                MarketingSiteSavedStatusText.Text = "Publicação pendente. Tentaremos novamente.";
+            }
             return;
         }
 
@@ -192,12 +305,39 @@ public partial class MainWindow
             !okValue.GetBoolean())
         {
             Debug.WriteLine($"Online booking sync was rejected: {CompactOnlineBookingError(body)}");
+            if (publishedCatalog is not null && MarketingSiteSavedStatusText is not null)
+            {
+                MarketingSiteSavedStatusText.Text = "Publicação pendente. Tentaremos novamente.";
+            }
             return;
+        }
+
+        if (publishedCatalog is not null &&
+            MarketingSiteSavedStatusText is not null &&
+            TryGetRealtimeProperty(root, "publication", out var publicationElement) &&
+            publicationElement.ValueKind == JsonValueKind.Object &&
+            string.Equals(
+                ReadRealtimeString(publicationElement, "status"),
+                "published",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var cloudPublishedAtText = ReadRealtimeString(publicationElement, "publishedAt");
+            MarketingSiteSavedStatusText.Text = DateTimeOffset.TryParse(
+                cloudPublishedAtText,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal,
+                out var cloudPublishedAt)
+                ? $"Publicado na nuvem em {cloudPublishedAt.ToLocalTime():dd/MM, HH:mm}"
+                : "Publicado na nuvem";
         }
 
         if (shouldSyncLogo)
         {
             _onlineBookingLastSyncedLogoFingerprint = logoFingerprint;
+        }
+        if (shouldSyncCatalogHero && !string.IsNullOrWhiteSpace(_onlineBookingCachedCatalogHeroDataUrl))
+        {
+            _onlineBookingLastSyncedCatalogHeroFingerprint = catalogHeroFingerprint;
         }
 
         var returnedSlug = ReadRealtimeString(root, "slug");
@@ -215,6 +355,57 @@ public partial class MainWindow
         if (!string.IsNullOrWhiteSpace(publicUrl))
         {
             _data.Settings.PublicBookingUrl = publicUrl.Trim();
+        }
+
+        if (TryGetRealtimeProperty(root, "customDomain", out var customDomainElement) &&
+            customDomainElement.ValueKind == JsonValueKind.Object)
+        {
+            _data.Settings.PublicBookingCustomDomain = ReadRealtimeString(customDomainElement, "hostname");
+            _data.Settings.PublicBookingCustomDomainStatus = ReadRealtimeString(customDomainElement, "status");
+            _data.Settings.PublicBookingCustomDomainProviderStatus = ReadRealtimeString(customDomainElement, "providerStatus");
+            _data.Settings.PublicBookingCustomDomainSslStatus = ReadRealtimeString(customDomainElement, "sslStatus");
+            _data.Settings.PublicBookingCustomDomainCnameTarget = ReadRealtimeString(customDomainElement, "cnameTarget");
+            _data.Settings.PublicBookingCustomDomainValidationRecordName = "";
+            _data.Settings.PublicBookingCustomDomainValidationRecordType = "";
+            _data.Settings.PublicBookingCustomDomainValidationRecordValue = "";
+            if (TryGetRealtimeProperty(customDomainElement, "validationRecords", out var validationRecordsElement) &&
+                validationRecordsElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var validationRecordElement in validationRecordsElement.EnumerateArray())
+                {
+                    if (validationRecordElement.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    var validationRecordName = ReadRealtimeString(validationRecordElement, "name");
+                    var validationRecordValue = ReadRealtimeString(validationRecordElement, "value");
+                    if (string.IsNullOrWhiteSpace(validationRecordName) || string.IsNullOrWhiteSpace(validationRecordValue))
+                    {
+                        continue;
+                    }
+
+                    _data.Settings.PublicBookingCustomDomainValidationRecordName = validationRecordName;
+                    _data.Settings.PublicBookingCustomDomainValidationRecordType = ReadRealtimeString(validationRecordElement, "recordType");
+                    _data.Settings.PublicBookingCustomDomainValidationRecordValue = validationRecordValue;
+                    break;
+                }
+            }
+            _data.Settings.PublicBookingCustomDomainLastError = ReadRealtimeString(customDomainElement, "lastError");
+            UpdateMarketingSiteCustomDomainStatus();
+        }
+        else if (customDomainElement.ValueKind == JsonValueKind.Null)
+        {
+            _data.Settings.PublicBookingCustomDomain = "";
+            _data.Settings.PublicBookingCustomDomainStatus = "";
+            _data.Settings.PublicBookingCustomDomainProviderStatus = "";
+            _data.Settings.PublicBookingCustomDomainSslStatus = "";
+            _data.Settings.PublicBookingCustomDomainCnameTarget = "";
+            _data.Settings.PublicBookingCustomDomainValidationRecordName = "";
+            _data.Settings.PublicBookingCustomDomainValidationRecordType = "";
+            _data.Settings.PublicBookingCustomDomainValidationRecordValue = "";
+            _data.Settings.PublicBookingCustomDomainLastError = "";
+            UpdateMarketingSiteCustomDomainStatus();
         }
 
         _data.Settings.PublicBookingApiUrl = NormalizePublicBookingApiUrl(_data.Settings.PublicBookingApiUrl);
@@ -361,10 +552,14 @@ public partial class MainWindow
         object payload,
         CancellationToken cancellationToken)
     {
+        var accountAccessToken = _syncCoordinator is null
+            ? ""
+            : await _syncCoordinator.GetAccountAccessTokenAsync(cancellationToken);
         using var request = CreateOnlineBookingRequest(
             HttpMethod.Patch,
             $"/api/internal/agenda/bookings/{Uri.EscapeDataString(bookingId)}",
-            payload);
+            payload,
+            accountAccessToken);
         using var response = await _onlineBookingClient.SendAsync(request, cancellationToken);
         if (response.IsSuccessStatusCode)
         {
@@ -376,9 +571,17 @@ public partial class MainWindow
         return false;
     }
 
-    private HttpRequestMessage CreateOnlineBookingRequest(HttpMethod method, string path, object payload)
+    private HttpRequestMessage CreateOnlineBookingRequest(
+        HttpMethod method,
+        string path,
+        object payload,
+        string accountAccessToken)
     {
         var request = new HttpRequestMessage(method, PublicBookingEndpoint(path));
+        if (!string.IsNullOrWhiteSpace(accountAccessToken))
+        {
+            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {accountAccessToken.Trim()}");
+        }
         request.Headers.TryAddWithoutValidation("x-agenda-license", BuildAgendaLivreWhatsAppLicense());
         request.Headers.TryAddWithoutValidation("x-agenda-machine", GetAgendaMachineFingerprint());
         request.Headers.TryAddWithoutValidation("x-agenda-machine-code", GetAgendaMachineCode());
@@ -458,9 +661,19 @@ public partial class MainWindow
             slug = "minha-agenda";
         }
 
-        if (slug.Length > 63)
+        if (slug.Length > 48)
         {
-            slug = slug[..63].TrimEnd('-');
+            slug = slug[..48].TrimEnd('-');
+        }
+
+        if (slug.Length < 3)
+        {
+            slug = $"agenda-{slug}";
+        }
+
+        if (slug is "www" or "app" or "admin" or "pdv" or "cardapio" or "api")
+        {
+            slug = $"{slug}-agenda";
         }
 
         return slug;

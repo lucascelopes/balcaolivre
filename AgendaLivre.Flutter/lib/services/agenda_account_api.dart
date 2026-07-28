@@ -1287,6 +1287,73 @@ class AgendaTrialStatus {
   }
 }
 
+class AgendaEntitlement {
+  const AgendaEntitlement({
+    this.status = 'pending_activation',
+    this.canUse = false,
+    this.trialStartedAt,
+    this.trialEndsAt,
+    this.daysRemaining = 0,
+    this.currentPeriodEndsAt,
+    this.graceEndsAt,
+    this.paymentUrl = '',
+    this.supportUrl = '',
+  });
+
+  final String status;
+  final bool canUse;
+  final DateTime? trialStartedAt;
+  final DateTime? trialEndsAt;
+  final int daysRemaining;
+  final DateTime? currentPeriodEndsAt;
+  final DateTime? graceEndsAt;
+  final String paymentUrl;
+  final String supportUrl;
+
+  bool get isPaid => status == 'active' || status == 'past_due';
+  bool get needsRenewal => !canUse;
+
+  static AgendaEntitlement fromJson(Object? value) {
+    if (value is! Map) return const AgendaEntitlement();
+    final json = Map<String, dynamic>.from(value);
+    return AgendaEntitlement(
+      status: _string(json['status']).trim().toLowerCase(),
+      canUse: json['canUse'] == true,
+      trialStartedAt: DateTime.tryParse(_string(json['trialStartedAt'])),
+      trialEndsAt: DateTime.tryParse(_string(json['trialEndsAt'])),
+      daysRemaining: _integer(json['daysRemaining']),
+      currentPeriodEndsAt: DateTime.tryParse(
+        _string(json['currentPeriodEndsAt']),
+      ),
+      graceEndsAt: DateTime.tryParse(_string(json['graceEndsAt'])),
+      paymentUrl: _string(json['paymentUrl']),
+      supportUrl: _string(json['supportUrl']),
+    );
+  }
+}
+
+class AgendaBillingCard {
+  const AgendaBillingCard({
+    required this.brand,
+    required this.last4,
+    required this.expMonth,
+    required this.expYear,
+  });
+
+  final String brand;
+  final String last4;
+  final int expMonth;
+  final int expYear;
+
+  String get displayBrand => switch (brand.toLowerCase()) {
+    'visa' => 'Visa',
+    'mastercard' => 'Mastercard',
+    'amex' => 'American Express',
+    'elo' => 'Elo',
+    _ => 'Cartão',
+  };
+}
+
 class AgendaRemoteState {
   const AgendaRemoteState({
     required this.exists,
@@ -1295,6 +1362,7 @@ class AgendaRemoteState {
     required this.payload,
     required this.updatedAt,
     required this.trial,
+    this.entitlement = const AgendaEntitlement(),
   });
 
   final bool exists;
@@ -1303,6 +1371,7 @@ class AgendaRemoteState {
   final Map<String, dynamic>? payload;
   final DateTime? updatedAt;
   final AgendaTrialStatus trial;
+  final AgendaEntitlement entitlement;
 
   static AgendaRemoteState fromJson(Map<String, dynamic> json) {
     final rawPayload = json['payload'];
@@ -1313,6 +1382,7 @@ class AgendaRemoteState {
       payload: rawPayload is Map ? Map<String, dynamic>.from(rawPayload) : null,
       updatedAt: DateTime.tryParse(_string(json['updatedAt'])),
       trial: AgendaTrialStatus.fromJson(json['trial']),
+      entitlement: AgendaEntitlement.fromJson(json['entitlement']),
     );
   }
 }
@@ -1424,6 +1494,88 @@ class AgendaAccountApi implements AgendaAccountStateClient {
       );
     }
     return uri;
+  }
+
+  Future<Uri> createSubscriptionPortal() async {
+    final config = await _configService.load();
+    final response = await _authorizedRequest(
+      config,
+      method: 'POST',
+      uri: _resolveUri(
+        _configService.apiBase,
+        '/api/agenda/subscriptions/portal',
+      ),
+      body: '{}',
+    );
+    if (!response.isSuccess) {
+      throw AgendaApiException.fromResponse(
+        response,
+        fallbackMessage: 'Não foi possível abrir sua assinatura agora.',
+      );
+    }
+    final rawPortal = _decodeObject(response.body)['portal'];
+    final portal = rawPortal is Map
+        ? Map<String, dynamic>.from(rawPortal)
+        : <String, dynamic>{};
+    final uri = Uri.tryParse(_firstString(portal, const <String>['url']));
+    if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
+      throw const AgendaApiException(
+        'portal_response_invalid',
+        'O servidor não retornou um link seguro da Stripe.',
+      );
+    }
+    return uri;
+  }
+
+  Future<AgendaBillingCard?> getSubscriptionCardSummary() async {
+    final config = await _configService.load();
+    final response = await _authorizedRequest(
+      config,
+      method: 'GET',
+      uri: _resolveUri(
+        _configService.apiBase,
+        '/api/agenda/subscriptions/summary',
+      ),
+    );
+    if (!response.isSuccess) {
+      throw AgendaApiException.fromResponse(
+        response,
+        fallbackMessage: 'Não foi possível consultar o cartão salvo agora.',
+      );
+    }
+    final rawCard = _decodeObject(response.body)['card'];
+    if (rawCard is! Map) return null;
+    final card = Map<String, dynamic>.from(rawCard);
+    final last4 = _string(card['last4']);
+    if (!RegExp(r'^\d{4}$').hasMatch(last4)) return null;
+    return AgendaBillingCard(
+      brand: _string(card['brand']),
+      last4: last4,
+      expMonth: _integer(card['expMonth']),
+      expYear: _integer(card['expYear']),
+    );
+  }
+
+  Future<AgendaEntitlement> claimSubscription(String sessionId) async {
+    final config = await _configService.load();
+    final response = await _authorizedRequest(
+      config,
+      method: 'POST',
+      uri: _resolveUri(
+        _configService.apiBase,
+        '/api/agenda/subscriptions/claim',
+      ),
+      body: jsonEncode(<String, String>{'sessionId': sessionId}),
+    );
+    if (!response.isSuccess) {
+      throw AgendaApiException.fromResponse(
+        response,
+        fallbackMessage: 'Não foi possível ativar sua assinatura agora.',
+      );
+    }
+    return AgendaEntitlement.fromJson(
+      _decodeObject(response.body)['entitlement'],
+    );
   }
 
   Future<ServiceHttpResponse> _authorizedRequest(

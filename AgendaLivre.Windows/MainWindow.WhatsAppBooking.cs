@@ -9,6 +9,20 @@ public partial class MainWindow
 {
     private List<WhatsAppBookingServiceSnapshot> BuildWhatsAppBookingServicesSnapshot(DateTime today)
     {
+        var promotion = _data.Settings.PublishedMarketingCatalog?.Promotion;
+        var promotionIsActive = promotion is
+        {
+            IsPublished: true
+        } &&
+            promotion.StartDate.Date <= today.Date &&
+            promotion.EndDate.Date >= today.Date;
+        var promotionItems = promotionIsActive
+            ? promotion!.Items
+                .Where(item => !string.IsNullOrWhiteSpace(item.ServiceId))
+                .GroupBy(item => item.ServiceId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, MarketingSitePromotionItem>(StringComparer.OrdinalIgnoreCase);
+
         return _data.Services
             .Where(item => item.IsActive)
             .OrderBy(item => item.Name)
@@ -28,11 +42,22 @@ public partial class MainWindow
                     .Take(7)
                     .ToList();
 
+                var hasPromotion = promotionItems.TryGetValue(service.Id, out var promotionItem) &&
+                    promotionItem.PromotionalPrice >= 0 &&
+                    promotionItem.PromotionalPrice < service.Price;
+                var sitePrice = hasPromotion ? promotionItem!.PromotionalPrice : service.Price;
+                var discountPercent = hasPromotion && service.Price > 0
+                    ? (int)Math.Round((service.Price - sitePrice) / service.Price * 100, MidpointRounding.AwayFromZero)
+                    : 0;
+
                 return new WhatsAppBookingServiceSnapshot(
                     service.Id,
                     service.Name,
                     Math.Clamp(service.DurationMinutes, 15, 480),
-                    service.Price,
+                    sitePrice,
+                    hasPromotion ? service.Price : sitePrice,
+                    hasPromotion ? promotion!.Name : "",
+                    Math.Clamp(discountPercent, 0, 100),
                     days);
             })
             .Where(service => service.days.Count > 0)
@@ -397,6 +422,9 @@ public partial class MainWindow
         string name,
         int durationMinutes,
         decimal price,
+        decimal originalPrice,
+        string promotionName,
+        int discountPercent,
         IReadOnlyList<WhatsAppBookingDaySnapshot> days);
 
     private sealed record WhatsAppBookingDaySnapshot(

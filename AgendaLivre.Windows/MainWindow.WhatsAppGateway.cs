@@ -55,6 +55,18 @@ public partial class MainWindow
         var payload = CreateWhatsAppGatewayPayload(storePhone);
         var response = await PostWhatsAppGatewayAsync("/activate", payload, TimeSpan.FromSeconds(25));
         var result = ParseWhatsAppGatewayResult(response.StatusCode, response.Body);
+        if (!result.Ok && !result.Pending)
+        {
+            // A sessão de onboarding pode já existir mesmo quando a Evolution falha
+            // temporariamente ao recriar a instância. Nesse caso, preserve o fluxo
+            // recuperável retornado por /status em vez de esconder o QR do usuário.
+            var current = await FetchWhatsAppGatewayStatusAsync();
+            if (current.Pending && !string.IsNullOrWhiteSpace(current.OnboardingUrl))
+            {
+                result = current;
+            }
+        }
+
         if (!result.Pending || string.IsNullOrWhiteSpace(result.OnboardingUrl))
         {
             return result;
@@ -299,9 +311,23 @@ public partial class MainWindow
 
     private static bool IsTrustedWhatsAppOnboardingUrl(string onboardingUrl)
     {
-        return Uri.TryCreate(onboardingUrl, UriKind.Absolute, out var uri)
-               && uri.Scheme == Uri.UriSchemeHttps
-               && uri.Host.EndsWith(".supabase.co", StringComparison.OrdinalIgnoreCase)
-               && uri.AbsolutePath.Contains("/functions/v1/whatsapp/onboarding/", StringComparison.OrdinalIgnoreCase);
+        if (!Uri.TryCreate(onboardingUrl, UriKind.Absolute, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttps)
+        {
+            return false;
+        }
+
+        var regularFunctionUrl =
+            uri.Host.EndsWith(".supabase.co", StringComparison.OrdinalIgnoreCase)
+            && uri.AbsolutePath.Contains(
+                "/functions/v1/whatsapp/onboarding/",
+                StringComparison.OrdinalIgnoreCase);
+        var edgeRuntimeUrl =
+            uri.Host.Equals("edge-runtime.supabase.com", StringComparison.OrdinalIgnoreCase)
+            && uri.AbsolutePath.StartsWith(
+                "/whatsapp/onboarding/",
+                StringComparison.OrdinalIgnoreCase);
+
+        return regularFunctionUrl || edgeRuntimeUrl;
     }
 }

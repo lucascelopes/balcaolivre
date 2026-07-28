@@ -1,4 +1,5 @@
 using AgendaLivre.Windows;
+using System.Net;
 
 var now = new DateTimeOffset(2026, 7, 17, 15, 0, 0, TimeSpan.Zero);
 var guard = new WhatsAppManualSendGuard(TimeSpan.FromSeconds(12));
@@ -132,7 +133,82 @@ Require(
     ReferenceEquals(pendingRows[0], absentPending),
     "uma bolha pendente ausente do snapshot deve ser preservada");
 
-Console.WriteLine("WhatsApp manual send reliability: 17 checks passed.");
+var useComputer = AgendaSyncConflictPolicy.CreateTransition(
+    AgendaSyncConflictResolution.UseThisComputer,
+    remoteRevision: 41);
+Require(useComputer.BaseRevision == 41, "a resolução local deve partir da revisão remota atual");
+Require(useComputer.Pending, "a resolução local deve permanecer pendente até o CAS concluir");
+Require(!useComputer.ApplyRemote, "a resolução local não deve aplicar o payload remoto");
+Require(useComputer.QueueLocal, "a resolução local deve reenfileirar o arquivo mais recente");
+
+var useCloud = AgendaSyncConflictPolicy.CreateTransition(
+    AgendaSyncConflictResolution.UseCloud,
+    remoteRevision: 57);
+Require(useCloud.BaseRevision == 57, "a resolução pela nuvem deve gravar a revisão escolhida");
+Require(!useCloud.Pending, "a resolução pela nuvem deve limpar a pendência local");
+Require(useCloud.ApplyRemote, "a resolução pela nuvem deve aplicar o payload remoto");
+Require(!useCloud.QueueLocal, "a resolução pela nuvem não deve criar um push de retorno");
+
+Require(AgendaSyncRetryPolicy.DelayAfterFailure(1) == TimeSpan.FromSeconds(2),
+    "o primeiro retry deve aguardar dois segundos");
+Require(AgendaSyncRetryPolicy.DelayAfterFailure(2) == TimeSpan.FromSeconds(4),
+    "o backoff deve dobrar após a segunda falha");
+Require(AgendaSyncRetryPolicy.DelayAfterFailure(5) == TimeSpan.FromSeconds(30),
+    "o backoff deve chegar ao teto de trinta segundos");
+Require(AgendaSyncRetryPolicy.DelayAfterFailure(50) == TimeSpan.FromSeconds(30),
+    "o backoff deve continuar limitado enquanto o app estiver aberto");
+Require(AgendaSyncRetryPolicy.IsRetryable(new HttpRequestException("offline")),
+    "falha de rede deve entrar no retry automático");
+Require(AgendaSyncRetryPolicy.IsRetryable(new TaskCanceledException("timeout")),
+    "timeout do cliente deve entrar no retry automático");
+Require(AgendaSyncRetryPolicy.IsRetryable(new TestRetryableException()),
+    "falha temporária de autenticação deve entrar no retry automático");
+Require(!AgendaSyncRetryPolicy.IsRetryable(new InvalidOperationException("programação")),
+    "erro de programação não deve criar loop de retry");
+
+Require(AgendaOfflineSessionPolicy.HasUsableCachedIdentity("user-1", "teste@agenda.local", "refresh"),
+    "uma sessão protegida completa deve poder abrir o cache offline");
+Require(!AgendaOfflineSessionPolicy.HasUsableCachedIdentity("", "teste@agenda.local", "refresh"),
+    "um cache sem identidade de usuário não deve abrir a agenda");
+Require(AgendaOfflineSessionPolicy.InvalidatesCachedSession(HttpStatusCode.BadRequest),
+    "refresh token rejeitado com 400 deve invalidar o cache");
+Require(AgendaOfflineSessionPolicy.InvalidatesCachedSession(HttpStatusCode.Unauthorized),
+    "refresh token rejeitado com 401 deve invalidar o cache");
+Require(AgendaOfflineSessionPolicy.InvalidatesCachedSession(HttpStatusCode.Forbidden),
+    "refresh token rejeitado com 403 deve invalidar o cache");
+Require(!AgendaOfflineSessionPolicy.InvalidatesCachedSession(HttpStatusCode.TooManyRequests),
+    "limite temporário não deve apagar a sessão offline");
+Require(!AgendaOfflineSessionPolicy.InvalidatesCachedSession(HttpStatusCode.InternalServerError),
+    "falha temporária do servidor não deve apagar a sessão offline");
+
+var newAccountData = new AgendaData();
+AgendaAuthenticatedProfilePolicy.ApplyOnboardingDefaults(
+    newAccountData,
+    "  nova@agenda.com  ",
+    "  Maria Silva  ",
+    "  Studio Maria  ");
+Require(newAccountData.Settings.AccountEmail == "nova@agenda.com",
+    "o e-mail usado no cadastro deve aparecer preenchido no onboarding");
+Require(newAccountData.Settings.AccountFullName == "Maria Silva",
+    "o nome usado no cadastro deve aparecer preenchido no onboarding");
+Require(newAccountData.Settings.BusinessName == "Studio Maria",
+    "o estabelecimento usado no cadastro deve aparecer preenchido no onboarding");
+
+var existingAccountData = new AgendaData();
+existingAccountData.Settings.AccountFullName = "Nome já salvo";
+existingAccountData.Settings.BusinessName = "Negócio já salvo";
+AgendaAuthenticatedProfilePolicy.ApplyOnboardingDefaults(
+    existingAccountData,
+    "conta@agenda.com",
+    "Outro nome",
+    "Outro negócio");
+Require(
+    existingAccountData.Settings.AccountEmail == "conta@agenda.com" &&
+    existingAccountData.Settings.AccountFullName == "Nome já salvo" &&
+    existingAccountData.Settings.BusinessName == "Negócio já salvo",
+    "entrar em uma conta existente deve preservar o cadastro já concluído");
+
+Console.WriteLine("Agenda Livre reliability: 44 checks passed.");
 
 static void Require(bool condition, string message)
 {
@@ -159,3 +235,7 @@ static WhatsAppMessage Message(
     Status = status,
     CreatedAt = new DateTime(2026, 7, 17, 15, 0, 0, DateTimeKind.Utc)
 };
+
+sealed class TestRetryableException : Exception, IAgendaSyncRetryableException
+{
+}

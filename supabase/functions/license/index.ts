@@ -5,7 +5,7 @@ const LICENSE_SECRET = "BalcaoLivrePDV-local-license-v1";
 const ADMIN_STORE_BUCKET = "balcao-livre-admin";
 const ADMIN_STORE_OBJECT = "admin-store.json";
 const OFFLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.2.2026.1.exe";
-const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.21.exe";
+const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.29.exe";
 const TRIAL_SOURCE = "landing_trial_download";
 const TRIAL_DAYS = 7;
 const TRIAL_WHATSAPP_URL = "https://wa.me/5527981267551?text=Ola%2C%20preciso%20liberar%20outro%20teste%20do%20Balcao%20Livre%20PDV.";
@@ -2770,15 +2770,32 @@ async function mercadoPagoFetch(accessToken: string, path: string, init: Request
 
 function mercadoPagoTerminalToClient(terminal: Record<string, unknown>) {
   const id = stringValue(terminal.id);
-  const serial = id.includes("__") ? id.split("__").pop() || id : id;
+  const parts = id.split("__");
+  const modelCode = parts.length > 1 ? parts[0] : "";
+  const serial = parts.length > 1 ? parts.slice(1).join("__") : id;
+  const modelName = mercadoPagoTerminalModelName(modelCode);
   return {
     id,
-    label: serial,
+    label: modelCode ? `${modelName} · ${serial}` : serial,
+    modelCode,
+    modelName,
+    serial,
     posId: stringValue(terminal.pos_id),
     storeId: stringValue(terminal.store_id),
     externalPosId: stringValue(terminal.external_pos_id),
     operatingMode: stringValue(terminal.operating_mode),
   };
+}
+
+function mercadoPagoTerminalModelName(modelCode: string) {
+  switch (stringValue(modelCode).toUpperCase()) {
+    case "NEWLAND_N950": return "Point Smart 2";
+    case "INGENICO_MOVE2500": return "Point Pro";
+    case "GERTEC_MP35P": return "Point Pro 2";
+    case "PAX_A910": return "Point Smart";
+    case "PAX_Q92": return "Point Pro 3";
+    default: return stringValue(modelCode).replaceAll("_", " ") || "Point Mercado Pago";
+  }
 }
 
 function sanitizeMercadoPagoReference(value: unknown) {

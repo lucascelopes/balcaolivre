@@ -25,7 +25,7 @@ public sealed record AgendaSignUpResult(
     bool ConfirmationRequired,
     string Message);
 
-public sealed class AgendaAuthException : Exception
+public sealed class AgendaAuthException : Exception, IAgendaSyncRetryableException
 {
     public AgendaAuthException(string message, HttpStatusCode? statusCode = null)
         : base(message)
@@ -48,9 +48,12 @@ public sealed class AgendaSessionStore
 
     public AgendaSessionStore()
     {
-        var root = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "AgendaLivre.Windows");
+        var configuredRoot = Environment.GetEnvironmentVariable("AGENDA_LIVRE_DATA_ROOT");
+        var root = !string.IsNullOrWhiteSpace(configuredRoot)
+            ? Path.GetFullPath(configuredRoot)
+            : Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "AgendaLivre.Windows");
         _path = Path.Combine(root, "auth-session.bin");
         _configPath = Path.Combine(root, "auth-config.bin");
         _initialOnboardingPath = Path.Combine(root, "initial-onboarding.bin");
@@ -263,6 +266,9 @@ public sealed class AgendaSessionStore
 public sealed class AgendaAuthSessionManager : IDisposable
 {
     public static readonly Uri ConfigEndpoint = new(
+        "https://app.minhaagendalivre.com.br/api/agenda/account/config",
+        UriKind.Absolute);
+    public static readonly Uri FallbackConfigEndpoint = new(
         "https://agenda-livre-next.edodoy.chatgpt.site/api/agenda/account/config",
         UriKind.Absolute);
 
@@ -327,57 +333,37 @@ public sealed class AgendaAuthSessionManager : IDisposable
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
         var sessionStore = new AgendaSessionStore();
         var cachedConfig = sessionStore.LoadConfig();
-        try
+        Exception? lastConfigurationError = null;
+
+        foreach (var endpoint in new[] { ConfigEndpoint, FallbackConfigEndpoint })
         {
-            using var response = await client.GetAsync(ConfigEndpoint, cancellationToken);
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new AgendaAuthException(
-                    $"Não foi possível carregar a configuração da conta (HTTP {(int)response.StatusCode}).",
-                    response.StatusCode);
-            }
-
-            using var document = JsonDocument.Parse(body);
-            var root = document.RootElement;
-            var supabaseUrl = ReadString(root, "supabaseUrl", "supabase_url");
-            var publishableKey = ReadString(root, "publishableKey", "anonKey", "supabaseAnonKey", "publishable_key");
-            var syncValue = ReadString(root, "syncUrl", "sync_url");
-            if (!Uri.TryCreate(supabaseUrl, UriKind.Absolute, out var supabaseUri) ||
-                supabaseUri.Scheme != Uri.UriSchemeHttps ||
-                string.IsNullOrWhiteSpace(publishableKey))
-            {
-                throw new AgendaAuthException("A configuração de acesso recebida é inválida.");
-            }
-
-            var syncUri = Uri.TryCreate(syncValue, UriKind.Absolute, out var absoluteSyncUri)
-                ? absoluteSyncUri
-                : new Uri(ConfigEndpoint, string.IsNullOrWhiteSpace(syncValue) ? "/api/agenda/account/state" : syncValue);
-            if (syncUri.Scheme != Uri.UriSchemeHttps)
-            {
-                throw new AgendaAuthException("O endereço de sincronização precisa usar HTTPS.");
-            }
-
-            var config = new AgendaAuthConfig(supabaseUri, publishableKey, syncUri);
             try
             {
-                sessionStore.SaveConfig(config);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or CryptographicException)
-            {
-                // O cache é uma conveniência offline; a configuração online válida continua utilizável.
-            }
+                var config = await LoadConfigurationAsync(client, endpoint, cancellationToken);
+                try
+                {
+                    sessionStore.SaveConfig(config);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or CryptographicException)
+                {
+                    // O cache é uma conveniência offline; a configuração online válida continua utilizável.
+                }
 
-            return new AgendaAuthSessionManager(client, sessionStore, config);
+                return new AgendaAuthSessionManager(client, sessionStore, config);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                client.Dispose();
+                throw;
+            }
+            catch (Exception exception) when (
+                exception is HttpRequestException or TaskCanceledException or AgendaAuthException or JsonException)
+            {
+                lastConfigurationError = exception;
+            }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            client.Dispose();
-            throw;
-        }
-        catch (Exception exception) when (
-            (exception is HttpRequestException or TaskCanceledException or AgendaAuthException or JsonException) &&
-            IsUsableConfig(cachedConfig))
+
+        if (IsUsableConfig(cachedConfig))
         {
             return new AgendaAuthSessionManager(
                 client,
@@ -385,11 +371,46 @@ public sealed class AgendaAuthSessionManager : IDisposable
                 cachedConfig!,
                 configurationLoadedFromCache: true);
         }
-        catch
+
+        client.Dispose();
+        throw lastConfigurationError ?? new AgendaAuthException("Não foi possível carregar a configuração da conta.");
+    }
+
+    private static async Task<AgendaAuthConfig> LoadConfigurationAsync(
+        HttpClient client,
+        Uri endpoint,
+        CancellationToken cancellationToken)
+    {
+        using var response = await client.GetAsync(endpoint, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
         {
-            client.Dispose();
-            throw;
+            throw new AgendaAuthException(
+                $"Não foi possível carregar a configuração da conta (HTTP {(int)response.StatusCode}).",
+                response.StatusCode);
         }
+
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+        var supabaseUrl = ReadString(root, "supabaseUrl", "supabase_url");
+        var publishableKey = ReadString(root, "publishableKey", "anonKey", "supabaseAnonKey", "publishable_key");
+        var syncValue = ReadString(root, "syncUrl", "sync_url");
+        if (!Uri.TryCreate(supabaseUrl, UriKind.Absolute, out var supabaseUri) ||
+            supabaseUri.Scheme != Uri.UriSchemeHttps ||
+            string.IsNullOrWhiteSpace(publishableKey))
+        {
+            throw new AgendaAuthException("A configuração de acesso recebida é inválida.");
+        }
+
+        var syncUri = Uri.TryCreate(syncValue, UriKind.Absolute, out var absoluteSyncUri)
+            ? absoluteSyncUri
+            : new Uri(endpoint, string.IsNullOrWhiteSpace(syncValue) ? "/api/agenda/account/state" : syncValue);
+        if (syncUri.Scheme != Uri.UriSchemeHttps)
+        {
+            throw new AgendaAuthException("O endereço de sincronização precisa usar HTTPS.");
+        }
+
+        return new AgendaAuthConfig(supabaseUri, publishableKey, syncUri);
     }
 
     public async Task<AgendaAuthSession?> RestoreAsync(CancellationToken cancellationToken = default)
@@ -734,7 +755,7 @@ public sealed class AgendaAuthSessionManager : IDisposable
 
         if (statusCode == HttpStatusCode.TooManyRequests)
         {
-            return "Muitas tentativas. Aguarde um pouco e tente novamente.";
+            return "Não foi possível acessar a conta agora. Tente novamente.";
         }
 
         return string.IsNullOrWhiteSpace(raw)

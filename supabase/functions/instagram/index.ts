@@ -26,6 +26,7 @@ const routeRateLimits: Record<string, { max: number; windowSeconds: number }> =
     "/disconnect": { max: 10, windowSeconds: 10 * 60 },
     "/messages": { max: 60, windowSeconds: 60 },
     "/messages/send": { max: 30, windowSeconds: 60 },
+    "/publications": { max: 60, windowSeconds: 60 },
     "/publish": { max: 10, windowSeconds: 60 * 60 },
   };
 
@@ -161,6 +162,7 @@ Deno.serve(async (req) => {
     if (route === "/disconnect") return await disconnect(req, url);
     if (route === "/messages") return await listMessages(req, url);
     if (route === "/messages/send") return await sendMessage(req, url);
+    if (route === "/publications") return await listPublications(req, url);
     if (route === "/publish") return await publish(req, url);
 
     return json({ ok: false, message: "Rota Instagram nao encontrada." }, 404);
@@ -599,6 +601,94 @@ async function listMessages(req: Request, url: URL) {
         direction: row.direction,
         createdAt: row.created_at,
         status: row.status,
+      };
+    }),
+  });
+}
+
+async function listPublications(req: Request, url: URL) {
+  const payload = await readJson(req);
+  const auth = await authenticateClient(req, url, payload);
+  if (!auth.ok) return json({ ok: false, message: auth.message }, auth.status);
+  if (!auth.connection) {
+    return json({
+      ok: false,
+      connected: false,
+      publications: [],
+      message: "Conecte uma conta Instagram profissional primeiro.",
+    }, 428);
+  }
+
+  const refreshed = await ensureFreshConnection(auth.client, auth.connection);
+  if (!refreshed.ok) {
+    return json({
+      ok: false,
+      connected: false,
+      reconnect: true,
+      publications: [],
+      message: refreshed.message,
+    }, 401);
+  }
+
+  const limit = Math.min(
+    50,
+    Math.max(1, Math.trunc(positiveNumber(payload.limit, 30))),
+  );
+  const connection = refreshed.connection;
+  const fields = [
+    "id",
+    "caption",
+    "media_type",
+    "media_url",
+    "thumbnail_url",
+    "permalink",
+    "timestamp",
+    "username",
+    "like_count",
+    "comments_count",
+  ].join(",");
+  const requestUrl = new URL(
+    `${graphBaseUrl()}/${graphVersion()}/${
+      encodeURIComponent(connection.instagram_user_id)
+    }/media`,
+  );
+  requestUrl.searchParams.set("fields", fields);
+  requestUrl.searchParams.set("limit", String(limit));
+
+  const result = await metaRequest(requestUrl.toString(), {
+    method: "GET",
+    headers: { Authorization: `Bearer ${connection.access_token}` },
+  });
+  if (!result.ok) {
+    return json({
+      ok: false,
+      connected: true,
+      publications: [],
+      message: result.message,
+    }, result.status || 502);
+  }
+
+  const rows = Array.isArray(result.data.data) ? result.data.data : [];
+  return json({
+    ok: true,
+    connected: true,
+    username: connection.username,
+    publications: rows.map((raw) => {
+      const item = asRecord(raw);
+      return {
+        id: stringValue(item.id),
+        caption: stringValue(item.caption),
+        mediaType: stringValue(item.media_type),
+        mediaUrl: stringValue(item.media_url),
+        thumbnailUrl: stringValue(item.thumbnail_url || item.media_url),
+        permalink: stringValue(item.permalink),
+        timestamp: stringValue(item.timestamp),
+        username: stringValue(item.username || connection.username),
+        likeCount: Math.max(0, Math.trunc(positiveNumber(item.like_count, 0))),
+        commentsCount: Math.max(
+          0,
+          Math.trunc(positiveNumber(item.comments_count, 0)),
+        ),
       };
     }),
   });

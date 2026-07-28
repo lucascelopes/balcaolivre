@@ -59,3 +59,33 @@ internal static class AgendaOfflineSessionPolicy
     public static bool InvalidatesCachedSession(HttpStatusCode? statusCode) =>
         statusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
 }
+
+internal static class AgendaAuthenticatedProfilePolicy
+{
+    public static void ApplyOnboardingDefaults(
+        AgendaData data,
+        string? email,
+        string? fullName,
+        string? businessName)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+
+        data.Settings.AccountEmail = (email ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(data.Settings.AccountFullName) &&
+            !string.IsNullOrWhiteSpace(fullName))
+        {
+            data.Settings.AccountFullName = fullName.Trim();
+        }
+
+        if (IsDefaultBusinessName(data.Settings.BusinessName) &&
+            !string.IsNullOrWhiteSpace(businessName))
+        {
+            data.Settings.BusinessName = businessName.Trim();
+        }
+    }
+
+    private static bool IsDefaultBusinessName(string? businessName) =>
+        string.IsNullOrWhiteSpace(businessName) ||
+        businessName.Equals("Agenda Livre", StringComparison.OrdinalIgnoreCase) ||
+        businessName.Equals("Balcão Livre", StringComparison.OrdinalIgnoreCase);
+}

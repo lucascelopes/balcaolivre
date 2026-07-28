@@ -1,742 +1,627 @@
 import Image from "next/image";
 import {
-  ArrowRight,
-  BadgeCheck,
-  BarChart3,
-  BriefcaseBusiness,
-  CalendarDays,
-  Check,
-  CircleDollarSign,
-  ExternalLink,
-  Globe2,
-  HeartHandshake,
-  Laptop,
-  MessageCircle,
-  MonitorSmartphone,
-  PawPrint,
-  Play,
-  Scissors,
-  ShieldCheck,
-  Smartphone,
-  Sparkles,
-  Stethoscope,
-  Store,
-  UsersRound,
-  Wrench
-} from "lucide-react";
+  ArrowRightIcon,
+  AtIcon,
+  BrowsersIcon,
+  CalendarBlankIcon,
+  CalendarCheckIcon,
+  ChartLineUpIcon,
+  CheckCircleIcon,
+  CheckIcon,
+  ClockIcon,
+  CoinsIcon,
+  DesktopIcon,
+  DeviceMobileIcon,
+  DownloadSimpleIcon,
+  FirstAidIcon,
+  GiftIcon,
+  GlobeIcon,
+  HairDryerIcon,
+  InstagramLogoIcon,
+  LaptopIcon,
+  LeafIcon,
+  PaletteIcon,
+  PawPrintIcon,
+  PhoneIcon,
+  ScissorsIcon,
+  SparkleIcon,
+  StorefrontIcon,
+  UserCircleIcon,
+  UserIcon,
+  UsersThreeIcon,
+  WhatsappLogoIcon,
+} from "@phosphor-icons/react/ssr";
+import AgendaLivreMotion from "./AgendaLivreMotion";
 import styles from "./agenda-livre.module.css";
 
+const webTrialHref = "https://app.minhaagendalivre.com.br/";
+const windowsDownloadHref =
+  "https://minhaagendalivre.com.br/agenda-livre/agenda-livre-windows-1.0.0.zip";
 const whatsappHref =
-  "https://wa.me/5533999609457?text=Ol%C3%A1%2C%20quero%20conhecer%20o%20Agenda%20Livre.%20Pode%20me%20mostrar%20como%20ele%20funciona%20no%20meu%20neg%C3%B3cio%3F";
-const trialWhatsappHref =
-  "https://wa.me/5533999609457?text=Ol%C3%A1%2C%20quero%20testar%20o%20Agenda%20Livre%20gr%C3%A1tis%20por%207%20dias.%20Pode%20me%20ajudar%3F";
-const webTrialHref = "/agenda-livre/app/index.html";
+  "https://wa.me/5533991314125?text=Ol%C3%A1%2C%20quero%20conhecer%20o%20Agenda%20Livre.%20Pode%20me%20mostrar%20como%20ele%20funciona%20no%20meu%20neg%C3%B3cio%3F";
+const monthlySubscriptionFallbackHref =
+  "https://wa.me/5533991314125?text=Ol%C3%A1%2C%20quero%20assinar%20o%20Agenda%20Livre%20mensal%20por%20R%24%2049%2C90.";
+const annualSubscriptionFallbackHref =
+  "https://wa.me/5533991314125?text=Ol%C3%A1%2C%20quero%20assinar%20o%20Agenda%20Livre%20anual%20por%20R%24%20598%2C80%20e%20receber%20a%20Point%20Pro%203.";
+const stripeSubscriptionsEnabled =
+  process.env.NEXT_PUBLIC_AGENDA_STRIPE_READY === "true" ||
+  process.env.NODE_ENV !== "production";
+const monthlySubscriptionHref = stripeSubscriptionsEnabled
+  ? "/api/agenda/subscriptions/checkout?plan=mensal"
+  : monthlySubscriptionFallbackHref;
+const annualSubscriptionHref = stripeSubscriptionsEnabled
+  ? "/api/agenda/subscriptions/checkout?plan=anual"
+  : annualSubscriptionFallbackHref;
+const instagramHref = "https://www.instagram.com/minhaagendalivre/";
 
-const benefits = [
-  {
-    icon: CalendarDays,
-    title: "Agenda sem atrito",
-    text: "Organize o dia em quadro, lista ou semana e acompanhe cada atendimento pelo status certo."
-  },
-  {
-    icon: UsersRound,
-    title: "Clientes e equipe juntos",
-    text: "Centralize clientes, profissionais, serviços, horários e recursos em um só lugar."
-  },
-  {
-    icon: MessageCircle,
-    title: "Conversas no contexto",
-    text: "Prepare confirmações e abra a conversa no WhatsApp sem perder o contexto da agenda."
-  },
-  {
-    icon: CircleDollarSign,
-    title: "Financeiro do dia",
-    text: "Acompanhe entradas, despesas, valores a receber e a saúde financeira da operação."
-  },
-  {
-    icon: BarChart3,
-    title: "Relatórios que ajudam",
-    text: "Veja atendimentos, receita, serviços e desempenho da equipe em uma leitura objetiva."
-  },
-  {
-    icon: MonitorSmartphone,
-    title: "Feito para sua rotina",
-    text: "Uma experiência consistente no Windows e na Web, do computador ao celular."
-  }
+const journeySteps = [
+  { icon: CalendarBlankIcon, title: "Escolhe o serviço", text: "Vê detalhes e valor" },
+  { icon: ClockIcon, title: "Seleciona o horário", text: "Só aparecem vagas livres" },
+  { icon: UserCircleIcon, title: "Informa os dados", text: "Sem cadastro e sem app" },
+  { icon: CheckCircleIcon, title: "Pronto!", text: "O pedido entra na agenda" },
+];
+
+const featureItems = [
+  { icon: CalendarCheckIcon, title: "Agenda atualizada", text: "Horários e confirmações em um lugar." },
+  { icon: UsersThreeIcon, title: "Clientes e equipe", text: "Histórico, profissionais e serviços." },
+  { icon: WhatsappLogoIcon, title: "WhatsApp no fluxo", text: "Confirmações e lembretes conectados." },
+  { icon: CoinsIcon, title: "Financeiro organizado", text: "Entradas, caixa e visão do período." },
+  { icon: ChartLineUpIcon, title: "Relatórios objetivos", text: "Resultados claros para decidir melhor." },
 ];
 
 const segments = [
-  { icon: Scissors, label: "Salões e barbearias" },
-  { icon: Sparkles, label: "Estética, podologia e spas" },
-  { icon: Stethoscope, label: "Clínicas e consultórios" },
-  { icon: PawPrint, label: "Pet shops" },
-  { icon: Wrench, label: "Oficinas" }
+  { icon: HairDryerIcon, accent: SparkleIcon, label: "Salões e beleza" },
+  { icon: ScissorsIcon, accent: SparkleIcon, label: "Barbearias" },
+  { icon: FirstAidIcon, accent: LeafIcon, label: "Clínicas e consultórios" },
+  { icon: UserCircleIcon, accent: SparkleIcon, label: "Estética e bem-estar" },
+  { icon: PawPrintIcon, accent: SparkleIcon, label: "Pet shops" },
+  { icon: UserIcon, accent: StorefrontIcon, label: "Autônomos" },
 ];
 
 const faqs = [
   {
-    question: "O Agenda Livre funciona no computador e no celular?",
+    question: "Preciso de cartão para testar?",
     answer:
-      "Sim. Você pode usar o Agenda Livre no Windows ou abrir a versão Web responsiva no computador, tablet e celular."
+      "Sim. O cartão é salvo com segurança pela Stripe e a cobrança só começa depois dos 7 dias grátis.",
   },
   {
-    question: "Como funciona o teste grátis de 7 dias?",
+    question: "O cliente precisa instalar aplicativo?",
     answer:
-      "Abra a versão Web sem instalar e use o sistema por 7 dias para validar sua rotina. Durante o teste, os dados ficam salvos localmente no navegador usado."
+      "Não. Ele agenda no navegador pelo seu endereço minhaloja.minhaagendalivre.com.br.",
   },
   {
-    question: "O WhatsApp envia mensagens automaticamente?",
-    answer:
-      "Hoje o Agenda Livre ajuda a preparar a mensagem e abre a conversa no WhatsApp. Automações completas dependem de uma integração segura configurada para o negócio."
+    question: "A mesma conta funciona em todas as telas?",
+    answer: "Sim. Seus dados acompanham você na Web, no Windows e no Android.",
   },
-  {
-    question: "Meus dados sincronizam entre todos os aparelhos?",
-    answer:
-      "Na versão atual, os dados ficam locais em cada instalação ou navegador. A sincronização entre aparelhos exige uma estrutura de nuvem compartilhada."
-  },
-  {
-    question: "Posso levar meus dados do Windows para a Web?",
-    answer:
-      "Sim. O fluxo de backup em JSON permite importar na versão Web os dados exportados pelo aplicativo Windows."
-  }
 ];
 
-function WhatsAppButton({ children, location, light = false }) {
+function ChapterMarker({ number, label, dark = false }) {
+  return (
+    <span className={`${styles.chapterMarker} ${dark ? styles.chapterMarkerDark : ""}`} aria-hidden="true">
+      <strong>{number}</strong>
+      <small>{label}</small>
+      <i />
+    </span>
+  );
+}
+
+function Brand({ inverse = false }) {
+  return (
+    <span className={`${styles.brandLockup} ${inverse ? styles.brandInverse : ""}`}>
+      <Image
+        src="/agenda-livre/agenda-livre-mark.png"
+        unoptimized
+        width={900}
+        height={480}
+        alt=""
+        className={styles.brandMark}
+      />
+      <span className={styles.brandText}>
+        <strong>Agenda Livre</strong>
+        <small>Sistema de agendamentos</small>
+      </span>
+    </span>
+  );
+}
+
+function PrimaryLink({ children, href = webTrialHref, location, external = true, light = false }) {
   return (
     <a
-      className={light ? styles.lightButton : styles.primaryButton}
-      href={whatsappHref}
-      target="_blank"
-      rel="noreferrer"
-      data-analytics-action="whatsapp_click"
-      data-analytics-seller="Lucas"
+      className={`${styles.primaryButton} ${light ? styles.primaryButtonLight : ""}`}
+      href={href}
+      target={external ? "_blank" : undefined}
+      rel={external ? "noreferrer" : undefined}
+      data-analytics-action="agenda_trial_start"
       data-analytics-location={location}
     >
-      <MessageCircle size={19} strokeWidth={2.2} aria-hidden="true" />
       <span>{children}</span>
-      <ArrowRight size={18} aria-hidden="true" />
+      <ArrowRightIcon size={18} weight="bold" aria-hidden="true" />
+    </a>
+  );
+}
+
+function SecondaryLink({ children, href = webTrialHref, dark = false, download = false }) {
+  return (
+    <a
+      className={`${styles.secondaryButton} ${dark ? styles.secondaryButtonDark : ""}`}
+      href={href}
+      target={download ? undefined : "_blank"}
+      rel={download ? undefined : "noreferrer"}
+      download={download || undefined}
+    >
+      {children}
     </a>
   );
 }
 
 export default function AgendaLivrePage() {
   return (
-    <main className={styles.page}>
+    <main className={styles.page} data-agenda-landing>
+      <AgendaLivreMotion />
+
       <header className={styles.header}>
         <div className={styles.headerInner}>
-          <a className={styles.brand} href="#inicio" aria-label="Agenda Livre — início">
-            <Image
-              src="/agenda-livre/agenda-livre-mark.png"
-              unoptimized
-              width={900}
-              height={480}
-              alt=""
-              className={styles.brandMark}
-              priority
-            />
-            <span className={styles.brandText}>
-              <strong>Agenda Livre</strong>
-              <small>Sistema de agendamentos</small>
-            </span>
+          <a href="#inicio" aria-label="Agenda Livre — início">
+            <Brand />
           </a>
 
           <nav className={styles.nav} aria-label="Navegação principal">
             <a href="#produto">Produto</a>
             <a href="#recursos">Recursos</a>
+            <a href="#planos">Preços</a>
             <a href="#segmentos">Para quem</a>
             <a href="#duvidas">Dúvidas</a>
           </nav>
 
-          <a
-            className={styles.headerCta}
-            href="#teste"
-            data-analytics-action="agenda_trial_start"
-            data-analytics-location="header"
-          >
-            Testar grátis 7 dias
-            <ArrowRight size={17} aria-hidden="true" />
-          </a>
+          <div className={styles.headerActions}>
+            <a className={styles.headerPrimary} href={webTrialHref} target="_blank" rel="noreferrer">
+              Testar grátis por 7 dias
+              <ArrowRightIcon size={15} weight="bold" aria-hidden="true" />
+            </a>
+            <a className={styles.headerSecondary} href={webTrialHref} target="_blank" rel="noreferrer">
+              <GlobeIcon size={17} weight="duotone" aria-hidden="true" />
+              Abrir versão Web
+            </a>
+          </div>
         </div>
       </header>
 
-      <section className={styles.hero} id="inicio">
-        <div className={styles.heroGlow} aria-hidden="true" />
-        <div className={styles.container}>
+      <section className={`${styles.section} ${styles.hero}`} id="inicio">
+        <div className={styles.sectionShell}>
+          <ChapterMarker number="01" label="Início" />
           <div className={styles.heroGrid}>
-            <div className={styles.heroCopy}>
-              <div className={styles.eyebrow}>
-                <Sparkles size={16} aria-hidden="true" />
-                Gestão leve para negócios com hora marcada
-              </div>
+            <div className={styles.heroCopy} data-reveal>
+              <span className={styles.eyebrow}>
+                <SparkleIcon size={16} weight="fill" aria-hidden="true" /> Web, Windows e Android
+              </span>
               <h1>
-                Sua agenda. Seu tempo. <span>Seu negócio.</span>
+                <span>Sua agenda.</span>
+                <span>Seu tempo.</span>
+                <em><span>Seu negócio.</span></em>
               </h1>
-              <p className={styles.heroLead}>
-                Centralize clientes, equipe, serviços e finanças em uma agenda feita para a
-                rotina real do seu negócio.
+              <p>
+                Centralize agendamentos, clientes, equipe, serviços e finanças em um só lugar —
+                no computador ou no celular.
               </p>
-
-              <div className={styles.heroActions}>
-                <a
-                  className={styles.primaryButton}
-                  href="#teste"
-                  data-analytics-action="agenda_trial_start"
-                  data-analytics-location="hero"
-                >
-                  <Play size={18} fill="currentColor" aria-hidden="true" />
-                  Testar grátis por 7 dias
-                  <ArrowRight size={18} aria-hidden="true" />
-                </a>
-                <a
-                  className={styles.secondaryButton}
-                  href={webTrialHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  data-analytics-action="agenda_web_trial"
-                  data-analytics-location="hero"
-                >
-                  <Globe2 size={18} aria-hidden="true" />
-                  Abrir versão Web
-                </a>
+              <div className={styles.buttonRow}>
+                <PrimaryLink location="hero">Testar grátis por 7 dias</PrimaryLink>
+                <SecondaryLink>
+                  <GlobeIcon size={18} weight="duotone" aria-hidden="true" /> Abrir versão Web
+                </SecondaryLink>
               </div>
-
-              <ul className={styles.heroChecks} aria-label="Destaques do produto">
-                <li>
-                  <Check size={15} aria-hidden="true" />
-                  Windows e Web responsiva
-                </li>
-                <li>
-                  <Check size={15} aria-hidden="true" />
-                  Computador e celular
-                </li>
-                <li>
-                  <Check size={15} aria-hidden="true" />
-                  Teste grátis por 7 dias
-                </li>
-              </ul>
             </div>
 
-            <div className={styles.heroVisual} aria-label="Capturas reais do Agenda Livre no desktop e no celular">
-              <div className={styles.desktopFrame}>
-                <div className={styles.windowBar} aria-hidden="true">
-                  <span />
-                  <span />
-                  <span />
-                  <small>Agenda Livre para Windows</small>
-                </div>
+            <div className={styles.heroVisual} data-reveal>
+              <figure className={styles.windowFrame}>
+                <figcaption>
+                  <span><LaptopIcon size={16} weight="duotone" /> Agenda Livre para Windows</span>
+                  <small>Tela real do produto</small>
+                </figcaption>
                 <Image
-                  src="/agenda-livre/windows-dashboard.png"
+                  src="/agenda-livre/windows-home-client-studio-fluxo.png"
                   unoptimized
-                  width={1373}
-                  height={682}
-                  alt="Painel real do Agenda Livre para Windows, com agenda, confirmações e caixa do dia"
-                  className={styles.desktopImage}
+                  width={1200}
+                  height={608}
+                  alt="Painel real do Agenda Livre para Windows da empresa Studio Fluxo"
+                  className={styles.windowScreenshot}
                   priority
-                  sizes="(max-width: 900px) 92vw, 58vw"
+                  sizes="(max-width: 800px) 92vw, 800px"
                 />
-              </div>
-
-              <div className={styles.phoneFrame}>
-                <div className={styles.phoneNotch} aria-hidden="true" />
+              </figure>
+              <figure className={styles.heroPhone}>
                 <Image
-                  src="/agenda-livre/web-mobile-finance.png"
+                  src="/agenda-livre/mobile-home-studio-fluxo.png"
                   unoptimized
                   width={390}
                   height={844}
-                  alt="Tela real do financeiro do Agenda Livre em um celular"
-                  className={styles.phoneImage}
+                  alt="Painel real do Agenda Livre Web no celular da empresa Studio Fluxo"
+                  className={styles.phoneScreenshot}
                   priority
-                  sizes="(max-width: 650px) 32vw, 180px"
+                  sizes="(max-width: 600px) 34vw, 190px"
                 />
-              </div>
-
-              <div className={styles.visualBadge}>
-                <span className={styles.visualBadgeIcon}>
-                  <BadgeCheck size={20} aria-hidden="true" />
-                </span>
-                <span>
-                  <strong>Tela real do produto</strong>
-                  <small>Conteúdo interno demonstrativo</small>
-                </span>
-              </div>
+              </figure>
             </div>
+          </div>
+
+          <div className={styles.trustRow} data-reveal>
+            <span><CheckIcon size={15} weight="bold" /> Sem cartão de crédito</span>
+            <span><CheckIcon size={15} weight="bold" /> 7 dias para testar</span>
+            <span><CheckIcon size={15} weight="bold" /> A mesma conta em todas as telas</span>
           </div>
         </div>
       </section>
 
-      <section className={styles.valueStrip} aria-label="Principais áreas do Agenda Livre">
-        <div className={styles.container}>
-          <div className={styles.valueGrid}>
-            <div>
-              <CalendarDays aria-hidden="true" />
-              <span>
-                <strong>Agenda em tempo real</strong>
-                <small>Dia, lista e semana</small>
-              </span>
-            </div>
-            <div>
-              <MessageCircle aria-hidden="true" />
-              <span>
-                <strong>WhatsApp no fluxo</strong>
-                <small>Confirmações com contexto</small>
-              </span>
-            </div>
-            <div>
-              <CircleDollarSign aria-hidden="true" />
-              <span>
-                <strong>Visão do caixa</strong>
-                <small>Entradas, saídas e cobranças</small>
-              </span>
-            </div>
-            <div>
-              <BarChart3 aria-hidden="true" />
-              <span>
-                <strong>Relatórios objetivos</strong>
-                <small>Operação em uma leitura</small>
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
+      <section className={`${styles.section} ${styles.bookingSection}`} id="produto">
+        <span id="agendamento-online" className={styles.anchorTarget} />
+        <div className={styles.sectionShell}>
+          <ChapterMarker number="02" label="Site" />
+          <div className={styles.bookingGrid}>
+            <figure className={styles.bookingVisual} data-reveal>
+              <Image
+                src="/agenda-livre/site-editor-current.png"
+                unoptimized
+                width={1366}
+                height={720}
+                alt="Aba Editar site do Agenda Livre com prévia do catálogo, seções, domínio e publicação"
+                className={styles.bookingScreenshot}
+                sizes="(max-width: 800px) 92vw, 720px"
+              />
+            </figure>
 
-      <section className={styles.productSection} id="produto">
-        <div className={styles.container}>
-          <div className={styles.sectionHeading}>
-            <div>
-              <span className={styles.kicker}>O produto por dentro</span>
-              <h2>Uma visão completa, sem complicar sua rotina.</h2>
-            </div>
-            <p>
-              Estas são telas reais do Agenda Livre no Windows e na Web. A mesma lógica
-              acompanha você da recepção ao fechamento do dia.
-            </p>
-          </div>
-
-          <div className={styles.demoNotice}>
-            <BadgeCheck size={17} aria-hidden="true" />
-            <p>
-              <strong>Telas reais dos aplicativos.</strong> Nomes, valores e atendimentos exibidos
-              nas capturas são dados fictícios usados apenas para demonstração.
-            </p>
-          </div>
-
-          <div className={styles.showcaseGrid}>
-            <article className={`${styles.showcaseCard} ${styles.showcaseWide}`}>
-              <div className={styles.cardTopline}>
-                <span className={styles.platformIcon}>
-                  <Laptop size={18} aria-hidden="true" />
-                </span>
-                <span>
-                  <strong>Agenda Livre Windows</strong>
-                  <small>Agenda visual com equipe e status</small>
-                </span>
-                <span className={styles.realTag}>Tela real · dados demo</span>
-              </div>
-              <div className={styles.screenshotShell}>
-                <Image
-                  src="/agenda-livre/windows-agenda.png"
-                  unoptimized
-                  width={1373}
-                  height={682}
-                  alt="Agenda visual real do aplicativo Agenda Livre para Windows"
-                  className={styles.showcaseImage}
-                  sizes="(max-width: 800px) 92vw, 72vw"
-                />
-              </div>
-            </article>
-
-            <article className={`${styles.showcaseCard} ${styles.showcaseDesktop}`}>
-              <div className={styles.cardTopline}>
-                <span className={styles.platformIcon}>
-                  <MonitorSmartphone size={18} aria-hidden="true" />
-                </span>
-                <span>
-                  <strong>Agenda Livre Web</strong>
-                  <small>Financeiro no navegador do computador</small>
-                </span>
-                <span className={styles.realTag}>Tela real · dados demo</span>
-              </div>
-              <div className={styles.screenshotShell}>
-                <Image
-                  src="/agenda-livre/web-desktop-finance.png"
-                  unoptimized
-                  width={1366}
-                  height={768}
-                  alt="Tela real do financeiro do Agenda Livre na Web em um computador"
-                  className={styles.showcaseImage}
-                  sizes="(max-width: 800px) 92vw, 55vw"
-                />
-              </div>
-            </article>
-
-            <article className={`${styles.showcaseCard} ${styles.mobileShowcase}`}>
-              <div className={styles.mobileCopy}>
-                <div className={styles.cardTopline}>
-                  <span className={styles.platformIcon}>
-                    <Smartphone size={18} aria-hidden="true" />
-                  </span>
-                  <span>
-                    <strong>No celular: Web responsiva</strong>
-                    <small>A rotina cabe na sua mão</small>
-                  </span>
-                </div>
-                <h3>Consulte, agende e acompanhe de onde estiver.</h3>
-                <p>
-                  A navegação se adapta ao celular mantendo agenda, painel e financeiro fáceis
-                  de encontrar.
-                </p>
-                <ul>
-                  <li>
-                    <Check size={15} aria-hidden="true" /> Navegação pensada para toque
-                  </li>
-                  <li>
-                    <Check size={15} aria-hidden="true" /> Informações essenciais primeiro
-                  </li>
-                  <li>
-                    <Check size={15} aria-hidden="true" /> Mesma identidade do desktop
-                  </li>
-                </ul>
-              </div>
-              <div className={styles.phonePair} aria-label="Telas reais do painel e da agenda no celular">
-                <div className={styles.miniPhone}>
-                  <Image
-                    src="/agenda-livre/web-mobile-dashboard.png"
-                    unoptimized
-                    width={390}
-                    height={844}
-                    alt="Painel real do Agenda Livre no celular"
-                    sizes="(max-width: 600px) 38vw, 210px"
-                  />
-                </div>
-                <div className={`${styles.miniPhone} ${styles.miniPhoneOffset}`}>
-                  <Image
-                    src="/agenda-livre/web-mobile-agenda.png"
-                    unoptimized
-                    width={390}
-                    height={844}
-                    alt="Agenda real do Agenda Livre no celular"
-                    sizes="(max-width: 600px) 38vw, 210px"
-                  />
-                </div>
-              </div>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section className={styles.trialSection} id="teste">
-        <div className={styles.container}>
-          <div className={styles.trialHeading}>
-            <div>
-              <span className={styles.kicker}>Teste grátis por 7 dias</span>
-              <h2>Escolha onde você quer começar.</h2>
-            </div>
-            <p>
-              Abra no navegador sem instalar e use esses 7 dias para colocar sua rotina de verdade
-              dentro da agenda, no computador, tablet ou celular.
-            </p>
-          </div>
-
-          <div className={styles.trialGrid}>
-            <article className={`${styles.trialCard} ${styles.trialFeatured}`}>
-              <div className={styles.trialCardTop}>
-                <span className={styles.trialCardIcon}>
-                  <Globe2 size={23} aria-hidden="true" />
-                </span>
-                <span className={styles.trialBadge}>Sem instalar</span>
-              </div>
-              <h3>Testar na Web</h3>
+            <div className={styles.bookingCopy} data-reveal>
+              <span className={styles.eyebrow}>Aba Editar site</span>
+              <h2>Você monta o site.<br />O cliente agenda.</h2>
               <p>
-                Funciona no computador, tablet e celular. Abra, configure seu negócio e comece
-                agora.
+                Na aba Editar site você escolhe capa, textos, seções, serviços e equipe.
+                Depois publica um catálogo com a identidade do seu negócio e agendamento integrado.
               </p>
-              <ul>
-                <li>
-                  <Check size={15} aria-hidden="true" /> Acesso imediato
-                </li>
-                <li>
-                  <Check size={15} aria-hidden="true" /> Responsivo no celular
-                </li>
-                <li>
-                  <Check size={15} aria-hidden="true" /> Dados salvos neste navegador
-                </li>
-              </ul>
-              <a
-                className={styles.primaryButton}
-                href={webTrialHref}
-                target="_blank"
-                rel="noreferrer"
-                data-analytics-action="agenda_web_trial"
-                data-analytics-location="trial"
-              >
-                <Play size={18} fill="currentColor" aria-hidden="true" />
-                Abrir teste na Web
-                <ExternalLink size={17} aria-hidden="true" />
-              </a>
-              <small className={styles.trialMeta}>Abre em uma nova guia.</small>
-            </article>
-
-            <article className={`${styles.trialCard} ${styles.trialWindows}`}>
-              <div className={styles.trialCardTop}>
-                <span className={styles.trialCardIcon}>
-                  <Laptop size={23} aria-hidden="true" />
-                </span>
-                <span className={styles.trialBadge}>Windows</span>
+              <div className={styles.storeAddress}>
+                <GlobeIcon size={20} weight="duotone" aria-hidden="true" />
+                <span><small>Seu catálogo, seu endereço</small><strong>sualoja.minhaagendalivre.com.br</strong></span>
               </div>
-              <h3>Quer instalar no Windows?</h3>
-              <p>
-                Peça a versão para computador e receba ajuda para fazer a primeira configuração
-                do seu negócio.
-              </p>
-              <a
-                className={styles.trialSupportLink}
-                href={trialWhatsappHref}
-                target="_blank"
-                rel="noreferrer"
-                data-analytics-action="whatsapp_click"
-                data-analytics-seller="Lucas"
-                data-analytics-location="trial-windows"
-              >
-                <MessageCircle size={18} aria-hidden="true" />
-                Solicitar versão Windows
-                <ArrowRight size={17} aria-hidden="true" />
-              </a>
-            </article>
+            </div>
           </div>
-
-          <p className={styles.trialFootnote}>
-            O teste usa dados locais e a versão Web salva neste navegador. Sincronização entre
-            dispositivos depende de uma configuração adicional.
-          </p>
         </div>
       </section>
 
-      <section className={styles.featuresSection} id="recursos">
-        <div className={styles.container}>
-          <div className={styles.centerHeading}>
-            <span className={styles.kicker}>Tudo conversa entre si</span>
-            <h2>Atendimento, agenda e gestão no mesmo ritmo.</h2>
-            <p>
-              Menos abas, menos anotações soltas e mais clareza para decidir o que vem a seguir.
-            </p>
+      <section className={`${styles.section} ${styles.journeySection}`} id="recursos">
+        <div className={styles.sectionShell}>
+          <ChapterMarker number="03" label="Jornada" />
+          <div className={styles.journeyIntro} data-reveal>
+            <span className={styles.eyebrow}>Do começo ao fim</span>
+            <h2>Do primeiro clique<br />ao atendimento.</h2>
+            <p>A jornada do seu cliente é simples como deve ser.</p>
           </div>
-
-          <div className={styles.featuresGrid}>
-            {benefits.map(({ icon: Icon, title, text }) => (
-              <article className={styles.featureCard} key={title}>
-                <span className={styles.featureIcon}>
-                  <Icon size={22} strokeWidth={1.9} aria-hidden="true" />
-                </span>
-                <h3>{title}</h3>
-                <p>{text}</p>
+          <div className={styles.journeySteps} data-reveal>
+            {journeySteps.map(({ icon: Icon, title, text }, index) => (
+              <article key={title}>
+                <Icon size={46} weight="duotone" aria-hidden="true" />
+                <strong>{title}</strong>
+                <small>{text}</small>
+                {index < journeySteps.length - 1 ? (
+                  <ArrowRightIcon className={styles.journeyArrow} size={22} weight="bold" aria-hidden="true" />
+                ) : null}
               </article>
             ))}
           </div>
-        </div>
-      </section>
 
-      <section className={styles.reportsSection}>
-        <div className={styles.container}>
-          <div className={styles.reportsGrid}>
-            <div className={styles.reportsVisual}>
-              <div className={styles.reportFrame}>
-                <Image
-                  src="/agenda-livre/web-desktop-reports.png"
-                  unoptimized
-                  width={1366}
-                  height={768}
-                  alt="Tela real de relatórios do Agenda Livre na Web"
-                  className={styles.reportImage}
-                  sizes="(max-width: 900px) 92vw, 55vw"
-                />
-              </div>
-              <div className={styles.insightChip}>
-                <BarChart3 size={19} aria-hidden="true" />
-                <span>
-                  <strong>Leitura rápida</strong>
-                  <small>Dados essenciais sem planilhas soltas</small>
-                </span>
-              </div>
-            </div>
-
-            <div className={styles.reportsCopy}>
-              <span className={styles.kicker}>Gestão com contexto</span>
-              <h2>Do primeiro horário ao resultado do período.</h2>
-              <p>
-                Entenda o movimento do negócio com indicadores de atendimento, receita,
-                serviços e profissionais — todos conectados à rotina da agenda.
-              </p>
-              <ul className={styles.statementList}>
-                <li>
-                  <span>
-                    <BriefcaseBusiness size={19} aria-hidden="true" />
-                  </span>
-                  <div>
-                    <strong>Operação em um só lugar</strong>
-                    <p>Clientes, equipe, serviços e agenda compartilham a mesma visão.</p>
-                  </div>
-                </li>
-                <li>
-                  <span>
-                    <ShieldCheck size={19} aria-hidden="true" />
-                  </span>
-                  <div>
-                    <strong>Backup sob seu controle</strong>
-                    <p>Exporte seus dados e leve o backup do Windows para a Web.</p>
-                  </div>
-                </li>
-                <li>
-                  <span>
-                    <HeartHandshake size={19} aria-hidden="true" />
-                  </span>
-                  <div>
-                    <strong>Implantação mais humana</strong>
-                    <p>Fale com uma pessoa para entender a melhor configuração para você.</p>
-                  </div>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className={styles.segmentsSection} id="segmentos">
-        <div className={styles.container}>
-          <div className={styles.centerHeading}>
-            <span className={styles.kicker}>Um sistema, diferentes rotinas</span>
-            <h2>Feito para quem transforma tempo em atendimento.</h2>
-          </div>
-
-          <div className={styles.segmentGrid}>
-            {segments.map(({ icon: Icon, label }) => (
-              <div className={styles.segmentCard} key={label}>
-                <Icon size={23} strokeWidth={1.8} aria-hidden="true" />
-                <span>{label}</span>
-              </div>
+          <div className={styles.featureRibbon} data-reveal>
+            {featureItems.map(({ icon: Icon, title, text }) => (
+              <article key={title}>
+                <span><Icon size={27} weight="duotone" aria-hidden="true" /></span>
+                <div><strong>{title}</strong><small>{text}</small></div>
+              </article>
             ))}
           </div>
 
-          <div className={styles.onboardingCard}>
-            <div className={styles.onboardingCopy}>
-              <span className={styles.kicker}>Comece com o seu jeito</span>
-              <h2>Configure o negócio sem enfrentar uma tela vazia.</h2>
-              <p>
-                O onboarding guia os primeiros dados, o segmento, a equipe e os serviços. Depois,
-                você escolhe a identidade visual que combina com sua operação.
-              </p>
-              <div className={styles.onboardingPoints}>
-                <span>
-                  <Check size={15} aria-hidden="true" /> Passo a passo inicial
+          <div className={styles.segmentRibbon} id="segmentos" data-reveal>
+            <span className={styles.segmentTitle}>Feito para quem trabalha com hora marcada</span>
+            <div>
+              {segments.map(({ icon: Icon, accent: Accent, label }) => (
+                <span className={styles.segmentItem} key={label}>
+                  <i aria-hidden="true"><Icon size={27} weight="duotone" /><Accent size={12} weight="fill" /></i>
+                  <strong>{label}</strong>
                 </span>
-                <span>
-                  <Check size={15} aria-hidden="true" /> Temas por segmento
-                </span>
-                <span>
-                  <Check size={15} aria-hidden="true" /> Dados exportáveis
-                </span>
-              </div>
-              <a
-                className={styles.primaryButton}
-                href="#teste"
-                data-analytics-action="agenda_trial_start"
-                data-analytics-location="onboarding"
-              >
-                <Play size={18} fill="currentColor" aria-hidden="true" />
-                Começar meu teste de 7 dias
-                <ArrowRight size={18} aria-hidden="true" />
-              </a>
-            </div>
-            <div className={styles.onboardingPhone}>
-              <Image
-                src="/agenda-livre/web-mobile-onboarding.png"
-                unoptimized
-                width={390}
-                height={844}
-                alt="Tela real de configuração inicial do Agenda Livre no celular"
-                sizes="(max-width: 700px) 68vw, 280px"
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className={styles.faqSection} id="duvidas">
-        <div className={styles.container}>
-          <div className={styles.faqGrid}>
-            <div className={styles.faqIntro}>
-              <span className={styles.kicker}>Perguntas frequentes</span>
-              <h2>Clareza antes de começar.</h2>
-              <p>
-                Sem promessas escondidas. Se ainda tiver alguma dúvida, converse com a gente pelo
-                WhatsApp.
-              </p>
-              <WhatsAppButton location="faq">Tirar uma dúvida</WhatsAppButton>
-            </div>
-            <div className={styles.faqList}>
-              {faqs.map((faq, index) => (
-                <details className={styles.faqItem} key={faq.question} open={index === 0}>
-                  <summary>
-                    {faq.question}
-                    <span aria-hidden="true">+</span>
-                  </summary>
-                  <p>{faq.answer}</p>
-                </details>
               ))}
             </div>
           </div>
         </div>
       </section>
 
-      <section className={styles.finalCta}>
-        <div className={styles.container}>
-          <div className={styles.finalCtaCard}>
-            <div className={styles.ctaMark} aria-hidden="true">
-              <Store size={26} />
+      <section className={`${styles.section} ${styles.designSection}`} id="design">
+        <div className={styles.sectionShell}>
+          <ChapterMarker number="04" label="Design" />
+          <div className={styles.designGrid}>
+            <div className={styles.designCopy} data-reveal>
+              <span className={styles.eyebrow}><PaletteIcon size={16} weight="duotone" /> Sua identidade</span>
+              <h2>Escolha<br />seu design.</h2>
+              <p>
+                Escolha o tema que combina com seu negócio. O visual acompanha a mesma conta no
+                Windows, na Web e no celular.
+              </p>
             </div>
-            <span className={styles.ctaEyebrow}>Sua próxima agenda começa aqui</span>
-            <h2>Mais organização para você. Mais atenção para seus clientes.</h2>
-            <p>
-              Abra na Web e use 7 dias para ver o Agenda Livre aplicado à sua rotina, no
-              computador ou no celular.
-            </p>
-            <a
-              className={styles.lightButton}
-              href="#teste"
-              data-analytics-action="agenda_trial_start"
-              data-analytics-location="final-cta"
-            >
-              <Play size={18} fill="currentColor" aria-hidden="true" />
-              Testar grátis por 7 dias
-              <ArrowRight size={18} aria-hidden="true" />
-            </a>
-            <small>Sem cartão e sem compromisso. Seus dados ficam no dispositivo usado.</small>
+
+            <figure className={styles.designVisual} data-reveal>
+              <figcaption><LaptopIcon size={17} weight="duotone" /><strong>A mesma escolha em todas as telas</strong></figcaption>
+              <div className={styles.designStage}>
+                <Image
+                  src="/agenda-livre/design/theme-windows-current.png"
+                  unoptimized
+                  width={1200}
+                  height={640}
+                  alt="Tela real de escolha de tema no Agenda Livre para Windows"
+                  className={styles.designScreenshot}
+                  sizes="(max-width: 900px) 92vw, 800px"
+                />
+                <div className={`${styles.designPlatformPreview} ${styles.designWebPreview}`}>
+                  <span><BrowsersIcon size={14} weight="duotone" /> Web</span>
+                  <Image
+                    src="/agenda-livre/design/theme-web-current.png"
+                    unoptimized
+                    width={1200}
+                    height={640}
+                    alt="Tela real de escolha de tema no Agenda Livre Web"
+                  />
+                </div>
+                <div className={`${styles.designPlatformPreview} ${styles.designMobilePreview}`}>
+                  <span><DeviceMobileIcon size={14} weight="duotone" /> Celular</span>
+                  <Image
+                    src="/agenda-livre/design/theme-mobile-current.png"
+                    unoptimized
+                    width={390}
+                    height={844}
+                    alt="Tela real de escolha de tema no Agenda Livre Web no celular"
+                  />
+                </div>
+              </div>
+            </figure>
+
+            <div className={styles.designNotes} data-reveal>
+              <span><i /><strong>Temas para<br />todos os estilos</strong></span>
+              <span><i /><strong>Cores, botões<br />e destaques personalizáveis</strong></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className={`${styles.section} ${styles.platformSection}`} id="plataformas">
+        <div className={styles.sectionShell}>
+          <ChapterMarker number="05" label="Plataformas" />
+          <div className={styles.platformIntro} data-reveal>
+            <span className={styles.eyebrow}>Uma conta</span>
+            <h2>Windows, Web<br />e celular.</h2>
+            <p>A mesma empresa e a mesma agenda, adaptadas para cada tela.</p>
+            <div className={styles.platformLinks}>
+              <a href={webTrialHref} target="_blank" rel="noreferrer"><GlobeIcon size={16} /> Abrir na Web</a>
+              <a href={windowsDownloadHref} download><DownloadSimpleIcon size={16} /> Baixar Windows</a>
+            </div>
+          </div>
+
+          <div className={styles.platformGallery} data-reveal>
+            <figure>
+              <figcaption><DesktopIcon size={19} weight="duotone" /><strong>Windows</strong><small>Aplicativo real para o computador.</small></figcaption>
+              <div className={styles.platformStage}>
+                <Image
+                  src="/agenda-livre/windows-home-studio-fluxo.png"
+                  unoptimized
+                  priority
+                  width={1200}
+                  height={640}
+                  alt="Painel real do Agenda Livre para Windows da empresa Studio Fluxo"
+                  className={styles.platformWideImage}
+                  sizes="(max-width: 700px) 82vw, 330px"
+                />
+              </div>
+            </figure>
+            <figure>
+              <figcaption><BrowsersIcon size={19} weight="duotone" /><strong>Web</strong><small>O mesmo painel no navegador.</small></figcaption>
+              <div className={styles.platformStage}>
+                <Image
+                  src="/agenda-livre/web-home-studio-fluxo.png"
+                  unoptimized
+                  priority
+                  width={1200}
+                  height={640}
+                  alt="Painel real do Agenda Livre Web da empresa Studio Fluxo"
+                  className={styles.platformWideImage}
+                  sizes="(max-width: 700px) 82vw, 330px"
+                />
+              </div>
+            </figure>
+            <figure>
+              <figcaption><CalendarCheckIcon size={19} weight="duotone" /><strong>Agenda Web</strong><small>Quadro diário com o mesmo visual.</small></figcaption>
+              <div className={styles.platformStage}>
+                <Image
+                  src="/agenda-livre/web-agenda-studio-fluxo.png"
+                  unoptimized
+                  width={1200}
+                  height={640}
+                  alt="Agenda real do Agenda Livre Web da empresa Studio Fluxo"
+                  className={styles.platformWideImage}
+                  sizes="(max-width: 700px) 82vw, 430px"
+                />
+              </div>
+            </figure>
+            <figure>
+              <figcaption><CoinsIcon size={19} weight="duotone" /><strong>Financeiro Web</strong><small>Entradas e saídas na mesma conta.</small></figcaption>
+              <div className={styles.platformStage}>
+                <Image
+                  src="/agenda-livre/web-finance-studio-fluxo.png"
+                  unoptimized
+                  width={1200}
+                  height={640}
+                  alt="Financeiro real do Agenda Livre Web da empresa Studio Fluxo"
+                  className={styles.platformWideImage}
+                  sizes="(max-width: 700px) 82vw, 430px"
+                />
+              </div>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section className={`${styles.section} ${styles.androidSection}`} id="android">
+        <div className={styles.sectionShell}>
+          <ChapterMarker number="06" label="Celular" dark />
+          <div className={styles.androidIntro} data-reveal>
+            <span className={styles.eyebrow}>Web no celular</span>
+            <h2>Leve sua<br />agenda no<br />bolso.</h2>
+            <p>Abra no navegador e gerencie a mesma conta de onde estiver. Estes são prints reais da versão Web responsiva.</p>
+            <PrimaryLink href={webTrialHref} location="mobile-web" light>
+              Abrir no celular
+            </PrimaryLink>
+          </div>
+
+          <div className={styles.phoneGallery} data-reveal>
+            {[
+              ["/agenda-livre/mobile-home-studio-fluxo.png", "Painel real do Agenda Livre Web no celular da empresa Studio Fluxo", "Painel"],
+              ["/agenda-livre/mobile-agenda-studio-fluxo.png", "Agenda real do Agenda Livre Web no celular da empresa Studio Fluxo", "Agenda"],
+              ["/agenda-livre/mobile-finance-studio-fluxo.png", "Financeiro real do Agenda Livre Web no celular da empresa Studio Fluxo", "Financeiro"],
+            ].map(([src, alt, label]) => (
+              <figure key={src}>
+                <span>{label}</span>
+                <Image
+                  src={src}
+                  unoptimized
+                  width={390}
+                  height={844}
+                  alt={alt}
+                  className={styles.phoneScreenshot}
+                  sizes="(max-width: 600px) 39vw, 205px"
+                />
+              </figure>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className={`${styles.section} ${styles.pricingSection}`} id="planos">
+        <div className={styles.sectionShell}>
+          <ChapterMarker number="07" label="Assinatura" dark />
+          <div className={styles.pricingIntro} data-reveal>
+            <span className={styles.eyebrow}>Assinatura</span>
+            <h2>Escolha como<br />quer continuar.</h2>
+            <p>Use por mês ou garanta o ano inteiro com um benefício a mais para o seu negócio.</p>
+          </div>
+
+          <div className={styles.pricingOptions}>
+            <article data-reveal>
+              <span className={styles.planName}>Mensal</span>
+              <div className={styles.planPrice}><strong>R$ 49,90</strong><small>/ mês</small></div>
+              <p><CheckIcon size={15} weight="bold" /> Teste grátis por 7 dias</p>
+              <a
+                href={monthlySubscriptionHref}
+                aria-label={
+                  stripeSubscriptionsEnabled
+                    ? "Assinar plano mensal com Stripe"
+                    : "Solicitar assinatura mensal"
+                }
+              >
+                {stripeSubscriptionsEnabled ? "Assinar com Stripe" : "Assinar mensal"}{" "}
+                <ArrowRightIcon size={17} weight="bold" />
+              </a>
+            </article>
+            <article className={styles.annualPlan} data-reveal>
+              <span className={styles.planBadge}>Mais vantajoso</span>
+              <span className={styles.planName}>Anual</span>
+              <div className={styles.planPrice}><strong>R$ 598,80</strong><small>/ ano</small></div>
+              <p><CheckIcon size={15} weight="bold" /> Equivale a R$ 49,90 por mês</p>
+              <a
+                href={annualSubscriptionHref}
+                aria-label={
+                  stripeSubscriptionsEnabled
+                    ? "Assinar plano anual com Stripe"
+                    : "Solicitar assinatura anual"
+                }
+              >
+                {stripeSubscriptionsEnabled ? "Assinar com Stripe" : "Assinar anual"}{" "}
+                <ArrowRightIcon size={17} weight="bold" />
+              </a>
+            </article>
+          </div>
+
+          <div className={styles.machineBonus} data-reveal>
+            <div className={styles.machineCircle}>
+              <Image
+                src="/agenda-livre/point-pro-3-clean-v2.png"
+                unoptimized
+                width={1200}
+                height={800}
+                alt="Point Pro 3 amarela com tela touch e teclado numérico físico"
+                className={styles.machineImage}
+                sizes="(max-width: 700px) 76vw, 300px"
+              />
+            </div>
+            <div><GiftIcon size={24} weight="duotone" /><small>Bônus do anual</small><strong>Ganhe uma<br />Point Pro 3</strong></div>
+            <p>Enquanto houver estoque. Uso e taxas seguem as regras do Mercado Pago.</p>
+          </div>
+        </div>
+      </section>
+
+      <section className={`${styles.section} ${styles.closingSection}`} id="duvidas">
+        <div className={styles.sectionShell}>
+          <ChapterMarker number="08" label="Comece" dark />
+          <div className={styles.closingHeadline} data-reveal>
+            <h2>Organize <em>hoje.</em><br />Respire <em>amanhã.</em></h2>
+          </div>
+          <div className={styles.closingAction} data-reveal>
+            <p>É simples, rápido e sem complicação.<br />Comece agora e transforme a rotina do seu negócio.</p>
+            <div className={styles.buttonRow}>
+              <PrimaryLink location="final">Testar grátis por 7 dias</PrimaryLink>
+              <SecondaryLink dark>
+                <GlobeIcon size={18} weight="duotone" /> Abrir versão Web
+              </SecondaryLink>
+            </div>
+          </div>
+          <div className={styles.faqGrid} data-reveal>
+            {faqs.map((faq) => (
+              <details key={faq.question}>
+                <summary>{faq.question}<span>+</span></summary>
+                <p>{faq.answer}</p>
+              </details>
+            ))}
           </div>
         </div>
       </section>
 
       <footer className={styles.footer}>
-        <div className={styles.container}>
-          <div className={styles.footerInner}>
-            <a className={styles.brand} href="#inicio" aria-label="Agenda Livre — voltar ao início">
-              <Image
-                src="/agenda-livre/agenda-livre-mark.png"
-                unoptimized
-                width={900}
-                height={480}
-                alt=""
-                className={styles.brandMark}
-              />
-              <span className={styles.brandText}>
-                <strong>Agenda Livre</strong>
-                <small>Sistema de agendamentos</small>
-              </span>
-            </a>
-            <p>© 2026 Agenda Livre. Feito para negócios que atendem com hora marcada.</p>
-            <a href={whatsappHref} target="_blank" rel="noreferrer">
-              Falar pelo WhatsApp
-              <ArrowRight size={16} aria-hidden="true" />
-            </a>
+        <div className={styles.footerInner} data-reveal>
+          <a className={styles.footerBrand} href="#inicio" aria-label="Agenda Livre — voltar ao início">
+            <Brand inverse />
+          </a>
+
+          <div className={styles.footerColumn}>
+            <strong>Produto</strong>
+            <a href="#produto">Agendamento online</a>
+            <a href="#recursos">Funcionalidades</a>
+            <a href="#design">Design</a>
+            <a href="#plataformas">Plataformas</a>
           </div>
+          <div className={styles.footerColumn}>
+            <strong>Para quem</strong>
+            <a href="#segmentos">Salão e beleza</a>
+            <a href="#segmentos">Barbearia</a>
+            <a href="#segmentos">Clínicas e estética</a>
+            <a href="#segmentos">Pet e autônomos</a>
+          </div>
+          <div className={styles.footerColumn}>
+            <strong>Comece</strong>
+            <a href={webTrialHref} target="_blank" rel="noreferrer">Teste grátis</a>
+            <a href={windowsDownloadHref} download>Baixar Windows</a>
+            <a href="/agenda-livre/android">Aplicativo Android</a>
+            <a href="/agenda-livre/privacidade">Política de privacidade</a>
+          </div>
+          <div className={`${styles.footerColumn} ${styles.footerContact}`}>
+            <strong>Fale com a gente</strong>
+            <a href="tel:+5533991314125"><PhoneIcon size={19} weight="duotone" />(33) 99131-4125</a>
+            <a href={instagramHref} target="_blank" rel="noreferrer"><InstagramLogoIcon size={19} weight="duotone" />@minhaagendalivre</a>
+            <a href={whatsappHref} target="_blank" rel="noreferrer"><WhatsappLogoIcon size={19} weight="duotone" />WhatsApp</a>
+            <a href="mailto:contato@minhaagendalivre.com.br"><AtIcon size={19} weight="duotone" />E-mail</a>
+          </div>
+        </div>
+        <div className={styles.footerBottom} data-reveal>
+          <span>© 2026 Agenda Livre. Todos os direitos reservados.</span>
+          <span>Web · Windows · Android</span>
         </div>
       </footer>
     </main>

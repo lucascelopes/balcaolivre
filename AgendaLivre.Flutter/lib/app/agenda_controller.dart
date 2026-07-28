@@ -83,6 +83,19 @@ class AgendaController extends ChangeNotifier {
         !repository.trialActive;
   }
 
+  bool get needsSubscriptionRenewal {
+    final repository = _repository is AgendaEntitlementRepository
+        ? _repository as AgendaEntitlementRepository
+        : null;
+    return hasAuthenticatedSession &&
+        repository != null &&
+        !repository.entitlementCanUse;
+  }
+
+  String get entitlementStatus => _repository is AgendaEntitlementRepository
+      ? (_repository as AgendaEntitlementRepository).entitlementStatus
+      : 'unknown';
+
   Future<void> initialize() async {
     loading = true;
     loadError = null;

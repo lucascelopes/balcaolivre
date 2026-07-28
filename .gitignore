@@ -7,6 +7,9 @@ BalcaoLivreLadingPage/netlify-site/
 BalcaoLivreLadingPage/public/pdv/
 publish/
 **/build/
+!BalcaoLivreLadingPage/build/
+BalcaoLivreLadingPage/build/*
+!BalcaoLivreLadingPage/build/sites-vite-plugin.ts
 .gradle/
 local.properties
 *.user
@@ -32,8 +35,30 @@ supabase/.temp/
 
 # Codex/local research artifacts
 .agents/
+.codex/
+.deploy_job.json
+/AGENTS.md
 screenshots/
 evidence/
+artifacts/
+**/artifacts/
+qa-artifacts/
+**/qa-artifacts/
+qa-data/
+**/qa-data/
+design-qa-artifacts/
+**/design-qa-artifacts/
+output/
+undefined/
+AgendaLivre.Windows/*.png
+AgendaLivre.Windows/audit-*/
+BalcaoLivre.Online.Windows/*.png
+BalcaoLivre.Admin/*.png
+BalcaoLivre.Admin/*.jpg
+/*.png
+/*.pdf
+BalcaoLivreLadingPage/deploy/
+**/.wrangler-dry-run/
 yt_lechef/
 youtube_polyvan_videos.json
 lechef_filtered.json

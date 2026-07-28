@@ -4,12 +4,17 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/web_agenda_session.dart';
 
-enum _AuthMode { signIn, signUp, forgotPassword, resetPassword }
+enum AgendaAuthMode { signIn, signUp, forgotPassword, resetPassword }
 
 class AgendaAuthPage extends StatefulWidget {
-  const AgendaAuthPage({super.key, required this.session});
+  const AgendaAuthPage({
+    super.key,
+    required this.session,
+    this.initialMode = AgendaAuthMode.signIn,
+  });
 
   final AgendaWebSession session;
+  final AgendaAuthMode initialMode;
 
   @override
   State<AgendaAuthPage> createState() => _AgendaAuthPageState();
@@ -22,12 +27,13 @@ class _AgendaAuthPageState extends State<AgendaAuthPage> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   final _passwordConfirmation = TextEditingController();
-  _AuthMode _mode = _AuthMode.signIn;
+  late AgendaAuthMode _mode = widget.initialMode;
   bool _showPassword = false;
   bool _showPasswordConfirmation = false;
 
-  _AuthMode get _effectiveMode =>
-      widget.session.passwordRecoveryPending ? _AuthMode.resetPassword : _mode;
+  AgendaAuthMode get _effectiveMode => widget.session.passwordRecoveryPending
+      ? AgendaAuthMode.resetPassword
+      : _mode;
 
   @override
   void dispose() {
@@ -85,9 +91,9 @@ class _AgendaAuthPageState extends State<AgendaAuthPage> {
 
   Widget _authForm({required bool desktop}) {
     final mode = _effectiveMode;
-    final creating = mode == _AuthMode.signUp;
-    final forgotPassword = mode == _AuthMode.forgotPassword;
-    final resetPassword = mode == _AuthMode.resetPassword;
+    final creating = mode == AgendaAuthMode.signUp;
+    final forgotPassword = mode == AgendaAuthMode.forgotPassword;
+    final resetPassword = mode == AgendaAuthMode.resetPassword;
     return Padding(
       key: const Key('agenda-auth-card'),
       padding: EdgeInsets.symmetric(vertical: desktop ? 20 : 10),
@@ -100,9 +106,9 @@ class _AgendaAuthPageState extends State<AgendaAuthPage> {
             children: [
               Text(
                 switch (mode) {
-                  _AuthMode.signUp => 'Crie sua conta',
-                  _AuthMode.forgotPassword => 'Recupere seu acesso',
-                  _AuthMode.resetPassword => 'Crie uma nova senha',
+                  AgendaAuthMode.signUp => 'Crie sua conta',
+                  AgendaAuthMode.forgotPassword => 'Recupere seu acesso',
+                  AgendaAuthMode.resetPassword => 'Crie uma nova senha',
                   _ => 'Bem-vindo de volta',
                 },
                 style: TextStyle(
@@ -115,11 +121,11 @@ class _AgendaAuthPageState extends State<AgendaAuthPage> {
               const SizedBox(height: 7),
               Text(
                 switch (mode) {
-                  _AuthMode.signUp =>
+                  AgendaAuthMode.signUp =>
                     'Cadastre-se para usar a mesma agenda no Windows e na Web.',
-                  _AuthMode.forgotPassword =>
+                  AgendaAuthMode.forgotPassword =>
                     'Informe o e-mail da sua conta para receber o link de recuperação.',
-                  _AuthMode.resetPassword =>
+                  AgendaAuthMode.resetPassword =>
                     'Defina uma senha nova para voltar à sua agenda com segurança.',
                   _ => 'Entre para abrir sua agenda sincronizada.',
                 },
@@ -246,14 +252,14 @@ class _AgendaAuthPageState extends State<AgendaAuthPage> {
                   ),
                 ),
               ],
-              if (mode == _AuthMode.signIn)
+              if (mode == AgendaAuthMode.signIn)
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
                     key: const Key('auth-forgot-password'),
                     onPressed: widget.session.busy
                         ? null
-                        : () => _changeMode(_AuthMode.forgotPassword),
+                        : () => _changeMode(AgendaAuthMode.forgotPassword),
                     style: TextButton.styleFrom(
                       foregroundColor: const Color(0xFFEB4E13),
                       padding: const EdgeInsets.fromLTRB(8, 7, 0, 3),
@@ -328,10 +334,10 @@ class _AgendaAuthPageState extends State<AgendaAuthPage> {
                         )
                       : Text(
                           switch (mode) {
-                            _AuthMode.signUp => 'Criar minha conta',
-                            _AuthMode.forgotPassword =>
+                            AgendaAuthMode.signUp => 'Criar minha conta',
+                            AgendaAuthMode.forgotPassword =>
                               'Enviar link de recuperação',
-                            _AuthMode.resetPassword => 'Salvar nova senha',
+                            AgendaAuthMode.resetPassword => 'Salvar nova senha',
                             _ => 'Entrar',
                           },
                           style: const TextStyle(
@@ -364,16 +370,16 @@ class _AgendaAuthPageState extends State<AgendaAuthPage> {
             child: _modeButton(
               key: const Key('auth-mode-sign-in'),
               label: 'Entrar',
-              selected: _effectiveMode == _AuthMode.signIn,
-              onPressed: () => _changeMode(_AuthMode.signIn),
+              selected: _effectiveMode == AgendaAuthMode.signIn,
+              onPressed: () => _changeMode(AgendaAuthMode.signIn),
             ),
           ),
           Expanded(
             child: _modeButton(
               key: const Key('auth-mode-sign-up'),
               label: 'Criar conta',
-              selected: _effectiveMode == _AuthMode.signUp,
-              onPressed: () => _changeMode(_AuthMode.signUp),
+              selected: _effectiveMode == AgendaAuthMode.signUp,
+              onPressed: () => _changeMode(AgendaAuthMode.signUp),
             ),
           ),
         ],
@@ -390,7 +396,7 @@ class _AgendaAuthPageState extends State<AgendaAuthPage> {
             ? null
             : () {
                 if (resetPassword) widget.session.cancelPasswordRecovery();
-                _changeMode(_AuthMode.signIn);
+                _changeMode(AgendaAuthMode.signIn);
               },
         style: OutlinedButton.styleFrom(
           foregroundColor: const Color(0xFF725F56),
@@ -504,7 +510,7 @@ class _AgendaAuthPageState extends State<AgendaAuthPage> {
         borderSide: BorderSide(color: color, width: width),
       );
 
-  void _changeMode(_AuthMode mode) {
+  void _changeMode(AgendaAuthMode mode) {
     if (_effectiveMode == mode) return;
     widget.session.clearFeedback();
     setState(() {
@@ -519,7 +525,7 @@ class _AgendaAuthPageState extends State<AgendaAuthPage> {
     FocusScope.of(context).unfocus();
     if (!(_formKey.currentState?.validate() ?? false)) return;
     switch (_effectiveMode) {
-      case _AuthMode.signUp:
+      case AgendaAuthMode.signUp:
         await widget.session.signUp(
           name: _name.text,
           businessName: _business.text,
@@ -528,21 +534,21 @@ class _AgendaAuthPageState extends State<AgendaAuthPage> {
         );
         if (widget.session.pendingConfirmationEmail != null) {
           _password.clear();
-          setState(() => _mode = _AuthMode.signIn);
+          setState(() => _mode = AgendaAuthMode.signIn);
         }
         return;
-      case _AuthMode.forgotPassword:
+      case AgendaAuthMode.forgotPassword:
         await widget.session.requestPasswordReset(email: _email.text);
         return;
-      case _AuthMode.resetPassword:
+      case AgendaAuthMode.resetPassword:
         await widget.session.updateRecoveredPassword(password: _password.text);
         if (!widget.session.passwordRecoveryPending) {
           _password.clear();
           _passwordConfirmation.clear();
-          setState(() => _mode = _AuthMode.signIn);
+          setState(() => _mode = AgendaAuthMode.signIn);
         }
         return;
-      case _AuthMode.signIn:
+      case AgendaAuthMode.signIn:
         await widget.session.signIn(
           email: _email.text,
           password: _password.text,

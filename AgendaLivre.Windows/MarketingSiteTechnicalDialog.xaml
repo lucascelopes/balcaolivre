@@ -1,0 +1,554 @@
+<Window x:Class="AgendaLivre.Windows.MarketingSiteTechnicalDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        Title="Domínio e publicação"
+        Width="680"
+        Height="680"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        PreviewKeyDown="Window_PreviewKeyDown">
+    <Window.Resources>
+        <SolidColorBrush x:Key="DialogInk" Color="#1C1B1A"/>
+        <SolidColorBrush x:Key="DialogMuted" Color="#6D6966"/>
+        <SolidColorBrush x:Key="DialogLine" Color="#DED8D3"/>
+        <SolidColorBrush x:Key="DialogAccent" Color="#F46322"/>
+        <SolidColorBrush x:Key="DialogAccentSoft" Color="#FFF4EE"/>
+        <SolidColorBrush x:Key="DialogSuccess" Color="#16894A"/>
+        <SolidColorBrush x:Key="DialogSuccessSoft" Color="#F4FBF6"/>
+
+        <Style x:Key="DialogIconButton" TargetType="Button">
+            <Setter Property="Width" Value="38"/>
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="19">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#F3EFEC"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DialogOutlineButton" TargetType="Button">
+            <Setter Property="Height" Value="44"/>
+            <Setter Property="Padding" Value="18,0"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="{StaticResource DialogInk}"/>
+            <Setter Property="BorderBrush" Value="#BEB6B0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#FAF7F5"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#AFA49D"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#F2ECE8"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DialogPrimaryButton"
+               TargetType="Button"
+               BasedOn="{StaticResource DialogOutlineButton}">
+            <Setter Property="Background" Value="{StaticResource DialogAccent}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="{StaticResource DialogAccent}"/>
+            <Setter Property="MinWidth" Value="238"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#DF5319"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#DF5319"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#C94713"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DomainTabStyle" TargetType="RadioButton">
+            <Setter Property="Height" Value="48"/>
+            <Setter Property="Foreground" Value="{StaticResource DialogInk}"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Root"
+                                Background="White"
+                                BorderBrush="{StaticResource DialogLine}"
+                                BorderThickness="1"
+                                CornerRadius="9">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource DialogAccentSoft}"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource DialogAccent}"/>
+                                <Setter TargetName="Root" Property="BorderThickness" Value="1.5"/>
+                                <Setter Property="Foreground" Value="{StaticResource DialogAccent}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource DialogAccent}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Border Margin="12"
+            Background="White"
+            BorderBrush="#D8D1CC"
+            BorderThickness="1"
+            CornerRadius="15">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="28"
+                              ShadowDepth="8"
+                              Opacity="0.28"
+                              Color="#000000"/>
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="72"/>
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0"
+                  Margin="28,20,20,0"
+                  MouseLeftButtonDown="Header_MouseLeftButtonDown">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Domínio e publicação"
+                               Foreground="{StaticResource DialogInk}"
+                               FontSize="25"
+                               FontWeight="Bold"/>
+                    <TextBlock Text="Seu site está online. O endereço Agenda Livre é configurado automaticamente."
+                               Foreground="{StaticResource DialogMuted}"
+                               FontSize="13.5"
+                               Margin="0,7,0,0"/>
+                </StackPanel>
+                <Button Grid.Column="1"
+                        Style="{StaticResource DialogIconButton}"
+                        Click="CloseButton_Click"
+                        AutomationProperties.Name="Fechar configurações técnicas">
+                    <materialDesign:PackIcon Kind="Close"
+                                             Width="22"
+                                             Height="22"
+                                             Foreground="{StaticResource DialogInk}"/>
+                </Button>
+            </Grid>
+
+            <ScrollViewer Grid.Row="1"
+                          Margin="28,14,28,0"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <Border Background="{StaticResource DialogSuccessSoft}"
+                            BorderBrush="#A9CBB4"
+                            BorderThickness="1"
+                            CornerRadius="9"
+                            Padding="18,14">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="48"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="1"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Ellipse Width="36"
+                                     Height="36"
+                                     Fill="{StaticResource DialogSuccess}"
+                                     HorizontalAlignment="Left"/>
+                            <materialDesign:PackIcon Kind="Check"
+                                                     Width="22"
+                                                     Height="22"
+                                                     Foreground="White"
+                                                     HorizontalAlignment="Left"
+                                                     Margin="7,0,0,0"
+                                                     VerticalAlignment="Center"/>
+                            <TextBlock x:Name="PublishedUrlText"
+                                       Grid.Column="1"
+                                       Foreground="{StaticResource DialogInk}"
+                                       FontSize="14.5"
+                                       FontWeight="Bold"
+                                       TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center"
+                                       Margin="4,0,12,0"/>
+                            <StackPanel Grid.Column="2"
+                                        Orientation="Horizontal"
+                                        VerticalAlignment="Center"
+                                        Margin="8,0,18,0">
+                                <Ellipse x:Name="OnlineDot"
+                                         Width="8"
+                                         Height="8"
+                                         Fill="{StaticResource DialogSuccess}"
+                                         Margin="0,0,8,0"/>
+                                <TextBlock x:Name="OnlineStatusText"
+                                           Text="Online"
+                                           Foreground="{StaticResource DialogSuccess}"
+                                           FontSize="13.5"/>
+                            </StackPanel>
+                            <Border Grid.Column="3"
+                                    Width="1"
+                                    Height="40"
+                                    Background="{StaticResource DialogLine}"/>
+                            <Button Grid.Column="4"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Foreground="{StaticResource DialogAccent}"
+                                    Cursor="Hand"
+                                    Padding="18,9,0,9"
+                                    Click="OpenSiteButton_Click"
+                                    AutomationProperties.Name="Abrir site publicado">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Abrir"
+                                               FontSize="13.5"
+                                               FontWeight="SemiBold"/>
+                                    <materialDesign:PackIcon Kind="OpenInNew"
+                                                             Width="17"
+                                                             Height="17"
+                                                             Margin="8,0,0,0"/>
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <Grid Margin="0,18,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <RadioButton x:Name="AgendaLivreDomainTab"
+                                     Grid.Column="0"
+                                     GroupName="DomainMode"
+                                     Style="{StaticResource DomainTabStyle}"
+                                     IsChecked="True"
+                                     Checked="DomainTab_Checked">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="Web"
+                                                         Width="20"
+                                                         Height="20"
+                                                         Margin="0,0,9,0"/>
+                                <TextBlock Text="Endereço Agenda Livre"
+                                           FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton x:Name="CustomDomainTab"
+                                     Grid.Column="2"
+                                     GroupName="DomainMode"
+                                     Style="{StaticResource DomainTabStyle}"
+                                     Checked="DomainTab_Checked">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="Earth"
+                                                         Width="20"
+                                                         Height="20"
+                                                         Margin="0,0,9,0"/>
+                                <TextBlock Text="Domínio próprio"
+                                           FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </RadioButton>
+                    </Grid>
+
+                    <StackPanel x:Name="AgendaLivreDomainPanel"
+                                Margin="16,14,0,0">
+                        <Grid Height="52">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="54"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Width="2"
+                                    Height="31"
+                                    Background="#49A66A"
+                                    HorizontalAlignment="Left"
+                                    Margin="17,30,0,0"/>
+                            <Ellipse Width="34"
+                                     Height="34"
+                                     Fill="{StaticResource DialogSuccess}"
+                                     HorizontalAlignment="Left"
+                                     VerticalAlignment="Top"/>
+                            <materialDesign:PackIcon Kind="Check"
+                                                     Width="20"
+                                                     Height="20"
+                                                     Foreground="White"
+                                                     HorizontalAlignment="Left"
+                                                     VerticalAlignment="Top"
+                                                     Margin="7,7,0,0"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="Site publicado"
+                                       Foreground="{StaticResource DialogInk}"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Top"
+                                       Margin="0,6,0,0"/>
+                            <Border Grid.Column="1"
+                                    Height="1"
+                                    Background="{StaticResource DialogLine}"
+                                    VerticalAlignment="Bottom"/>
+                        </Grid>
+                        <Grid Height="52">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="54"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Width="2"
+                                    Height="31"
+                                    Background="#49A66A"
+                                    HorizontalAlignment="Left"
+                                    Margin="17,30,0,0"/>
+                            <Ellipse Width="34"
+                                     Height="34"
+                                     Fill="{StaticResource DialogSuccess}"
+                                     HorizontalAlignment="Left"
+                                     VerticalAlignment="Top"/>
+                            <materialDesign:PackIcon Kind="Check"
+                                                     Width="20"
+                                                     Height="20"
+                                                     Foreground="White"
+                                                     HorizontalAlignment="Left"
+                                                     VerticalAlignment="Top"
+                                                     Margin="7,7,0,0"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="DNS Cloudflare"
+                                       Foreground="{StaticResource DialogInk}"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Top"
+                                       Margin="0,6,0,0"/>
+                            <Border Grid.Column="1"
+                                    Height="1"
+                                    Background="{StaticResource DialogLine}"
+                                    VerticalAlignment="Bottom"/>
+                        </Grid>
+                        <Grid Height="42">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="54"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Ellipse Width="34"
+                                     Height="34"
+                                     Fill="{StaticResource DialogSuccess}"
+                                     HorizontalAlignment="Left"
+                                     VerticalAlignment="Top"/>
+                            <materialDesign:PackIcon Kind="Check"
+                                                     Width="20"
+                                                     Height="20"
+                                                     Foreground="White"
+                                                     HorizontalAlignment="Left"
+                                                     VerticalAlignment="Top"
+                                                     Margin="7,7,0,0"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="SSL ativo"
+                                       Foreground="{StaticResource DialogInk}"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Top"
+                                       Margin="0,6,0,0"/>
+                        </Grid>
+
+                        <Border Background="{StaticResource DialogSuccessSoft}"
+                                BorderBrush="#AED0B9"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="16,13"
+                                Margin="-16,4,0,0">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="CheckCircleOutline"
+                                                         Width="20"
+                                                         Height="20"
+                                                         Foreground="{StaticResource DialogSuccess}"
+                                                         Margin="0,0,10,0"/>
+                                <TextBlock Text="Nenhuma alteração de DNS é necessária."
+                                           Foreground="#245B37"
+                                           FontSize="13.5"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel x:Name="CustomDomainPanel"
+                                Visibility="Collapsed"
+                                Margin="0,20,0,0">
+                        <TextBlock Text="Conecte seu domínio"
+                                   Foreground="{StaticResource DialogInk}"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"/>
+                        <TextBlock Text="Use um endereço como www.seusalao.com.br. A Agenda Livre criará o certificado e acompanhará a validação."
+                                   Foreground="{StaticResource DialogMuted}"
+                                   FontSize="12.5"
+                                   TextWrapping="Wrap"
+                                   Margin="0,6,0,0"/>
+                        <Border BorderBrush="{StaticResource DialogLine}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Margin="0,14,0,0">
+                            <TextBox x:Name="CustomDomainTextBox"
+                                     Height="44"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     Foreground="{StaticResource DialogInk}"
+                                     FontSize="14"
+                                     Padding="13,0"
+                                     VerticalContentAlignment="Center"
+                                     materialDesign:HintAssist.Hint="www.seusalao.com.br"/>
+                        </Border>
+                        <TextBlock x:Name="CustomDomainErrorText"
+                                   Foreground="#C62828"
+                                   FontSize="11.5"
+                                   Margin="2,7,0,0"
+                                   Visibility="Collapsed"/>
+                        <Border Background="#FAF7F5"
+                                BorderBrush="{StaticResource DialogLine}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="15"
+                                Margin="0,14,0,0">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="CNAME necessário"
+                                           Foreground="{StaticResource DialogMuted}"
+                                           FontSize="11.5"/>
+                                <TextBlock x:Name="CustomDomainCnameTargetText"
+                                           Grid.Row="1"
+                                           Foreground="{StaticResource DialogInk}"
+                                           FontFamily="Consolas"
+                                           FontSize="13"
+                                           Margin="0,6,0,0"/>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+
+                    <Border BorderBrush="{StaticResource DialogLine}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Margin="0,14,0,6">
+                        <StackPanel>
+                            <Button Background="Transparent"
+                                    BorderThickness="0"
+                                    Padding="16,12"
+                                    HorizontalContentAlignment="Stretch"
+                                    Cursor="Hand"
+                                    Click="DetailsButton_Click"
+                                    AutomationProperties.Name="Ver detalhes técnicos">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <materialDesign:PackIcon x:Name="DetailsChevron"
+                                                             Kind="ChevronDown"
+                                                             Width="20"
+                                                             Height="20"
+                                                             Foreground="{StaticResource DialogInk}"
+                                                             Margin="0,0,9,0"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="Ver detalhes técnicos"
+                                               Foreground="{StaticResource DialogInk}"
+                                               FontSize="13.5"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center"/>
+                                </Grid>
+                            </Button>
+                            <Border x:Name="TechnicalDetailsPanel"
+                                    Background="#FAF7F5"
+                                    CornerRadius="7"
+                                    Padding="14,11"
+                                    Margin="12,0,12,12"
+                                    Visibility="Collapsed">
+                                <StackPanel>
+                                    <TextBlock x:Name="WildcardRecordText"
+                                               Foreground="{StaticResource DialogInk}"
+                                               FontFamily="Consolas"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="FallbackOriginText"
+                                               Foreground="{StaticResource DialogInk}"
+                                               FontFamily="Consolas"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"
+                                               Margin="0,7,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Border Grid.Row="2"
+                    BorderBrush="{StaticResource DialogLine}"
+                    BorderThickness="0,1,0,0"
+                    Padding="28,13">
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button Content="Fechar"
+                            Style="{StaticResource DialogOutlineButton}"
+                            MinWidth="120"
+                            Margin="0,0,12,0"
+                            Click="CloseButton_Click"/>
+                    <Button x:Name="PrimaryActionButton"
+                            Content="Conectar domínio próprio"
+                            Style="{StaticResource DialogPrimaryButton}"
+                            Click="PrimaryActionButton_Click"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

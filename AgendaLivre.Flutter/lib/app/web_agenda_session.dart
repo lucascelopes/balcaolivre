@@ -19,6 +19,15 @@ import '../services/instagram_service.dart';
 import '../services/mercado_pago_service.dart';
 import 'agenda_controller.dart';
 
+Map<String, dynamic> _decodeSessionObject(String source) {
+  final decoded = jsonDecode(source);
+  return decoded is Map
+      ? Map<String, dynamic>.from(decoded)
+      : <String, dynamic>{};
+}
+
+String _sessionString(Object? value) => value?.toString() ?? '';
+
 abstract interface class AgendaWebSession implements Listenable {
   bool get initializing;
   bool get busy;
@@ -52,6 +61,48 @@ abstract interface class AgendaWebSession implements Listenable {
   Future<void> signOut();
 
   void clearFeedback();
+}
+
+class AgendaCheckoutActivation {
+  const AgendaCheckoutActivation({
+    required this.sessionId,
+    this.checking = true,
+    this.complete = false,
+    this.claimed = false,
+    this.ready = false,
+    this.plan = 'mensal',
+    this.email = '',
+    this.errorMessage,
+  });
+
+  final String sessionId;
+  final bool checking;
+  final bool complete;
+  final bool claimed;
+  final bool ready;
+  final String plan;
+  final String email;
+  final String? errorMessage;
+
+  AgendaCheckoutActivation copyWith({
+    bool? checking,
+    bool? complete,
+    bool? claimed,
+    bool? ready,
+    String? plan,
+    String? email,
+    String? errorMessage,
+    bool clearError = false,
+  }) => AgendaCheckoutActivation(
+    sessionId: sessionId,
+    checking: checking ?? this.checking,
+    complete: complete ?? this.complete,
+    claimed: claimed ?? this.claimed,
+    ready: ready ?? this.ready,
+    plan: plan ?? this.plan,
+    email: email ?? this.email,
+    errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
+  );
 }
 
 class AgendaWebSessionController extends ChangeNotifier
@@ -103,6 +154,11 @@ class AgendaWebSessionController extends ChangeNotifier
   String? _pendingConfirmationEmail;
   String? _pendingSubscriptionPlan;
   AgendaAccountApi? _activeAccountApi;
+  AgendaCheckoutActivation? _checkoutActivation;
+  AgendaBillingCard? billingCard;
+  bool billingCardLoaded = false;
+  bool localRenewalPreview = false;
+  bool _disposed = false;
 
   @override
   bool initializing = true;
@@ -131,6 +187,8 @@ class AgendaWebSessionController extends ChangeNotifier
   @override
   String? get pendingConfirmationEmail => _pendingConfirmationEmail;
 
+  AgendaCheckoutActivation? get checkoutActivation => _checkoutActivation;
+
   bool _initialized = false;
 
   @override
@@ -141,7 +199,12 @@ class AgendaWebSessionController extends ChangeNotifier
     notifyListeners();
     try {
       final callbackUri = _authCallbackUriProvider();
+      _captureRenewalPreview(callbackUri);
       _captureSubscriptionIntent(callbackUri);
+      _captureCheckoutActivation(callbackUri);
+      if (_checkoutActivation != null) {
+        await _refreshCheckoutActivation();
+      }
       if (AgendaAuthService.isPasswordRecoveryCallback(callbackUri)) {
         // Remove tokens from the address bar before the first network await.
         _authCallbackUriReplacer(
@@ -494,6 +557,198 @@ class AgendaWebSessionController extends ChangeNotifier
     errorMessage = null;
     successMessage = null;
     notifyListeners();
+    await _claimCheckoutAfterAuthentication();
+    unawaited(
+      _loadBillingCardSummary(
+        stateApi,
+        generation: generation,
+        userId: session.userId,
+      ),
+    );
+  }
+
+  Future<void> _loadBillingCardSummary(
+    AgendaAccountApi api, {
+    required int generation,
+    required String userId,
+  }) async {
+    try {
+      final card = await api.getSubscriptionCardSummary();
+      if (_disposed ||
+          !_isSessionCurrent(generation: generation, userId: userId)) {
+        return;
+      }
+      billingCard = card;
+      billingCardLoaded = true;
+      notifyListeners();
+    } on Object {
+      if (_disposed ||
+          !_isSessionCurrent(generation: generation, userId: userId)) {
+        return;
+      }
+      billingCard = null;
+      billingCardLoaded = true;
+      notifyListeners();
+    }
+  }
+
+  void _captureCheckoutActivation(Uri uri) {
+    final checkout = (uri.queryParameters['checkout'] ?? '').toLowerCase();
+    final localPreview =
+        checkout == 'preview' &&
+        (uri.host == 'localhost' ||
+            uri.host == '127.0.0.1' ||
+            uri.host == '127.0.0.2');
+    if (checkout != 'sucesso' && !localPreview) {
+      return;
+    }
+    if (localPreview) {
+      _checkoutActivation = const AgendaCheckoutActivation(
+        sessionId: 'cs_preview_local',
+        checking: false,
+        complete: true,
+        plan: 'mensal',
+        email: 'is***@exemplo.com',
+      );
+      return;
+    }
+    final sessionId = (uri.queryParameters['session_id'] ?? '').trim();
+    if (!RegExp(r'^cs_[A-Za-z0-9_]+$').hasMatch(sessionId)) return;
+    _checkoutActivation = AgendaCheckoutActivation(sessionId: sessionId);
+  }
+
+  void _captureRenewalPreview(Uri uri) {
+    localRenewalPreview =
+        uri.queryParameters['renewal'] == 'preview' &&
+        (uri.host == 'localhost' ||
+            uri.host == '127.0.0.1' ||
+            uri.host == '127.0.0.2');
+    if (!localRenewalPreview) return;
+    billingCard = const AgendaBillingCard(
+      brand: 'visa',
+      last4: '4242',
+      expMonth: 11,
+      expYear: 2029,
+    );
+    billingCardLoaded = true;
+  }
+
+  Future<void> _refreshCheckoutActivation() async {
+    final activation = _checkoutActivation;
+    if (activation == null) return;
+    if (activation.sessionId == 'cs_preview_local') return;
+    try {
+      final response = await _transport.send(
+        ServiceHttpRequest(
+          method: 'GET',
+          uri: _configService.apiBase.resolve(
+            '/api/agenda/subscriptions/status?session_id=${Uri.encodeQueryComponent(activation.sessionId)}',
+          ),
+          headers: const <String, String>{'Accept': 'application/json'},
+          timeout: const Duration(seconds: 20),
+        ),
+      );
+      if (!response.isSuccess) {
+        throw AgendaApiException.fromResponse(response);
+      }
+      final raw = _decodeSessionObject(response.body)['checkout'];
+      final checkout = raw is Map
+          ? Map<String, dynamic>.from(raw)
+          : <String, dynamic>{};
+      _checkoutActivation = activation.copyWith(
+        checking: false,
+        complete: checkout['complete'] == true,
+        claimed: checkout['claimed'] == true,
+        plan: _sessionString(checkout['plan']),
+        email: _sessionString(checkout['email']),
+        clearError: true,
+      );
+    } on Object catch (error) {
+      _checkoutActivation = activation.copyWith(
+        checking: false,
+        errorMessage: _messageFor(error),
+      );
+    }
+    notifyListeners();
+  }
+
+  Future<void> _claimCheckoutAfterAuthentication() async {
+    final activation = _checkoutActivation;
+    final api = _activeAccountApi;
+    if (activation == null || api == null || !activation.complete) return;
+    try {
+      await api.claimSubscription(activation.sessionId);
+      _checkoutActivation = activation.copyWith(
+        checking: false,
+        claimed: true,
+        ready: true,
+        clearError: true,
+      );
+      await agendaController?.refreshRemoteIfSafe();
+    } on Object catch (error) {
+      _checkoutActivation = activation.copyWith(
+        checking: false,
+        errorMessage: _messageFor(error),
+      );
+    }
+    notifyListeners();
+  }
+
+  Future<void> renewSubscription(String plan) async {
+    final api = _activeAccountApi;
+    final session = _authService.session;
+    if (api == null || session == null) return;
+    _startOperation();
+    try {
+      final checkout = await api.createSubscriptionCheckout(
+        plan: plan,
+        idempotencyKey:
+            '${session.userId}-$plan-${DateTime.now().toUtc().microsecondsSinceEpoch}',
+      );
+      if (!await _checkoutLauncher(checkout)) {
+        throw const AgendaApiException(
+          'checkout_launch_failed',
+          'Não foi possível abrir o Checkout da Stripe.',
+        );
+      }
+    } on Object catch (error) {
+      errorMessage = _messageFor(error);
+    } finally {
+      busy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> manageSubscription() async {
+    final api = _activeAccountApi;
+    if (api == null) return;
+    _startOperation();
+    try {
+      final portal = await api.createSubscriptionPortal();
+      if (!await _checkoutLauncher(portal)) {
+        throw const AgendaApiException(
+          'portal_launch_failed',
+          'Não foi possível abrir sua assinatura na Stripe.',
+        );
+      }
+    } on Object catch (error) {
+      errorMessage = _messageFor(error);
+    } finally {
+      busy = false;
+      notifyListeners();
+    }
+  }
+
+  void finishCheckoutActivation() {
+    _checkoutActivation = null;
+    final currentUri = _authCallbackUriProvider();
+    final query = Map<String, String>.from(currentUri.queryParameters)
+      ..remove('checkout')
+      ..remove('session_id');
+    _authCallbackUriReplacer(
+      currentUri.replace(queryParameters: query.isEmpty ? null : query),
+    );
+    notifyListeners();
   }
 
   void _captureSubscriptionIntent(Uri uri) {
@@ -544,6 +799,8 @@ class AgendaWebSessionController extends ChangeNotifier
     _sessionGeneration++;
     _activeUserId = null;
     _activeAccountApi = null;
+    billingCard = null;
+    billingCardLoaded = false;
     final current = agendaController;
     if (current != null) _retiredControllers.add(current);
     agendaController = null;
@@ -619,6 +876,7 @@ class AgendaWebSessionController extends ChangeNotifier
 
   @override
   void dispose() {
+    _disposed = true;
     agendaController?.dispose();
     for (final controller in _retiredControllers) {
       controller.dispose();

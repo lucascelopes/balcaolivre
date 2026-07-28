@@ -39,7 +39,7 @@ const siteJsonLd = [
     name: siteName,
     url: siteUrl,
     logo: absoluteUrl("/brand/bl-modern-icon.png"),
-    sameAs: ["https://pdv.balcaolivrepdv.com.br"],
+    sameAs: ["https://app.balcaolivrepdv.com.br"],
     contactPoint: [
       {
         "@type": "ContactPoint",

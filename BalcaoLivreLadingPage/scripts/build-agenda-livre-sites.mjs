@@ -44,7 +44,7 @@ const webIndexPath = path.join(agendaClientDirectory, "app", "index.html");
 const webIndex = await readFile(webIndexPath, "utf8");
 await writeFile(
   webIndexPath,
-  webIndex.replace(/<base href="[^"]*">/, '<base href="/agenda-livre/app/">'),
+  webIndex.replace(/<base href="[^"]*">/, '<base href="/">'),
   "utf8"
 );
 

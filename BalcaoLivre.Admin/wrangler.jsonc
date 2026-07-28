@@ -1,0 +1,40 @@
+{
+  "$schema": "../BalcaoLivreLadingPage/node_modules/wrangler/config-schema.json",
+  "name": "balcao-livre-admin",
+  "main": "cloudflare-admin-worker.js",
+  "compatibility_date": "2026-07-27",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "admin.balcaolivrepdv.com.br/*",
+      "zone_name": "balcaolivrepdv.com.br"
+    }
+  ],
+  "assets": {
+    "directory": "wwwroot",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/admin-api/*"
+    ]
+  },
+  "services": [
+    {
+      "binding": "AGENDA_AI_SERVICE",
+      "service": "agenda-livre-platform"
+    }
+  ],
+  "vars": {
+    "SUPABASE_URL": "https://hzvplpotsdzxygkxrgyi.supabase.co",
+    "SUPABASE_ANON_KEY": "sb_publishable_qNl5_EGAeuhN6PqTzRIeyQ_YQV2MdV6",
+    "ADMIN_EMAILS": "lucascesar@admin.com,isabelagomes@admin.com",
+    "ADMIN_DISPLAY_NAMES": "lucascesar@admin.com=Lucas Cesar,isabelagomes@admin.com=Isabela Gomes"
+  },
+  "secrets": {
+    "required": [
+      "SUPABASE_SERVICE_ROLE_KEY"
+    ]
+  },
+  "observability": {
+    "enabled": true
+  }
+}

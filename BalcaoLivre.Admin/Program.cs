@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
@@ -26,6 +27,8 @@ builder.WebHost.UseUrls(adminUrls);
 
 builder.Services.AddSingleton<AdminStoreService>();
 builder.Services.AddSingleton<AdminSessionService>();
+builder.Services.AddSingleton<CommerceFulfillmentService>();
+builder.Services.AddHttpClient();
 
 var app = builder.Build();
 app.UseStaticFiles(new StaticFileOptions
@@ -204,6 +207,153 @@ app.MapGet("/api/dashboard", (HttpContext context, AdminSessionService sessions,
     return Results.Ok(AdminDashboard.From(snapshot, stripe));
 });
 
+app.MapGet("/api/client-intelligence", (HttpContext context, AdminSessionService sessions, AdminStoreService store) =>
+{
+    if (!sessions.IsValid(context)) return Results.Unauthorized();
+    var snapshot = store.Read();
+    var stripe = store.ReadStripeCheckoutSummary();
+    return Results.Ok(ClientIntelligenceDashboard.From(snapshot, stripe));
+});
+
+app.MapPost("/api/visits/plan", async (
+    HttpContext context,
+    AdminSessionService sessions,
+    IHttpClientFactory httpClientFactory) =>
+{
+    if (!sessions.IsValid(context)) return Results.Unauthorized();
+
+    var request = await context.Request.ReadFromJsonAsync<VisitRoutePlanRequest>(
+        AdminJson.Options,
+        context.RequestAborted) ?? new VisitRoutePlanRequest();
+    var candidates = request.Candidates
+        .Where(item =>
+            !string.IsNullOrWhiteSpace(item.Id)
+            && double.IsFinite(item.Latitude)
+            && double.IsFinite(item.Longitude))
+        .Take(12)
+        .ToList();
+    if (candidates.Count == 0)
+    {
+        return Results.BadRequest(new { message = "Envie ao menos uma oportunidade válida." });
+    }
+
+    var apiKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
+    if (string.IsNullOrWhiteSpace(apiKey))
+    {
+        return Results.Json(
+            new
+            {
+                message = "OpenRouter não configurado. O painel continuará usando o plano local.",
+                code = "openrouter_not_configured"
+            },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    // Só enviamos contexto comercial mínimo. Telefones, CNPJ e outras informações privadas ficam no servidor.
+    var safeContext = new
+    {
+        candidates = candidates.Select(item => new
+        {
+            item.Id,
+            item.Name,
+            item.Neighborhood,
+            item.Score,
+            item.Stage,
+            item.DistanceMeters
+        })
+    };
+    var systemPrompt = """
+        Você prioriza visitas comerciais presenciais. A geometria, o trânsito e a polyline serão calculados
+        por um motor de rotas; você NÃO calcula nem inventa caminhos. Ordene somente os IDs recebidos usando
+        potencial comercial, estágio do funil, distância informada e eficiência do dia.
+        Responda exclusivamente JSON no formato:
+        {"orderedIds":["id"],"summary":"até 140 caracteres","reasons":[{"id":"id","reason":"até 70 caracteres"}]}
+        Use cada ID exatamente uma vez. Não inclua IDs desconhecidos.
+        """;
+
+    var openRouterRequest = new
+    {
+        model = "openrouter/free",
+        temperature = 0.2,
+        max_tokens = 650,
+        messages = new object[]
+        {
+            new { role = "system", content = systemPrompt },
+            new { role = "user", content = JsonSerializer.Serialize(safeContext, AdminJson.Options) }
+        }
+    };
+
+    using var openRouterMessage = new HttpRequestMessage(
+        HttpMethod.Post,
+        "https://openrouter.ai/api/v1/chat/completions");
+    openRouterMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+    openRouterMessage.Headers.TryAddWithoutValidation("X-Title", "Balcão Livre Admin");
+    openRouterMessage.Content = JsonContent.Create(openRouterRequest, options: AdminJson.Options);
+
+    try
+    {
+        var client = httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(18);
+        using var response = await client.SendAsync(openRouterMessage, context.RequestAborted);
+        if (!response.IsSuccessStatusCode)
+        {
+            return Results.Json(
+                new { message = "A IA está indisponível agora. Use o plano local.", code = "openrouter_unavailable" },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(context.RequestAborted));
+        var content = body.RootElement
+            .GetProperty("choices")[0]
+            .GetProperty("message")
+            .GetProperty("content")
+            .GetString() ?? "";
+        content = content.Trim();
+        if (content.StartsWith("```", StringComparison.Ordinal))
+        {
+            var firstBreak = content.IndexOf('\n');
+            var lastFence = content.LastIndexOf("```", StringComparison.Ordinal);
+            content = firstBreak >= 0 && lastFence > firstBreak
+                ? content[(firstBreak + 1)..lastFence].Trim()
+                : content;
+        }
+
+        var plan = JsonSerializer.Deserialize<VisitAiPlanResponse>(content, AdminJson.Options)
+            ?? new VisitAiPlanResponse();
+        var allowed = candidates.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+        var ordered = plan.OrderedIds
+            .Where(allowed.Contains)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        ordered.AddRange(candidates.Select(item => item.Id).Where(id => !ordered.Contains(id, StringComparer.Ordinal)));
+        var reasons = plan.Reasons
+            .Where(item => allowed.Contains(item.Id))
+            .GroupBy(item => item.Id, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToList();
+
+        return Results.Ok(new
+        {
+            orderedIds = ordered,
+            summary = plan.Summary.TrimOrDefault("Plano priorizado por potencial comercial e eficiência da rota."),
+            reasons,
+            model = "openrouter/free"
+        });
+    }
+    catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested)
+    {
+        return Results.Json(
+            new { message = "A IA demorou para responder. Use o plano local.", code = "openrouter_timeout" },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+    catch (Exception)
+    {
+        return Results.Json(
+            new { message = "Não foi possível interpretar a sugestão da IA. Use o plano local.", code = "openrouter_invalid_response" },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+});
+
 app.MapGet("/api/licenses", (HttpContext context, AdminSessionService sessions, AdminStoreService store) =>
 {
     if (!sessions.IsValid(context)) return Results.Unauthorized();
@@ -244,6 +394,37 @@ app.MapPost("/api/licenses", async (HttpContext context, AdminSessionService ses
     return Results.Ok(license);
 });
 
+app.MapPost("/api/licenses/{id}/renew", async (string id, HttpContext context, AdminSessionService sessions, AdminStoreService store) =>
+{
+    if (!sessions.IsValid(context)) return Results.Unauthorized();
+    var request = await context.Request.ReadFromJsonAsync<CreateLicenseRequest>(AdminJson.Options) ?? new CreateLicenseRequest();
+    var amount = Math.Clamp(request.Amount <= 0 ? 30 : request.Amount, 1, 3650);
+    var unit = NormalizeDurationUnit(request.Unit);
+    var now = DateTimeOffset.UtcNow;
+
+    var result = store.Update(data =>
+    {
+        var license = data.Licenses.FirstOrDefault(item =>
+            item.Id == id || string.Equals(item.Key, id, StringComparison.OrdinalIgnoreCase));
+        if (license is null) return null;
+
+        var renewalStart = license.ExpiresAt > now ? license.ExpiresAt : now;
+        license.ExpiresAt = AddDuration(renewalStart, amount, unit);
+        license.PeriodAmount = amount;
+        license.PeriodUnit = unit;
+        license.Status = string.IsNullOrWhiteSpace(license.MachineHash)
+            ? LicenseStatus.Available
+            : LicenseStatus.Active;
+        data.Events.Add(AdminEvent.License(
+            "license.renewed",
+            $"Licença renovada por {amount} {DurationLabel(unit, amount)}: {license.CustomerName}",
+            license.Key));
+        return license;
+    });
+
+    return result is null ? Results.NotFound() : Results.Ok(result);
+});
+
 app.MapPost("/api/licenses/{id}/block", (string id, HttpContext context, AdminSessionService sessions, AdminStoreService store) =>
 {
     if (!sessions.IsValid(context)) return Results.Unauthorized();
@@ -270,6 +451,57 @@ app.MapPost("/api/licenses/{id}/unblock", (string id, HttpContext context, Admin
         return license;
     });
     return result is null ? Results.NotFound() : Results.Ok(result);
+});
+
+app.MapGet("/api/fulfillments", async (
+    HttpContext context,
+    AdminSessionService sessions,
+    CommerceFulfillmentService fulfillments) =>
+{
+    if (!sessions.IsValid(context)) return Results.Unauthorized();
+    if (!fulfillments.IsConfigured)
+    {
+        return Results.Json(
+            new { message = "Supabase de comércio não configurado no admin." },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    var payload = await fulfillments.ListAsync(context.RequestAborted);
+    return Results.Text(payload, "application/json");
+});
+
+app.MapPost("/api/fulfillments/{id}/status", async (
+    string id,
+    HttpContext context,
+    AdminSessionService sessions,
+    CommerceFulfillmentService fulfillments) =>
+{
+    if (!sessions.IsValid(context)) return Results.Unauthorized();
+    if (!fulfillments.IsConfigured)
+    {
+        return Results.Json(
+            new { message = "Supabase de comércio não configurado no admin." },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    var request = await context.Request.ReadFromJsonAsync<UpdateFulfillmentStatusRequest>(AdminJson.Options)
+        ?? new UpdateFulfillmentStatusRequest();
+    var status = (request.Status ?? "").Trim().ToUpperInvariant();
+    if (status is not ("READY" or "REQUESTED" or "SHIPPED" or "DELIVERED" or "CANCELED"))
+    {
+        return Results.Json(
+            new { message = "Status de entrega inválido." },
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var payload = await fulfillments.UpdateStatusAsync(
+        id,
+        status,
+        request.TrackingCode,
+        context.RequestAborted);
+    return payload is null
+        ? Results.NotFound()
+        : Results.Text(payload, "application/json");
 });
 
 app.MapGet("/api/blocked-ips", (HttpContext context, AdminSessionService sessions, AdminStoreService store) =>
@@ -1488,6 +1720,83 @@ sealed class AdminSessionService
     }
 }
 
+sealed class CommerceFulfillmentService
+{
+    private readonly HttpClient _httpClient;
+    private readonly string _supabaseUrl;
+    private readonly string _supabaseKey;
+
+    public bool IsConfigured =>
+        !string.IsNullOrWhiteSpace(_supabaseUrl) &&
+        !string.IsNullOrWhiteSpace(_supabaseKey);
+
+    public CommerceFulfillmentService(IHttpClientFactory httpClientFactory)
+    {
+        _httpClient = httpClientFactory.CreateClient();
+        _supabaseUrl = (Environment.GetEnvironmentVariable("BVPDV_SUPABASE_URL")
+            ?? Environment.GetEnvironmentVariable("SUPABASE_URL")
+            ?? "").Trim().TrimEnd('/');
+        _supabaseKey = (Environment.GetEnvironmentVariable("BVPDV_SUPABASE_SERVICE_ROLE_KEY")
+            ?? Environment.GetEnvironmentVariable("BVPDV_SUPABASE_SECRET_KEY")
+            ?? Environment.GetEnvironmentVariable("SUPABASE_SERVICE_ROLE_KEY")
+            ?? Environment.GetEnvironmentVariable("SUPABASE_SECRET_KEY")
+            ?? "").Trim();
+    }
+
+    public async Task<string> ListAsync(CancellationToken cancellationToken)
+    {
+        const string selection =
+            "id,store_id,status,model,recipient_name,recipient_phone,shipping_address," +
+            "tracking_code,requested_at,shipped_at,delivered_at,created_at,updated_at," +
+            "bl_stores(name,bl_accounts(email,phone,display_name))";
+        var url = $"{_supabaseUrl}/rest/v1/bl_machine_fulfillments" +
+            $"?select={Uri.EscapeDataString(selection)}&order=created_at.desc";
+        using var request = CreateRequest(HttpMethod.Get, url);
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return payload;
+    }
+
+    public async Task<string?> UpdateStatusAsync(
+        string id,
+        string status,
+        string? trackingCode,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(id, out var fulfillmentId)) return null;
+
+        var now = DateTimeOffset.UtcNow;
+        var patch = new Dictionary<string, object?>
+        {
+            ["status"] = status,
+            ["tracking_code"] = string.IsNullOrWhiteSpace(trackingCode) ? null : trackingCode.Trim(),
+            ["updated_at"] = now
+        };
+        if (status == "REQUESTED") patch["requested_at"] = now;
+        if (status == "SHIPPED") patch["shipped_at"] = now;
+        if (status == "DELIVERED") patch["delivered_at"] = now;
+
+        var url = $"{_supabaseUrl}/rest/v1/bl_machine_fulfillments?id=eq.{fulfillmentId:D}";
+        using var request = CreateRequest(HttpMethod.Patch, url);
+        request.Headers.TryAddWithoutValidation("Prefer", "return=representation");
+        request.Content = JsonContent.Create(patch, options: AdminJson.Options);
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return payload == "[]" ? null : payload;
+    }
+
+    private HttpRequestMessage CreateRequest(HttpMethod method, string url)
+    {
+        var request = new HttpRequestMessage(method, url);
+        request.Headers.TryAddWithoutValidation("apikey", _supabaseKey);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _supabaseKey);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        return request;
+    }
+}
+
 sealed class AdminStoreService
 {
     private static readonly TimeSpan RemoteRefreshInterval = TimeSpan.FromSeconds(3);
@@ -2040,7 +2349,11 @@ sealed class AdminStoreService
         try
         {
             EnsureSupabaseBucketUnsafe();
-            using var request = CreateSupabaseRequest(HttpMethod.Get, SupabaseObjectPath(_supabaseObjectPath));
+            var cacheBuster = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            using var request = CreateSupabaseRequest(
+                HttpMethod.Get,
+                $"{SupabaseObjectPath(_supabaseObjectPath)}?t={cacheBuster}");
+            request.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true, NoStore = true };
             using var response = _httpClient.Send(request);
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
@@ -2611,6 +2924,43 @@ sealed class LoginRequest
     public string Password { get; set; } = "";
 }
 
+sealed class VisitRoutePlanRequest
+{
+    public VisitRouteLocation CurrentLocation { get; set; } = new();
+    public List<VisitRouteCandidate> Candidates { get; set; } = [];
+}
+
+sealed class VisitRouteLocation
+{
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+}
+
+sealed class VisitRouteCandidate
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Neighborhood { get; set; } = "";
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public int Score { get; set; }
+    public string Stage { get; set; } = "";
+    public int DistanceMeters { get; set; }
+}
+
+sealed class VisitAiPlanResponse
+{
+    public List<string> OrderedIds { get; set; } = [];
+    public string Summary { get; set; } = "";
+    public List<VisitAiReason> Reasons { get; set; } = [];
+}
+
+sealed class VisitAiReason
+{
+    public string Id { get; set; } = "";
+    public string Reason { get; set; } = "";
+}
+
 sealed class CreateLicenseRequest
 {
     public string CustomerName { get; set; } = "";
@@ -2618,6 +2968,12 @@ sealed class CreateLicenseRequest
     public int Amount { get; set; } = 30;
     public string Unit { get; set; } = "days";
     public string Notes { get; set; } = "";
+}
+
+sealed class UpdateFulfillmentStatusRequest
+{
+    public string? Status { get; set; }
+    public string? TrackingCode { get; set; }
 }
 
 sealed class UpdateSupportStatusRequest
@@ -2876,8 +3232,11 @@ sealed class StripeCheckoutSummary
     public int TotalPurchases { get; set; }
     public int Purchases24h { get; set; }
     public long TotalRevenueCents { get; set; }
+    public long CurrentMonthRevenueCents { get; set; }
+    public long PreviousMonthRevenueCents { get; set; }
     public string Currency { get; set; } = "BRL";
     public List<StripePurchaseSummary> RecentPurchases { get; set; } = [];
+    public List<object> RevenueByDay { get; set; } = [];
 
     public static StripeCheckoutSummary Empty(string error = "") => new()
     {
@@ -2888,6 +3247,8 @@ sealed class StripeCheckoutSummary
     public static StripeCheckoutSummary From(IEnumerable<SupabaseCheckoutEventRecord> records)
     {
         var now = DateTimeOffset.UtcNow;
+        var currentMonthStart = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero);
+        var previousMonthStart = currentMonthStart.AddMonths(-1);
         var purchases = records
             .Select(ToPurchase)
             .Where(item => !string.IsNullOrWhiteSpace(item.LicenseKey) || !string.IsNullOrWhiteSpace(item.CheckoutSessionId))
@@ -2896,14 +3257,29 @@ sealed class StripeCheckoutSummary
             .OrderByDescending(item => item.When)
             .ToList();
         var currency = purchases.Select(item => item.Currency).FirstOrDefault(item => !string.IsNullOrWhiteSpace(item)) ?? "BRL";
+        var currentMonthPurchases = purchases.Where(item => item.When >= currentMonthStart).ToList();
+        var previousMonthPurchases = purchases
+            .Where(item => item.When >= previousMonthStart && item.When < currentMonthStart)
+            .ToList();
 
         return new StripeCheckoutSummary
         {
             TotalPurchases = purchases.Count,
             Purchases24h = purchases.Count(item => item.When >= now.AddHours(-24)),
             TotalRevenueCents = purchases.Sum(item => (long)Math.Max(0, item.AmountCents)),
+            CurrentMonthRevenueCents = currentMonthPurchases.Sum(item => (long)Math.Max(0, item.AmountCents)),
+            PreviousMonthRevenueCents = previousMonthPurchases.Sum(item => (long)Math.Max(0, item.AmountCents)),
             Currency = currency,
-            RecentPurchases = purchases.Take(8).ToList()
+            RecentPurchases = purchases.Take(8).ToList(),
+            RevenueByDay = currentMonthPurchases
+                .GroupBy(item => item.When.UtcDateTime.Date)
+                .OrderBy(group => group.Key)
+                .Select(group => (object)new
+                {
+                    date = group.Key.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    revenueCents = group.Sum(item => (long)Math.Max(0, item.AmountCents))
+                })
+                .ToList()
         };
     }
 
@@ -3030,9 +3406,11 @@ sealed class SiteAnalyticsDashboard
 sealed class AdminDashboard
 {
     public object Metrics { get; set; } = new();
+    public ClientIntelligenceDashboard ClientIntelligence { get; set; } = new();
     public SiteAnalyticsDashboard SiteAnalytics { get; set; } = new();
     public StripeCheckoutSummary Stripe { get; set; } = new();
     public IEnumerable<object> VersionDistribution { get; set; } = [];
+    public IEnumerable<object> ActiveClientsByDay { get; set; } = [];
     public IEnumerable<LicenseRecord> ExpiringSoon { get; set; } = [];
     public IEnumerable<DeviceRecord> RecentDevices { get; set; } = [];
     public IEnumerable<AdminEvent> Events { get; set; } = [];
@@ -3047,6 +3425,12 @@ sealed class AdminDashboard
         var online24h = store.Devices.Count(item => item.LastSeenAt >= now.AddHours(-24));
         var registeredUsers = store.Devices.Sum(item => item.Metrics.UsersCount);
         var openSupport = store.SupportTickets.Count(item => item.Status != SupportStatus.Resolved);
+        var supportOpen = store.SupportTickets.Count(item => item.Status == SupportStatus.Open);
+        var supportInProgress = store.SupportTickets.Count(item => item.Status == SupportStatus.Working);
+        var expiringSoon30d = store.Licenses.Count(item =>
+            item.Status != LicenseStatus.Blocked &&
+            item.ExpiresAt > now &&
+            item.ExpiresAt <= now.AddDays(30));
         var urgentSupport = store.SupportTickets.Count(item =>
             item.Status != SupportStatus.Resolved &&
             string.Equals(item.Priority, "URGENTE", StringComparison.OrdinalIgnoreCase));
@@ -3054,12 +3438,16 @@ sealed class AdminDashboard
         var stripePurchasesTotal = stripe.TotalPurchases > 0 ? stripe.TotalPurchases : site.CheckoutCompletedTotal;
         var stripePurchases24h = stripe.TotalPurchases > 0 ? stripe.Purchases24h : site.CheckoutCompleted24h;
         var stripeRevenueCents = stripe.TotalRevenueCents > 0 ? stripe.TotalRevenueCents : site.CheckoutCompletedRevenueCents;
+        var stripeRevenueMonthCents = stripe.CurrentMonthRevenueCents > 0
+            ? stripe.CurrentMonthRevenueCents
+            : site.CheckoutCompletedRevenueCents;
         var conversionRate = site.TotalVisitors > 0
             ? Math.Round(stripePurchasesTotal * 100m / site.TotalVisitors, 1)
             : 0m;
 
         return new AdminDashboard
         {
+            ClientIntelligence = ClientIntelligenceDashboard.From(store, stripe),
             Metrics = new
             {
                 totalLicenses = store.Licenses.Count,
@@ -3071,6 +3459,10 @@ sealed class AdminDashboard
                 online24h,
                 registeredUsers,
                 openSupport,
+                waitingSupport = openSupport,
+                supportOpen,
+                supportInProgress,
+                expiringSoon30d,
                 urgentSupport,
                 siteVisitors24h = site.Visitors24h,
                 siteVisitorsTotal = site.TotalVisitors,
@@ -3081,6 +3473,8 @@ sealed class AdminDashboard
                 stripePurchases24h,
                 stripePurchasesTotal,
                 stripeRevenueCents,
+                stripeRevenueMonthCents,
+                stripeRevenuePreviousMonthCents = stripe.PreviousMonthRevenueCents,
                 stripeConversionRate = conversionRate
             },
             SiteAnalytics = site,
@@ -3089,12 +3483,428 @@ sealed class AdminDashboard
                 .GroupBy(item => string.IsNullOrWhiteSpace(item.AppVersion) ? "sem versao" : item.AppVersion)
                 .Select(group => new { version = group.Key, count = group.Count() })
                 .OrderByDescending(item => item.count),
+            ActiveClientsByDay = store.Devices
+                .Where(item => item.LastSeenAt >= now.AddDays(-90))
+                .GroupBy(item => item.LastSeenAt.ToString("yyyy-MM-dd"))
+                .Select(group => new { date = group.Key, count = group.Count() })
+                .OrderBy(item => item.date)
+                .Cast<object>(),
             ExpiringSoon = store.Licenses
-                .Where(item => item.Status != LicenseStatus.Blocked && item.ExpiresAt > now && item.ExpiresAt <= now.AddDays(15))
+                .Where(item => item.Status != LicenseStatus.Blocked && item.ExpiresAt > now && item.ExpiresAt <= now.AddDays(30))
                 .OrderBy(item => item.ExpiresAt)
                 .Take(8),
             RecentDevices = store.Devices.OrderByDescending(item => item.LastSeenAt).Take(10),
             Events = store.Events.OrderByDescending(item => item.When).Take(20)
         };
     }
+}
+
+sealed class ClientIntelligenceDashboard
+{
+    public ClientIntelligenceSummary Summary { get; set; } = new();
+    public List<ClientIntelligenceItem> Clients { get; set; } = [];
+    public int BlockedIpCount { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    public static ClientIntelligenceDashboard From(AdminStore store, StripeCheckoutSummary stripe)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var clients = new List<ClientIntelligenceItem>();
+        var usedDeviceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var licenseGroup in store.Licenses
+                     .GroupBy(ClientGroupKey)
+                     .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var licenses = licenseGroup.ToList();
+            var licenseKeys = licenses
+                .Select(item => item.Key)
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var identityCnpjs = licenses
+                .Select(item => item.Cnpj)
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var identityNames = licenses
+                .SelectMany(item => new[] { item.BusinessName, item.CustomerName })
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var devices = store.Devices
+                .Where(item =>
+                    licenseKeys.Contains(item.LicenseKey) ||
+                    identityCnpjs.Contains(item.Profile.Cnpj) ||
+                    identityNames.Contains(item.Profile.BusinessName))
+                .ToList();
+
+            foreach (var device in devices)
+            {
+                usedDeviceIds.Add(device.Id);
+            }
+
+            clients.Add(BuildClient(licenses, devices, store, stripe, now));
+        }
+
+        foreach (var orphanGroup in store.Devices
+                     .Where(item => !usedDeviceIds.Contains(item.Id))
+                     .GroupBy(ClientGroupKey)
+                     .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            clients.Add(BuildClient([], orphanGroup.ToList(), store, stripe, now));
+        }
+
+        clients = clients
+            .OrderBy(PriorityRank)
+            .ThenBy(item => item.HealthScore)
+            .ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+        var healthy = clients.Count(item => item.HealthBand == "healthy");
+        var attention = clients.Count(item => item.HealthBand == "attention");
+        var critical = clients.Count(item => item.HealthBand == "critical");
+        var synchronizedToday = clients.Count(item => item.LastSeenAt is not null && item.LastSeenAt >= now.AddHours(-24));
+
+        return new ClientIntelligenceDashboard
+        {
+            Summary = new ClientIntelligenceSummary
+            {
+                TotalClients = clients.Count,
+                ActiveClients = clients.Count(item => item.IsActive),
+                HealthyClients = healthy,
+                AttentionClients = attention,
+                CriticalClients = critical,
+                SynchronizedToday = synchronizedToday,
+                SynchronizedTodayPercent = clients.Count == 0
+                    ? 0
+                    : (int)Math.Round(synchronizedToday * 100m / clients.Count)
+            },
+            Clients = clients,
+            BlockedIpCount = store.BlockedIps.Count,
+            UpdatedAt = now
+        };
+    }
+
+    private static ClientIntelligenceItem BuildClient(
+        List<LicenseRecord> licenses,
+        List<DeviceRecord> devices,
+        AdminStore store,
+        StripeCheckoutSummary stripe,
+        DateTimeOffset now)
+    {
+        var primaryLicense = licenses
+            .OrderBy(item => item.Status == LicenseStatus.Active ? 0 : 1)
+            .ThenByDescending(item => item.LastSeenAt)
+            .ThenByDescending(item => item.ExpiresAt)
+            .FirstOrDefault();
+        var primaryDevice = devices.OrderByDescending(item => item.LastSeenAt).FirstOrDefault();
+        var licenseKeys = licenses
+            .Select(item => item.Key)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var machineCodes = devices
+            .Select(item => item.MachineCode)
+            .Concat(licenses.Select(item => item.MachineCode))
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var cnpj = primaryLicense?.Cnpj.TrimOrDefault(primaryDevice?.Profile.Cnpj ?? "")
+            ?? primaryDevice?.Profile.Cnpj
+            ?? "";
+        var businessName = primaryLicense?.BusinessName.TrimOrDefault(primaryLicense.CustomerName)
+            ?? primaryDevice?.Profile.BusinessName.TrimOrDefault(primaryDevice.Profile.LegalName.TrimOrDefault(primaryDevice.Profile.OwnerName))
+            ?? "Cliente";
+        var support = store.SupportTickets
+            .Where(item =>
+                licenseKeys.Contains(item.LicenseKey) ||
+                (!string.IsNullOrWhiteSpace(cnpj) && string.Equals(item.Cnpj, cnpj, StringComparison.OrdinalIgnoreCase)) ||
+                string.Equals(item.BusinessName.TrimOrDefault(item.CustomerName), businessName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var openSupport = support.Where(item => item.Status != SupportStatus.Resolved).ToList();
+        var recentPayment = stripe.RecentPurchases
+            .Where(item => licenseKeys.Contains(item.LicenseKey))
+            .OrderByDescending(item => item.When)
+            .FirstOrDefault();
+        var lastSeenAt = devices.Select(item => (DateTimeOffset?)item.LastSeenAt)
+            .Concat(licenses.Select(item => item.LastSeenAt))
+            .Where(item => item is not null)
+            .Max();
+
+        var scoreTotal = 0d;
+        var scoreWeight = 0d;
+        void AddSignal(double weight, double value)
+        {
+            scoreTotal += weight * Math.Clamp(value, 0, 1);
+            scoreWeight += weight;
+        }
+
+        if (licenses.Count > 0)
+        {
+            AddSignal(35, licenses.Average(item => LicenseHealth(item, now)));
+        }
+        else
+        {
+            AddSignal(35, 0.45);
+        }
+
+        var synchronizationExpected = devices.Count > 0 || licenses.Any(item =>
+            item.Status == LicenseStatus.Active ||
+            !string.IsNullOrWhiteSpace(item.MachineHash) ||
+            !string.IsNullOrWhiteSpace(item.MachineCode));
+        if (synchronizationExpected)
+        {
+            AddSignal(35, SyncHealth(lastSeenAt, now));
+        }
+
+        AddSignal(20, SupportHealth(openSupport));
+
+        if (recentPayment is not null)
+        {
+            AddSignal(10, recentPayment.When >= now.AddDays(-45) ? 1 : 0.7);
+        }
+
+        var score = scoreWeight <= 0 ? 0 : (int)Math.Round(scoreTotal * 100 / scoreWeight);
+        var healthBand = score >= 80 ? "healthy" : score >= 55 ? "attention" : "critical";
+        var healthLabel = healthBand switch
+        {
+            "healthy" => "Saudável",
+            "attention" => "Atenção",
+            _ => "Crítico"
+        };
+        var reason = ResolveReason(licenses, lastSeenAt, openSupport, now);
+        var actionView = reason.View;
+        var activity = Enumerable.Range(0, 30).Select(_ => 0).ToArray();
+        var startDate = now.Date.AddDays(-29);
+        var matchingEvents = store.Events.Where(item =>
+            licenseKeys.Contains(item.LicenseKey) ||
+            machineCodes.Contains(item.MachineCode));
+        foreach (var activityEvent in matchingEvents)
+        {
+            var index = (activityEvent.When.Date - startDate).Days;
+            if (index is >= 0 and < 30) activity[index]++;
+        }
+        foreach (var ticket in support)
+        {
+            var index = (ticket.CreatedAt.Date - startDate).Days;
+            if (index is >= 0 and < 30) activity[index]++;
+        }
+        if (lastSeenAt is not null)
+        {
+            var index = (lastSeenAt.Value.Date - startDate).Days;
+            if (index is >= 0 and < 30) activity[index] = Math.Max(1, activity[index]);
+        }
+
+        var history = new List<ClientHistoryItem>();
+        if (lastSeenAt is not null)
+        {
+            history.Add(new ClientHistoryItem { Type = "sync", Label = "Última sincronização", When = lastSeenAt.Value });
+        }
+        if (primaryLicense is not null)
+        {
+            history.Add(new ClientHistoryItem { Type = "license", Label = $"Licença {primaryLicense.Status.ToLowerInvariant()}", When = primaryLicense.ExpiresAt });
+        }
+        if (recentPayment is not null)
+        {
+            history.Add(new ClientHistoryItem { Type = "payment", Label = "Pagamento confirmado", When = recentPayment.When });
+        }
+        history.AddRange(openSupport.Select(item => new ClientHistoryItem
+        {
+            Type = "support",
+            Label = $"Chamado {item.ShortId} · {item.Status.ToLowerInvariant()}",
+            When = item.UpdatedAt > DateTimeOffset.MinValue ? item.UpdatedAt : item.CreatedAt
+        }));
+
+        var profile = primaryDevice?.Profile;
+        var ownerName = primaryLicense?.OwnerName.TrimOrDefault(profile?.OwnerName ?? "") ?? profile?.OwnerName ?? "";
+        var email = primaryLicense?.Email.TrimOrDefault(profile?.Email ?? "") ?? profile?.Email ?? "";
+        var phone = primaryLicense?.Phone.TrimOrDefault(profile?.Phone ?? "") ?? profile?.Phone ?? "";
+        var city = primaryLicense?.City.TrimOrDefault(profile?.City ?? "") ?? profile?.City ?? "";
+        var state = primaryLicense?.State.TrimOrDefault(profile?.State ?? "") ?? profile?.State ?? "";
+
+        return new ClientIntelligenceItem
+        {
+            Id = primaryLicense?.Id.TrimOrDefault(primaryDevice?.Id ?? businessName) ?? primaryDevice?.Id.TrimOrDefault(businessName) ?? businessName,
+            Name = businessName,
+            Initials = Initials(businessName),
+            Cnpj = cnpj,
+            City = city,
+            State = state,
+            Plan = primaryLicense?.Plan.TrimOrDefault("Sem plano") ?? "Sem plano",
+            LicenseId = primaryLicense?.Id ?? "",
+            LicenseKey = primaryLicense?.Key ?? primaryDevice?.LicenseKey ?? "",
+            LicenseStatus = primaryLicense?.Status ?? "SEM_LICENCA",
+            ClientSinceAt = primaryLicense?.CreatedAt ?? primaryDevice?.FirstSeenAt,
+            ExpiresAt = primaryLicense?.ExpiresAt,
+            LastSeenAt = lastSeenAt,
+            SyncLabel = SyncLabel(lastSeenAt, now),
+            OwnerName = ownerName,
+            Email = email,
+            Phone = phone,
+            DeviceCount = devices.Count,
+            LicenseCount = licenses.Count,
+            OpenSupportCount = openSupport.Count,
+            RecentPaymentAt = recentPayment?.When,
+            HealthScore = score,
+            HealthBand = healthBand,
+            HealthLabel = healthLabel,
+            Confidence = (int)Math.Round(scoreWeight),
+            ConfidenceLabel = scoreWeight >= 90 ? "alta" : scoreWeight >= 70 ? "média" : "parcial",
+            Reason = reason.Reason,
+            SuggestedAction = reason.Action,
+            ActionView = actionView,
+            IsActive = licenses.Any(item => item.Status == LicenseStatus.Active && item.ExpiresAt > now),
+            Activity30d = activity.ToList(),
+            History = history.OrderByDescending(item => item.When).Take(8).ToList()
+        };
+    }
+
+    private static double LicenseHealth(LicenseRecord license, DateTimeOffset now)
+    {
+        if (license.Status == LicenseStatus.Blocked) return 0.05;
+        if (license.Status == LicenseStatus.Expired || license.ExpiresAt <= now) return 0;
+        var days = (license.ExpiresAt - now).TotalDays;
+        if (days <= 3) return 0.35;
+        if (days <= 30) return 0.65;
+        if (license.Status == LicenseStatus.Available) return 0.6;
+        return 1;
+    }
+
+    private static int PriorityRank(ClientIntelligenceItem item)
+    {
+        var action = item.SuggestedAction;
+        if (action.Contains("Renovar", StringComparison.OrdinalIgnoreCase) ||
+            action.Contains("Revisar licença", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (action.Contains("sincronização", StringComparison.OrdinalIgnoreCase) ||
+            action.Contains("atualização", StringComparison.OrdinalIgnoreCase)) return 1;
+        if (action.Contains("atendimento", StringComparison.OrdinalIgnoreCase)) return 2;
+        if (item.HealthBand == "critical") return 3;
+        if (item.HealthBand == "attention") return 4;
+        return 5;
+    }
+
+    private static double SyncHealth(DateTimeOffset? lastSeenAt, DateTimeOffset now)
+    {
+        if (lastSeenAt is null) return 0.15;
+        var age = now - lastSeenAt.Value;
+        if (age <= TimeSpan.FromHours(24)) return 1;
+        if (age <= TimeSpan.FromHours(48)) return 0.72;
+        if (age <= TimeSpan.FromDays(7)) return 0.45;
+        return 0.1;
+    }
+
+    private static double SupportHealth(List<SupportTicketRecord> tickets)
+    {
+        if (tickets.Any(item => string.Equals(item.Priority, "URGENTE", StringComparison.OrdinalIgnoreCase))) return 0.1;
+        if (tickets.Any(item => item.Status == SupportStatus.Open)) return 0.55;
+        if (tickets.Any(item => item.Status == SupportStatus.Working)) return 0.72;
+        return 1;
+    }
+
+    private static (string Reason, string Action, string View) ResolveReason(
+        List<LicenseRecord> licenses,
+        DateTimeOffset? lastSeenAt,
+        List<SupportTicketRecord> support,
+        DateTimeOffset now)
+    {
+        if (licenses.Any(item => item.Status == LicenseStatus.Blocked))
+            return ("Licença bloqueada", "Revisar licença", "licenses");
+        if (licenses.Any(item => item.Status == LicenseStatus.Expired || item.ExpiresAt <= now))
+            return ("Licença vencida", "Renovar licença", "licenses");
+        var nextExpiration = licenses.Where(item => item.ExpiresAt > now).OrderBy(item => item.ExpiresAt).FirstOrDefault();
+        if (nextExpiration is not null && nextExpiration.ExpiresAt <= now.AddDays(30))
+        {
+            var days = Math.Max(1, (int)Math.Ceiling((nextExpiration.ExpiresAt - now).TotalDays));
+            return ($"Licença vence em {days} dia(s)", "Renovar licença", "licenses");
+        }
+        if (lastSeenAt is null && licenses.Any(item => item.Status == LicenseStatus.Active))
+            return ("Sem sincronização registrada", "Ver sincronização", "devices");
+        if (lastSeenAt is not null && lastSeenAt < now.AddHours(-48))
+            return ($"Sem sincronizar há {HumanAge(now - lastSeenAt.Value)}", "Ver sincronização", "devices");
+        var urgent = support.FirstOrDefault(item => string.Equals(item.Priority, "URGENTE", StringComparison.OrdinalIgnoreCase));
+        if (urgent is not null) return ($"Chamado urgente {urgent.ShortId}", "Abrir atendimento", "support");
+        var open = support.FirstOrDefault();
+        if (open is not null) return ($"Chamado {open.ShortId} em aberto", "Abrir atendimento", "support");
+        if (licenses.Count == 0) return ("Sem licença vinculada", "Vincular licença", "licenses");
+        return ("Tudo em dia", "Ver detalhes", "devices");
+    }
+
+    private static string ClientGroupKey(LicenseRecord item) =>
+        item.Cnpj.TrimOrDefault(item.BusinessName.TrimOrDefault(item.CustomerName.TrimOrDefault(item.Key))).Trim().ToUpperInvariant();
+
+    private static string ClientGroupKey(DeviceRecord item) =>
+        item.Profile.Cnpj.TrimOrDefault(item.LicenseKey.TrimOrDefault(item.Profile.BusinessName.TrimOrDefault(item.MachineCode))).Trim().ToUpperInvariant();
+
+    private static string Initials(string value)
+    {
+        var words = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0) return "CL";
+        return string.Concat(words.Take(2).Select(word => char.ToUpperInvariant(word[0])));
+    }
+
+    private static string SyncLabel(DateTimeOffset? value, DateTimeOffset now)
+    {
+        if (value is null) return "Sem sincronização";
+        var age = now - value.Value;
+        if (age <= TimeSpan.FromMinutes(2)) return "Agora";
+        if (age <= TimeSpan.FromHours(1)) return $"Há {Math.Max(1, (int)age.TotalMinutes)} min";
+        if (age <= TimeSpan.FromDays(1)) return $"Há {Math.Max(1, (int)age.TotalHours)}h";
+        return $"Há {Math.Max(1, (int)age.TotalDays)} dia(s)";
+    }
+
+    private static string HumanAge(TimeSpan age)
+    {
+        if (age < TimeSpan.FromDays(2)) return $"{Math.Max(1, (int)age.TotalHours)}h";
+        return $"{Math.Max(1, (int)age.TotalDays)} dias";
+    }
+}
+
+sealed class ClientIntelligenceSummary
+{
+    public int TotalClients { get; set; }
+    public int ActiveClients { get; set; }
+    public int HealthyClients { get; set; }
+    public int AttentionClients { get; set; }
+    public int CriticalClients { get; set; }
+    public int SynchronizedToday { get; set; }
+    public int SynchronizedTodayPercent { get; set; }
+}
+
+sealed class ClientIntelligenceItem
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Initials { get; set; } = "";
+    public string Cnpj { get; set; } = "";
+    public string City { get; set; } = "";
+    public string State { get; set; } = "";
+    public string Plan { get; set; } = "";
+    public string LicenseId { get; set; } = "";
+    public string LicenseKey { get; set; } = "";
+    public string LicenseStatus { get; set; } = "";
+    public DateTimeOffset? ClientSinceAt { get; set; }
+    public DateTimeOffset? ExpiresAt { get; set; }
+    public DateTimeOffset? LastSeenAt { get; set; }
+    public string SyncLabel { get; set; } = "";
+    public string OwnerName { get; set; } = "";
+    public string Email { get; set; } = "";
+    public string Phone { get; set; } = "";
+    public int DeviceCount { get; set; }
+    public int LicenseCount { get; set; }
+    public int OpenSupportCount { get; set; }
+    public DateTimeOffset? RecentPaymentAt { get; set; }
+    public int HealthScore { get; set; }
+    public string HealthBand { get; set; } = "";
+    public string HealthLabel { get; set; } = "";
+    public int Confidence { get; set; }
+    public string ConfidenceLabel { get; set; } = "";
+    public string Reason { get; set; } = "";
+    public string SuggestedAction { get; set; } = "";
+    public string ActionView { get; set; } = "";
+    public bool IsActive { get; set; }
+    public List<int> Activity30d { get; set; } = [];
+    public List<ClientHistoryItem> History { get; set; } = [];
+}
+
+sealed class ClientHistoryItem
+{
+    public string Type { get; set; } = "";
+    public string Label { get; set; } = "";
+    public DateTimeOffset When { get; set; }
 }
