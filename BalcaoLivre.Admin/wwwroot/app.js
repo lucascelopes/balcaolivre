@@ -3173,6 +3173,54 @@ function manualVisitDateLabel(date) {
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
+function manualPaymentMethodLabel(value) {
+  return {
+    PIX: "Pix",
+    DINHEIRO: "Dinheiro",
+    CARTAO: "Cartão",
+    STRIPE: "Stripe"
+  }[String(value || "").toUpperCase()] || "Pagamento";
+}
+
+function normalizedCompanyName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function automaticStripePaymentForVisit(visit) {
+  const visitName = normalizedCompanyName(visit.company);
+  if (!visitName) return null;
+  const purchases = state.dashboard?.stripe?.recentPurchases || [];
+  const match = purchases.find((purchase) => {
+    const key = String(purchase.licenseKey || "").toUpperCase();
+    const license = state.licenses.find((item) => String(item.key || "").toUpperCase() === key);
+    const customer = license?.businessName || license?.customerName || purchase.customerName || "";
+    return normalizedCompanyName(customer) === visitName;
+  });
+  return match ? {
+    source: "stripe",
+    status: "received",
+    method: "STRIPE",
+    amountCents: Number(match.amountCents || 0),
+    when: match.when || ""
+  } : null;
+}
+
+function toggleManualPaymentFields() {
+  const checked = Boolean(qs("#manualVisitPaid")?.checked);
+  const fields = qs("#manualVisitPaymentFields");
+  const amount = qs("#manualVisitPaymentAmount");
+  fields?.classList.toggle("hidden", !checked);
+  if (amount) {
+    amount.disabled = !checked;
+    amount.required = checked;
+  }
+}
+
 function resetManualVisitForm() {
   const form = qs("#manualVisitForm");
   if (!form) return;
@@ -3182,9 +3230,13 @@ function resetManualVisitForm() {
   qs("#manualVisitTime").value = "09:30";
   qs("#manualVisitDuration").value = "45";
   qs("#manualVisitOwner").value = state.adminProfile.name === "Isabela Gomes" ? "Isabela Gomes" : "Lucas Cesar";
+  qs("#manualVisitPaid").checked = false;
+  qs("#manualVisitPaymentAmount").value = "";
+  qs("#manualVisitPaymentMethod").value = "PIX";
   qs("#manualVisitFormTitle").textContent = "Adicionar visita";
   qs("#manualVisitSubmit").textContent = "Agendar";
   qs("#manualVisitCancelEdit").classList.add("hidden");
+  toggleManualPaymentFields();
 }
 
 function renderManualRecentCompanies() {
@@ -3225,6 +3277,7 @@ function renderManualVisits() {
     const position = Math.max(0, Math.min(100, ((manualVisitTimeValue(item.time) - 8) / 9) * 100));
     const row = item.row || (item.id === "manual-2" || item.time === "10:30" ? "bottom" : "top");
     const priorityClass = item.priority === "Alta" ? "high" : "medium";
+    const payment = item.payment || automaticStripePaymentForVisit(item);
     return `
       <article class="manual-visit-card ${row}" style="--visit-position: ${position}%">
         <span class="manual-visit-connector" aria-hidden="true"></span>
@@ -3237,6 +3290,11 @@ function renderManualVisits() {
           <span class="manual-visit-separator">•</span>
           <span class="manual-visit-priority ${priorityClass}"><i class="fa-solid ${item.priority === "Alta" ? "fa-angles-up" : "fa-minus"}" aria-hidden="true"></i>${escapeHtml(item.priority)}</span>
         </p>
+        ${payment ? `<span class="manual-payment-chip ${payment.source === "stripe" ? "stripe" : ""}">
+          <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+          ${Number(payment.amountCents || 0) > 0 ? moneyFromCents(payment.amountCents, "BRL") : "Recebido"}
+          · ${escapeHtml(manualPaymentMethodLabel(payment.method))}
+        </span>` : ""}
         <button class="manual-visit-edit" type="button" data-visit-edit="${escapeHtml(item.id)}">
           <i class="fa-solid fa-pen" aria-hidden="true"></i>Editar
         </button>
@@ -3274,6 +3332,12 @@ function editManualVisit(id) {
   if ([...qs("#manualVisitOwner").options].some((option) => option.value === visit.contact)) {
     qs("#manualVisitOwner").value = visit.contact;
   }
+  qs("#manualVisitPaid").checked = Boolean(visit.payment);
+  qs("#manualVisitPaymentAmount").value = visit.payment?.amountCents
+    ? (Number(visit.payment.amountCents) / 100).toFixed(2)
+    : "";
+  qs("#manualVisitPaymentMethod").value = visit.payment?.method || "PIX";
+  toggleManualPaymentFields();
   qs("#manualVisitFormTitle").textContent = "Editar visita";
   qs("#manualVisitSubmit").textContent = "Salvar";
   qs("#manualVisitCancelEdit").classList.remove("hidden");
@@ -3292,6 +3356,15 @@ function saveManualVisit(event) {
     ? "Pérola"
     : qs("#manualVisitNeighborhood").value;
   const existing = manualVisitsState.visits.find((item) => item.id === editId);
+  const paymentEnabled = qs("#manualVisitPaid").checked;
+  const paymentAmountCents = paymentEnabled
+    ? Math.round(Number(qs("#manualVisitPaymentAmount").value || 0) * 100)
+    : 0;
+  if (paymentEnabled && paymentAmountCents <= 0) {
+    qs("#manualVisitPaymentAmount").focus();
+    showVisitsNotice("Informe o valor recebido nesta visita.");
+    return;
+  }
   const next = {
     id: editId || `manual-${Date.now()}`,
     company,
@@ -3301,7 +3374,14 @@ function saveManualVisit(event) {
     time: qs("#manualVisitTime").value,
     duration: Number(qs("#manualVisitDuration").value || 45),
     priority: existing?.priority || "Média",
-    row: existing?.row || "top"
+    row: existing?.row || "top",
+    payment: paymentEnabled ? {
+      source: "manual",
+      status: "received",
+      method: qs("#manualVisitPaymentMethod").value,
+      amountCents: paymentAmountCents,
+      when: new Date().toISOString()
+    } : null
   };
   if (existing) Object.assign(existing, next);
   else manualVisitsState.visits.push(next);
@@ -3309,7 +3389,9 @@ function saveManualVisit(event) {
   persistManualVisits();
   resetManualVisitForm();
   renderManualVisits();
-  showVisitsNotice(existing ? "Visita atualizada." : `${company} foi adicionada à agenda.`);
+  showVisitsNotice(paymentEnabled
+    ? `${moneyFromCents(paymentAmountCents, "BRL")} recebido de ${company}.`
+    : existing ? "Visita atualizada." : `${company} foi adicionada à agenda.`);
 }
 
 function selectManualRecentCompany(button) {
@@ -3382,6 +3464,7 @@ qs("#manualVisitOpenForm")?.addEventListener("click", openManualVisitForm);
 qs("#manualVisitNeighborhood")?.addEventListener("change", renderManualVisits);
 qs("#manualVisitForm")?.addEventListener("submit", saveManualVisit);
 qs("#manualVisitCancelEdit")?.addEventListener("click", resetManualVisitForm);
+qs("#manualVisitPaid")?.addEventListener("change", toggleManualPaymentFields);
 qs("#manualVisitsCards")?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-visit-edit]");
   if (button) editManualVisit(button.dataset.visitEdit);

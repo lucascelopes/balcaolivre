@@ -1910,7 +1910,7 @@ sealed class AdminStoreService
         {
             using var request = CreateSupabaseAuthRequest(
                 HttpMethod.Get,
-                "/rest/v1/bv_license_events?select=license_key,event_type,message,payload,created_at&event_type=in.(checkout.paid,checkout.renewed)&order=created_at.desc&limit=1000");
+                "/rest/v1/bv_license_events?select=license_key,event_type,message,payload,created_at&event_type=in.(checkout.paid,checkout.renewed,checkout.paid.v2)&order=created_at.desc&limit=1000");
             using var response = _httpClient.Send(request);
             var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
             if (!response.IsSuccessStatusCode)
@@ -3286,14 +3286,27 @@ sealed class StripeCheckoutSummary
     private static StripePurchaseSummary ToPurchase(SupabaseCheckoutEventRecord record)
     {
         var payload = record.Payload;
+        var plan = PayloadString(payload, "plan_id").TrimOrDefault(PayloadString(payload, "plan"));
+        var amountCents = PayloadInt(payload, "amount_total");
+        if (amountCents <= 0)
+        {
+            amountCents = plan.ToLowerInvariant() switch
+            {
+                "basico-mensal" => 4990,
+                "basico-anual" => 59880,
+                "completo-mensal" => 9990,
+                "completo-anual" => 119880,
+                _ => 0
+            };
+        }
         return new StripePurchaseSummary
         {
             LicenseKey = record.LicenseKey,
             Type = record.EventType,
-            Plan = PayloadString(payload, "plan_id").TrimOrDefault(PayloadString(payload, "plan")),
+            Plan = plan,
             CheckoutSessionId = PayloadString(payload, "checkout_session_id"),
             Currency = PayloadString(payload, "currency").TrimOrDefault("BRL").ToUpperInvariant(),
-            AmountCents = PayloadInt(payload, "amount_total"),
+            AmountCents = amountCents,
             When = PayloadDate(payload, "paid_at")
                 ?? PayloadDate(payload, "renewed_at")
                 ?? record.CreatedAt

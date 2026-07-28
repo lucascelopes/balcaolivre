@@ -428,6 +428,33 @@
               </select>
             </label>
             <button id="manualVisitSubmit" class="manual-visits-primary" type="submit">Agendar</button>
+
+            <label class="manual-visit-payment-toggle" for="manualVisitPaid">
+              <input id="manualVisitPaid" type="checkbox">
+              <span>
+                <i class="fa-solid fa-hand-holding-dollar" aria-hidden="true"></i>
+                Registrar pagamento recebido nesta visita
+              </span>
+            </label>
+            <div id="manualVisitPaymentFields" class="manual-visit-payment-fields hidden">
+              <label>
+                <span>Valor recebido</span>
+                <div class="manual-payment-value">
+                  <b>R$</b>
+                  <input id="manualVisitPaymentAmount" type="number" min="0.01" step="0.01" placeholder="0,00">
+                </div>
+              </label>
+              <label>
+                <span>Forma de pagamento</span>
+                <select id="manualVisitPaymentMethod">
+                  <option value="PIX">Pix</option>
+                  <option value="DINHEIRO">Dinheiro</option>
+                  <option value="CARTAO">Cartão</option>
+                  <option value="STRIPE">Link Stripe</option>
+                </select>
+              </label>
+              <p><i class="fa-solid fa-circle-check" aria-hidden="true"></i> Será salvo como recebido.</p>
+            </div>
           </form>
 
           <section class="manual-recent-companies">

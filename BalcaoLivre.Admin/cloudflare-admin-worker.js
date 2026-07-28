@@ -215,8 +215,11 @@ async function handleAdminApi(path, request, env, auth) {
   }
 
   if (path === "/dashboard" && request.method === "GET") {
-    const store = await readAdminStore(env);
-    return json(buildDashboard(store));
+    const [store, stripe] = await Promise.all([
+      readAdminStore(env),
+      readStripeCheckoutSummary(env)
+    ]);
+    return json(buildDashboard(store, stripe));
   }
 
   if (path === "/client-intelligence" && request.method === "GET") {
@@ -470,7 +473,108 @@ async function writeAdminStore(env, store) {
   }
 }
 
-function buildDashboard(store) {
+const STRIPE_PLAN_AMOUNTS = {
+  "basico-mensal": 4990,
+  "basico-anual": 59880,
+  "completo-mensal": 9990,
+  "completo-anual": 119880
+};
+
+async function readStripeCheckoutSummary(env) {
+  const empty = (error = "") => ({
+    ok: !error,
+    error,
+    currency: "BRL",
+    totalPurchases: 0,
+    purchases24h: 0,
+    totalRevenueCents: 0,
+    currentMonthRevenueCents: 0,
+    previousMonthRevenueCents: 0,
+    recentPurchases: [],
+    revenueByDay: []
+  });
+
+  try {
+    const response = await supabaseRest(
+      env,
+      "/rest/v1/bv_license_events?select=license_key,event_type,message,payload,created_at&event_type=in.(checkout.paid,checkout.renewed,checkout.paid.v2)&order=created_at.desc&limit=1000"
+    );
+    const records = await response.json();
+    const purchases = (Array.isArray(records) ? records : [])
+      .map((record) => {
+        let payload = record?.payload;
+        if (typeof payload === "string") {
+          try {
+            payload = JSON.parse(payload);
+          } catch {
+            payload = {};
+          }
+        }
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) payload = {};
+        const plan = String(payload.plan_id || payload.plan || "").trim().toLowerCase();
+        const amountCents = Number(
+          payload.amount_total ??
+          payload.amount_cents ??
+          payload.amountCents ??
+          STRIPE_PLAN_AMOUNTS[plan] ??
+          0
+        );
+        const when = validDate(payload.paid_at || payload.renewed_at || record.created_at)?.toISOString()
+          || new Date().toISOString();
+        return {
+          licenseKey: String(record.license_key || ""),
+          type: String(record.event_type || "checkout.paid"),
+          plan,
+          checkoutSessionId: String(payload.checkout_session_id || ""),
+          customerName: String(payload.display_name || payload.customer_name || ""),
+          currency: String(payload.currency || "BRL").toUpperCase(),
+          amountCents: Number.isFinite(amountCents) ? Math.max(0, Math.round(amountCents)) : 0,
+          when
+        };
+      })
+      .filter((item) => item.licenseKey || item.checkoutSessionId)
+      .filter((item, index, rows) => {
+        const key = item.checkoutSessionId || `${item.licenseKey}:${item.when}`;
+        return rows.findIndex((candidate) =>
+          (candidate.checkoutSessionId || `${candidate.licenseKey}:${candidate.when}`) === key
+        ) === index;
+      })
+      .sort((a, b) => Date.parse(b.when) - Date.parse(a.when));
+
+    const now = new Date();
+    const currentMonthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+    const previousMonthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1);
+    const currentMonth = purchases.filter((item) => Date.parse(item.when) >= currentMonthStart);
+    const previousMonth = purchases.filter((item) => {
+      const timestamp = Date.parse(item.when);
+      return timestamp >= previousMonthStart && timestamp < currentMonthStart;
+    });
+    const revenueByDay = new Map();
+    for (const item of currentMonth) {
+      const date = item.when.slice(0, 10);
+      revenueByDay.set(date, (revenueByDay.get(date) || 0) + item.amountCents);
+    }
+
+    return {
+      ok: true,
+      error: "",
+      currency: purchases.find((item) => item.currency)?.currency || "BRL",
+      totalPurchases: purchases.length,
+      purchases24h: purchases.filter((item) => Date.parse(item.when) >= Date.now() - 86400000).length,
+      totalRevenueCents: purchases.reduce((sum, item) => sum + item.amountCents, 0),
+      currentMonthRevenueCents: currentMonth.reduce((sum, item) => sum + item.amountCents, 0),
+      previousMonthRevenueCents: previousMonth.reduce((sum, item) => sum + item.amountCents, 0),
+      recentPurchases: purchases.slice(0, 8),
+      revenueByDay: [...revenueByDay.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([date, revenueCents]) => ({ date, revenueCents }))
+    };
+  } catch (error) {
+    return empty(cleanError(error));
+  }
+}
+
+function buildDashboard(store, stripeSummary = null) {
   refreshLicenseStatuses(store);
   const now = Date.now();
   const licenses = store.licenses;
@@ -499,6 +603,30 @@ function buildDashboard(store) {
   }
   const siteAnalytics = normalizeSiteAnalytics(store.siteAnalytics);
   const clientIntelligence = buildClientIntelligence(store);
+  const stripe = stripeSummary || {
+    ok: true,
+    error: "",
+    currency: "BRL",
+    totalPurchases: siteAnalytics.checkoutCompletedTotal,
+    purchases24h: siteAnalytics.checkoutCompleted24h,
+    totalRevenueCents: siteAnalytics.checkoutCompletedRevenueCents,
+    currentMonthRevenueCents: siteAnalytics.checkoutCompletedRevenueCents,
+    previousMonthRevenueCents: 0,
+    recentPurchases: [],
+    revenueByDay: []
+  };
+  const stripePurchasesTotal = stripe.totalPurchases > 0
+    ? stripe.totalPurchases
+    : siteAnalytics.checkoutCompletedTotal;
+  const stripePurchases24h = stripe.totalPurchases > 0
+    ? stripe.purchases24h
+    : siteAnalytics.checkoutCompleted24h;
+  const stripeRevenueCents = stripe.totalRevenueCents > 0
+    ? stripe.totalRevenueCents
+    : siteAnalytics.checkoutCompletedRevenueCents;
+  const stripeRevenueMonthCents = stripe.currentMonthRevenueCents > 0
+    ? stripe.currentMonthRevenueCents
+    : siteAnalytics.checkoutCompletedRevenueCents;
 
   return {
     metrics: {
@@ -522,27 +650,18 @@ function buildDashboard(store) {
       siteViewsTotal: siteAnalytics.viewsTotal,
       checkoutStarted24h: siteAnalytics.checkoutStarted24h,
       checkoutStartedTotal: siteAnalytics.checkoutStartedTotal,
-      stripePurchases24h: siteAnalytics.checkoutCompleted24h,
-      stripePurchasesTotal: siteAnalytics.checkoutCompletedTotal,
-      stripeRevenueCents: siteAnalytics.checkoutCompletedRevenueCents,
-      stripeRevenueMonthCents: siteAnalytics.checkoutCompletedRevenueCents,
-      stripeRevenuePreviousMonthCents: 0,
+      stripePurchases24h,
+      stripePurchasesTotal,
+      stripeRevenueCents,
+      stripeRevenueMonthCents,
+      stripeRevenuePreviousMonthCents: stripe.previousMonthRevenueCents,
       stripeConversionRate: siteAnalytics.totalVisitors
-        ? Math.round(siteAnalytics.checkoutCompletedTotal * 1000 / siteAnalytics.totalVisitors) / 10
+        ? Math.round(stripePurchasesTotal * 1000 / siteAnalytics.totalVisitors) / 10
         : 0
     },
     clientIntelligence,
     siteAnalytics,
-    stripe: {
-      ok: true,
-      currency: "BRL",
-      totalPurchases: siteAnalytics.checkoutCompletedTotal,
-      totalRevenueCents: siteAnalytics.checkoutCompletedRevenueCents,
-      currentMonthRevenueCents: siteAnalytics.checkoutCompletedRevenueCents,
-      previousMonthRevenueCents: 0,
-      recentPurchases: [],
-      revenueByDay: []
-    },
+    stripe,
     versionDistribution: [...versionCounts.entries()].map(([version, count]) => ({ version, count })).sort((a, b) => b.count - a.count),
     activeClientsByDay: [...dayCounts.entries()].map(([date, count]) => ({ date, count })).sort((a, b) => a.date.localeCompare(b.date)),
     expiringSoon: expiringSoon.slice(0, 8),
