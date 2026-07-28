@@ -347,14 +347,14 @@ class _PdvLoginDialog extends StatelessWidget {
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: Color(0xFFFFA76D)),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.phone_android_rounded,
                         color: _teal,
                         size: 20,
                       ),
                     ),
                     const SizedBox(width: 12),
-                    const Expanded(
+                    Expanded(
                       child: Text(
                         'Entrada no PDV',
                         maxLines: 1,
@@ -605,11 +605,15 @@ class _ModuleDialogSpec {
     required this.width,
     required this.height,
     required this.icon,
+    this.headerHeight = 76,
+    this.centered = false,
   });
 
   final double width;
   final double height;
   final IconData icon;
+  final double headerHeight;
+  final bool centered;
 }
 
 class _WindowsPdvHomeState extends State<_WindowsPdvHome> {
@@ -756,7 +760,7 @@ class _WindowsPdvHomeState extends State<_WindowsPdvHome> {
     _openModule('Relatorios e BI', _ReportsDeskModule(store: widget.store));
   }
 
-  void _handleCashToggle() {
+  Future<void> _handleCashToggle() async {
     if (widget.store.cashReconciliationRequired) {
       unawaited(_openCashReconciliation());
       return;
@@ -769,10 +773,14 @@ class _WindowsPdvHomeState extends State<_WindowsPdvHome> {
       return;
     }
     if (!widget.store.cashOpen) {
-      unawaited(_openCash());
+      await _openCash();
       return;
     }
-    widget.store.toggleCash();
+    await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => _CashCloseDialog(store: widget.store),
+    );
   }
 
   Future<void> _openCash() async {
@@ -811,23 +819,38 @@ class _WindowsPdvHomeState extends State<_WindowsPdvHome> {
     final lower = title.toLowerCase();
     if (lower.contains('transferir')) {
       return const _ModuleDialogSpec(
-        width: 1400,
-        height: 934,
+        width: 1042,
+        height: 628,
         icon: Icons.compare_arrows_rounded,
+        headerHeight: 40,
+        centered: true,
       );
     }
     if (lower.contains('receber') || lower.contains('pagamento')) {
       return const _ModuleDialogSpec(
-        width: 700,
-        height: 835,
+        width: 722,
+        height: 628,
         icon: Icons.payment_rounded,
+        headerHeight: 40,
+        centered: true,
+      );
+    }
+    if (lower.contains('caixa: entradas')) {
+      return const _ModuleDialogSpec(
+        width: 890,
+        height: 660,
+        icon: Icons.point_of_sale_outlined,
+        headerHeight: 50,
+        centered: true,
       );
     }
     if (lower.contains('novo pedido') || lower.contains('delivery')) {
       return const _ModuleDialogSpec(
-        width: 1076,
-        height: 936,
+        width: 864,
+        height: 604,
         icon: Icons.flag_outlined,
+        headerHeight: 40,
+        centered: true,
       );
     }
     if (lower.contains('pesquisa')) {
@@ -896,6 +919,7 @@ class _WindowsPdvHomeState extends State<_WindowsPdvHome> {
   void _openModule(String title, Widget child) {
     final spec = _moduleDialogSpec(title);
     Widget frame(BuildContext context, {required bool desktop}) {
+      final compactHeader = desktop && spec.headerHeight <= 50;
       return DecoratedBox(
         decoration: BoxDecoration(
           color: _paper,
@@ -916,8 +940,14 @@ class _WindowsPdvHomeState extends State<_WindowsPdvHome> {
             child: Column(
               children: [
                 Container(
-                  height: desktop ? 76 : 64,
-                  padding: EdgeInsets.symmetric(horizontal: desktop ? 20 : 14),
+                  height: desktop ? spec.headerHeight : 64,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: compactHeader
+                        ? 10
+                        : desktop
+                        ? 20
+                        : 14,
+                  ),
                   decoration: const BoxDecoration(
                     color: _rail,
                     border: Border(
@@ -927,17 +957,23 @@ class _WindowsPdvHomeState extends State<_WindowsPdvHome> {
                   child: Row(
                     children: [
                       Container(
-                        width: 40,
-                        height: 40,
+                        width: compactHeader ? 26 : 40,
+                        height: compactHeader ? 26 : 40,
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: const Color(0xFF24211F),
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(
+                            compactHeader ? 7 : 10,
+                          ),
                           border: Border.all(color: _blue),
                         ),
-                        child: Icon(spec.icon, color: _blue, size: 21),
+                        child: Icon(
+                          spec.icon,
+                          color: _blue,
+                          size: compactHeader ? 15 : 21,
+                        ),
                       ),
-                      const SizedBox(width: 12),
+                      SizedBox(width: compactHeader ? 8 : 12),
                       Expanded(
                         child: Text(
                           title,
@@ -946,15 +982,19 @@ class _WindowsPdvHomeState extends State<_WindowsPdvHome> {
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w900,
-                            fontSize: desktop ? 20 : 17,
+                            fontSize: compactHeader
+                                ? 13
+                                : desktop
+                                ? 20
+                                : 17,
                             height: 1.05,
                           ),
                         ),
                       ),
                       const SizedBox(width: 10),
                       SizedBox(
-                        width: 40,
-                        height: 36,
+                        width: compactHeader ? 30 : 40,
+                        height: compactHeader ? 30 : 36,
                         child: FilledButton(
                           onPressed: () => Navigator.pop(context),
                           style: FilledButton.styleFrom(
@@ -965,7 +1005,10 @@ class _WindowsPdvHomeState extends State<_WindowsPdvHome> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                           ),
-                          child: const Icon(Icons.close_rounded, size: 20),
+                          child: Icon(
+                            Icons.close_rounded,
+                            size: compactHeader ? 17 : 20,
+                          ),
                         ),
                       ),
                     ],
@@ -984,7 +1027,7 @@ class _WindowsPdvHomeState extends State<_WindowsPdvHome> {
     final size = MediaQuery.sizeOf(context);
     final desktop = size.width >= 700;
     final inset = desktop ? 16.0 : 8.0;
-    final topInset = desktop ? 52.0 : 8.0;
+    final topInset = desktop && !spec.centered ? 52.0 : inset;
     final widthLimit = desktop ? spec.width : 520.0;
     final heightLimit = desktop ? spec.height : size.height - (inset * 2);
     final width = math.min(size.width - (inset * 2), widthLimit);
@@ -999,7 +1042,9 @@ class _WindowsPdvHomeState extends State<_WindowsPdvHome> {
         color: Colors.transparent,
         child: SafeArea(
           child: Align(
-            alignment: desktop ? Alignment.topCenter : Alignment.center,
+            alignment: desktop && !spec.centered
+                ? Alignment.topCenter
+                : Alignment.center,
             child: Padding(
               padding: EdgeInsets.fromLTRB(inset, topInset, inset, inset),
               child: SizedBox(
@@ -1057,6 +1102,7 @@ class _WpfMobileShell extends StatelessWidget {
             ),
             if (store.cashOpen)
               _MobileAreaNavigation(
+                store: store,
                 selected: selectedMode,
                 onChanged: onModeChanged,
                 onNewDelivery: onNewDelivery,
@@ -1079,13 +1125,7 @@ class _WpfMobileShell extends StatelessWidget {
                         onIncludeProduct: onIncludeProduct,
                         onReceive: () => openModule(
                           'Receber pagamento',
-                          _CashModule(
-                            store: store,
-                            openBlocked: () => openModule(
-                              'Fechamento bloqueado',
-                              _CashCloseBlockedModule(store: store),
-                            ),
-                          ),
+                          _ReceivePaymentModule(store: store),
                         ),
                       ),
                     },
@@ -1214,6 +1254,7 @@ class _MobilePdvTopBar extends StatelessWidget {
             ),
           ),
           IconButton(
+            key: const Key('mobileMore'),
             onPressed: onMore,
             icon: const Icon(Icons.more_vert_rounded),
             color: Colors.white,
@@ -1227,21 +1268,28 @@ class _MobilePdvTopBar extends StatelessWidget {
 
 class _MobileAreaNavigation extends StatelessWidget {
   const _MobileAreaNavigation({
+    required this.store,
     required this.selected,
     required this.onChanged,
     required this.onNewDelivery,
   });
 
+  final BalcaoStore store;
   final int selected;
   final ValueChanged<int> onChanged;
   final VoidCallback onNewDelivery;
 
   @override
   Widget build(BuildContext context) {
-    const entries = [
-      ('Comanda', Icons.receipt_long_outlined),
-      ('Cozinha', Icons.kitchen_outlined),
-      ('Delivery', Icons.delivery_dining_outlined),
+    final entries = <(int, String, IconData)>[
+      (
+        0,
+        store.commandsEnabled ? 'Comanda' : 'Salão',
+        Icons.receipt_long_outlined,
+      ),
+      if (store.hasModule('COZINHA')) (1, 'Cozinha', Icons.kitchen_outlined),
+      if (store.deliveryEnabled)
+        (2, 'Delivery', Icons.delivery_dining_outlined),
     ];
     return Container(
       height: 58,
@@ -1252,29 +1300,29 @@ class _MobileAreaNavigation extends StatelessWidget {
       ),
       child: Row(
         children: [
-          for (var index = 0; index < entries.length; index++)
+          for (final entry in entries)
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: Material(
-                  color: selected == index ? _blue : Colors.transparent,
+                  color: selected == entry.$1 ? _blue : Colors.transparent,
                   borderRadius: BorderRadius.circular(9),
                   child: InkWell(
-                    onTap: () => onChanged(index),
+                    onTap: () => onChanged(entry.$1),
                     borderRadius: BorderRadius.circular(9),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          entries[index].$2,
+                          entry.$3,
                           size: 19,
-                          color: selected == index ? Colors.white : _navy,
+                          color: selected == entry.$1 ? Colors.white : _navy,
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          entries[index].$1,
+                          entry.$2,
                           style: TextStyle(
-                            color: selected == index ? Colors.white : _navy,
+                            color: selected == entry.$1 ? Colors.white : _navy,
                             fontSize: 10,
                             fontWeight: FontWeight.w800,
                           ),
@@ -1285,15 +1333,16 @@ class _MobileAreaNavigation extends StatelessWidget {
                 ),
               ),
             ),
-          SizedBox(
-            width: 40,
-            child: IconButton(
-              onPressed: onNewDelivery,
-              icon: const Icon(Icons.add_rounded),
-              color: _blue,
-              tooltip: 'Novo delivery',
+          if (store.deliveryEnabled)
+            SizedBox(
+              width: 40,
+              child: IconButton(
+                onPressed: onNewDelivery,
+                icon: const Icon(Icons.add_rounded),
+                color: _blue,
+                tooltip: 'Novo delivery',
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -2376,7 +2425,10 @@ class _OnlinePdvDesktopShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compactRail = constraints.maxWidth < 1320;
+        // The WPF shell keeps its full 204 px rail down to the desktop
+        // breakpoint. Collapsing it at common laptop widths was the largest
+        // source of visual drift between Windows and Flutter.
+        final compactRail = constraints.maxWidth < 980;
         return ColoredBox(
           color: _paper,
           child: Row(
@@ -2427,7 +2479,12 @@ class _OnlinePdvDesktopShell extends StatelessWidget {
                     Expanded(
                       child: store.cashOpen
                           ? Padding(
-                              padding: const EdgeInsets.all(10),
+                              padding: const EdgeInsets.fromLTRB(
+                                12,
+                                10,
+                                12,
+                                12,
+                              ),
                               child: _buildContent(context),
                             )
                           : switch (selectedClosedPage) {
@@ -2475,18 +2532,19 @@ class _OnlinePdvDesktopShell extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final boardFlex = constraints.maxWidth >= 1450 ? 61 : 58;
-        final commandFlex = 100 - boardFlex;
+        final inspectorWidth = math.max(
+          420.0,
+          math.min(620.0, constraints.maxWidth * .37),
+        );
         return Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
-              flex: boardFlex,
               child: _WindowsBoardPanel(store: store, filter: comandaFilter),
             ),
             const SizedBox(width: 10),
-            Expanded(
-              flex: commandFlex,
+            SizedBox(
+              width: inspectorWidth,
               child: selectedOrder == null
                   ? _EmptyCommandPanel(store: store)
                   : _WindowsCommandPanel(
@@ -3643,13 +3701,8 @@ class _ClosedCashSideRail extends StatelessWidget {
     ];
 
     return Container(
-      width: compact ? 88 : 254,
-      padding: EdgeInsets.fromLTRB(
-        compact ? 10 : 16,
-        20,
-        compact ? 10 : 16,
-        16,
-      ),
+      width: compact ? 72 : 204,
+      padding: EdgeInsets.fromLTRB(compact ? 8 : 14, 24, compact ? 8 : 14, 14),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -3666,8 +3719,8 @@ class _ClosedCashSideRail extends StatelessWidget {
                 : MainAxisAlignment.start,
             children: [
               Container(
-                width: 52,
-                height: 52,
+                width: 40,
+                height: 40,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -3677,7 +3730,7 @@ class _ClosedCashSideRail extends StatelessWidget {
                   'BL',
                   style: TextStyle(
                     color: _navy,
-                    fontSize: 22,
+                    fontSize: 18,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -3714,10 +3767,10 @@ class _ClosedCashSideRail extends StatelessWidget {
               ],
             ],
           ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 24),
           if (!compact) ...[
             Container(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
                 color: const Color(0xFF2A2A2A),
                 borderRadius: BorderRadius.circular(10),
@@ -3726,7 +3779,7 @@ class _ClosedCashSideRail extends StatelessWidget {
               child: Row(
                 children: [
                   const CircleAvatar(
-                    radius: 22,
+                    radius: 18,
                     backgroundColor: _blue,
                     child: Text(
                       'QS',
@@ -3885,7 +3938,7 @@ class _ClosedCashRailButton extends StatelessWidget {
         onTap: action.onTap,
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          height: dense ? 54 : 70,
+          height: dense ? 44 : 56,
           padding: EdgeInsets.symmetric(horizontal: compact ? 0 : 14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
@@ -4083,13 +4136,8 @@ class _OnlineSideRail extends StatelessWidget {
     };
 
     return Container(
-      width: compact ? 88 : 254,
-      padding: EdgeInsets.fromLTRB(
-        compact ? 10 : 16,
-        20,
-        compact ? 10 : 16,
-        16,
-      ),
+      width: compact ? 72 : 204,
+      padding: const EdgeInsets.fromLTRB(0, 24, 0, 14),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -4106,8 +4154,9 @@ class _OnlineSideRail extends StatelessWidget {
                 : MainAxisAlignment.start,
             children: [
               Container(
-                width: 52,
-                height: 52,
+                width: 40,
+                margin: EdgeInsets.only(left: compact ? 8 : 14),
+                height: 40,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -4117,7 +4166,7 @@ class _OnlineSideRail extends StatelessWidget {
                   'BL',
                   style: TextStyle(
                     color: Color(0xFF222222),
-                    fontSize: 22,
+                    fontSize: 18,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -4159,7 +4208,8 @@ class _OnlineSideRail extends StatelessWidget {
           if (!compact) ...[
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(14),
+              margin: const EdgeInsets.symmetric(horizontal: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
                 color: const Color(0xFF2A2A2A),
                 borderRadius: BorderRadius.circular(10),
@@ -4168,7 +4218,7 @@ class _OnlineSideRail extends StatelessWidget {
               child: Row(
                 children: [
                   const CircleAvatar(
-                    radius: 22,
+                    radius: 18,
                     backgroundColor: _blue,
                     child: Text(
                       'QS',
@@ -4223,7 +4273,7 @@ class _OnlineSideRail extends StatelessWidget {
                 if (!compact && selectedMode == 0) ...[
                   const SizedBox(height: 16),
                   const Padding(
-                    padding: EdgeInsets.only(left: 4, bottom: 6),
+                    padding: EdgeInsets.only(left: 16, bottom: 6),
                     child: Text(
                       'FILTROS',
                       style: TextStyle(
@@ -4247,9 +4297,10 @@ class _OnlineSideRail extends StatelessWidget {
                       onTap: () => onComandaFilterChanged(filter.$1),
                     ),
                   const SizedBox(height: 8),
-                  SizedBox(
+                  Container(
                     width: double.infinity,
                     height: 42,
+                    margin: const EdgeInsets.symmetric(horizontal: 10),
                     child: OutlinedButton.icon(
                       onPressed: () => store.openOrder(OrderKind.table),
                       icon: const Icon(Icons.add_rounded, size: 18),
@@ -4266,6 +4317,7 @@ class _OnlineSideRail extends StatelessWidget {
                   const SizedBox(height: 10),
                   Container(
                     width: double.infinity,
+                    margin: const EdgeInsets.symmetric(horizontal: 10),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 10,
                       vertical: 10,
@@ -4301,7 +4353,7 @@ class _OnlineSideRail extends StatelessWidget {
                 if (!compact && selectedMode == 1) ...[
                   const SizedBox(height: 16),
                   const Padding(
-                    padding: EdgeInsets.only(left: 4, bottom: 6),
+                    padding: EdgeInsets.only(left: 16, bottom: 6),
                     child: Text(
                       'FILTROS',
                       style: TextStyle(
@@ -4361,7 +4413,7 @@ class _OnlineSideRail extends StatelessWidget {
                 if (!compact && selectedMode == 2) ...[
                   const SizedBox(height: 16),
                   const Padding(
-                    padding: EdgeInsets.only(left: 4, bottom: 6),
+                    padding: EdgeInsets.only(left: 16, bottom: 6),
                     child: Text(
                       'FILTROS',
                       style: TextStyle(
@@ -4489,18 +4541,19 @@ class _OnlineRailButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final active = action.active && !exit;
+    final radius = active ? BorderRadius.zero : BorderRadius.circular(7);
     return Material(
       color: active
           ? _blue
           : exit
           ? const Color(0xFF252525)
           : Colors.transparent,
-      borderRadius: BorderRadius.circular(7),
+      borderRadius: radius,
       child: InkWell(
         onTap: action.onTap,
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: radius,
         child: SizedBox(
-          height: compact ? 64 : 62,
+          height: compact ? 60 : 58,
           child: Row(
             children: [
               SizedBox(
@@ -4554,7 +4607,7 @@ class _OperationalFilterButton extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Container(
-          height: 58,
+          height: 50,
           margin: const EdgeInsets.only(bottom: 2),
           decoration: BoxDecoration(
             border: Border(left: BorderSide(color: color, width: 5)),
@@ -4939,178 +4992,239 @@ class _PdvTopBar extends StatelessWidget {
     final roomy = viewWidth >= 1040;
     final veryRoomy = viewWidth >= 1360;
     final cashOpen = forceCashClosed ? false : store.cashOpen;
-    return Container(
+    return SizedBox(
       width: double.infinity,
-      height: 70,
-      color: _navy2,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      height: 88,
+      child: Column(
         children: [
           Container(
-            width: 38,
-            height: 38,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: const Color(0xFFC84408),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: _blue),
-            ),
-            child: const Icon(
-              Icons.insert_chart_outlined,
-              color: Color(0xFFFFB182),
-              size: 21,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
+            height: 32,
+            color: _railDeep,
+            padding: const EdgeInsets.only(left: 12, right: 10),
+            child: Row(
               children: [
                 const Text(
-                  'Painel do caixa',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  'Balc\u00E3o Livre',
                   style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    height: 1.05,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Visão geral',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Color(0xFFC9C1BA),
-                    fontSize: 10,
+                    color: Color(0xFFE8DED5),
+                    fontSize: 10.5,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-              ],
-            ),
-          ),
-          if (roomy) ...[
-            _HeaderWhatsAppButton(
-              connected: store.whatsappConnected,
-              onTap: () =>
-                  openModule('WhatsApp da loja', _WhatsAppModule(store: store)),
-            ),
-            const _HeaderDivider(),
-            _HeaderIconButton(
-              icon: Icons.help_outline_rounded,
-              label: 'Ajuda',
-              onTap: () => openModule(
-                'Ajuda e atalhos',
-                _QuickHubModule(store: store, openModule: openModule),
-              ),
-            ),
-            const _HeaderDivider(),
-            _HeaderIconButton(
-              icon: Icons.settings_outlined,
-              label: 'Configurações',
-              onTap: () => openModule(
-                'Configuracoes do sistema',
-                _SettingsDeskModule(store: store),
-              ),
-            ),
-          ],
-          const SizedBox(width: 12),
-          Container(
-            height: 48,
-            constraints: BoxConstraints(
-              minWidth: veryRoomy ? 220 : 136,
-              maxWidth: veryRoomy ? 280 : 160,
-            ),
-            padding: EdgeInsets.symmetric(horizontal: veryRoomy ? 14 : 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFF242424),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFF3C3A38)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (veryRoomy) ...[
-                  Icon(
-                    cashOpen
-                        ? Icons.lock_open_outlined
-                        : Icons.lock_outline_rounded,
-                    color: const Color(0xFFF3EEE9),
-                    size: 18,
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 7),
+                  child: Text(
+                    '\u2022',
+                    style: TextStyle(color: Color(0xFF817870), fontSize: 10),
                   ),
-                  const SizedBox(width: 8),
-                ],
+                ),
+                const Text(
+                  'Painel do caixa',
+                  style: TextStyle(
+                    color: _surface,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Spacer(),
                 Container(
-                  width: 7,
-                  height: 7,
-                  decoration: BoxDecoration(
-                    color: cashOpen ? _teal : const Color(0xFFF34B53),
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFFF5A5F),
                     shape: BoxShape.circle,
                   ),
                 ),
-                if (veryRoomy) ...[
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      cashOpen ? 'Caixa aberto' : 'Caixa fechado',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: cashOpen
-                            ? const Color(0xFFEFE9E3)
-                            : const Color(0xFFF36A70),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    '•',
-                    style: TextStyle(color: Color(0xFF8F8983), fontSize: 11),
-                  ),
-                ],
-                const SizedBox(width: 7),
-                Text(
-                  money(store.openTotal),
-                  maxLines: 1,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w900,
-                  ),
+                const SizedBox(width: 5),
+                const Text(
+                  'Offline',
+                  style: TextStyle(color: Color(0xFFEEE5DD), fontSize: 10),
                 ),
               ],
             ),
           ),
-          if (veryRoomy) ...[
-            const SizedBox(width: 12),
-            SizedBox(
-              width: 130,
-              height: 46,
-              child: FilledButton(
-                key: const Key('topCashAction'),
-                onPressed: toggleCash,
-                style: FilledButton.styleFrom(
-                  backgroundColor: cashOpen ? _danger : _blue,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+          Expanded(
+            child: Container(
+              color: const Color(0xFF292929),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 30,
+                    height: 30,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFC84408),
+                      borderRadius: BorderRadius.circular(7),
+                      border: Border.all(color: const Color(0xFFFF9A5C)),
+                    ),
+                    child: const Icon(
+                      Icons.insert_chart_outlined,
+                      color: Color(0xFFFF9A5C),
+                      size: 17,
+                    ),
                   ),
-                  textStyle: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Painel do caixa',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800,
+                            height: 1.05,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Visão geral',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Color(0xFFC9C1BA),
+                            fontSize: 8.8,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                child: Text(cashOpen ? 'Fechar caixa' : 'Abrir caixa'),
+                  if (roomy) ...[
+                    _HeaderWhatsAppButton(
+                      connected: store.whatsappConnected,
+                      onTap: () => openModule(
+                        'WhatsApp da loja',
+                        _WhatsAppModule(store: store),
+                      ),
+                    ),
+                    const _HeaderDivider(),
+                    _HeaderIconButton(
+                      icon: Icons.help_outline_rounded,
+                      label: 'Ajuda',
+                      onTap: () => openModule(
+                        'Ajuda e atalhos',
+                        _QuickHubModule(store: store, openModule: openModule),
+                      ),
+                    ),
+                    const _HeaderDivider(),
+                    _HeaderIconButton(
+                      icon: Icons.settings_outlined,
+                      label: 'Configurações',
+                      onTap: () => openModule(
+                        'Configuracoes do sistema',
+                        _SettingsDeskModule(store: store),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(width: 6),
+                  Container(
+                    height: 40,
+                    constraints: BoxConstraints(
+                      minWidth: veryRoomy ? 184 : 132,
+                      maxWidth: veryRoomy ? 206 : 154,
+                    ),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: veryRoomy ? 10 : 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF242424),
+                      borderRadius: BorderRadius.circular(7),
+                      border: Border.all(color: const Color(0xFF3C3A38)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (veryRoomy) ...[
+                          Icon(
+                            cashOpen
+                                ? Icons.lock_open_outlined
+                                : Icons.lock_outline_rounded,
+                            color: const Color(0xFFF3EEE9),
+                            size: 13,
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: cashOpen ? _teal : const Color(0xFFF34B53),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        if (veryRoomy) ...[
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              cashOpen ? 'Caixa aberto' : 'Caixa fechado',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: cashOpen
+                                    ? const Color(0xFFEFE9E3)
+                                    : const Color(0xFFF36A70),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            '•',
+                            style: TextStyle(
+                              color: Color(0xFF8F8983),
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(width: 7),
+                        Text(
+                          money(store.openTotal),
+                          maxLines: 1,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (veryRoomy) ...[
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 104,
+                      height: 36,
+                      child: FilledButton(
+                        key: const Key('topCashAction'),
+                        onPressed: toggleCash,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: cashOpen ? _danger : _blue,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(5),
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        child: Text(cashOpen ? 'Fechar caixa' : 'Abrir caixa'),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -5467,16 +5581,7 @@ class _PdvRibbon extends StatelessWidget {
           );
         }),
         _RibbonItem('CX', 'Receber', 'Pagamento', Icons.payment_rounded, () {
-          openModule(
-            'Receber pagamento',
-            _CashModule(
-              store: store,
-              openBlocked: () => openModule(
-                'Fechamento bloqueado',
-                _CashCloseBlockedModule(store: store),
-              ),
-            ),
-          );
+          openModule('Receber pagamento', _ReceivePaymentModule(store: store));
         }),
       ]),
       _RibbonGroupData('Caixa', [
@@ -5490,14 +5595,19 @@ class _PdvRibbon extends StatelessWidget {
       ]),
       _RibbonGroupData('Pedidos', [
         _RibbonItem('IF', 'iFood', 'Pedidos', Icons.storefront_outlined, () {
-          openModule('iFood em manutencao', _DeliveryModule(store: store));
+          openModule('iFood Online', _DeliveryModule(store: store));
+        }),
+      ]),
+      _RibbonGroupData('Sistema', [
+        _RibbonItem('BK', 'Backup', 'Exportar', Icons.backup_outlined, () {
+          openModule('Backup e exportacao', _BackupModule(store: store));
         }),
       ]),
     ];
     return Container(
       width: double.infinity,
-      height: 105,
-      padding: const EdgeInsets.fromLTRB(10, 4, 10, 5),
+      height: 84,
+      padding: const EdgeInsets.fromLTRB(8, 3, 8, 3),
       decoration: const BoxDecoration(
         color: _surface,
         border: Border(bottom: BorderSide(color: _line)),
@@ -5505,7 +5615,7 @@ class _PdvRibbon extends StatelessWidget {
       child: Row(
         children: [
           const _RibbonArrow(icon: Icons.chevron_left_rounded),
-          const SizedBox(width: 6),
+          const SizedBox(width: 2),
           Expanded(
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -5513,13 +5623,13 @@ class _PdvRibbon extends StatelessWidget {
                 children: [
                   for (final group in groups) ...[
                     _RibbonGroup(group: group),
-                    const SizedBox(width: 14),
+                    const SizedBox(width: 12),
                   ],
                 ],
               ),
             ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 2),
           const _RibbonArrow(icon: Icons.chevron_right_rounded),
         ],
       ),
@@ -5542,30 +5652,23 @@ class _RibbonGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: group.items.length * 126.0,
-      height: 94,
+      width: group.items.length * 110.0 + 17,
+      height: 78,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            height: 16,
-            child: Row(
-              children: [
-                const SizedBox(width: 8),
-                const Expanded(child: Divider(color: _line, height: 1)),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: Text(
-                    group.title,
-                    style: const TextStyle(
-                      color: _textSecondary,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+            height: 12,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 34),
+              child: Text(
+                group.title,
+                style: const TextStyle(
+                  color: _textSecondary,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w600,
                 ),
-                const Expanded(child: Divider(color: _line, height: 1)),
-                const SizedBox(width: 8),
-              ],
+              ),
             ),
           ),
           const SizedBox(height: 1),
@@ -5573,8 +5676,14 @@ class _RibbonGroup extends StatelessWidget {
             children: [
               for (var i = 0; i < group.items.length; i++) ...[
                 _RibbonButton(item: group.items[i]),
-                if (i < group.items.length - 1) const SizedBox(width: 4),
+                if (i < group.items.length - 1) const SizedBox(width: 2),
               ],
+              Container(
+                width: 1,
+                height: 54,
+                margin: const EdgeInsets.only(left: 8),
+                color: _line,
+              ),
             ],
           ),
         ],
@@ -5591,15 +5700,14 @@ class _RibbonArrow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 32,
-      height: 82,
+      width: 34,
+      height: 70,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: _surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _line),
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(7),
       ),
-      child: Icon(icon, color: _blue2, size: 30),
+      child: Icon(icon, color: _navy2, size: 27),
     );
   }
 }
@@ -5691,8 +5799,8 @@ class _RibbonButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 122,
-      height: 76,
+      width: 108,
+      height: 64,
       child: Material(
         color: _surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
@@ -5700,12 +5808,12 @@ class _RibbonButton extends StatelessWidget {
           onTap: item.onTap,
           borderRadius: BorderRadius.circular(7),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(item.icon, color: _navy2, size: 29),
-                const SizedBox(height: 3),
+                Icon(item.icon, color: _navy2, size: 24),
+                const SizedBox(height: 2),
                 Text(
                   item.title,
                   maxLines: 1,
@@ -5714,7 +5822,7 @@ class _RibbonButton extends StatelessWidget {
                   style: const TextStyle(
                     color: _navy,
                     fontWeight: FontWeight.w700,
-                    fontSize: 12,
+                    fontSize: 11.5,
                   ),
                 ),
                 Text(
@@ -5725,7 +5833,7 @@ class _RibbonButton extends StatelessWidget {
                   style: const TextStyle(
                     color: _textMuted,
                     fontWeight: FontWeight.w500,
-                    fontSize: 10,
+                    fontSize: 9.5,
                   ),
                 ),
               ],
@@ -6372,16 +6480,7 @@ class _WindowsCommandPanel extends StatelessWidget {
   final void Function(String title, Widget child) openModule;
 
   void _openPayment() {
-    openModule(
-      'Receber pagamento',
-      _CashModule(
-        store: store,
-        openBlocked: () => openModule(
-          'Fechamento bloqueado',
-          _CashCloseBlockedModule(store: store),
-        ),
-      ),
-    );
+    openModule('Receber pagamento', _ReceivePaymentModule(store: store));
   }
 
   @override
@@ -6391,7 +6490,7 @@ class _WindowsCommandPanel extends StatelessWidget {
         '${elapsed.inHours.toString().padLeft(2, '0')}:'
         '${(elapsed.inMinutes % 60).toString().padLeft(2, '0')}';
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
       decoration: BoxDecoration(
         color: _surface,
         borderRadius: BorderRadius.circular(16),
@@ -6419,7 +6518,7 @@ class _WindowsCommandPanel extends StatelessWidget {
               letterSpacing: -.4,
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Wrap(
             spacing: 8,
             runSpacing: 6,
@@ -6440,7 +6539,7 @@ class _WindowsCommandPanel extends StatelessWidget {
               _WpfInfoPill(icon: Icons.alarm_outlined, label: elapsedLabel),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -6487,7 +6586,7 @@ class _WindowsCommandPanel extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
@@ -6555,13 +6654,13 @@ class _WindowsCommandPanel extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Expanded(
             child: _WpfTicketTable(order: order, store: store),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           _WpfAdvancePayments(order: order),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -6607,7 +6706,7 @@ class _WindowsCommandPanel extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
@@ -9702,6 +9801,453 @@ class _ProductSearchRow extends StatelessWidget {
   }
 }
 
+class _ReceivePaymentModule extends StatefulWidget {
+  const _ReceivePaymentModule({required this.store});
+
+  final BalcaoStore store;
+
+  @override
+  State<_ReceivePaymentModule> createState() => _ReceivePaymentModuleState();
+}
+
+class _ReceivePaymentModuleState extends State<_ReceivePaymentModule> {
+  final received = TextEditingController();
+  String method = 'Dinheiro';
+  bool submitting = false;
+
+  Order? get order => widget.store.selectedOrder;
+
+  @override
+  void initState() {
+    super.initState();
+    received.text = (order?.subtotal ?? 0)
+        .toStringAsFixed(2)
+        .replaceAll('.', ',');
+  }
+
+  @override
+  void dispose() {
+    received.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedOrder = order;
+    if (selectedOrder == null || selectedOrder.items.isEmpty) {
+      return const Center(
+        child: _Empty(text: 'Selecione uma comanda com itens para receber.'),
+      );
+    }
+    final total = selectedOrder.subtotal;
+    final receivedValue = _parse(received.text);
+    final change = math.max(0.0, receivedValue - total);
+    final canFinish = receivedValue >= total && !submitting;
+    final methods = <(String, IconData, String)>[
+      ('Dinheiro', Icons.account_balance_outlined, 'D'),
+      ('Pix', Icons.qr_code_2_rounded, 'P'),
+      ('Credito', Icons.credit_card_outlined, 'C'),
+      ('Debito', Icons.credit_card_outlined, 'B'),
+      ('Vale', Icons.local_offer_outlined, 'V'),
+      ('Fiado', Icons.payments_outlined, 'F'),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 560;
+        final paymentGrid = GridView.count(
+          crossAxisCount: compact ? 2 : 3,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 9,
+          crossAxisSpacing: 9,
+          childAspectRatio: compact ? 1.5 : 1.68,
+          children: [
+            for (final entry in methods)
+              _ReceiveMethodTile(
+                label: entry.$1,
+                icon: entry.$2,
+                shortcut: entry.$3,
+                selected: method == entry.$1,
+                onTap: () => setState(() => method = entry.$1),
+              ),
+          ],
+        );
+
+        return Column(
+          children: [
+            Container(
+              height: compact ? 106 : 122,
+              padding: EdgeInsets.symmetric(horizontal: compact ? 16 : 24),
+              color: _blue,
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 5,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Saldo em aberto',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          money(total),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: compact ? 30 : 45,
+                            height: 1,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!compact) ...[
+                    Expanded(
+                      flex: 3,
+                      child: _ReceiveHeroMetric(
+                        icon: Icons.receipt_long_outlined,
+                        label: 'Total da conta',
+                        value: money(total),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 3,
+                      child: _ReceiveHeroMetric(
+                        icon: Icons.check_rounded,
+                        label: 'JÃ¡ recebido',
+                        value: money(0),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Container(
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              color: _surface,
+              child: Row(
+                children: [
+                  const _ReceiveStepBadge(value: '1', active: true),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'Forma de pagamento',
+                    style: TextStyle(color: _navy, fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(child: Divider(color: _blue, thickness: 1.5)),
+                  const SizedBox(width: 14),
+                  const _ReceiveStepBadge(value: '2', active: false),
+                  const SizedBox(width: 8),
+                  Text(
+                    compact ? 'Confirmar' : 'Confirmar valor',
+                    style: const TextStyle(
+                      color: _textSecondary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  compact ? 14 : 24,
+                  8,
+                  compact ? 14 : 24,
+                  10,
+                ),
+                child: Column(
+                  children: [
+                    paymentGrid,
+                    const SizedBox(height: 10),
+                    if (compact) ...[
+                      _DeskInput(
+                        label: 'Pagante',
+                        controller: TextEditingController(
+                          text: selectedOrder.customerName.isEmpty
+                              ? 'CLIENTE'
+                              : selectedOrder.customerName.toUpperCase(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        key: const Key('receivePaymentAmount'),
+                        controller: received,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        onChanged: (_) => setState(() {}),
+                        decoration: _deskDecoration('Valor recebido'),
+                      ),
+                    ] else
+                      Row(
+                        children: [
+                          Expanded(
+                            child: InputDecorator(
+                              decoration: _deskDecoration('Pagante'),
+                              child: Text(
+                                selectedOrder.customerName.isEmpty
+                                    ? 'CLIENTE'
+                                    : selectedOrder.customerName.toUpperCase(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              key: const Key('receivePaymentAmount'),
+                              controller: received,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              onChanged: (_) => setState(() {}),
+                              decoration: _deskDecoration('Valor recebido'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Troco: ${money(change)}',
+                            style: const TextStyle(
+                              color: _textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFEEE5),
+                            borderRadius: BorderRadius.circular(5),
+                          ),
+                          child: Text(
+                            canFinish
+                                ? 'Finalizar conta e quitar o saldo'
+                                : 'Informe o valor completo',
+                            style: const TextStyle(
+                              color: _blue,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Container(
+              height: compact ? 74 : 64,
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 9),
+              color: _rail,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: submitting
+                          ? null
+                          : () => Navigator.of(context).maybePop(),
+                      child: const Text(
+                        'Cancelar',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    flex: 2,
+                    child: FilledButton(
+                      key: const Key('receivePaymentConfirm'),
+                      onPressed: canFinish ? _finish : null,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _blue,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Finalizar venda',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _finish() async {
+    setState(() => submitting = true);
+    await widget.store.closeSelected(method);
+    if (!mounted) return;
+    Navigator.of(context).maybePop();
+  }
+}
+
+class _ReceiveHeroMetric extends StatelessWidget {
+  const _ReceiveHeroMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, color: Colors.white, size: 26),
+        const SizedBox(width: 10),
+        Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            Text(
+              value,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _ReceiveStepBadge extends StatelessWidget {
+  const _ReceiveStepBadge({required this.value, required this.active});
+
+  final String value;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 28,
+      height: 28,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: active ? _blue : Colors.white,
+        shape: BoxShape.circle,
+        border: Border.all(color: active ? _blue : _line),
+      ),
+      child: Text(
+        value,
+        style: TextStyle(
+          color: active ? Colors.white : _textSecondary,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _ReceiveMethodTile extends StatelessWidget {
+  const _ReceiveMethodTile({
+    required this.label,
+    required this.icon,
+    required this.shortcut,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final String shortcut;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFFFFEEE5) : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: selected ? _blue : _line),
+        ),
+        child: Stack(
+          children: [
+            Align(
+              alignment: Alignment.center,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: selected ? _blue : _navy2, size: 25),
+                  const SizedBox(height: 5),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: selected ? _blue : _navy,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Align(
+              alignment: Alignment.topRight,
+              child: Container(
+                width: 20,
+                height: 20,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: _surfaceMuted,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: _line),
+                ),
+                child: Text(shortcut, style: const TextStyle(fontSize: 9)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _TransferOrderModule extends StatefulWidget {
   const _TransferOrderModule({required this.store});
 
@@ -9748,7 +10294,7 @@ class _TransferOrderModuleState extends State<_TransferOrderModule> {
           ),
           const SizedBox(height: 10),
           SizedBox(
-            height: 230,
+            height: 150,
             child: ListView(
               children: sources.map((order) {
                 return _TransferOrderCard(
@@ -9793,7 +10339,7 @@ class _TransferOrderModuleState extends State<_TransferOrderModule> {
           ),
           const SizedBox(height: 10),
           SizedBox(
-            height: 250,
+            height: 150,
             child: ListView(
               children: [
                 if (targetNumber != null)
@@ -9846,11 +10392,62 @@ class _TransferOrderModuleState extends State<_TransferOrderModule> {
           padding: const EdgeInsets.all(14),
           child: Column(
             children: [
-              const _InfoStrip(
-                icon: Icons.compare_arrows_rounded,
-                title: 'Transferencia operacional',
-                text:
-                    'Mover troca a comanda para destino livre. Juntar soma os itens em um destino ocupado.',
+              Container(
+                height: 72,
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                color: _blue,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _TransferHeroMetric(
+                        label: 'Origem',
+                        value: money(source?.subtotal ?? 0),
+                        icon: Icons.inventory_2_outlined,
+                      ),
+                    ),
+                    const Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'MOVER',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(child: Divider(color: Colors.white)),
+                              Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 10),
+                                child: Icon(
+                                  Icons.swap_horiz_rounded,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              Expanded(child: Divider(color: Colors.white)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    _TransferHeroMetric(
+                      label: 'Destino',
+                      value: money(
+                        targets
+                                .where((order) => order.id == targetId)
+                                .firstOrNull
+                                ?.subtotal ??
+                            0,
+                      ),
+                      icon: Icons.check_circle_outline_rounded,
+                      alignEnd: true,
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 12),
               Expanded(
@@ -9885,6 +10482,67 @@ class _TransferOrderModuleState extends State<_TransferOrderModule> {
   }
 }
 
+class _TransferHeroMetric extends StatelessWidget {
+  const _TransferHeroMetric({
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.alignEnd = false,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: alignEnd
+          ? MainAxisAlignment.end
+          : MainAxisAlignment.start,
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: .12),
+            borderRadius: BorderRadius.circular(7),
+            border: Border.all(color: Colors.white.withValues(alpha: .6)),
+          ),
+          child: Icon(icon, color: Colors.white, size: 17),
+        ),
+        const SizedBox(width: 8),
+        Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: alignEnd
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 9,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            Text(
+              value,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _TransferOrderCard extends StatelessWidget {
   const _TransferOrderCard({
     required this.order,
@@ -9903,8 +10561,8 @@ class _TransferOrderCard extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.only(bottom: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
         decoration: BoxDecoration(
           color: selected ? _mint : Colors.white,
           borderRadius: BorderRadius.circular(8),
@@ -9936,18 +10594,19 @@ class _TransferOrderCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: _navy,
-                      fontSize: 17,
+                      fontSize: 13,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
                   Text(
                     '${kindLabel(order.kind).toUpperCase()} ${order.number}',
-                    style: const TextStyle(color: _textSecondary, fontSize: 12),
+                    style: const TextStyle(color: _textSecondary, fontSize: 9),
                   ),
                   Text(
                     subtitle,
                     style: const TextStyle(
                       color: _navy2,
+                      fontSize: 9,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -9964,7 +10623,7 @@ class _TransferOrderCard extends StatelessWidget {
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 3),
                 _StatusPill(
                   text: statusLabel(order.status).toUpperCase(),
                   color: _danger,
@@ -9994,8 +10653,8 @@ class _FreeDestinationCard extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.only(bottom: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
         decoration: BoxDecoration(
           color: selected ? _mint : Colors.white,
           borderRadius: BorderRadius.circular(8),
@@ -10013,7 +10672,7 @@ class _FreeDestinationCard extends StatelessWidget {
                 'Mesa livre $number',
                 style: const TextStyle(
                   color: _navy,
-                  fontSize: 17,
+                  fontSize: 13,
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -10040,7 +10699,7 @@ class _TransferDestinationPreview extends StatelessWidget {
     final occupied = selectedOrder != null;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: _mint,
         borderRadius: BorderRadius.circular(8),
@@ -10053,16 +10712,20 @@ class _TransferDestinationPreview extends StatelessWidget {
             occupied ? 'Juntar comanda' : 'Mover comanda',
             style: const TextStyle(
               color: _navy,
-              fontSize: 20,
+              fontSize: 14,
               fontWeight: FontWeight.w900,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Text(
             occupied
                 ? 'Destino ocupado: ${selectedOrder!.number} recebe os itens.'
                 : 'Destino livre: ${freeNumber ?? 'mesa nova'} recebe a comanda.',
-            style: const TextStyle(color: _navy2, fontWeight: FontWeight.w800),
+            style: const TextStyle(
+              color: _navy2,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ],
       ),
@@ -10077,59 +10740,112 @@ class _TransferSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'ORIGEM SELECIONADA',
-          style: TextStyle(
-            color: _navy2,
-            fontSize: 12,
-            fontWeight: FontWeight.w900,
+    return Container(
+      height: 88,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: _surfaceMuted,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: _line),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFEEE5),
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(color: const Color(0xFFFFC9AE)),
+            ),
+            child: const Icon(
+              Icons.receipt_long_outlined,
+              color: _blue,
+              size: 17,
+            ),
           ),
-        ),
-        Text(
-          order.customerName.isEmpty ? order.number : order.customerName,
-          style: const TextStyle(
-            color: _navy,
-            fontSize: 24,
-            fontWeight: FontWeight.w900,
+          const SizedBox(width: 9),
+          Expanded(
+            flex: 3,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'ORIGEM SELECIONADA',
+                  style: TextStyle(
+                    color: _textSecondary,
+                    fontSize: 8,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  order.customerName.isEmpty
+                      ? order.number
+                      : order.customerName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _navy,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  order.number,
+                  style: const TextStyle(color: _textSecondary, fontSize: 9),
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: _MiniSummary(
-                label: 'Itens',
-                value: '${order.itemsCount}',
-                sub: 'produtos',
-                color: _navy2,
-              ),
+          _TransferSummaryValue(label: 'ITENS', value: '${order.itemsCount}'),
+          _TransferSummaryValue(label: 'PAGAMENTOS', value: money(0)),
+          _TransferSummaryValue(label: 'TOTAL', value: money(order.subtotal)),
+        ],
+      ),
+    );
+  }
+}
+
+class _TransferSummaryValue extends StatelessWidget {
+  const _TransferSummaryValue({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 92,
+      padding: const EdgeInsets.only(left: 10),
+      decoration: const BoxDecoration(
+        border: Border(left: BorderSide(color: _line)),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: _textSecondary,
+              fontSize: 8,
+              fontWeight: FontWeight.w800,
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _MiniSummary(
-                label: 'Total',
-                value: money(order.subtotal),
-                sub: 'saldo',
-                color: _teal,
-              ),
+          ),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: _navy,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
             ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        ...order.items
-            .take(3)
-            .map(
-              (item) => _ReportLine(
-                label: item.name,
-                detail: '${item.quantity} x ${money(item.price)}',
-                value: money(item.total),
-                color: _teal,
-              ),
-            ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -10146,6 +10862,14 @@ class _CashOpenDialog extends StatefulWidget {
 class _CashOpenDialogState extends State<_CashOpenDialog> {
   final amount = TextEditingController(text: '0,00');
   final password = TextEditingController();
+  final Map<double, int> denominationCounts = {
+    2: 0,
+    5: 0,
+    10: 0,
+    20: 0,
+    50: 0,
+    100: 0,
+  };
   bool submitting = false;
 
   @override
@@ -10168,7 +10892,7 @@ class _CashOpenDialogState extends State<_CashOpenDialog> {
         vertical: compact ? 18 : 28,
       ),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 850, maxHeight: 720),
+        constraints: const BoxConstraints(maxWidth: 700, maxHeight: 600),
         child: Material(
           color: _surface,
           shape: RoundedRectangleBorder(
@@ -10180,33 +10904,33 @@ class _CashOpenDialogState extends State<_CashOpenDialog> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                height: compact ? 70 : 76,
-                padding: const EdgeInsets.symmetric(horizontal: 22),
+                height: compact ? 56 : 40,
+                padding: EdgeInsets.symmetric(horizontal: compact ? 16 : 10),
                 color: const Color(0xFF202020),
                 child: Row(
                   children: [
                     Container(
-                      width: 40,
-                      height: 40,
+                      width: compact ? 34 : 26,
+                      height: compact ? 34 : 26,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
                         color: const Color(0xFF292929),
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(7),
                         border: Border.all(color: _blue),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.point_of_sale_outlined,
                         color: _blue,
-                        size: 21,
+                        size: compact ? 19 : 15,
                       ),
                     ),
-                    const SizedBox(width: 14),
-                    const Expanded(
+                    const SizedBox(width: 9),
+                    Expanded(
                       child: Text(
                         'Abrir caixa',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 20,
+                          fontSize: compact ? 18 : 13,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
@@ -10215,7 +10939,7 @@ class _CashOpenDialogState extends State<_CashOpenDialog> {
                       onPressed: submitting
                           ? null
                           : () => Navigator.of(context).pop(false),
-                      icon: const Icon(Icons.close_rounded),
+                      icon: Icon(Icons.close_rounded, size: compact ? 20 : 17),
                       color: Colors.white,
                       tooltip: 'Cancelar',
                     ),
@@ -10226,9 +10950,9 @@ class _CashOpenDialogState extends State<_CashOpenDialog> {
                 child: SingleChildScrollView(
                   padding: EdgeInsets.fromLTRB(
                     compact ? 16 : 22,
-                    16,
+                    10,
                     compact ? 16 : 22,
-                    18,
+                    12,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -10237,8 +10961,8 @@ class _CashOpenDialogState extends State<_CashOpenDialog> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Container(
-                            width: 48,
-                            height: 48,
+                            width: 34,
+                            height: 34,
                             alignment: Alignment.center,
                             decoration: BoxDecoration(
                               color: const Color(0xFFFFEEE5),
@@ -10258,7 +10982,7 @@ class _CashOpenDialogState extends State<_CashOpenDialog> {
                                   'Informe quanto dinheiro vivo existe no restaurante agora.',
                                   style: TextStyle(
                                     color: _navy,
-                                    fontSize: 17,
+                                    fontSize: 13,
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
@@ -10275,9 +10999,9 @@ class _CashOpenDialogState extends State<_CashOpenDialog> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 10),
                       Container(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
                           color: const Color(0xFFFFFDFB),
                           borderRadius: BorderRadius.circular(12),
@@ -10286,8 +11010,8 @@ class _CashOpenDialogState extends State<_CashOpenDialog> {
                         child: Row(
                           children: [
                             Container(
-                              width: 50,
-                              height: 50,
+                              width: 40,
+                              height: 40,
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
                                 color: const Color(0xFFFFEEE5),
@@ -10301,7 +11025,7 @@ class _CashOpenDialogState extends State<_CashOpenDialog> {
                                 color: _blue,
                               ),
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: 9),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -10352,7 +11076,7 @@ class _CashOpenDialogState extends State<_CashOpenDialog> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 10),
                       const Text(
                         'Dinheiro vivo inicial',
                         style: TextStyle(
@@ -10371,39 +11095,39 @@ class _CashOpenDialogState extends State<_CashOpenDialog> {
                         ),
                         style: const TextStyle(
                           color: _navy,
-                          fontSize: 34,
+                          fontSize: 24,
                           fontWeight: FontWeight.w800,
                         ),
                         decoration: InputDecoration(
                           prefixIcon: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 18),
+                            padding: EdgeInsets.symmetric(horizontal: 12),
                             child: Text(
                               'R\$',
                               style: TextStyle(
                                 color: _textSecondary,
-                                fontSize: 24,
+                                fontSize: 18,
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
                           ),
                           prefixIconConstraints: const BoxConstraints(
-                            minWidth: 78,
+                            minWidth: 58,
                           ),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 14,
-                            vertical: 18,
+                            vertical: 10,
                           ),
                           filled: true,
                           fillColor: Colors.white,
                           enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(6),
                             borderSide: const BorderSide(
                               color: _blue,
                               width: 1.5,
                             ),
                           ),
                           focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(6),
                             borderSide: const BorderSide(
                               color: _blue,
                               width: 2,
@@ -10412,30 +11136,28 @@ class _CashOpenDialogState extends State<_CashOpenDialog> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
+                      GridView.count(
+                        crossAxisCount: 2,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        mainAxisSpacing: 6,
+                        crossAxisSpacing: 8,
+                        childAspectRatio: compact ? 3.0 : 6.0,
                         children: [
-                          for (final value in const [50.0, 100.0, 200.0])
-                            SizedBox(
-                              width: compact ? 92 : 150,
-                              child: OutlinedButton(
-                                onPressed: () => setState(
-                                  () => amount.text = value
-                                      .toStringAsFixed(2)
-                                      .replaceAll('.', ','),
-                                ),
-                                child: Text(money(value)),
-                              ),
+                          for (final value in const [
+                            2.0,
+                            20.0,
+                            5.0,
+                            50.0,
+                            10.0,
+                            100.0,
+                          ])
+                            _CashDenominationControl(
+                              value: value,
+                              count: denominationCounts[value] ?? 0,
+                              onMinus: () => _changeDenomination(value, -1),
+                              onPlus: () => _changeDenomination(value, 1),
                             ),
-                          SizedBox(
-                            width: compact ? 92 : 150,
-                            child: OutlinedButton(
-                              onPressed: () =>
-                                  setState(() => amount.text = '0,00'),
-                              child: const Text('Zerar'),
-                            ),
-                          ),
                         ],
                       ),
                       const SizedBox(height: 14),
@@ -10585,6 +11307,18 @@ class _CashOpenDialogState extends State<_CashOpenDialog> {
     );
   }
 
+  void _changeDenomination(double value, int delta) {
+    setState(() {
+      final current = denominationCounts[value] ?? 0;
+      denominationCounts[value] = math.max(0, current + delta).toInt();
+      final total = denominationCounts.entries.fold<double>(
+        0,
+        (sum, entry) => sum + (entry.key * entry.value),
+      );
+      amount.text = total.toStringAsFixed(2).replaceAll('.', ',');
+    });
+  }
+
   Future<void> _submit() async {
     setState(() => submitting = true);
     await widget.store.openCash(
@@ -10593,6 +11327,450 @@ class _CashOpenDialogState extends State<_CashOpenDialog> {
     );
     if (!mounted) return;
     Navigator.of(context).pop(true);
+  }
+}
+
+class _CashDenominationControl extends StatelessWidget {
+  const _CashDenominationControl({
+    required this.value,
+    required this.count,
+    required this.onMinus,
+    required this.onPlus,
+  });
+
+  final double value;
+  final int count;
+  final VoidCallback onMinus;
+  final VoidCallback onPlus;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: _line),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 28,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFEEE5),
+              borderRadius: BorderRadius.circular(5),
+              border: Border.all(color: const Color(0xFFFFC9AE)),
+            ),
+            child: Text(
+              money(value),
+              style: const TextStyle(
+                color: _navy,
+                fontSize: 9,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          const Spacer(),
+          SizedBox(
+            width: 28,
+            child: IconButton(
+              onPressed: onMinus,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 28, height: 32),
+              iconSize: 16,
+              icon: const Icon(Icons.remove_rounded),
+            ),
+          ),
+          SizedBox(
+            width: 22,
+            child: Text(
+              '$count',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: _navy, fontWeight: FontWeight.w900),
+            ),
+          ),
+          SizedBox(
+            width: 28,
+            child: IconButton(
+              onPressed: onPlus,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 28, height: 32),
+              color: _blue,
+              iconSize: 16,
+              icon: const Icon(Icons.add_rounded),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CashCloseDialog extends StatefulWidget {
+  const _CashCloseDialog({required this.store});
+
+  final BalcaoStore store;
+
+  @override
+  State<_CashCloseDialog> createState() => _CashCloseDialogState();
+}
+
+class _CashCloseDialogState extends State<_CashCloseDialog> {
+  late final TextEditingController counted;
+  late final TextEditingController operator;
+  final notes = TextEditingController();
+  final pin = TextEditingController();
+  String error = '';
+  bool submitting = false;
+
+  double get countedValue => _parse(counted.text);
+  double get difference => countedValue - widget.store.expectedCash;
+
+  @override
+  void initState() {
+    super.initState();
+    counted = TextEditingController(
+      text: widget.store.expectedCash.toStringAsFixed(2).replaceAll('.', ','),
+    );
+    operator = TextEditingController(text: widget.store.operatorName);
+  }
+
+  @override
+  void dispose() {
+    counted.dispose();
+    operator.dispose();
+    notes.dispose();
+    pin.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final totals = widget.store.todayPaymentTotals;
+    final compact = MediaQuery.sizeOf(context).width < 700;
+    final differenceColor = difference.abs() < 0.01 ? _teal : _danger;
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: compact ? 12 : 28,
+        vertical: compact ? 18 : 28,
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 620, maxHeight: 620),
+        child: Material(
+          color: _surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(color: Color(0xFF272727)),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                height: 40,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                color: const Color(0xFF202020),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.lock_clock_outlined,
+                      color: _blue,
+                      size: 17,
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Fechamento profissional de caixa',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: submitting
+                          ? null
+                          : () => Navigator.of(context).pop(false),
+                      icon: const Icon(Icons.close_rounded),
+                      color: Colors.white,
+                      tooltip: 'Cancelar',
+                    ),
+                  ],
+                ),
+              ),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        height: 54,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF242424),
+                          borderRadius: BorderRadius.circular(7),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(
+                              Icons.account_balance_wallet_outlined,
+                              color: Colors.white,
+                              size: 19,
+                            ),
+                            SizedBox(width: 9),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'ConferÃªncia final do caixa',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Confirme o dinheiro e os valores antes de encerrar.',
+                                    style: TextStyle(
+                                      color: Color(0xFFCBC3BC),
+                                      fontSize: 9,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            _StatusPill(text: 'FECHAMENTO', color: _blue),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _CashCloseMetric(
+                            label: 'Dinheiro esperado',
+                            value: money(widget.store.expectedCash),
+                            color: _navy2,
+                          ),
+                          _CashCloseMetric(
+                            label: 'Pix',
+                            value: money(totals.pix),
+                            color: _teal,
+                          ),
+                          _CashCloseMetric(
+                            label: 'Credito',
+                            value: money(totals.credit),
+                            color: _warn,
+                          ),
+                          _CashCloseMetric(
+                            label: 'Debito',
+                            value: money(totals.debit),
+                            color: _warn,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Dinheiro contado na gaveta',
+                        style: TextStyle(
+                          color: _navy,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        key: const Key('cashCloseCounted'),
+                        controller: counted,
+                        autofocus: true,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        onChanged: (_) => setState(() => error = ''),
+                        decoration: const InputDecoration(prefixText: 'R\$ '),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: differenceColor.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: differenceColor.withValues(alpha: 0.35),
+                          ),
+                        ),
+                        child: Text(
+                          'Diferenca: ${money(difference)}',
+                          style: TextStyle(
+                            color: differenceColor,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 9),
+                      const Text(
+                        'Justificativa de diferenca / observacao',
+                        style: TextStyle(
+                          color: _navy,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        key: const Key('cashCloseNotes'),
+                        controller: notes,
+                        minLines: 2,
+                        maxLines: 4,
+                        onChanged: (_) => setState(() => error = ''),
+                      ),
+                      const SizedBox(height: 9),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              key: const Key('cashCloseOperator'),
+                              controller: operator,
+                              decoration: const InputDecoration(
+                                labelText: 'Operador',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              key: const Key('cashClosePin'),
+                              controller: pin,
+                              obscureText: true,
+                              decoration: const InputDecoration(
+                                labelText: 'Senha',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (error.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          error,
+                          style: const TextStyle(
+                            color: _danger,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFFDFB),
+                  border: Border(top: BorderSide(color: _line)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    OutlinedButton(
+                      onPressed: submitting
+                          ? null
+                          : () => Navigator.of(context).pop(false),
+                      child: const Text('Cancelar'),
+                    ),
+                    const SizedBox(width: 10),
+                    FilledButton.icon(
+                      key: const Key('cashCloseConfirm'),
+                      onPressed: submitting ? null : _submit,
+                      icon: const Icon(Icons.lock_rounded, size: 18),
+                      label: const Text('Confirmar fechamento'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submit() async {
+    setState(() {
+      submitting = true;
+      error = '';
+    });
+    final closed = await widget.store.closeCashProfessionally(
+      countedCash: countedValue,
+      notes: notes.text,
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (!mounted) return;
+    if (closed) {
+      Navigator.of(context).pop(true);
+      return;
+    }
+    setState(() {
+      submitting = false;
+      error = widget.store.securityMessage;
+    });
+  }
+}
+
+class _CashCloseMetric extends StatelessWidget {
+  const _CashCloseMetric({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 135,
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: _textSecondary,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -14109,114 +15287,208 @@ class _CashModuleState extends State<_CashModule> {
 
   @override
   Widget build(BuildContext context) {
-    return _WindowPanel(
-      title: 'Caixa operacional',
-      action: TextButton(
-        onPressed: _toggleCash,
-        child: Text(widget.store.cashOpen ? 'Fechar' : 'Abrir'),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _MiniSummary(
-                  label: 'Em aberto',
-                  value: money(widget.store.openTotal),
-                  sub: '${widget.store.openOrders.length} comandas',
-                  color: _navy2,
+    final available = widget.store.movements.fold<double>(
+      0,
+      (total, movement) => total + movement.amount,
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 720;
+        final editor = Column(
+          children: [
+            _CashSummaryCard(
+              balance: available,
+              open: widget.store.cashOpen,
+              initial: widget.store.movements
+                  .where((movement) => movement.type == 'ABERTURA')
+                  .fold(0, (total, movement) => total + movement.amount),
+              incoming: widget.store.movements
+                  .where((movement) => movement.amount > 0)
+                  .fold(0, (total, movement) => total + movement.amount),
+              outgoing: widget.store.movements
+                  .where((movement) => movement.amount < 0)
+                  .fold(0, (total, movement) => total + movement.amount.abs()),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(color: _line),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _MiniSummary(
-                  label: 'Lucro bruto',
-                  value: money(widget.store.grossProfit),
-                  sub: 'margem do dia',
-                  color: _teal,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _DeskInput(
-                  label: 'Valor',
-                  controller: amount,
-                  keyboardType: TextInputType.number,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _DeskInput(label: 'Historico', controller: note),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _DeskCommandButton(
-                  label: 'Suprimento',
-                  color: _teal,
-                  onTap: () => _movement('SUPRIMENTO'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _DeskCommandButton(
-                  label: 'Sangria',
-                  color: _danger,
-                  onTap: () => _movement('SANGRIA'),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ...widget.store.movements
-              .take(8)
-              .map(
-                (movement) => Container(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  decoration: const BoxDecoration(
-                    border: Border(top: BorderSide(color: _line)),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              movement.type,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            Text(
-                              movement.note,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: _textSecondary,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.swap_horiz_rounded, color: _blue, size: 20),
+                        SizedBox(width: 7),
+                        Text(
+                          'Novo movimento',
+                          style: TextStyle(
+                            color: _navy,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Escolha entrada ou retirada e registre o motivo.',
+                      style: TextStyle(color: _textSecondary, fontSize: 10),
+                    ),
+                    const SizedBox(height: 9),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _movement('SUPRIMENTO'),
+                            icon: const Icon(Icons.arrow_upward_rounded),
+                            label: const Text('Entrada'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: _teal,
+                              backgroundColor: _mint,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _movement('SANGRIA'),
+                            icon: const Icon(Icons.arrow_downward_rounded),
+                            label: const Text('Retirada'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 9),
+                    _DeskInput(
+                      label: 'Valor',
+                      controller: amount,
+                      keyboardType: TextInputType.number,
+                    ),
+                    const SizedBox(height: 8),
+                    _DeskInput(label: 'Motivo', controller: note),
+                    const Spacer(),
+                    Container(
+                      height: 38,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF2FBF5),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: const Color(0xFFCBE9D5)),
                       ),
-                      Text(
-                        money(movement.amount),
-                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      child: Row(
+                        children: [
+                          const Text(
+                            'Saldo apÃ³s:',
+                            style: TextStyle(
+                              color: _textSecondary,
+                              fontSize: 10,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            money(available + _parse(amount.text)),
+                            style: const TextStyle(
+                              color: _teal,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-        ],
-      ),
+            ),
+          ],
+        );
+        final history = _CashHistoryPanel(
+          movements: widget.store.movements.take(12).toList(),
+        );
+
+        return Column(
+          children: [
+            Container(
+              height: 34,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              color: const Color(0xFFFFFAF7),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, color: _blue, size: 15),
+                  SizedBox(width: 8),
+                  Text(
+                    'Registre entradas e retiradas com motivo. O saldo e o histÃ³rico sÃ£o atualizados na hora.',
+                    style: TextStyle(color: _textSecondary, fontSize: 10),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: compact
+                    ? ListView(
+                        children: [
+                          SizedBox(height: 430, child: editor),
+                          const SizedBox(height: 10),
+                          SizedBox(height: 430, child: history),
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          SizedBox(width: 322, child: editor),
+                          const SizedBox(width: 12),
+                          Expanded(child: history),
+                        ],
+                      ),
+              ),
+            ),
+            Container(
+              height: 52,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: const BoxDecoration(
+                color: _surface,
+                border: Border(top: BorderSide(color: _line)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      child: const Text('Cancelar'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _toggleCash,
+                      child: Text(
+                        widget.store.cashOpen
+                            ? 'F10 Fechar caixa'
+                            : 'Abrir caixa',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: FilledButton(
+                      onPressed: () => _movement('SUPRIMENTO'),
+                      style: FilledButton.styleFrom(backgroundColor: _blue),
+                      child: const Text('Registrar entrada'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -14232,12 +15504,282 @@ class _CashModuleState extends State<_CashModule> {
     note.clear();
   }
 
-  void _toggleCash() {
+  Future<void> _toggleCash() async {
     if (widget.store.cashOpen && widget.store.openOrders.isNotEmpty) {
       widget.openBlocked();
       return;
     }
-    widget.store.toggleCash();
+    if (!widget.store.cashOpen) {
+      await widget.store.toggleCash();
+      return;
+    }
+    await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => _CashCloseDialog(store: widget.store),
+    );
+  }
+}
+
+class _CashSummaryCard extends StatelessWidget {
+  const _CashSummaryCard({
+    required this.balance,
+    required this.open,
+    required this.initial,
+    required this.incoming,
+    required this.outgoing,
+  });
+
+  final double balance;
+  final bool open;
+  final double initial;
+  final double incoming;
+  final double outgoing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 142,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: _line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.wallet_outlined, color: _blue, size: 20),
+              SizedBox(width: 7),
+              Text(
+                'Resumo do caixa',
+                style: TextStyle(
+                  color: _navy,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Saldo disponÃ­vel',
+            style: TextStyle(
+              color: _textSecondary,
+              fontSize: 9,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  money(balance),
+                  style: const TextStyle(
+                    color: _blue,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              _StatusPill(
+                text: open ? 'CAIXA ABERTO' : 'CAIXA FECHADO',
+                color: open ? _teal : _danger,
+              ),
+            ],
+          ),
+          const Spacer(),
+          Wrap(
+            spacing: 4,
+            children: [
+              Text(
+                'Inicial ${money(initial)}',
+                style: const TextStyle(color: _textSecondary, fontSize: 9),
+              ),
+              Text(
+                '+ Entradas ${money(incoming)}',
+                style: const TextStyle(
+                  color: _teal,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              Text(
+                '- Retiradas ${money(outgoing)}',
+                style: const TextStyle(
+                  color: _danger,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CashHistoryPanel extends StatelessWidget {
+  const _CashHistoryPanel({required this.movements});
+
+  final List<CashMovement> movements;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: _line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'HistÃ³rico do caixa',
+            style: TextStyle(
+              color: _navy,
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'Clique em uma linha para ver os detalhes do registro.',
+            style: TextStyle(color: _textSecondary, fontSize: 10),
+          ),
+          const SizedBox(height: 8),
+          const Row(
+            children: [
+              SizedBox(
+                width: 72,
+                child: Text(
+                  'HORA',
+                  style: TextStyle(
+                    color: _textSecondary,
+                    fontSize: 8,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  'MOVIMENTO',
+                  style: TextStyle(
+                    color: _textSecondary,
+                    fontSize: 8,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                'VALOR / SALDO',
+                style: TextStyle(
+                  color: _textSecondary,
+                  fontSize: 8,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const Divider(height: 8),
+          Expanded(
+            child: movements.isEmpty
+                ? const _Empty(text: 'Nenhum movimento registrado.')
+                : ListView.separated(
+                    itemCount: movements.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final movement = movements[index];
+                      final positive = movement.amount >= 0;
+                      final created = movement.createdAt;
+                      final time =
+                          '${created.hour.toString().padLeft(2, '0')}:'
+                          '${created.minute.toString().padLeft(2, '0')}';
+                      return Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 72,
+                              child: Text(
+                                time,
+                                style: const TextStyle(
+                                  color: _navy,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              width: 27,
+                              height: 27,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: positive
+                                    ? const Color(0xFFE9F8EE)
+                                    : const Color(0xFFFFEEEE),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: positive
+                                      ? const Color(0xFFBFE4CA)
+                                      : const Color(0xFFF0C4C4),
+                                ),
+                              ),
+                              child: Icon(
+                                positive
+                                    ? Icons.arrow_upward_rounded
+                                    : Icons.arrow_downward_rounded,
+                                color: positive ? _teal : _danger,
+                                size: 15,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    movement.type,
+                                    style: const TextStyle(
+                                      color: _navy,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  Text(
+                                    movement.note,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: _textSecondary,
+                                      fontSize: 9,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Text(
+                              '${positive ? '+' : '-'} ${money(movement.amount.abs())}',
+                              style: TextStyle(
+                                color: positive ? _teal : _danger,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -14253,17 +15795,14 @@ class _TeamModule extends StatefulWidget {
 class _TeamModuleState extends State<_TeamModule> {
   final number = TextEditingController(text: '4');
   final name = TextEditingController();
+  final pin = TextEditingController();
   String role = 'GARCOM';
-  late final List<_TeamEntry> entries = [
-    _TeamEntry('1', widget.store.operatorName, 'CAIXA', widget.store.soldToday),
-    const _TeamEntry('2', 'LUCAS CESAR', 'GERENTE', 0),
-    const _TeamEntry('3', 'ENTREGADOR APP', 'ENTREGADOR', 0),
-  ];
 
   @override
   void dispose() {
     number.dispose();
     name.dispose();
+    pin.dispose();
     super.dispose();
   }
 
@@ -14280,11 +15819,19 @@ class _TeamModuleState extends State<_TeamModule> {
                 children: [
                   SizedBox(
                     width: 86,
-                    child: _DeskInput(label: 'Numero', controller: number),
+                    child: _DeskInput(
+                      key: const Key('teamMemberNumber'),
+                      label: 'Numero',
+                      controller: number,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _DeskInput(label: 'Nome', controller: name),
+                    child: _DeskInput(
+                      key: const Key('teamMemberName'),
+                      label: 'Nome',
+                      controller: name,
+                    ),
                   ),
                 ],
               ),
@@ -14301,7 +15848,18 @@ class _TeamModuleState extends State<_TeamModule> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
+                    child: _DeskInput(
+                      key: const Key('teamMemberPin'),
+                      label: 'Senha',
+                      controller: pin,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
                     child: _DeskCommandButton(
+                      key: const Key('teamMemberSave'),
                       label: 'Salvar equipe',
                       color: _teal,
                       onTap: _save,
@@ -14316,13 +15874,15 @@ class _TeamModuleState extends State<_TeamModule> {
         _WindowPanel(
           title: 'Equipe cadastrada',
           child: Column(
-            children: entries
+            children: widget.store.teamMembers
                 .map(
-                  (entry) => _TeamRow(
-                    number: entry.number,
-                    name: entry.name,
-                    role: entry.role,
-                    sales: entry.sales,
+                  (member) => _TeamRow(
+                    number: member.number,
+                    name: member.name,
+                    role: member.role,
+                    sales: widget.store.closedOrders
+                        .where((order) => order.waiter == member.number)
+                        .fold(0, (sum, order) => sum + order.subtotal),
                   ),
                 )
                 .toList(),
@@ -14332,27 +15892,25 @@ class _TeamModuleState extends State<_TeamModule> {
     );
   }
 
-  void _save() {
+  Future<void> _save() async {
     if (name.text.trim().isEmpty) return;
+    final saved = await widget.store.saveTeamMember(
+      number: number.text,
+      name: name.text,
+      role: role,
+      pin: pin.text,
+    );
+    if (!mounted || !saved) return;
     setState(() {
-      entries.insert(
-        0,
-        _TeamEntry(number.text.trim(), name.text.trim().toUpperCase(), role, 0),
-      );
-      final next = (int.tryParse(number.text.trim()) ?? entries.length) + 1;
+      final next =
+          (int.tryParse(number.text.trim()) ??
+              widget.store.teamMembers.length) +
+          1;
       number.text = '$next';
       name.clear();
+      pin.clear();
     });
   }
-}
-
-class _TeamEntry {
-  const _TeamEntry(this.number, this.name, this.role, this.sales);
-
-  final String number;
-  final String name;
-  final String role;
-  final double sales;
 }
 
 class _TeamRow extends StatelessWidget {
@@ -16138,6 +17696,7 @@ class _QuickHubModule extends StatelessWidget {
             runSpacing: 8,
             children: [
               _HubButton(
+                key: const Key('whatsappHub'),
                 icon: Icons.qr_code_2_rounded,
                 title: store.whatsappConnected
                     ? 'WhatsApp ligado'
@@ -16159,11 +17718,15 @@ class _QuickHubModule extends StatelessWidget {
                 onTap: store.flushSync,
               ),
               _HubButton(
+                key: const Key('ifoodHub'),
                 icon: Icons.restaurant_rounded,
-                title: 'iFood',
-                subtitle: 'Pedidos e catalogo',
+                title: store.ifoodConnected ? 'iFood ligado' : 'iFood',
+                subtitle: store.ifoodConnected
+                    ? store.ifoodMerchantName
+                    : 'Conectar pedidos',
                 color: Colors.red,
-                onTap: store.simulateIfoodOrder,
+                onTap: () =>
+                    openModule('iFood Online', _DeliveryModule(store: store)),
               ),
               _HubButton(
                 icon: Icons.contactless_rounded,
@@ -16173,6 +17736,19 @@ class _QuickHubModule extends StatelessWidget {
                 onTap: () => openModule(
                   'Mercado Pago Point',
                   _MercadoPagoPointModule(store: store),
+                ),
+              ),
+              _HubButton(
+                key: const Key('backupHub'),
+                icon: Icons.backup_outlined,
+                title: 'Backup',
+                subtitle: store.lastBackupAt.isEmpty
+                    ? 'Gerar ou restaurar'
+                    : 'Ultimo ${store.lastBackupAt}',
+                color: _navy2,
+                onTap: () => openModule(
+                  'Backup e exportacao',
+                  _BackupModule(store: store),
                 ),
               ),
               _HubButton(
@@ -16229,6 +17805,7 @@ class _QuickHubModule extends StatelessWidget {
 
 class _HubButton extends StatelessWidget {
   const _HubButton({
+    super.key,
     required this.icon,
     required this.title,
     required this.subtitle,
@@ -16317,6 +17894,17 @@ class _WhatsAppModuleState extends State<_WhatsAppModule> {
     text: widget.store.whatsappNumber,
   );
 
+  Future<void> _openOnboarding() async {
+    final uri = Uri.tryParse(widget.store.whatsappOnboardingUrl);
+    if (uri == null || !uri.hasScheme) return;
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nao consegui abrir a conexao agora.')),
+      );
+    }
+  }
+
   @override
   void dispose() {
     number.dispose();
@@ -16326,156 +17914,197 @@ class _WhatsAppModuleState extends State<_WhatsAppModule> {
   @override
   Widget build(BuildContext context) {
     final store = widget.store;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final desktop = constraints.maxWidth >= 720;
-        final qrPanel = _WindowPanel(
-          title: 'Escaneie o QR',
-          action: _StatusPill(
-            text: store.whatsappConnected ? 'conectado' : 'aguardando',
-            color: store.whatsappConnected ? _teal : _warn,
-          ),
-          child: Column(
-            children: [
-              _WhatsAppQrBox(store: store, size: 246),
-              const SizedBox(height: 10),
-              Text(
-                store.businessName,
-                textAlign: TextAlign.center,
-                softWrap: true,
-                style: const TextStyle(
-                  color: _navy,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 18,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                store.whatsappSessionId.isEmpty
-                    ? 'Sessao isolada por loja'
-                    : store.whatsappSessionId,
-                textAlign: TextAlign.center,
-                softWrap: true,
-                style: const TextStyle(
-                  color: _textSecondary,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-        );
-        final statusPanel = _WindowPanel(
-          title: 'WhatsApp Online',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (!desktop) ...[
-                Center(child: _WhatsAppQrBox(store: store, size: 214)),
-                const SizedBox(height: 10),
-              ],
-              _ReportLine(
-                label: 'Conta da loja',
-                detail: store.businessName,
-                value: store.whatsappConnected ? 'ON' : 'QR',
-                color: store.whatsappConnected ? _teal : _warn,
-              ),
-              _ReportLine(
-                label: 'Recebimento',
-                detail: 'pedidos do cardapio entram em tempo real',
-                value: 'ativo',
-                color: _teal,
-              ),
-              _ReportLine(
-                label: 'Anti-flood',
-                detail: 'mensagem inicial uma vez por conversa/cooldown',
-                value: 'ON',
-                color: _navy2,
-              ),
-              const SizedBox(height: 8),
-              _DeskInput(label: 'Numero conectado', controller: number),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: _DeskCommandButton(
-                      label: 'Confirmar conectado',
-                      color: _teal,
-                      onTap: () => store.connectWhatsApp(number.text),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _DeskCommandButton(
-                      label: 'Novo QR',
-                      color: _navy2,
-                      onTap: store.refreshWhatsAppQr,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: _DeskCommandButton(
-                  label: 'Desconectar WhatsApp',
-                  color: _danger,
-                  onTap: store.disconnectWhatsApp,
-                ),
-              ),
-            ],
-          ),
-        );
-        final queuePanel = _WindowPanel(
-          title: 'Fila em tempo real',
-          child: Column(
-            children: [
-              _ReportLine(
-                label: 'Mensagem inicial',
-                detail: 'sem repetir para cada mensagem recebida',
-                value: '1x',
-                color: _teal,
-              ),
-              _ReportLine(
-                label: 'Cliente pediu',
-                detail: 'notifica o PDV quando a loja aceita',
-                value: 'push',
-                color: _navy2,
-              ),
-              _ReportLine(
-                label: 'Pedidos cardapio',
-                detail: 'vinculados a ${store.businessName}',
-                value: '${store.openOrders.length}',
-                color: _warn,
-              ),
-            ],
-          ),
-        );
-        if (desktop) {
-          return Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return AnimatedBuilder(
+      animation: store,
+      builder: (context, _) => LayoutBuilder(
+        builder: (context, constraints) {
+          final desktop = constraints.maxWidth >= 720;
+          final qrPanel = _WindowPanel(
+            title: store.whatsappOnboardingUrl.isEmpty
+                ? 'Conexao oficial'
+                : 'Escaneie ou abra o QR',
+            action: _StatusPill(
+              text: store.whatsappBusy
+                  ? 'consultando'
+                  : store.whatsappConnected
+                  ? 'conectado'
+                  : store.whatsappConnectionStatus == 'ERROR'
+                  ? 'erro'
+                  : 'aguardando',
+              color: store.whatsappConnected
+                  ? _teal
+                  : store.whatsappConnectionStatus == 'ERROR'
+                  ? _danger
+                  : _warn,
+            ),
+            child: Column(
               children: [
-                SizedBox(width: 340, child: qrPanel),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      children: [
-                        statusPanel,
-                        const SizedBox(height: 10),
-                        queuePanel,
-                      ],
-                    ),
+                _WhatsAppQrBox(store: store, size: 246),
+                const SizedBox(height: 10),
+                Text(
+                  store.businessName,
+                  textAlign: TextAlign.center,
+                  softWrap: true,
+                  style: const TextStyle(
+                    color: _navy,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  store.whatsappConnected
+                      ? 'Numero validado pelo gateway da loja'
+                      : store.whatsappOnboardingUrl.isEmpty
+                      ? 'Informe o numero e gere a conexao'
+                      : 'QR seguro gerado pelo gateway Supabase',
+                  textAlign: TextAlign.center,
+                  softWrap: true,
+                  style: const TextStyle(
+                    color: _textSecondary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
                   ),
                 ),
               ],
             ),
           );
-        }
-        return _ModuleScroll(children: [qrPanel, statusPanel, queuePanel]);
-      },
+          final statusPanel = _WindowPanel(
+            title: 'WhatsApp Online',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!desktop) ...[
+                  Center(child: _WhatsAppQrBox(store: store, size: 214)),
+                  const SizedBox(height: 10),
+                ],
+                _ReportLine(
+                  label: 'Conta da loja',
+                  detail: store.businessName,
+                  value: store.whatsappConnected ? 'ON' : 'QR',
+                  color: store.whatsappConnected ? _teal : _warn,
+                ),
+                _ReportLine(
+                  label: 'Recebimento',
+                  detail: 'pedidos do cardapio entram em tempo real',
+                  value: store.whatsappConnected ? 'ativo' : 'pausado',
+                  color: store.whatsappConnected ? _teal : _warn,
+                ),
+                _ReportLine(
+                  label: 'Gateway',
+                  detail: store.whatsappMessage,
+                  value: store.whatsappConnectionStatus,
+                  color: store.whatsappConnectionStatus == 'ERROR'
+                      ? _danger
+                      : _navy2,
+                ),
+                const SizedBox(height: 8),
+                _DeskInput(
+                  key: const Key('whatsappStorePhone'),
+                  label: 'Numero da loja com DDD',
+                  controller: number,
+                  keyboardType: TextInputType.phone,
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _DeskCommandButton(
+                        key: const Key('whatsappConnect'),
+                        label: store.whatsappBusy
+                            ? 'Conectando...'
+                            : 'Conectar numero',
+                        color: _teal,
+                        onTap: () => store.connectWhatsApp(number.text),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _DeskCommandButton(
+                        key: const Key('whatsappRefresh'),
+                        label: 'Atualizar status / QR',
+                        color: _navy2,
+                        onTap: store.refreshWhatsAppQr,
+                      ),
+                    ),
+                  ],
+                ),
+                if (store.whatsappOnboardingUrl.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: _DeskCommandButton(
+                      key: const Key('whatsappOpenOnboarding'),
+                      label: 'Abrir conexao oficial',
+                      color: _warn,
+                      onTap: _openOnboarding,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: _DeskCommandButton(
+                    key: const Key('whatsappDisconnect'),
+                    label: 'Desconectar WhatsApp',
+                    color: _danger,
+                    onTap: store.disconnectWhatsApp,
+                  ),
+                ),
+              ],
+            ),
+          );
+          final queuePanel = _WindowPanel(
+            title: 'Fila em tempo real',
+            child: Column(
+              children: [
+                _ReportLine(
+                  label: 'Mensagem inicial',
+                  detail: 'sem repetir para cada mensagem recebida',
+                  value: '1x',
+                  color: _teal,
+                ),
+                _ReportLine(
+                  label: 'Cliente pediu',
+                  detail: 'notifica o PDV quando a loja aceita',
+                  value: 'push',
+                  color: _navy2,
+                ),
+                _ReportLine(
+                  label: 'Pedidos cardapio',
+                  detail: 'vinculados a ${store.businessName}',
+                  value: '${store.openOrders.length}',
+                  color: _warn,
+                ),
+              ],
+            ),
+          );
+          if (desktop) {
+            return Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(width: 340, child: qrPanel),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          statusPanel,
+                          const SizedBox(height: 10),
+                          queuePanel,
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          return _ModuleScroll(children: [qrPanel, statusPanel, queuePanel]);
+        },
+      ),
     );
   }
 }
@@ -16497,16 +18126,272 @@ class _WhatsAppQrBox extends StatelessWidget {
         borderRadius: BorderRadius.circular(7),
         border: Border.all(color: _line),
       ),
-      child: QrImageView(
-        data: store.whatsappQrPayload(),
-        version: QrVersions.auto,
-        backgroundColor: Colors.white,
-        eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: _navy),
-        dataModuleStyle: const QrDataModuleStyle(
-          dataModuleShape: QrDataModuleShape.square,
-          color: _navy,
+      child: store.whatsappQrPayload.isNotEmpty
+          ? QrImageView(
+              data: store.whatsappQrPayload,
+              version: QrVersions.auto,
+              backgroundColor: Colors.white,
+              eyeStyle: const QrEyeStyle(
+                eyeShape: QrEyeShape.square,
+                color: _navy,
+              ),
+              dataModuleStyle: const QrDataModuleStyle(
+                dataModuleShape: QrDataModuleShape.square,
+                color: _navy,
+              ),
+            )
+          : Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  store.whatsappConnected
+                      ? Icons.verified_rounded
+                      : Icons.qr_code_2_rounded,
+                  color: store.whatsappConnected ? _teal : _navy2,
+                  size: size * 0.36,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  store.whatsappConnected
+                      ? 'WhatsApp conectado'
+                      : 'QR ainda nao gerado',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: _navy,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+class _BackupModule extends StatefulWidget {
+  const _BackupModule({required this.store});
+
+  final BalcaoStore store;
+
+  @override
+  State<_BackupModule> createState() => _BackupModuleState();
+}
+
+class _BackupModuleState extends State<_BackupModule> {
+  final operator = TextEditingController(text: '2');
+  final pin = TextEditingController();
+  late bool cloudBackup = widget.store.cloudBackupEnabled;
+  late bool centralSync = widget.store.centralSyncEnabled;
+  String message = '';
+
+  @override
+  void dispose() {
+    operator.dispose();
+    pin.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveSettings() async {
+    await widget.store.updateBackupSettings(
+      cloudBackup: cloudBackup,
+      centralSync: centralSync,
+    );
+    if (!mounted) return;
+    setState(() => message = widget.store.backupMessage);
+  }
+
+  Future<void> _exportBackup() async {
+    final data = await widget.store.createBackupJson(
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (data == null) {
+      if (mounted) setState(() => message = widget.store.backupMessage);
+      return;
+    }
+    final now = DateTime.now();
+    final stamp =
+        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+    await FilePicker.platform.saveFile(
+      dialogTitle: 'Salvar backup do Balcao Livre',
+      fileName: 'balcao-livre-backup-$stamp.json',
+      type: FileType.custom,
+      allowedExtensions: const ['json'],
+      bytes: Uint8List.fromList(utf8.encode(data)),
+    );
+    if (!mounted) return;
+    setState(() {
+      message = '${widget.store.backupMessage} Download iniciado.';
+      pin.clear();
+    });
+  }
+
+  Future<void> _restoreBackup() async {
+    final picked = await FilePicker.platform.pickFiles(
+      dialogTitle: 'Restaurar backup do Balcao Livre',
+      type: FileType.custom,
+      allowedExtensions: const ['json'],
+      withData: true,
+    );
+    final bytes = picked?.files.firstOrNull?.bytes;
+    if (bytes == null || bytes.isEmpty) return;
+    final restored = await widget.store.restoreBackupJson(
+      backupJson: utf8.decode(bytes),
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      message = widget.store.backupMessage;
+      if (restored) pin.clear();
+    });
+  }
+
+  Future<void> _exportCsv() async {
+    final authorized = await widget.store.authenticateTeamMember(
+      operator: operator.text,
+      pin: pin.text,
+      permission: StaffPermission.backup,
+    );
+    if (authorized == null) {
+      if (mounted) setState(() => message = widget.store.securityMessage);
+      return;
+    }
+    await FilePicker.platform.saveFile(
+      dialogTitle: 'Exportar produtos',
+      fileName: 'produtos-balcao-livre.csv',
+      type: FileType.custom,
+      allowedExtensions: const ['csv'],
+      bytes: Uint8List.fromList(utf8.encode(widget.store.productsCsv())),
+    );
+    if (!mounted) return;
+    setState(() {
+      message = 'Resumo CSV exportado por ${authorized.name}.';
+      pin.clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = widget.store;
+    return _ModuleScroll(
+      children: [
+        _WindowPanel(
+          title: 'Protecao dos dados',
+          child: Column(
+            children: [
+              _ReportLine(
+                label: 'Backup completo',
+                detail: store.lastBackupAt.isEmpty
+                    ? 'ainda nao gerado nesta instalacao'
+                    : 'ultimo em ${store.lastBackupAt}',
+                value: store.cloudBackupEnabled ? 'ON' : 'OFF',
+                color: store.cloudBackupEnabled ? _teal : _warn,
+              ),
+              _ReportLine(
+                label: 'Sync central',
+                detail: store.syncStatus,
+                value: store.centralSyncEnabled ? 'ON' : 'OFF',
+                color: store.centralSyncEnabled ? _teal : _warn,
+              ),
+            ],
+          ),
         ),
-      ),
+        _WindowPanel(
+          title: 'Automacao',
+          child: Column(
+            children: [
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Backup completo versionado'),
+                subtitle: const Text(
+                  'Inclui operacao, produtos, clientes, equipe e configuracoes.',
+                ),
+                value: cloudBackup,
+                onChanged: (value) => setState(() => cloudBackup = value),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Sync central economico'),
+                subtitle: const Text(
+                  'Mantem o resumo operacional pronto para web e mobile.',
+                ),
+                value: centralSync,
+                onChanged: (value) => setState(() => centralSync = value),
+              ),
+              SizedBox(
+                width: double.infinity,
+                child: _DeskCommandButton(
+                  key: const Key('backupSaveSettings'),
+                  label: 'Salvar automacao',
+                  color: _navy2,
+                  onTap: _saveSettings,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _WindowPanel(
+          title: 'Autorizacao do gerente',
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('backupOperator'),
+                      label: 'Operador',
+                      controller: operator,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('backupPin'),
+                      label: 'Senha',
+                      controller: pin,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _DeskCommandButton(
+                    key: const Key('backupExport'),
+                    label: 'Gerar backup agora',
+                    color: _navy2,
+                    onTap: _exportBackup,
+                  ),
+                  _DeskCommandButton(
+                    key: const Key('backupRestore'),
+                    label: 'Restaurar arquivo',
+                    color: _warn,
+                    onTap: _restoreBackup,
+                  ),
+                  _DeskCommandButton(
+                    key: const Key('backupCsv'),
+                    label: 'Exportar resumo CSV',
+                    color: _teal,
+                    onTap: _exportCsv,
+                  ),
+                ],
+              ),
+              if (message.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                _InfoStrip(
+                  icon: Icons.info_outline_rounded,
+                  title: 'Resultado',
+                  text: message,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -16881,13 +18766,48 @@ class _ModuleScroll extends StatelessWidget {
   }
 }
 
-class _DiscountDeskModule extends StatelessWidget {
+class _DiscountDeskModule extends StatefulWidget {
   const _DiscountDeskModule({required this.store});
 
   final BalcaoStore store;
 
   @override
+  State<_DiscountDeskModule> createState() => _DiscountDeskModuleState();
+}
+
+class _DiscountDeskModuleState extends State<_DiscountDeskModule> {
+  final amount = TextEditingController(text: '5,00');
+  final reason = TextEditingController(text: 'Desconto gerente');
+  final operator = TextEditingController(text: '2');
+  final pin = TextEditingController();
+  String message = '';
+
+  @override
+  void dispose() {
+    amount.dispose();
+    reason.dispose();
+    operator.dispose();
+    pin.dispose();
+    super.dispose();
+  }
+
+  Future<void> _apply() async {
+    final applied = await widget.store.applyDiscount(
+      amount: amount.text,
+      reason: reason.text,
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      message = widget.store.securityMessage;
+      if (applied) pin.clear();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final store = widget.store;
     final order = store.selectedOrder;
     if (order == null) {
       return const _ModuleScroll(
@@ -16936,7 +18856,83 @@ class _DiscountDeskModule extends StatelessWidget {
           ),
         ),
         _WindowPanel(
-          title: 'Permissoes rapidas',
+          title: 'Desconto autorizado',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('discountAmount'),
+                      label: 'Valor',
+                      controller: amount,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: _DeskInput(
+                      key: const Key('discountReason'),
+                      label: 'Motivo',
+                      controller: reason,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('discountOperator'),
+                      label: 'Operador autorizado',
+                      controller: operator,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('discountPin'),
+                      label: 'Senha',
+                      controller: pin,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (message.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    message,
+                    style: TextStyle(
+                      color: message.toLowerCase().contains('autorizado')
+                          ? _teal
+                          : _danger,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              SizedBox(
+                width: double.infinity,
+                child: _DeskCommandButton(
+                  key: const Key('discountApply'),
+                  label: 'Autorizar desconto',
+                  color: _danger,
+                  onTap: _apply,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _WindowPanel(
+          title: 'Taxas da comanda',
           child: Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -17477,6 +19473,269 @@ class _ProductManageLine extends StatelessWidget {
   }
 }
 
+class _DeliveryZonesModule extends StatefulWidget {
+  const _DeliveryZonesModule({required this.store});
+
+  final BalcaoStore store;
+
+  @override
+  State<_DeliveryZonesModule> createState() => _DeliveryZonesModuleState();
+}
+
+class _DeliveryZonesModuleState extends State<_DeliveryZonesModule> {
+  final radius = TextEditingController(text: '1,0');
+  final fee = TextEditingController(text: '0,00');
+  final minimum = TextEditingController(text: '0,00');
+  final operator = TextEditingController(text: '2');
+  final pin = TextEditingController();
+  String? selectedId;
+  bool active = true;
+  String message = '';
+
+  @override
+  void dispose() {
+    radius.dispose();
+    fee.dispose();
+    minimum.dispose();
+    operator.dispose();
+    pin.dispose();
+    super.dispose();
+  }
+
+  void _select(DeliveryZone zone) {
+    setState(() {
+      selectedId = zone.id;
+      radius.text = zone.radiusKm.toStringAsFixed(1).replaceAll('.', ',');
+      fee.text = zone.fee.toStringAsFixed(2).replaceAll('.', ',');
+      minimum.text = zone.minimumOrder.toStringAsFixed(2).replaceAll('.', ',');
+      active = zone.active;
+      message = '';
+    });
+  }
+
+  void _newZone() {
+    final next = widget.store.deliveryZones.isEmpty
+        ? 1.0
+        : widget.store.deliveryZones
+                  .map((zone) => zone.radiusKm)
+                  .reduce(math.max)
+                  .ceilToDouble() +
+              1;
+    setState(() {
+      selectedId = null;
+      radius.text = next.toStringAsFixed(1).replaceAll('.', ',');
+      fee.text = '0,00';
+      minimum.text = '0,00';
+      active = true;
+      message = '';
+    });
+  }
+
+  Future<void> _save() async {
+    final radiusValue =
+        double.tryParse(radius.text.trim().replaceAll(',', '.')) ?? -1;
+    final saved = await widget.store.saveDeliveryZone(
+      id: selectedId,
+      radiusKm: radius.text,
+      fee: fee.text,
+      minimumOrder: minimum.text,
+      active: active,
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      message = widget.store.securityMessage;
+      if (saved) {
+        pin.clear();
+        selectedId = widget.store.deliveryZones
+            .where((zone) => (zone.radiusKm - radiusValue).abs() < 0.001)
+            .firstOrNull
+            ?.id;
+      }
+    });
+  }
+
+  Future<void> _delete() async {
+    if (selectedId == null) {
+      setState(() => message = 'Selecione uma faixa para excluir.');
+      return;
+    }
+    final deleted = await widget.store.deleteDeliveryZone(
+      id: selectedId!,
+      operator: operator.text,
+      pin: pin.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      message = widget.store.securityMessage;
+      if (deleted) {
+        pin.clear();
+        selectedId = null;
+      }
+    });
+  }
+
+  Future<void> _openMap() async {
+    final query = Uri.encodeQueryComponent(
+      '${widget.store.businessAddress}, ${widget.store.businessCity}, ${widget.store.businessUf}',
+    );
+    final uri = Uri.parse('https://www.openstreetmap.org/search?query=$query');
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
+        mounted) {
+      setState(() => message = 'Nao consegui abrir o mapa agora.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _ModuleScroll(
+      children: [
+        _WindowPanel(
+          title: 'Taxas de entrega',
+          action: _StatusPill(
+            text: '${widget.store.deliveryZones.length} faixa(s)',
+            color: _teal,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Cadastre faixas por distancia. O PDV usa a menor faixa ativa e sugere a taxa no novo delivery.',
+                style: TextStyle(color: _textSecondary),
+              ),
+              const SizedBox(height: 10),
+              if (widget.store.deliveryZones.isEmpty)
+                const _Empty(text: 'Nenhum raio salvo.')
+              else
+                ...widget.store.deliveryZones.map(
+                  (zone) => ListTile(
+                    selected: selectedId == zone.id,
+                    leading: Icon(
+                      Icons.radio_button_checked_rounded,
+                      color: zone.active ? _teal : _textSecondary,
+                    ),
+                    title: Text(zone.display),
+                    subtitle: Text(zone.active ? 'Ativa' : 'Desativada'),
+                    trailing: const Icon(Icons.edit_outlined),
+                    onTap: () => _select(zone),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        _WindowPanel(
+          title: 'Cadastrar faixa',
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('deliveryZoneRadius'),
+                      label: 'Raio (km)',
+                      controller: radius,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('deliveryZoneFee'),
+                      label: 'Taxa',
+                      controller: fee,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('deliveryZoneMinimum'),
+                      label: 'Pedido minimo',
+                      controller: minimum,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Faixa ativa'),
+                value: active,
+                onChanged: (value) => setState(() => active = value ?? true),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('deliveryZoneOperator'),
+                      label: 'Operador autorizado',
+                      controller: operator,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DeskInput(
+                      key: const Key('deliveryZonePin'),
+                      label: 'Senha',
+                      controller: pin,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _DeskCommandButton(
+                    key: const Key('deliveryZoneSave'),
+                    label: 'Salvar raio',
+                    color: _teal,
+                    onTap: _save,
+                  ),
+                  _DeskCommandButton(
+                    label: 'Novo',
+                    color: _navy2,
+                    onTap: _newZone,
+                  ),
+                  _DeskCommandButton(
+                    key: const Key('deliveryZoneDelete'),
+                    label: 'Excluir selecionado',
+                    color: _danger,
+                    onTap: _delete,
+                  ),
+                  _DeskCommandButton(
+                    label: 'Abrir mapa da loja',
+                    color: _warn,
+                    onTap: _openMap,
+                  ),
+                ],
+              ),
+              if (message.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                _InfoStrip(
+                  icon: Icons.delivery_dining_outlined,
+                  title: 'Resultado',
+                  text: message,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _NewDeliveryOrderModule extends StatefulWidget {
   const _NewDeliveryOrderModule({required this.store});
 
@@ -17498,6 +19757,15 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
   String type = 'Entrega';
   String courier = '';
   bool autoPrint = true;
+  String zoneHint =
+      'Sem circulo cadastrado. Informe a taxa manual ou cadastre raios.';
+
+  @override
+  void initState() {
+    super.initState();
+    district.addListener(_applySuggestedFee);
+    _applySuggestedFee();
+  }
 
   @override
   void dispose() {
@@ -17511,7 +19779,43 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
     super.dispose();
   }
 
-  void _create() {
+  void _applySuggestedFee() {
+    final zone = widget.store.suggestedDeliveryZone;
+    if (zone == null) {
+      if (mounted) {
+        setState(() {
+          zoneHint =
+              'Sem circulo cadastrado. Informe a taxa manual ou cadastre raios.';
+        });
+      }
+      return;
+    }
+    fee.text = zone.fee.toStringAsFixed(2).replaceAll('.', ',');
+    if (mounted) {
+      setState(() {
+        zoneHint =
+            'Taxa sugerida: ate ${zone.radiusKm.toStringAsFixed(1)} km (${money(zone.fee)})'
+            '${zone.minimumOrder > 0 ? ' | pedido minimo ${money(zone.minimumOrder)}' : ''}.';
+      });
+    }
+  }
+
+  Future<void> _showDeliveryZones() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.all(18),
+        child: SizedBox(
+          width: 860,
+          height: 680,
+          child: _DeliveryZonesModule(store: widget.store),
+        ),
+      ),
+    );
+    _applySuggestedFee();
+  }
+
+  Future<void> _create() async {
     final cleanCustomer = customer.text.trim().isEmpty
         ? 'CLIENTE BALCAO'
         : customer.text.trim();
@@ -17520,31 +19824,30 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
         : address.text.trim().isEmpty
         ? 'Endereco nao informado'
         : address.text.trim();
-    widget.store.openOrder(
+    await widget.store.openOrder(
       type == 'Balcao' ? OrderKind.counter : OrderKind.delivery,
       customer: cleanCustomer,
+      customerPhone: phone.text,
       address: cleanAddress,
+      district: district.text,
+      notes: note.text,
+      deliveryFee: type == 'Balcao' ? '0' : fee.text,
+      courier: courier,
+      autoPrint: autoPrint,
     );
-    Navigator.of(context).maybePop();
+    if (mounted) Navigator.of(context).maybePop();
   }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
       child: Column(
         children: [
-          const _InfoStrip(
-            icon: Icons.dashboard_customize_outlined,
-            title: 'Cadastro rapido de pedido',
-            text:
-                'Preencha os dados abaixo para criar um pedido de entrega ou retirada com mais agilidade.',
-          ),
-          const SizedBox(height: 18),
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final wide = constraints.maxWidth >= 920;
+                final wide = constraints.maxWidth >= 760;
                 final left = Column(
                   children: [
                     _WpfActionCard(
@@ -17593,7 +19896,7 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
                                 child: _OutlineActionTile(
                                   icon: Icons.delivery_dining_outlined,
                                   label: 'Taxas por raio no mapa',
-                                  onTap: () {},
+                                  onTap: _showDeliveryZones,
                                 ),
                               ),
                             ],
@@ -17601,7 +19904,7 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 12),
                     Expanded(
                       child: _WpfActionCard(
                         title: 'Endereco de entrega',
@@ -17661,37 +19964,35 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 10),
                       _DeskSelect(
                         label: 'Entregador',
                         value: courier,
                         items: const ['', 'Joao Motoboy', 'Motoboy loja'],
                         onChanged: (value) => setState(() => courier = value),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 8),
                       _DeskInput(
                         label: 'Taxa',
                         controller: fee,
                         keyboardType: TextInputType.number,
                       ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Sem circulo cadastrado. Informe a taxa manual ou cadastre raios no mapa.',
-                        style: TextStyle(
+                      const SizedBox(height: 4),
+                      Text(
+                        zoneHint,
+                        style: const TextStyle(
                           color: Color(0xFF9B5D00),
                           fontSize: 12,
                           fontWeight: FontWeight.w800,
                           height: 1.15,
                         ),
                       ),
-                      const SizedBox(height: 28),
-                      const _WpfFieldLabel('Impressao'),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 12),
                       InkWell(
                         onTap: () => setState(() => autoPrint = !autoPrint),
                         borderRadius: BorderRadius.circular(8),
                         child: Container(
-                          height: 76,
+                          height: 54,
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           decoration: BoxDecoration(
@@ -17712,7 +20013,7 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: _teal,
-                                        fontSize: 16,
+                                        fontSize: 14,
                                         fontWeight: FontWeight.w900,
                                       ),
                                     ),
@@ -17723,7 +20024,7 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: _textSecondary,
-                                        fontSize: 12,
+                                        fontSize: 10,
                                       ),
                                     ),
                                   ],
@@ -17767,19 +20068,19 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Expanded(flex: 2, child: left),
-                    const SizedBox(width: 18),
-                    SizedBox(width: 350, child: right),
+                    const SizedBox(width: 12),
+                    SizedBox(width: 320, child: right),
                   ],
                 );
               },
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
                 child: SizedBox(
-                  height: 58,
+                  height: 44,
                   child: OutlinedButton(
                     onPressed: () => Navigator.of(context).maybePop(),
                     style: OutlinedButton.styleFrom(
@@ -17801,7 +20102,7 @@ class _NewDeliveryOrderModuleState extends State<_NewDeliveryOrderModule> {
               Expanded(
                 flex: 2,
                 child: SizedBox(
-                  height: 58,
+                  height: 44,
                   child: FilledButton(
                     onPressed: _create,
                     style: FilledButton.styleFrom(
@@ -17907,7 +20208,7 @@ class _DeliveryTypeTile extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          height: 76,
+          height: 56,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: selected ? _teal : Colors.white,
@@ -17917,8 +20218,8 @@ class _DeliveryTypeTile extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: selected ? Colors.white : _teal, size: 25),
-              const SizedBox(height: 5),
+              Icon(icon, color: selected ? Colors.white : _teal, size: 20),
+              const SizedBox(height: 3),
               Text(
                 label,
                 maxLines: 1,
@@ -17973,46 +20274,201 @@ class _OutlineActionTile extends StatelessWidget {
   }
 }
 
-class _DeliveryModule extends StatelessWidget {
+class _DeliveryModule extends StatefulWidget {
   const _DeliveryModule({required this.store});
 
   final BalcaoStore store;
 
   @override
+  State<_DeliveryModule> createState() => _DeliveryModuleState();
+}
+
+class _DeliveryModuleState extends State<_DeliveryModule> {
+  final authorizationCode = TextEditingController();
+
+  BalcaoStore get store => widget.store;
+
+  @override
+  void dispose() {
+    authorizationCode.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return _ModuleScroll(
+    return Column(
       children: [
-        _WindowPanel(
-          title: 'Entrada de pedidos',
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _DeskCommandButton(
-                label: 'Novo delivery',
-                color: _navy2,
-                onTap: () => store.openOrder(
-                  OrderKind.delivery,
-                  customer: 'Cliente delivery',
-                  address: 'Endereco delivery',
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: _WindowPanel(
+            title: 'iFood Online',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _ReportLine(
+                  label: store.ifoodMerchantName.isEmpty
+                      ? 'Conexao iFood'
+                      : store.ifoodMerchantName,
+                  detail: store.ifoodMessage,
+                  value: store.ifoodBusy
+                      ? '...'
+                      : store.ifoodConnected
+                      ? 'ON'
+                      : 'OFF',
+                  color: store.ifoodConnected ? _teal : Colors.red,
                 ),
-              ),
-              _DeskCommandButton(
-                label: 'Simular iFood',
-                color: Colors.red,
-                onTap: store.simulateIfoodOrder,
-              ),
-              _DeskCommandButton(
-                label: 'Sincronizar',
-                color: _teal,
-                onTap: store.flushSync,
+                if (store.ifoodLastSyncAt.isNotEmpty)
+                  _ReportLine(
+                    label: 'Ultima sincronizacao',
+                    detail: store.ifoodLastSyncAt,
+                    value:
+                        '${store.orders.where((order) => order.kind == OrderKind.ifood).length}',
+                    color: _navy2,
+                  ),
+                if (store.ifoodVerificationUrl.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  _AccessLinkBox(
+                    label: 'Autorizar no iFood',
+                    value: store.ifoodVerificationUrl,
+                    status: store.ifoodUserCode.isEmpty
+                        ? 'abrir'
+                        : store.ifoodUserCode,
+                    color: Colors.red,
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _DeskInput(
+                          key: const Key('ifoodAuthorizationCode'),
+                          label: 'Codigo de autorizacao',
+                          controller: authorizationCode,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _DeskCommandButton(
+                          key: const Key('ifoodFinishConnection'),
+                          label: 'Finalizar conexao',
+                          color: Colors.red,
+                          onTap: () => _finishConnection(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _DeskCommandButton(
+                      key: const Key('ifoodConnect'),
+                      label: store.ifoodConnected
+                          ? 'Reconectar iFood'
+                          : 'Conectar iFood',
+                      color: Colors.red,
+                      onTap: () => _connect(),
+                    ),
+                    _DeskCommandButton(
+                      key: const Key('ifoodSyncOrders'),
+                      label: 'Buscar pedidos',
+                      color: _teal,
+                      onTap: store.ifoodConnected ? () => _syncOrders() : () {},
+                    ),
+                    _DeskCommandButton(
+                      label: 'Novo delivery',
+                      color: _navy2,
+                      onTap: () => store.openOrder(
+                        OrderKind.delivery,
+                        customer: 'Cliente delivery',
+                        address: 'Endereco delivery',
+                      ),
+                    ),
+                    if (store.ifoodVerificationUrl.isNotEmpty)
+                      _DeskCommandButton(
+                        label: 'Abrir autorizacao',
+                        color: _navy2,
+                        onTap: () => _openAuthorization(),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            children: [
+              _WindowPanel(
+                title: 'Pedidos iFood recebidos',
+                child: Column(
+                  children: store.orders
+                      .where((order) => order.kind == OrderKind.ifood)
+                      .map(
+                        (order) => ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                          ),
+                          leading: const CircleAvatar(
+                            backgroundColor: Color(0xFFFFE9E6),
+                            foregroundColor: Colors.red,
+                            child: Icon(Icons.restaurant_rounded),
+                          ),
+                          title: Text(
+                            '${order.number} - ${order.customerName}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                          subtitle: Text(
+                            '${statusLabel(order.status)} | ${order.itemsCount} item(ns)',
+                          ),
+                          trailing: Text(
+                            money(order.subtotal),
+                            style: const TextStyle(
+                              color: _navy2,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          onTap: () => store.selectOrder(order.id),
+                        ),
+                      )
+                      .toList(),
+                ),
               ),
             ],
           ),
         ),
-        _DeliveryDesk(store: store),
       ],
     );
+  }
+
+  Future<void> _connect() async {
+    await store.connectIfood();
+    if (mounted) setState(() {});
+    if (store.ifoodVerificationUrl.isNotEmpty) {
+      await _openAuthorization();
+    }
+  }
+
+  Future<void> _finishConnection() async {
+    await store.finishIfoodConnection(authorizationCode.text);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _syncOrders() async {
+    await store.syncIfoodOrders();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openAuthorization() async {
+    final uri = Uri.tryParse(store.ifoodVerificationUrl);
+    if (uri == null) return;
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      await Clipboard.setData(ClipboardData(text: store.ifoodVerificationUrl));
+    }
   }
 }
 
@@ -18080,9 +20536,21 @@ class _CustomerDeskModuleState extends State<_CustomerDeskModule> {
         final list = _WindowPanel(
           title: 'Clientes e fidelidade',
           child: Column(
-            children: widget.store.customers
-                .map((customer) => _CustomerDeskLine(customer: customer))
-                .toList(),
+            children: [
+              _InfoStrip(
+                icon: Icons.privacy_tip_outlined,
+                title: 'Privacidade e LGPD',
+                text: widget.store.privacyNoticeText,
+              ),
+              const SizedBox(height: 10),
+              ...widget.store.customers.map(
+                (customer) => _CustomerDeskLine(
+                  customer: customer,
+                  onExport: () => _exportPrivacy(customer),
+                  onAnonymize: () => _confirmAnonymize(customer),
+                ),
+              ),
+            ],
           ),
         );
         final crm = _WindowPanel(
@@ -18120,7 +20588,11 @@ class _CustomerDeskModuleState extends State<_CustomerDeskModule> {
               ),
               const SizedBox(height: 10),
               ...missing.map(
-                (customer) => _CustomerDeskLine(customer: customer),
+                (customer) => _CustomerDeskLine(
+                  customer: customer,
+                  onExport: () => _exportPrivacy(customer),
+                  onAnonymize: () => _confirmAnonymize(customer),
+                ),
               ),
             ],
           ),
@@ -18175,12 +20647,67 @@ class _CustomerDeskModuleState extends State<_CustomerDeskModule> {
     phone.clear();
     address.clear();
   }
+
+  Future<void> _exportPrivacy(Customer customer) async {
+    final data = widget.store.exportCustomerPrivacyData(customer.id);
+    if (data == null) return;
+    final now = DateTime.now();
+    final stamp =
+        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+    await FilePicker.platform.saveFile(
+      dialogTitle: 'Exportar dados pessoais do cliente',
+      fileName: 'lgpd-cliente-$stamp.json',
+      type: FileType.custom,
+      allowedExtensions: const ['json'],
+      bytes: Uint8List.fromList(utf8.encode(data)),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(widget.store.securityMessage)));
+  }
+
+  Future<void> _confirmAnonymize(Customer customer) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remover dados pessoais?'),
+        content: Text(
+          'O cadastro de ${customer.name} sera anonimizado. Esta operacao nao pode ser desfeita.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            key: const Key('customerPrivacyConfirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Anonimizar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.store.anonymizeCustomer(customer.id);
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(widget.store.securityMessage)));
+  }
 }
 
 class _CustomerDeskLine extends StatelessWidget {
-  const _CustomerDeskLine({required this.customer});
+  const _CustomerDeskLine({
+    required this.customer,
+    required this.onExport,
+    required this.onAnonymize,
+  });
 
   final Customer customer;
+  final VoidCallback onExport;
+  final VoidCallback onAnonymize;
 
   @override
   Widget build(BuildContext context) {
@@ -18219,6 +20746,33 @@ class _CustomerDeskLine extends StatelessWidget {
           ),
           if (customer.missing)
             const _StatusPill(text: 'retorno', color: _warn),
+          PopupMenuButton<String>(
+            key: Key('customerPrivacy-${customer.id}'),
+            tooltip: 'Privacidade do cliente',
+            onSelected: (value) {
+              if (value == 'export') {
+                onExport();
+              } else if (value == 'anonymize') {
+                onAnonymize();
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'export',
+                child: ListTile(
+                  leading: Icon(Icons.download_outlined),
+                  title: Text('Exportar dados LGPD'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'anonymize',
+                child: ListTile(
+                  leading: Icon(Icons.person_off_outlined),
+                  title: Text('Anonimizar cliente'),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -18445,6 +20999,20 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
   late final TextEditingController bridgeLocalUrl = TextEditingController(
     text: widget.store.windowsBridgeLocalUrl,
   );
+  late final TextEditingController fiscalMerchantCode = TextEditingController(
+    text: widget.store.fiscalMerchantCode,
+  );
+  late final TextEditingController fiscalCscId = TextEditingController(
+    text: widget.store.fiscalCscId,
+  );
+  final fiscalOperator = TextEditingController(text: '2');
+  final fiscalPin = TextEditingController();
+  late bool fiscalEnabled = widget.store.fiscalEnabled;
+  late bool requireFiscal = widget.store.requireFiscalBeforeReceipt;
+  late String fiscalProvider = widget.store.fiscalProvider;
+  late String tefProvider = widget.store.tefProvider;
+  late String fiscalEnvironment = widget.store.fiscalEnvironment;
+  String fiscalResult = '';
   int section = 0;
 
   @override
@@ -18460,6 +21028,10 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
     address.dispose();
     bridgeUrl.dispose();
     bridgeLocalUrl.dispose();
+    fiscalMerchantCode.dispose();
+    fiscalCscId.dispose();
+    fiscalOperator.dispose();
+    fiscalPin.dispose();
     super.dispose();
   }
 
@@ -18649,13 +21221,107 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
                 ? 'Pix Mercado Pago, debito, credito e link ficam disponiveis no fechamento.'
                 : 'O caixa mostra Dinheiro, Pix, Debito, Credito e Fiado sem depender do Mercado Pago.',
           ),
-          const SizedBox(height: 10),
-          const _InfoStrip(
-            icon: Icons.receipt_long_rounded,
-            title: 'NFC-e',
-            text:
-                'Modulo fiscal fica preparado para emitir pelo PDV Windows sem travar o caixa.',
+          const SizedBox(height: 12),
+          const Divider(),
+          SwitchListTile(
+            key: const Key('fiscalEnabled'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Ativar modulo fiscal/TEF separado'),
+            subtitle: const Text(
+              'NFC-e, SAT, MFE e maquininha ficam isolados do caixa.',
+            ),
+            value: fiscalEnabled,
+            onChanged: (value) => setState(() => fiscalEnabled = value),
           ),
+          const SizedBox(height: 8),
+          _settingsPair(
+            _DeskSelect(
+              label: 'Fiscal',
+              value: fiscalProvider,
+              items: const ['NAO CONFIGURADO', 'NFC-E', 'SAT', 'MFE', 'OUTRO'],
+              onChanged: (value) => setState(() => fiscalProvider = value),
+            ),
+            _DeskSelect(
+              label: 'TEF / maquininha',
+              value: tefProvider,
+              items: const [
+                'NAO CONFIGURADO',
+                'STONE',
+                'CIELO',
+                'REDE',
+                'PAGSEGURO',
+                'TEF DISCADO',
+                'OUTRO',
+              ],
+              onChanged: (value) => setState(() => tefProvider = value),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _settingsPair(
+            _DeskInput(
+              key: const Key('fiscalMerchantCode'),
+              label: 'Codigo do estabelecimento / afiliacao',
+              controller: fiscalMerchantCode,
+            ),
+            _DeskInput(
+              key: const Key('fiscalCscId'),
+              label: 'CSC/Token fiscal ou referencia tecnica',
+              controller: fiscalCscId,
+              obscureText: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _DeskSelect(
+            label: 'Ambiente',
+            value: fiscalEnvironment,
+            items: const ['HOMOLOGACAO', 'PRODUCAO'],
+            onChanged: (value) => setState(() => fiscalEnvironment = value),
+          ),
+          CheckboxListTile(
+            key: const Key('fiscalRequireBeforeReceipt'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              'Exigir fiscal antes de imprimir comprovante de venda',
+            ),
+            value: requireFiscal,
+            onChanged: (value) =>
+                setState(() => requireFiscal = value ?? false),
+          ),
+          const SizedBox(height: 8),
+          _settingsPair(
+            _DeskInput(
+              key: const Key('fiscalOperator'),
+              label: 'Operador autorizado',
+              controller: fiscalOperator,
+            ),
+            _DeskInput(
+              key: const Key('fiscalPin'),
+              label: 'Senha',
+              controller: fiscalPin,
+              keyboardType: TextInputType.number,
+              obscureText: true,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: _DeskCommandButton(
+              key: const Key('fiscalSave'),
+              label: 'Salvar modulo fiscal/TEF',
+              color: _teal,
+              onTap: _saveFiscalSettings,
+            ),
+          ),
+          if (fiscalResult.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _InfoStrip(
+              icon: Icons.receipt_long_rounded,
+              title: fiscalEnabled
+                  ? 'Modulo fiscal ativo'
+                  : 'Modulo fiscal salvo',
+              text: fiscalResult,
+            ),
+          ],
         ],
       ),
     );
@@ -18723,10 +21389,9 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
           ),
           _ReportLine(
             label: 'iFood',
-            detail:
-                'catalogo, estoque e pedidos em tempo real quando habilitado',
-            value: 'AUTO',
-            color: Colors.red,
+            detail: widget.store.ifoodMessage,
+            value: widget.store.ifoodConnected ? 'ON' : 'OFF',
+            color: widget.store.ifoodConnected ? _teal : Colors.red,
           ),
         ],
       ),
@@ -18765,10 +21430,10 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
         children: [
           _ReportLine(
             label: 'Conta da loja',
-            detail: widget.store.licenseKey.isEmpty
-                ? 'BLV-DEMO-139'
-                : widget.store.licenseKey,
-            value: widget.store.loggedIn ? 'ativa' : 'teste',
+            detail: widget.store.planCode.isEmpty
+                ? 'Assinatura não carregada'
+                : widget.store.planCode,
+            value: widget.store.loggedIn ? 'ativa' : 'offline',
             color: widget.store.loggedIn ? _teal : _warn,
           ),
           _ReportLine(
@@ -18778,24 +21443,13 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
             color: _navy2,
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _DeskCommandButton(
-                  label: 'Resetar teste',
-                  color: _warn,
-                  onTap: widget.store.resetDemo,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _DeskCommandButton(
-                  label: 'Sair',
-                  color: _blue2,
-                  onTap: widget.store.logout,
-                ),
-              ),
-            ],
+          SizedBox(
+            width: double.infinity,
+            child: _DeskCommandButton(
+              label: 'Sair desta conta',
+              color: _blue2,
+              onTap: widget.store.logout,
+            ),
           ),
         ],
       ),
@@ -18819,6 +21473,25 @@ class _SettingsDeskModuleState extends State<_SettingsDeskModule> {
       localUrl: bridgeLocalUrl.text,
     );
     if (mounted) setState(() {});
+  }
+
+  Future<void> _saveFiscalSettings() async {
+    final saved = await widget.store.saveFiscalSettings(
+      enabled: fiscalEnabled,
+      fiscal: fiscalProvider,
+      tef: tefProvider,
+      merchantCode: fiscalMerchantCode.text,
+      cscId: fiscalCscId.text,
+      environment: fiscalEnvironment,
+      requireBeforeReceipt: requireFiscal,
+      operator: fiscalOperator.text,
+      pin: fiscalPin.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      fiscalResult = widget.store.fiscalMessage;
+      if (saved) fiscalPin.clear();
+    });
   }
 
   Widget _settingsPair(Widget left, Widget right, {double? rightWidth}) {
@@ -19327,20 +22000,24 @@ const _settingsSections = [
 
 class _DeskInput extends StatelessWidget {
   const _DeskInput({
+    super.key,
     required this.label,
     required this.controller,
     this.keyboardType,
+    this.obscureText = false,
   });
 
   final String label;
   final TextEditingController controller;
   final TextInputType? keyboardType;
+  final bool obscureText;
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
+      obscureText: obscureText,
       decoration: _deskDecoration(label),
     );
   }
@@ -19417,6 +22094,7 @@ InputDecoration _deskDecoration(String label) {
 
 class _DeskCommandButton extends StatelessWidget {
   const _DeskCommandButton({
+    super.key,
     required this.label,
     required this.color,
     required this.onTap,
@@ -19537,19 +22215,45 @@ class DashboardPage extends StatelessWidget {
                 ),
               ),
               _ActionChipButton(
-                label: 'Pedido iFood',
+                label: 'Sincronizar iFood',
                 icon: Icons.restaurant_rounded,
-                onTap: store.simulateIfoodOrder,
+                onTap: store.syncIfoodOrders,
               ),
               _ActionChipButton(
                 label: store.cashOpen ? 'Fechar caixa' : 'Abrir caixa',
                 icon: Icons.point_of_sale_rounded,
-                onTap: store.toggleCash,
+                onTap: () => _toggleCash(context),
               ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  Future<void> _toggleCash(BuildContext context) async {
+    if (store.cashReconciliationRequired) {
+      await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => _CashReconciliationDialog(store: store),
+      );
+      return;
+    }
+    if (store.cashOpen && store.openOrders.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Resolva as comandas abertas antes de fechar o caixa.'),
+        ),
+      );
+      return;
+    }
+    await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => store.cashOpen
+          ? _CashCloseDialog(store: store)
+          : _CashOpenDialog(store: store),
     );
   }
 }
@@ -19918,13 +22622,73 @@ class _CustomersPageState extends State<CustomersPage> {
           title: 'CRM WhatsApp',
           icon: Icons.mark_chat_unread_rounded,
           child: Column(
-            children: widget.store.customers
-                .map((customer) => _CustomerTile(customer: customer))
-                .toList(),
+            children: [
+              _InfoStrip(
+                icon: Icons.privacy_tip_outlined,
+                title: 'Privacidade e LGPD',
+                text: widget.store.privacyNoticeText,
+              ),
+              const SizedBox(height: 10),
+              ...widget.store.customers.map(
+                (customer) => _CustomerTile(
+                  customer: customer,
+                  onExport: () => _exportPrivacy(customer),
+                  onAnonymize: () => _confirmAnonymize(customer),
+                ),
+              ),
+            ],
           ),
         ),
       ],
     );
+  }
+
+  Future<void> _exportPrivacy(Customer customer) async {
+    final data = widget.store.exportCustomerPrivacyData(customer.id);
+    if (data == null) return;
+    final now = DateTime.now();
+    final stamp =
+        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+    await FilePicker.platform.saveFile(
+      dialogTitle: 'Exportar dados pessoais do cliente',
+      fileName: 'lgpd-cliente-$stamp.json',
+      type: FileType.custom,
+      allowedExtensions: const ['json'],
+      bytes: Uint8List.fromList(utf8.encode(data)),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(widget.store.securityMessage)));
+  }
+
+  Future<void> _confirmAnonymize(Customer customer) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remover dados pessoais?'),
+        content: Text(
+          'O cadastro de ${customer.name} sera anonimizado. Esta operacao nao pode ser desfeita.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Anonimizar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.store.anonymizeCustomer(customer.id);
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(widget.store.securityMessage)));
   }
 }
 
@@ -20439,9 +23203,15 @@ class _ProductStockTile extends StatelessWidget {
 }
 
 class _CustomerTile extends StatelessWidget {
-  const _CustomerTile({required this.customer});
+  const _CustomerTile({
+    required this.customer,
+    required this.onExport,
+    required this.onAnonymize,
+  });
 
   final Customer customer;
+  final VoidCallback onExport;
+  final VoidCallback onAnonymize;
 
   @override
   Widget build(BuildContext context) {
@@ -20482,6 +23252,26 @@ class _CustomerTile extends StatelessWidget {
           ),
           if (customer.missing)
             const _StatusPill(text: 'retorno', color: _warn),
+          PopupMenuButton<String>(
+            tooltip: 'Privacidade do cliente',
+            onSelected: (value) {
+              if (value == 'export') {
+                onExport();
+              } else if (value == 'anonymize') {
+                onAnonymize();
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'export',
+                child: Text('Exportar dados LGPD'),
+              ),
+              PopupMenuItem(
+                value: 'anonymize',
+                child: Text('Anonimizar cliente'),
+              ),
+            ],
+          ),
         ],
       ),
     );

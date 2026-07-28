@@ -86,7 +86,7 @@ public sealed class AgendaDataStore
         if (!File.Exists(DataPath))
         {
             var created = _seedWhenMissing ? CreateSeedData() : CreateCleanData();
-            created.Settings.OnboardingCompleted = false;
+            created.Settings.OnboardingCompleted = _seedWhenMissing && IsAuditMode();
             Save(created);
             return created;
         }
@@ -105,7 +105,7 @@ public sealed class AgendaDataStore
             File.Copy(DataPath, backupPath, overwrite: true);
 
             var recovered = _seedWhenMissing ? CreateSeedData() : CreateCleanData();
-            recovered.Settings.OnboardingCompleted = false;
+            recovered.Settings.OnboardingCompleted = _seedWhenMissing && IsAuditMode();
             Save(recovered);
             return recovered;
         }
@@ -194,6 +194,7 @@ public sealed class AgendaDataStore
         data.Products ??= [];
         data.ProductSales ??= [];
         data.ManualPayments ??= [];
+        data.CustomerReceivables ??= [];
         data.Expenses ??= [];
         data.WhatsAppMessages ??= [];
         data.WhatsAppLeads ??= [];
@@ -201,6 +202,7 @@ public sealed class AgendaDataStore
         data.Settings.BusinessLogoPath ??= "";
         data.Settings.BusinessDocument ??= "";
         data.Settings.BusinessPhone ??= "";
+        data.Settings.PixKey ??= "";
         data.Settings.BusinessAddress ??= "";
         data.Settings.ThemeId ??= "";
         data.Settings.AccountFullName ??= "";
@@ -225,6 +227,49 @@ public sealed class AgendaDataStore
         data.Settings.InstagramLastError ??= "";
         data.Settings.AccountPasswordHash ??= "";
         data.Settings.Resources ??= [];
+        data.Settings.MarketingSiteHeader ??= new MarketingCatalogHeader();
+        data.Settings.MarketingSiteFooter ??= new MarketingCatalogFooter();
+        data.Settings.MarketingSiteDesign ??= new MarketingCatalogDesign();
+        data.Settings.MarketingSiteSections ??= [];
+        data.Settings.MarketingSitePromotion ??= new MarketingSitePromotion();
+        data.Settings.MarketingSitePromotion.Items ??= [];
+        foreach (var section in data.Settings.MarketingSiteSections)
+        {
+            section.Id = string.IsNullOrWhiteSpace(section.Id)
+                ? Guid.NewGuid().ToString("N")
+                : section.Id;
+            section.Items ??= [];
+            foreach (var item in section.Items)
+            {
+                item.Id = string.IsNullOrWhiteSpace(item.Id)
+                    ? Guid.NewGuid().ToString("N")
+                    : item.Id;
+            }
+        }
+        if (data.Settings.PublishedMarketingCatalog is { } publication)
+        {
+            publication.Header ??= new MarketingCatalogHeader();
+            publication.Footer ??= new MarketingCatalogFooter();
+            publication.Design ??= new MarketingCatalogDesign();
+            publication.Sections ??= [];
+            if (publication.Promotion is { } promotion)
+            {
+                promotion.Items ??= [];
+            }
+            foreach (var section in publication.Sections)
+            {
+                section.Id = string.IsNullOrWhiteSpace(section.Id)
+                    ? Guid.NewGuid().ToString("N")
+                    : section.Id;
+                section.Items ??= [];
+                foreach (var item in section.Items)
+                {
+                    item.Id = string.IsNullOrWhiteSpace(item.Id)
+                        ? Guid.NewGuid().ToString("N")
+                        : item.Id;
+                }
+            }
+        }
         foreach (var professional in data.Professionals)
         {
             professional.Segments ??= [];
@@ -281,6 +326,11 @@ public sealed class AgendaDataStore
         foreach (var payment in data.ManualPayments.Where(payment => string.IsNullOrWhiteSpace(payment.Id)))
         {
             payment.Id = Guid.NewGuid().ToString("N");
+        }
+
+        foreach (var receivable in data.CustomerReceivables.Where(receivable => string.IsNullOrWhiteSpace(receivable.Id)))
+        {
+            receivable.Id = Guid.NewGuid().ToString("N");
         }
 
         foreach (var expense in data.Expenses.Where(expense => string.IsNullOrWhiteSpace(expense.Id)))
@@ -443,6 +493,9 @@ public sealed class AgendaDataStore
             appointment.ResourceName = (appointment.ResourceName ?? "").Trim();
             appointment.CreatedAt = appointment.CreatedAt == DateTime.MinValue ? DateTime.Now : appointment.CreatedAt;
             appointment.UpdatedAt = appointment.UpdatedAt == DateTime.MinValue ? appointment.CreatedAt : appointment.UpdatedAt;
+            appointment.PaymentConfirmedAt = appointment.PaymentConfirmedAt == DateTime.MinValue
+                ? null
+                : appointment.PaymentConfirmedAt;
         }
 
         foreach (var product in data.Products)
@@ -466,11 +519,42 @@ public sealed class AgendaDataStore
             payment.Value = Math.Max(0, payment.Value);
         }
 
+        foreach (var receivable in data.CustomerReceivables)
+        {
+            receivable.OriginalValue = Math.Max(0, receivable.OriginalValue);
+            receivable.RemainingValue = Math.Clamp(receivable.RemainingValue, 0, receivable.OriginalValue);
+            receivable.Status = NormalizeReceivableStatus(receivable.Status);
+            receivable.OpenedAt = receivable.OpenedAt == DateTime.MinValue ? DateTime.Now : receivable.OpenedAt;
+            receivable.UpdatedAt = receivable.UpdatedAt == DateTime.MinValue
+                ? receivable.OpenedAt
+                : receivable.UpdatedAt;
+            if (receivable.UpdatedAt < receivable.OpenedAt)
+            {
+                receivable.UpdatedAt = receivable.OpenedAt;
+            }
+
+            receivable.DueAt = receivable.DueAt == DateTime.MinValue ? null : receivable.DueAt;
+            receivable.PaidAt = receivable.PaidAt == DateTime.MinValue ? null : receivable.PaidAt;
+            if (receivable.Status == "paid")
+            {
+                receivable.RemainingValue = 0;
+                receivable.PaidAt ??= receivable.UpdatedAt;
+            }
+        }
+
         foreach (var expense in data.Expenses)
         {
             expense.Value = Math.Max(0, expense.Value);
         }
     }
+
+    private static string NormalizeReceivableStatus(string status) =>
+        (status ?? "").Trim().ToLowerInvariant() switch
+        {
+            "paid" => "paid",
+            "cancelled" or "canceled" => "cancelled",
+            _ => "open"
+        };
 
     private static void RepairPersistedText(AgendaData data)
     {
@@ -481,6 +565,7 @@ public sealed class AgendaDataStore
         data.Settings.BusinessLogoPath = RepairText(data.Settings.BusinessLogoPath);
         data.Settings.BusinessDocument = RepairText(data.Settings.BusinessDocument);
         data.Settings.BusinessPhone = RepairText(data.Settings.BusinessPhone);
+        data.Settings.PixKey = RepairText(data.Settings.PixKey);
         data.Settings.BusinessAddress = RepairText(data.Settings.BusinessAddress);
         data.Settings.BusinessSegment = RepairText(data.Settings.BusinessSegment);
         data.Settings.ThemeId = RepairText(data.Settings.ThemeId);
@@ -513,11 +598,36 @@ public sealed class AgendaDataStore
         data.Settings.MercadoPagoDefaultTerminalId = RepairText(data.Settings.MercadoPagoDefaultTerminalId);
         data.Settings.MercadoPagoDefaultTerminalLabel = RepairText(data.Settings.MercadoPagoDefaultTerminalLabel);
         data.Settings.MercadoPagoLastError = RepairText(data.Settings.MercadoPagoLastError);
+        data.Settings.MarketingSiteSeoTitle = RepairText(data.Settings.MarketingSiteSeoTitle);
+        data.Settings.MarketingSiteSeoDescription = RepairText(data.Settings.MarketingSiteSeoDescription);
+        RepairMarketingSitePromotion(data.Settings.MarketingSitePromotion);
+        RepairMarketingCatalogHeader(data.Settings.MarketingSiteHeader);
+        RepairMarketingCatalogFooter(data.Settings.MarketingSiteFooter);
+        foreach (var section in data.Settings.MarketingSiteSections)
+        {
+            RepairMarketingCatalogSection(section);
+        }
+        if (data.Settings.PublishedMarketingCatalog is { } publication)
+        {
+            publication.SeoTitle = RepairText(publication.SeoTitle);
+            publication.SeoDescription = RepairText(publication.SeoDescription);
+            if (publication.Promotion is { } promotion)
+            {
+                RepairMarketingSitePromotion(promotion);
+            }
+            RepairMarketingCatalogHeader(publication.Header);
+            RepairMarketingCatalogFooter(publication.Footer);
+            foreach (var section in publication.Sections)
+            {
+                RepairMarketingCatalogSection(section);
+            }
+        }
 
         if (string.IsNullOrWhiteSpace(data.Settings.WhatsAppEvolutionBaseUrl)
-            || data.Settings.WhatsAppEvolutionBaseUrl.Contains("/evolution-proxy", StringComparison.OrdinalIgnoreCase))
+            || data.Settings.WhatsAppEvolutionBaseUrl.Contains("/evolution-proxy", StringComparison.OrdinalIgnoreCase)
+            || data.Settings.WhatsAppEvolutionBaseUrl.Contains("hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/whatsapp", StringComparison.OrdinalIgnoreCase))
         {
-            data.Settings.WhatsAppEvolutionBaseUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/whatsapp";
+            data.Settings.WhatsAppEvolutionBaseUrl = "https://hzvplpotsdzxygkxrgyi.functions.supabase.co/functions/v1/whatsapp";
             data.Settings.WhatsAppEvolutionState = "";
             data.Settings.WhatsAppEvolutionQrBase64 = "";
             data.Settings.WhatsAppLinked = false;
@@ -576,6 +686,7 @@ public sealed class AgendaDataStore
         foreach (var appointment in data.Appointments)
         {
             appointment.Segment = RepairText(appointment.Segment);
+            appointment.CustomerId = RepairText(appointment.CustomerId);
             appointment.CustomerName = RepairText(appointment.CustomerName);
             appointment.CustomerPhone = RepairText(appointment.CustomerPhone);
             appointment.CustomerProfile = RepairText(appointment.CustomerProfile);
@@ -584,7 +695,41 @@ public sealed class AgendaDataStore
             appointment.ProfessionalId = RepairText(appointment.ProfessionalId);
             appointment.ProfessionalName = RepairText(appointment.ProfessionalName);
             appointment.ResourceName = RepairText(appointment.ResourceName);
+            appointment.PaymentMethod = RepairText(appointment.PaymentMethod);
+            appointment.PaymentProvider = RepairText(appointment.PaymentProvider);
+            appointment.PaymentReference = RepairText(appointment.PaymentReference);
+            appointment.PaymentStatus = RepairText(appointment.PaymentStatus);
             appointment.Notes = RepairText(appointment.Notes);
+            appointment.ServiceLines ??= [];
+            if (appointment.ServiceLines.Count == 0 && !string.IsNullOrWhiteSpace(appointment.ServiceName))
+            {
+                appointment.ServiceLines.Add(new AppointmentServiceLine
+                {
+                    ServiceId = appointment.ServiceId,
+                    ServiceName = appointment.ServiceName,
+                    Segment = appointment.Segment,
+                    Quantity = 1,
+                    DurationMinutes = Math.Max(1, appointment.DurationMinutes),
+                    UnitPrice = Math.Max(0, appointment.Price)
+                });
+            }
+            foreach (var line in appointment.ServiceLines)
+            {
+                line.ServiceId = RepairText(line.ServiceId);
+                line.ServiceName = RepairText(line.ServiceName);
+                line.Segment = RepairText(line.Segment);
+                line.Quantity = Math.Max(1, line.Quantity);
+                line.DurationMinutes = Math.Max(1, line.DurationMinutes);
+                line.UnitPrice = Math.Max(0, line.UnitPrice);
+            }
+            appointment.ProductLines ??= [];
+            foreach (var line in appointment.ProductLines)
+            {
+                line.ProductId = RepairText(line.ProductId);
+                line.ProductName = RepairText(line.ProductName);
+                line.Quantity = Math.Max(1, line.Quantity);
+                line.UnitPrice = Math.Max(0, line.UnitPrice);
+            }
         }
 
         foreach (var product in data.Products)
@@ -618,6 +763,20 @@ public sealed class AgendaDataStore
             payment.PaymentReference = RepairText(payment.PaymentReference);
             payment.PaymentStatus = RepairText(payment.PaymentStatus);
             payment.Notes = RepairText(payment.Notes);
+        }
+
+        foreach (var receivable in data.CustomerReceivables)
+        {
+            receivable.CustomerId = RepairText(receivable.CustomerId);
+            receivable.CustomerName = RepairText(receivable.CustomerName);
+            receivable.AppointmentId = RepairText(receivable.AppointmentId);
+            receivable.Description = RepairText(receivable.Description);
+            receivable.Status = RepairText(receivable.Status);
+            receivable.PaymentMethod = RepairText(receivable.PaymentMethod);
+            receivable.PaymentProvider = RepairText(receivable.PaymentProvider);
+            receivable.PaymentReference = RepairText(receivable.PaymentReference);
+            receivable.PaymentStatus = RepairText(receivable.PaymentStatus);
+            receivable.Notes = RepairText(receivable.Notes);
         }
 
         foreach (var expense in data.Expenses)
@@ -666,6 +825,61 @@ public sealed class AgendaDataStore
             {
                 lead.Facts[index] = RepairText(lead.Facts[index]);
             }
+        }
+    }
+
+    private static void RepairMarketingCatalogHeader(MarketingCatalogHeader header)
+    {
+        header.BusinessName = RepairText(header.BusinessName);
+        header.Subtitle = RepairText(header.Subtitle);
+        header.ButtonText = RepairText(header.ButtonText);
+        header.Background = RepairText(header.Background);
+    }
+
+    private static void RepairMarketingSitePromotion(MarketingSitePromotion promotion)
+    {
+        promotion.Name = RepairText(promotion.Name);
+        promotion.LimitPerCustomer = Math.Clamp(promotion.LimitPerCustomer, 1, 99);
+        promotion.Items ??= [];
+        foreach (var item in promotion.Items)
+        {
+            item.ServiceId = RepairText(item.ServiceId);
+            item.ServiceName = RepairText(item.ServiceName);
+            item.OriginalPrice = Math.Max(0, item.OriginalPrice);
+            item.PromotionalPrice = Math.Max(0, item.PromotionalPrice);
+        }
+    }
+
+    private static void RepairMarketingCatalogFooter(MarketingCatalogFooter footer)
+    {
+        footer.BusinessName = RepairText(footer.BusinessName);
+        footer.Description = RepairText(footer.Description);
+        footer.Address = RepairText(footer.Address);
+        footer.Phone = RepairText(footer.Phone);
+        footer.Hours = RepairText(footer.Hours);
+        footer.Instagram = RepairText(footer.Instagram);
+        footer.WhatsApp = RepairText(footer.WhatsApp);
+    }
+
+    private static void RepairMarketingCatalogSection(MarketingCatalogSection section)
+    {
+        section.Id = RepairText(section.Id);
+        section.Type = RepairText(section.Type);
+        section.Title = RepairText(section.Title);
+        section.Subtitle = RepairText(section.Subtitle);
+        section.Body = RepairText(section.Body);
+        section.ButtonText = RepairText(section.ButtonText);
+        section.ButtonTarget = RepairText(section.ButtonTarget);
+        section.Layout = RepairText(section.Layout);
+        section.Background = RepairText(section.Background);
+        section.Alignment = RepairText(section.Alignment);
+        foreach (var item in section.Items)
+        {
+            item.Id = RepairText(item.Id);
+            item.Title = RepairText(item.Title);
+            item.Text = RepairText(item.Text);
+            item.Detail = RepairText(item.Detail);
+            item.ImagePath = RepairText(item.ImagePath);
         }
     }
 
@@ -721,57 +935,91 @@ public sealed class AgendaDataStore
         {
             Settings =
             {
-                BusinessName = "Balcão Livre",
+                AccountFullName = "Nina Almeida",
+                AccountPhone = "(33) 99800-7978",
+                AccountEmail = "nina@studionina.com.br",
+                BusinessName = "Studio Nina Beauty",
+                BusinessPhone = "(33) 99800-7978",
+                BusinessAddress = "Rua das Flores, 245 - Centro",
+                BusinessSegment = "Salão de beleza",
+                ThemeId = "theme-3",
+                ClientLabel = "Cliente",
+                ClientDetailLabel = "Preferências e observações",
+                ResourceLabel = "Espaço de atendimento",
+                OnboardingCompleted = true,
                 WorkdayStartHour = 8,
                 WorkdayEndHour = 20,
-                Resources = DefaultResources()
+                Workdays = [1, 2, 3, 4, 5, 6],
+                WorkdayBreakEnabled = true,
+                WorkdayBreakStartHour = 12,
+                WorkdayBreakEndHour = 13,
+                ProfessionalCountRange = "4-6",
+                MainObjective = "Organizar agenda e aumentar recorrência",
+                InstagramEnabled = true,
+                InstagramLinked = true,
+                InstagramUsername = "@studioninabeauty",
+                InstagramDisplayName = "Studio Nina Beauty",
+                WhatsAppEnabled = true,
+                WhatsAppLinked = true,
+                WhatsAppConnectedName = "Studio Nina",
+                WhatsAppStorePhone = "5533998007978",
+                MercadoPagoEnabled = true,
+                MercadoPagoConnected = true,
+                MercadoPagoDefaultTerminalLabel = "Recepção",
+                Resources = ["Cadeira 1", "Cadeira 2", "Mesa de unhas", "Sala estética", "Lavatório"]
             }
         };
 
         data.Services.AddRange(
         [
-            Service("Clínica médica", "Consulta médica", 45, 180, "Sala 1"),
-            Service("Clínica médica", "Retorno", 30, 90, "Sala 1"),
-            Service("Clínica médica", "Exame simples", 30, 120, "Sala 2"),
-            Service("Petshop", "Banho e tosa", 90, 95, "Tosa 1"),
-            Service("Petshop", "Consulta veterinária", 40, 160, "Sala pet"),
-            Service("Petshop", "Vacinação", 25, 85, "Sala pet"),
-            Service("Mecânica", "Diagnóstico", 60, 120, "Box 1"),
-            Service("Mecânica", "Troca de óleo", 45, 90, "Box 2"),
-            Service("Mecânica", "Revisão completa", 150, 420, "Box 1"),
-            Service("Unha e beleza", "Manicure", 45, 55, "Mesa 1"),
-            Service("Unha e beleza", "Alongamento de unha", 120, 180, "Mesa 2"),
-            Service("Unha e beleza", "Sobrancelha", 30, 45, "Cadeira beleza"),
-            Service("Cabelo e barbearia", "Corte masculino", 35, 45, "Cadeira 1"),
-            Service("Cabelo e barbearia", "Barba", 25, 35, "Cadeira 1"),
-            Service("Cabelo e barbearia", "Escova", 45, 70, "Cadeira 2"),
-            Service("Cabelo e barbearia", "Coloração", 120, 240, "Cadeira 2")
+            Service("Salão de beleza", "Corte feminino", 60, 95, "Cadeira 1"),
+            Service("Salão de beleza", "Escova modelada", 45, 70, "Cadeira 2"),
+            Service("Salão de beleza", "Coloração completa", 150, 260, "Cadeira 1"),
+            Service("Salão de beleza", "Hidratação premium", 60, 110, "Lavatório"),
+            Service("Salão de beleza", "Manicure", 45, 55, "Mesa de unhas"),
+            Service("Salão de beleza", "Pedicure", 50, 65, "Mesa de unhas"),
+            Service("Salão de beleza", "Design de sobrancelhas", 30, 48, "Sala estética"),
+            Service("Salão de beleza", "Limpeza de pele", 75, 150, "Sala estética")
         ]);
 
         data.Professionals.AddRange(
         [
-            Professional("Dra. Ana Ribeiro", "Médica", "Clínica médica"),
-            Professional("Dr. Marcos Leal", "Clínico", "Clínica médica"),
-            Professional("Bruno Vet", "Veterinário", "Petshop"),
-            Professional("Camila Pet", "Banho e tosa", "Petshop"),
-            Professional("Carlos Oficina", "Mecânico", "Mecânica"),
-            Professional("Rafa Diagnóstico", "Mecânico", "Mecânica"),
-            Professional("Duda Nails", "Manicure", "Unha e beleza"),
-            Professional("Nay Beauty", "Designer", "Unha e beleza"),
-            Professional("Leo Barber", "Barbeiro", "Cabelo e barbearia"),
-            Professional("Marta Hair", "Cabeleireira", "Cabelo e barbearia")
+            Professional("Nina Almeida", "Cabeleireira e proprietária", "Salão de beleza"),
+            Professional("Camila Rocha", "Colorista", "Salão de beleza"),
+            Professional("Júlia Martins", "Manicure e pedicure", "Salão de beleza"),
+            Professional("Mariana Costa", "Esteticista", "Salão de beleza"),
+            Professional("Laura Freitas", "Assistente", "Salão de beleza")
         ]);
 
         var today = DateTime.Today;
-        AddSeedAppointment(data, "Clínica médica", "Maria Souza", "Paciente 0321", "(11) 98888-1001", "Consulta médica", "Dra. Ana Ribeiro", "Sala 1", today.AddHours(9), AppointmentStatus.Confirmed, "Primeira consulta.");
-        AddSeedAppointment(data, "Petshop", "Nina / Tutor João", "Spitz, banho especial", "(11) 97777-2002", "Banho e tosa", "Camila Pet", "Tosa 1", today.AddHours(10), AppointmentStatus.Scheduled, "Usar shampoo hipoalergênico.");
-        AddSeedAppointment(data, "Mecânica", "Fiat Argo - Lucas", "Placa BRA2E26", "(11) 96666-3003", "Diagnóstico", "Carlos Oficina", "Box 1", today.AddHours(13), AppointmentStatus.Waiting, "Cliente relatou barulho na suspensão.");
-        AddSeedAppointment(data, "Unha e beleza", "Patrícia Lima", "Francesinha", "(11) 95555-4004", "Manicure", "Duda Nails", "Mesa 1", today.AddHours(15), AppointmentStatus.Scheduled, "");
-        AddSeedAppointment(data, "Cabelo e barbearia", "André Costa", "Degradê baixo", "(11) 94444-5005", "Corte masculino", "Leo Barber", "Cadeira 1", today.AddHours(17), AppointmentStatus.Confirmed, "");
-        AddSeedAppointment(data, "Clínica médica", "Horário bloqueado", "Reunião interna", "", "Bloqueio interno", "Dr. Marcos Leal", "Sala 2", today.AddDays(1).AddHours(11), AppointmentStatus.Blocked, "Treinamento da equipe.");
+        AddSeedAppointment(data, "Salão de beleza", "Isabela Fernandes", "Corte em camadas", "(33) 98841-2103", "Corte feminino", "Nina Almeida", "Cadeira 1", today.AddHours(9), AppointmentStatus.Confirmed, "Prefere finalizar com ondas leves.");
+        AddSeedAppointment(data, "Salão de beleza", "Ana Clara Souza", "Loiro bege", "(33) 99720-4431", "Coloração completa", "Camila Rocha", "Cadeira 2", today.AddHours(10), AppointmentStatus.InService, "Fazer teste de mecha.");
+        AddSeedAppointment(data, "Salão de beleza", "Beatriz Lima", "Francesinha delicada", "(33) 99115-6802", "Manicure", "Júlia Martins", "Mesa de unhas", today.AddHours(11), AppointmentStatus.Waiting, "");
+        AddSeedAppointment(data, "Salão de beleza", "Renata Alves", "Pele sensível", "(33) 98472-0920", "Limpeza de pele", "Mariana Costa", "Sala estética", today.AddHours(13), AppointmentStatus.Scheduled, "Usar produtos suaves.");
+        AddSeedAppointment(data, "Salão de beleza", "Carolina Mendes", "Evento à noite", "(33) 99814-3370", "Escova modelada", "Nina Almeida", "Cadeira 1", today.AddHours(15), AppointmentStatus.Confirmed, "Finalização com volume.");
+        AddSeedAppointment(data, "Salão de beleza", "Fernanda Nunes", "Manutenção mensal", "(33) 98760-1198", "Design de sobrancelhas", "Mariana Costa", "Sala estética", today.AddHours(16), AppointmentStatus.Scheduled, "");
+        AddSeedAppointment(data, "Salão de beleza", "Luana Ribeiro", "Cabelo ressecado", "(33) 99221-5084", "Hidratação premium", "Camila Rocha", "Lavatório", today.AddHours(17), AppointmentStatus.Scheduled, "Aplicar máscara nutritiva.");
+
+        data.Products.AddRange([
+            new ProductItem { Name = "Shampoo Nutritivo", Category = "Home care", Supplier = "Belle Pro", CostPrice = 38, Price = 79, StockQuantity = 12, MinimumStock = 4 },
+            new ProductItem { Name = "Máscara Reconstrutora", Category = "Tratamento", Supplier = "Belle Pro", CostPrice = 52, Price = 109, StockQuantity = 8, MinimumStock = 3 },
+            new ProductItem { Name = "Óleo Finalizador", Category = "Finalização", Supplier = "Essenza", CostPrice = 29, Price = 65, StockQuantity = 15, MinimumStock = 5 }
+        ]);
+        data.ManualPayments.AddRange([
+            new ManualPayment { Description = "Corte e escova", CustomerName = "Isabela Fernandes", Category = "Serviços", PaymentMethod = "Pix", PaymentStatus = "approved", Value = 165, PaidAt = today.AddHours(9) },
+            new ManualPayment { Description = "Manicure", CustomerName = "Beatriz Lima", Category = "Serviços", PaymentMethod = "Cartão", PaymentStatus = "approved", Value = 55, PaidAt = today.AddHours(11) }
+        ]);
+        data.Expenses.AddRange([
+            new ExpenseItem { Description = "Reposição de cosméticos", Category = "Produtos", Supplier = "Belle Pro", PaymentMethod = "Pix", Value = 420, Date = today.AddDays(-2), IsPaid = true },
+            new ExpenseItem { Description = "Internet do salão", Category = "Operacional", Supplier = "Conecta", PaymentMethod = "Débito", Value = 119.90m, Date = today.AddDays(-5), IsPaid = true }
+        ]);
 
         return data;
     }
+
+    private static bool IsAuditMode() =>
+        !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AGENDA_LIVRE_AUDIT_STATE")) ||
+        !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AGENDA_LIVRE_AUDIT_SCREENSHOT_PATH"));
 
     private static AgendaData CreateCleanData() =>
         new()

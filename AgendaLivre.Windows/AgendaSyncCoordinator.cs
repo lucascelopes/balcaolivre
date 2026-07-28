@@ -16,13 +16,25 @@ public sealed record AgendaTrialState(
     bool Active,
     int DaysRemaining);
 
+public sealed record AgendaEntitlementState(
+    string Status,
+    bool CanUse,
+    DateTimeOffset? TrialStartedAt,
+    DateTimeOffset? TrialEndsAt,
+    int DaysRemaining,
+    DateTimeOffset? CurrentPeriodEndsAt,
+    DateTimeOffset? GraceEndsAt,
+    string PaymentUrl,
+    string SupportUrl);
+
 public sealed record AgendaRemoteState(
     bool Exists,
     long Revision,
     int SchemaVersion,
     JsonElement Payload,
     DateTimeOffset? UpdatedAt,
-    AgendaTrialState? Trial);
+    AgendaTrialState? Trial,
+    AgendaEntitlementState? Entitlement);
 
 public sealed class AgendaSyncStatusEventArgs(string message, bool isWarning = false) : EventArgs
 {
@@ -105,6 +117,22 @@ public sealed class AgendaSyncCoordinator : IDisposable
     public string InitialNotice { get; private set; } = "";
     public AgendaSyncConflictEventArgs? InitialConflict { get; private set; }
     public AgendaTrialState? Trial { get; private set; }
+    public AgendaEntitlementState? Entitlement { get; private set; }
+    public string CurrentUserId => _auth.CurrentSession?.UserId?.Trim() ?? "";
+
+    public Task<string> GetAccountAccessTokenAsync(
+        CancellationToken cancellationToken = default) =>
+        _auth.GetAccessTokenAsync(forceRefresh: false, cancellationToken);
+
+    public async Task<AgendaEntitlementState?> RefreshEntitlementAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var remote = await _client.GetAsync(cancellationToken);
+        Trial = remote.Trial;
+        Entitlement = remote.Entitlement;
+        return Entitlement;
+    }
+
     public bool HasConflict
     {
         get
@@ -216,20 +244,22 @@ public sealed class AgendaSyncCoordinator : IDisposable
                     {
                         lock (_pendingGate)
                         {
+                            var resolvedMetadata = new AgendaSyncMetadata(
+                                transition.BaseRevision,
+                                transition.Pending,
+                                DateTimeOffset.UtcNow);
+                            _metadataStore.Save(resolvedMetadata);
                             _revision = transition.BaseRevision;
                             _remoteExists = pending.Remote.Exists;
                             Trial = pending.Remote.Trial;
+                            Entitlement = pending.Remote.Entitlement;
                             InitialData = merged;
                             _bootstrapPending = false;
                             _conflicted = false;
                             _pendingConflict = null;
                             InitialConflict = null;
                             CancelQueuedPushLocked();
-                            _metadata = new AgendaSyncMetadata(
-                                transition.BaseRevision,
-                                transition.Pending,
-                                DateTimeOffset.UtcNow);
-                            _metadataStore.Save(_metadata);
+                            _metadata = resolvedMetadata;
                         }
                     });
                 if (!applied)
@@ -249,18 +279,20 @@ public sealed class AgendaSyncCoordinator : IDisposable
                         throw new InvalidOperationException("O conflito mudou enquanto estava sendo resolvido. Tente novamente.");
                     }
 
+                    var resolvedMetadata = new AgendaSyncMetadata(
+                        transition.BaseRevision,
+                        transition.Pending,
+                        DateTimeOffset.UtcNow);
+                    _metadataStore.Save(resolvedMetadata);
                     _revision = transition.BaseRevision;
                     _remoteExists = pending.Remote.Exists;
                     Trial = pending.Remote.Trial;
+                    Entitlement = pending.Remote.Entitlement;
                     _bootstrapPending = false;
                     _conflicted = false;
                     _pendingConflict = null;
                     InitialConflict = null;
-                    _metadata = new AgendaSyncMetadata(
-                        transition.BaseRevision,
-                        transition.Pending,
-                        DateTimeOffset.UtcNow);
-                    _metadataStore.Save(_metadata);
+                    _metadata = resolvedMetadata;
                     retryToken = ReplaceQueuedPushLocked(currentLocalSerialized);
                 }
             }
@@ -302,6 +334,7 @@ public sealed class AgendaSyncCoordinator : IDisposable
 
             var remote = await _client.GetAsync(cancellationToken);
             Trial = remote.Trial;
+            Entitlement = remote.Entitlement;
             _remoteExists = remote.Exists;
 
             if (remote.Revision == _revision)
@@ -408,6 +441,7 @@ public sealed class AgendaSyncCoordinator : IDisposable
             _revision = remote.Revision;
             _remoteExists = remote.Exists;
             Trial = remote.Trial;
+            Entitlement = remote.Entitlement;
             InitialData = merged;
             _metadata = new AgendaSyncMetadata(remote.Revision, Pending: false, DateTimeOffset.UtcNow);
             _metadataStore.Save(_metadata);
@@ -424,10 +458,12 @@ public sealed class AgendaSyncCoordinator : IDisposable
         try
         {
             _lastCloudReadAttemptAt = DateTimeOffset.UtcNow;
-            var remote = await _client.GetAsync(cancellationToken);
+            var remote = await _client.GetAsync(cancellationToken)
+                .WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
             _revision = remote.Revision;
             _remoteExists = remote.Exists;
             Trial = remote.Trial;
+            Entitlement = remote.Entitlement;
             if (_metadata.Pending)
             {
                 if (remote.Revision == _metadata.BaseRevision)
@@ -491,7 +527,7 @@ public sealed class AgendaSyncCoordinator : IDisposable
                 InitialNotice += " Seu período de teste precisa ser renovado.";
             }
         }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or AgendaAuthException or JsonException)
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or TimeoutException or AgendaAuthException or JsonException)
         {
             InitialNotice = $"Modo offline: os dados deste computador foram abertos. {CompactMessage(exception.Message)}";
         }
@@ -645,6 +681,7 @@ public sealed class AgendaSyncCoordinator : IDisposable
             _revision = state.Revision;
             _remoteExists = state.Exists;
             Trial = state.Trial;
+            Entitlement = state.Entitlement;
             bool hasNewerPendingSave;
             lock (_pendingGate)
             {
@@ -767,19 +804,11 @@ public sealed class AgendaSyncCoordinator : IDisposable
             return;
         }
 
-        data.Settings.AccountEmail = session.Email;
-        if (string.IsNullOrWhiteSpace(data.Settings.AccountFullName))
-        {
-            data.Settings.AccountFullName = session.FullName;
-        }
-
-        if ((string.IsNullOrWhiteSpace(data.Settings.BusinessName) ||
-             data.Settings.BusinessName.Equals("Agenda Livre", StringComparison.OrdinalIgnoreCase) ||
-             data.Settings.BusinessName.Equals("Balcão Livre", StringComparison.OrdinalIgnoreCase)) &&
-            !string.IsNullOrWhiteSpace(session.BusinessName))
-        {
-            data.Settings.BusinessName = session.BusinessName;
-        }
+        AgendaAuthenticatedProfilePolicy.ApplyOnboardingDefaults(
+            data,
+            session.Email,
+            session.FullName,
+            session.BusinessName);
 
         if (data.Settings.AccountCreatedAt == DateTime.MinValue)
         {
@@ -981,7 +1010,23 @@ internal sealed class AgendaAccountStateClient : IDisposable
                 (int)Math.Clamp(ReadLong(trialElement, "daysRemaining", "days_remaining"), 0, int.MaxValue));
         }
 
-        return new AgendaRemoteState(exists, revision, schemaVersion, payload, updatedAt, trial);
+        AgendaEntitlementState? entitlement = null;
+        if (AgendaAuthSessionManager.TryGetProperty(root, "entitlement", out var entitlementElement) &&
+            entitlementElement.ValueKind == JsonValueKind.Object)
+        {
+            entitlement = new AgendaEntitlementState(
+                AgendaAuthSessionManager.ReadString(entitlementElement, "status"),
+                ReadBool(entitlementElement, "canUse"),
+                ReadDate(entitlementElement, "trialStartedAt", "trial_started_at"),
+                ReadDate(entitlementElement, "trialEndsAt", "trial_ends_at"),
+                (int)Math.Clamp(ReadLong(entitlementElement, "daysRemaining", "days_remaining"), 0, int.MaxValue),
+                ReadDate(entitlementElement, "currentPeriodEndsAt", "current_period_ends_at"),
+                ReadDate(entitlementElement, "graceEndsAt", "grace_ends_at"),
+                AgendaAuthSessionManager.ReadString(entitlementElement, "paymentUrl", "payment_url"),
+                AgendaAuthSessionManager.ReadString(entitlementElement, "supportUrl", "support_url"));
+        }
+
+        return new AgendaRemoteState(exists, revision, schemaVersion, payload, updatedAt, trial, entitlement);
     }
 
     private static string ReadStateError(HttpStatusCode statusCode, string body)

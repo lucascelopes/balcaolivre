@@ -1,16 +1,26 @@
-# balcao_livre_flutter
+# Balcão Livre Flutter
 
-A new Flutter project.
+Aplicativo móvel oficial do Balcão Livre PDV. O projeto foi promovido do
+artefato de paridade preservado para a árvore ativa do produto.
 
-## Getting Started
+## Regras de acesso
 
-This project is a starting point for a Flutter application.
+- A entrada usa a mesma conta criada depois do checkout.
+- O smartphone é ativado como dispositivo `MOBILE` por um handoff seguro.
+- Não existe chave de licença visível para o cliente.
+- Cada assinatura inclui uma vaga móvel; um segundo smartphone é recusado pelo
+  backend enquanto não houver outra vaga.
+- Plano, módulos, pagamentos e configuração do book vêm do Supabase.
+- O caixa móvel é independente do caixa Windows.
+- Eventos offline mantêm um identificador estável e são reenviados com
+  idempotência quando a conexão volta.
 
-A few resources to get you started if this is your first Flutter project:
+## Executar
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+```powershell
+C:\src\flutter\bin\flutter.bat pub get
+C:\src\flutter\bin\flutter.bat run
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+As únicas configurações compiladas no cliente são a URL pública do Supabase e
+a chave publicável. Segredos permanecem nas Edge Functions.

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Net.Http;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace AgendaLivre.Windows;
 
@@ -9,6 +10,7 @@ public partial class App : Application
     private AgendaAuthSessionManager? _auth;
     private AgendaSyncCoordinator? _syncCoordinator;
     private MainWindow? _agendaWindow;
+    private LoginWindow? _loginWindow;
     private bool _changingAccountWindow;
     private bool _closeAfterFlush;
 
@@ -54,18 +56,42 @@ public partial class App : Application
         }
     }
 
-    private Task<bool> EnsureAuthenticatedAsync()
+    private async Task<bool> EnsureAuthenticatedAsync()
     {
         if (_auth?.CurrentSession is not null)
         {
-            return Task.FromResult(true);
+            return true;
         }
 
         var login = new LoginWindow(_auth ?? throw new InvalidOperationException("Serviço de conta indisponível."));
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void AuthenticationSucceeded(object? sender, EventArgs args) =>
+            completion.TrySetResult(login.Session is not null);
+        void LoginClosed(object? sender, EventArgs args) => completion.TrySetResult(false);
+
+        login.AuthenticationSucceeded += AuthenticationSucceeded;
+        login.Closed += LoginClosed;
+        _loginWindow = login;
         MainWindow = login;
-        var accepted = login.ShowDialog() == true && login.Session is not null;
-        MainWindow = null;
-        return Task.FromResult(accepted);
+        login.Show();
+
+        var accepted = await completion.Task;
+        login.AuthenticationSucceeded -= AuthenticationSucceeded;
+        login.Closed -= LoginClosed;
+        if (!accepted)
+        {
+            if (ReferenceEquals(_loginWindow, login))
+            {
+                _loginWindow = null;
+            }
+
+            if (ReferenceEquals(MainWindow, login))
+            {
+                MainWindow = null;
+            }
+        }
+
+        return accepted;
     }
 
     private async Task OpenAgendaWindowAsync()
@@ -74,10 +100,24 @@ public partial class App : Application
         var session = auth.CurrentSession ?? throw new AgendaAuthException("Entre para abrir sua agenda.");
         var pendingInitialOnboarding = auth.RequiresInitialOnboarding;
         var store = new AgendaDataStore(session.UserId);
+        using var initialSyncTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var coordinator = await AgendaSyncCoordinator.CreateAndReconcileAsync(
             store,
             auth,
+            initialSyncTimeout.Token,
             allowLegacyMigration: !pendingInitialOnboarding);
+        if (coordinator.Entitlement is { CanUse: false })
+        {
+            var renewalWindow = new SubscriptionRenewalWindow(auth, coordinator);
+            MainWindow = renewalWindow;
+            var renewed = renewalWindow.ShowDialog() == true;
+            if (!renewed)
+            {
+                coordinator.Dispose();
+                Shutdown();
+                return;
+            }
+        }
         var forceFullOnboarding = pendingInitialOnboarding && !HasCompletedOnboarding(coordinator.InitialData);
         if (pendingInitialOnboarding && !forceFullOnboarding)
         {
@@ -93,6 +133,27 @@ public partial class App : Application
         _agendaWindow = window;
         MainWindow = window;
         window.Show();
+
+        var login = _loginWindow;
+        if (login is not null)
+        {
+            _ = window.Dispatcher.BeginInvoke(
+                DispatcherPriority.ContextIdle,
+                new Action(() =>
+                {
+                    if (login.IsVisible)
+                    {
+                        login.Close();
+                    }
+
+                    if (ReferenceEquals(_loginWindow, login))
+                    {
+                        _loginWindow = null;
+                    }
+
+                    window.Activate();
+                }));
+        }
     }
 
     private static bool HasCompletedOnboarding(AgendaData data) =>
@@ -166,7 +227,9 @@ public partial class App : Application
         {
             _syncCoordinator?.Dispose();
             _syncCoordinator = null;
-            window.Close();
+            _ = window.Dispatcher.BeginInvoke(
+                DispatcherPriority.Background,
+                new Action(window.Close));
         }
     }
 

@@ -38,8 +38,8 @@ const siteJsonLd = [
     "@type": "Organization",
     name: siteName,
     url: siteUrl,
-    logo: absoluteUrl("/brand/bl-orange-icon.png"),
-    sameAs: ["https://pdv.balcaolivrepdv.com.br"],
+    logo: absoluteUrl("/brand/bl-modern-icon.png"),
+    sameAs: ["https://app.balcaolivrepdv.com.br"],
     contactPoint: [
       {
         "@type": "ContactPoint",
@@ -113,9 +113,9 @@ export const metadata = {
   },
   verification,
   icons: {
-    icon: "/brand/bl-orange-icon.png",
-    shortcut: "/brand/bl-orange-icon.png",
-    apple: "/brand/bl-orange-icon.png"
+    icon: "/brand/bl-modern-icon.png",
+    shortcut: "/brand/bl-modern-icon.png",
+    apple: "/brand/bl-modern-icon.png"
   }
 };
 
@@ -182,14 +182,10 @@ export default function RootLayout({ children }) {
           {`
             (function() {
               var planPrices = {
-                "basico-mensal": 29.99,
-                "basico-anual": 299.9,
-                "completo-mensal": 99.99,
-                "completo-anual": 999.9,
-                "offline-mensal": 29.99,
-                "offline-anual": 299.9,
-                "online-mensal": 99.99,
-                "online-anual": 999.9
+                "offline-mensal": 29.9,
+                "offline-anual": 229.9,
+                "online-mensal": 149,
+                "online-anual": 1399
               };
               var adminAnalyticsUrl = ${JSON.stringify(adminAnalyticsUrl)};
               var urlParams = new URLSearchParams(window.location.search);
@@ -323,7 +319,7 @@ export default function RootLayout({ children }) {
                   var trialUrl = safeUrl(href);
                   var trialPlan = (target.dataset && target.dataset.analyticsPlan)
                     || (trialUrl && trialUrl.searchParams.get("plan"))
-                    || "online";
+                    || "offline";
                   publish("trial_download_click", {
                     content_name: "Teste " + trialPlan + " 7 dias",
                     content_category: "teste_7_dias",

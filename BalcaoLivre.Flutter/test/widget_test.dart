@@ -180,7 +180,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Painel do caixa'), findsOneWidget);
+    expect(find.text('Painel do caixa'), findsNWidgets(2));
     expect(find.text('Comanda'), findsWidgets);
     expect(find.text('MESAS / COMANDAS'), findsOneWidget);
     expect(find.text('Fechar conta'), findsOneWidget);
@@ -531,6 +531,413 @@ void main() {
     expect(find.text('Controle de estoque'), findsWidgets);
     expect(find.byKey(const Key('stockSearch')), findsOneWidget);
     await captureQaFrame('flutter-stock-mobile-390x844.png');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('team registration persists through the WPF ribbon flow', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1920, 1020);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Equipe'));
+    await tester.pumpAndSettle();
+    expect(find.text('Equipe cadastrada'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('teamMemberName')),
+      'Maria Souza',
+    );
+    await tester.enterText(find.byKey(const Key('teamMemberPin')), '4567');
+    await tester.tap(find.byKey(const Key('teamMemberSave')));
+    await tester.pumpAndSettle();
+
+    expect(store.teamMembers.first.name, 'MARIA SOUZA');
+    expect(find.text('MARIA SOUZA'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('discount requires an authorized operator and real password', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1920, 1020);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+    await store.addProduct(store.products.first);
+    final before = store.selectedOrder!.subtotal;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Desconto').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('discountOperator')), findsOneWidget);
+    expect(find.byKey(const Key('discountPin')), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('discountOperator')), '2');
+    await tester.enterText(find.byKey(const Key('discountPin')), '1234');
+    await tester.enterText(find.byKey(const Key('discountAmount')), '5,00');
+    await tester.tap(find.byKey(const Key('discountApply')));
+    await tester.pumpAndSettle();
+
+    expect(store.selectedOrder!.items.last.code, 'DESC');
+    expect(store.selectedOrder!.subtotal, closeTo(before - 5, 0.001));
+    expect(find.textContaining('autorizado por LUCAS CESAR'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('iFood ribbon exposes the real cloud connection flow', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1920, 1020);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('iFood').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('iFood Online'), findsWidgets);
+    expect(find.byKey(const Key('ifoodConnect')), findsOneWidget);
+    expect(find.byKey(const Key('ifoodSyncOrders')), findsOneWidget);
+    expect(find.text('Simular iFood'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mobile reaches the same iFood cloud flow from More', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('mobileMore')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ifoodHub')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('iFood Online'), findsWidgets);
+    expect(find.byKey(const Key('ifoodConnect')), findsOneWidget);
+    expect(find.byKey(const Key('ifoodSyncOrders')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('WhatsApp ribbon exposes the real cloud onboarding flow', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1920, 1020);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('WhatsApp').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('WhatsApp Online'), findsWidgets);
+    expect(find.byKey(const Key('whatsappStorePhone')), findsOneWidget);
+    expect(find.byKey(const Key('whatsappConnect')), findsOneWidget);
+    expect(find.byKey(const Key('whatsappRefresh')), findsOneWidget);
+    expect(find.text('Confirmar conectado'), findsNothing);
+
+    await tester.enterText(
+      find.byKey(const Key('whatsappStorePhone')),
+      '5533999999999',
+    );
+    await tester.tap(find.byKey(const Key('whatsappConnect')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Entre na conta da loja antes de conectar o WhatsApp.'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mobile reaches the same WhatsApp cloud flow from More', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('mobileMore')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('whatsappHub')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('WhatsApp Online'), findsWidgets);
+    expect(find.byKey(const Key('whatsappConnect')), findsOneWidget);
+    expect(find.byKey(const Key('whatsappRefresh')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('backup ribbon exposes protected cross-platform actions', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1920, 1020);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Backup').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Protecao dos dados'), findsOneWidget);
+    expect(find.byKey(const Key('backupOperator')), findsOneWidget);
+    expect(find.byKey(const Key('backupPin')), findsOneWidget);
+    expect(find.byKey(const Key('backupExport')), findsOneWidget);
+    expect(find.byKey(const Key('backupRestore')), findsOneWidget);
+    expect(find.byKey(const Key('backupCsv')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('settings expose the protected WPF Fiscal and TEF module', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1920, 1020);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Configurações').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pagamentos e NF').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('fiscalEnabled')), findsOneWidget);
+    expect(find.byKey(const Key('fiscalMerchantCode')), findsOneWidget);
+    expect(find.byKey(const Key('fiscalOperator')), findsOneWidget);
+    expect(find.byKey(const Key('fiscalPin')), findsOneWidget);
+    expect(find.byKey(const Key('fiscalSave')), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('fiscalEnabled')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('fiscalEnabled')));
+    await tester.enterText(find.byKey(const Key('fiscalPin')), '1234');
+    await tester.ensureVisible(find.byKey(const Key('fiscalSave')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('fiscalSave')));
+    await tester.pumpAndSettle();
+
+    expect(store.fiscalEnabled, isTrue);
+    expect(store.fiscalMessage, contains('LUCAS CESAR'));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('new delivery opens and saves protected radius fees', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1920, 1020);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+    store.cashOpen = true;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Delivery').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delivery').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Taxas por raio no mapa'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Taxas de entrega'), findsOneWidget);
+    expect(find.byKey(const Key('deliveryZoneRadius')), findsOneWidget);
+    expect(find.byKey(const Key('deliveryZoneFee')), findsOneWidget);
+    expect(find.byKey(const Key('deliveryZonePin')), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('deliveryZoneRadius')), '2,0');
+    await tester.enterText(find.byKey(const Key('deliveryZoneFee')), '6,00');
+    await tester.enterText(find.byKey(const Key('deliveryZonePin')), '1234');
+    await tester.ensureVisible(find.byKey(const Key('deliveryZoneSave')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('deliveryZoneSave')));
+    await tester.pumpAndSettle();
+
+    expect(store.deliveryZones, hasLength(1));
+    expect(store.deliveryZones.single.fee, 6);
+    expect(find.textContaining('salva por LUCAS CESAR'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('cash closing uses the professional WPF reconciliation dialog', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1920, 1020);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+    store
+      ..cashOpen = true
+      ..orders.clear();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Fechar caixa').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('cashCloseCounted')), findsOneWidget);
+    expect(find.byKey(const Key('cashCloseNotes')), findsOneWidget);
+    expect(find.byKey(const Key('cashCloseOperator')), findsOneWidget);
+    expect(find.byKey(const Key('cashClosePin')), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('cashCloseOperator')), '2');
+    await tester.enterText(find.byKey(const Key('cashClosePin')), '1234');
+    await tester.tap(find.byKey(const Key('cashCloseConfirm')));
+    await tester.pumpAndSettle();
+
+    expect(store.cashOpen, isFalse);
+    expect(store.cashClosings, hasLength(1));
+    expect(find.byKey(const Key('cashCloseCounted')), findsNothing);
+    expect(store.securityMessage, contains('LUCAS CESAR'));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mobile reaches backup from the same connected More hub', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    final store = BalcaoStore();
+    addTearDown(store.dispose);
+    await store.hydrate();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: qaCaptureTheme(),
+        home: HomeScreen(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('mobileMore')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('backupHub')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Protecao dos dados'), findsOneWidget);
+    expect(find.byKey(const Key('backupExport')), findsOneWidget);
+    expect(find.byKey(const Key('backupRestore')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

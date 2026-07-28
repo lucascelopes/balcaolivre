@@ -3,204 +3,775 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Balcao Livre PDV Admin</title>
-  <link rel="stylesheet" href="./styles.css?v=20260605-release-downloads-1">
+  <title>Balcão Livre Admin</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7/css/all.min.css">
+  <link rel="stylesheet" href="./styles.css?v=20260728-manual-visits-v1">
 </head>
 <body>
-  <main id="loginView" class="login-shell">
-    <section class="login-card">
-      <div class="brand-mark">BL</div>
-      <h1>Balcao Livre PDV</h1>
-      <p>Painel interno de licencas, clientes e uso do programa.</p>
-      <label>Login</label>
-      <input id="loginUser" autocomplete="username" placeholder="Login admin">
-      <label>Senha</label>
-      <input id="loginPassword" autocomplete="current-password" type="password" placeholder="Senha admin">
-      <button id="loginButton">Entrar</button>
-      <div id="loginMessage" class="message"></div>
+  <main id="loginView" class="login-shell login-v2">
+    <section class="login-access-panel">
+      <div class="login-co-brand" role="img" aria-label="Balcão Livre mais Agenda Livre">
+        <img src="./assets/balcao-livre-bl-mark.png" alt="">
+        <i class="fa-solid fa-plus" aria-hidden="true"></i>
+        <img src="./assets/agenda-livre-mark.png" alt="">
+      </div>
+
+      <div class="login-access-content">
+        <p class="login-eyebrow">Painel administrativo</p>
+        <h1>Entre para continuar</h1>
+        <p class="login-lead">Acesse clientes, licenças e operação.</p>
+
+        <form id="loginForm" class="login-form" novalidate>
+          <label for="loginUser">E-mail</label>
+          <div class="login-field">
+            <i class="fa-regular fa-envelope" aria-hidden="true"></i>
+            <input id="loginUser" type="email" autocomplete="username" placeholder="seuemail@admin.com">
+          </div>
+
+          <label for="loginPassword">Senha</label>
+          <div class="login-field">
+            <i class="fa-solid fa-lock" aria-hidden="true"></i>
+            <input id="loginPassword" autocomplete="current-password" type="password" placeholder="Digite sua senha">
+            <button id="loginPasswordToggle" class="login-password-toggle" type="button" aria-label="Mostrar senha" aria-pressed="false">
+              <i class="fa-regular fa-eye" aria-hidden="true"></i>
+            </button>
+          </div>
+
+          <div class="login-form-options">
+            <label class="login-remember" for="loginRemember">
+              <input id="loginRemember" type="checkbox">
+              <span>Manter conectado</span>
+            </label>
+          </div>
+
+          <button id="loginButton" class="login-submit" type="submit">Entrar</button>
+          <button id="forgotPasswordLink" class="login-forgot" type="button">Esqueci minha senha</button>
+          <div id="loginMessage" class="message login-message" role="status" aria-live="polite"></div>
+        </form>
+      </div>
+
+      <p class="login-security">
+        <i class="fa-solid fa-lock" aria-hidden="true"></i>
+        <span>Ambiente seguro</span>
+        <span aria-hidden="true">•</span>
+        <span>Acesso restrito</span>
+      </p>
+    </section>
+
+    <section class="login-visual-panel" aria-label="Resumo visual da operação">
+      <div class="login-visual-copy">
+        <h2>Tudo sob controle.</h2>
+        <p>Decisões rápidas, operação em dia.</p>
+      </div>
+
+      <div class="login-chart-motion">
+        <img class="login-chart-image" src="./assets/login/admin-login-line-chart.png" alt="Gráfico de evolução da operação">
+        <img class="login-chart-trace" src="./assets/login/admin-login-line-chart-trace.png" alt="" aria-hidden="true">
+      </div>
+
+      <div class="login-funnel-area">
+        <p class="login-flow-status"><span aria-hidden="true"></span>Fluxo em tempo real</p>
+        <div class="login-funnel" aria-label="Funil: mapeados, agendados, visitados, interessados e testes">
+          <div class="login-funnel-stages" aria-hidden="true">
+            <div class="login-funnel-stage" style="--stage-delay: 0s">
+              <img class="idle" src="./assets/login/funnel-1-idle.png" alt="">
+              <img class="active" src="./assets/login/funnel-1-active.png" alt="">
+            </div>
+            <div class="login-funnel-stage" style="--stage-delay: 1.2s">
+              <img class="idle" src="./assets/login/funnel-2-idle.png" alt="">
+              <img class="active" src="./assets/login/funnel-2-active.png" alt="">
+            </div>
+            <div class="login-funnel-stage" style="--stage-delay: 2.4s">
+              <img class="idle" src="./assets/login/funnel-3-idle.png" alt="">
+              <img class="active" src="./assets/login/funnel-3-active.png" alt="">
+            </div>
+            <div class="login-funnel-stage" style="--stage-delay: 3.6s">
+              <img class="idle" src="./assets/login/funnel-4-idle.png" alt="">
+              <img class="active" src="./assets/login/funnel-4-active.png" alt="">
+            </div>
+            <div class="login-funnel-stage" style="--stage-delay: 4.8s">
+              <img class="idle" src="./assets/login/funnel-5-idle.png" alt="">
+              <img class="active" src="./assets/login/funnel-5-active.png" alt="">
+            </div>
+          </div>
+          <ol class="login-funnel-labels">
+            <li><span></span>Mapeados</li>
+            <li><span></span>Agendados</li>
+            <li><span></span>Visitados</li>
+            <li><span></span>Interessados</li>
+            <li><span></span>Testes</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="login-route-motion" aria-hidden="true">
+        <img class="login-route-map" src="./assets/login/admin-login-route-map.png" alt="">
+        <img class="login-route-trace" src="./assets/login/admin-login-route-trace.png" alt="">
+      </div>
     </section>
   </main>
 
   <main id="appView" class="app-shell hidden">
-    <aside class="sidebar">
+    <header class="sidebar">
       <div class="logo-row">
-        <div class="brand-mark small">BL</div>
-        <div>
-          <strong>Balcao Livre</strong>
-          <span>Admin interno</span>
+        <div class="co-brand-lockup" role="img" aria-label="Balcão Livre mais Agenda Livre">
+          <img class="co-brand-bl" src="./assets/balcao-livre-bl-mark.png" alt="">
+          <i class="fa-solid fa-plus co-brand-plus" aria-hidden="true"></i>
+          <img class="co-brand-al" src="./assets/agenda-livre-mark.png" alt="">
         </div>
       </div>
       <nav class="nav-list">
-        <button class="nav active" data-view="dashboard">Dashboard</button>
-        <button class="nav" data-view="licenses">Licencas</button>
-        <button class="nav" data-view="support">Suporte</button>
+        <button class="nav active" data-view="dashboard">Visão geral</button>
         <button class="nav" data-view="devices">Clientes</button>
-        <button class="nav" data-view="downloads">Downloads</button>
-        <button class="nav" data-view="keys">Criar chave</button>
+        <button class="nav" data-view="licenses">Licenças</button>
+        <button class="nav" data-view="visits">Visitas</button>
+        <button class="nav" data-view="support">Suporte</button>
       </nav>
-      <div class="sidebar-footer">
-        <span id="sidebarSync">Carregando dados...</span>
-        <button id="logoutButton" class="nav danger">Sair</button>
-      </div>
-    </aside>
 
-    <section class="content">
+      <label class="global-search" for="globalSearch">
+        <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+        <input id="globalSearch" type="search" placeholder="Buscar clientes, licenças, chamados..." autocomplete="off">
+      </label>
+
+      <details class="admin-profile">
+        <summary>
+          <span id="adminProfileAvatar" class="profile-avatar">AD</span>
+          <span class="profile-copy">
+            <strong id="adminProfileName">Administrador</strong>
+            <small>Administradora</small>
+          </span>
+          <i class="fa-solid fa-chevron-down profile-chevron" aria-hidden="true"></i>
+        </summary>
+        <div class="profile-menu">
+          <div class="system-status">
+            <span id="realtimeMode" class="status-pill pending">Tempo real iniciando</span>
+            <span id="storageMode" class="status-pill pending">Checando dados</span>
+            <span id="lastSync" class="status-pill pending">Carregando</span>
+            <span id="sidebarSync">Carregando dados...</span>
+          </div>
+          <button class="profile-action nav" data-view="downloads">
+            <i class="fa-solid fa-download" aria-hidden="true"></i>
+            Downloads
+          </button>
+          <button class="profile-action nav" data-view="keys">
+            <i class="fa-solid fa-key" aria-hidden="true"></i>
+            Criar chave
+          </button>
+          <button id="logoutButton" class="profile-action danger">
+            <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
+            Sair
+          </button>
+        </div>
+      </details>
+      <button class="header-create-button" type="button" data-view-target="keys">
+        <i class="fa-solid fa-plus" aria-hidden="true"></i>
+        Nova licença
+      </button>
+    </header>
+
+    <section class="content" data-view="dashboard">
       <header class="topbar">
         <div>
-          <h1 id="viewTitle">Dashboard</h1>
-          <p id="viewSubtitle">Operacao, vendas, clientes e licencas em tempo real.</p>
-        </div>
-        <div class="top-actions">
-          <span id="realtimeMode" class="status-pill pending">Tempo real iniciando</span>
-          <span id="storageMode" class="status-pill pending">Checando Supabase</span>
-          <span id="lastSync" class="status-pill pending">Carregando</span>
+          <h1 id="viewTitle">Visão geral</h1>
+          <p id="viewSubtitle">Operação, clientes e licenças em tempo real.</p>
         </div>
       </header>
 
       <section id="dashboardView" class="view">
-        <section class="executive-grid">
-          <article class="hero-stat metric-card">
-            <span class="metric-label">Receita Stripe</span>
-            <strong id="mStripeRevenue">R$ 0,00</strong>
-            <small><b id="mStripePurchases">0 / 0</b> compras 24h / total</small>
+        <header class="dashboard-intro">
+          <div>
+            <h1 id="adminGreeting">Olá</h1>
+            <p><span class="radar-live-dot" aria-hidden="true"></span>Radar Operacional atualizado em <span id="radarUpdatedAt">27/07/2026 08:45</span></p>
+          </div>
+          <button class="dashboard-create-button dashboard-create-mobile" type="button" data-view-target="keys">
+            <i class="fa-solid fa-plus" aria-hidden="true"></i>
+            Nova licença
+          </button>
+        </header>
+
+        <section class="radar-kpis" aria-label="Resumo do negócio">
+          <article class="radar-kpi radar-kpi-revenue">
+            <strong id="mStripeRevenue">R$ 0</strong>
+            <span>receita no mês</span>
+            <p><b id="revenueComparison">+0%</b> vs mês anterior <span id="revenuePrevious">(R$ 0)</span></p>
           </article>
-          <article class="summary-card metric-card">
-            <span class="metric-label">Licencas ativas</span>
+          <article class="radar-kpi">
             <strong id="mActive">0</strong>
-            <small><b id="mAvailable">0</b> disponiveis</small>
+            <div><b>licenças</b><p><span id="mAvailable">0</span> vencem nos próximos 30 dias</p></div>
           </article>
-          <article class="summary-card metric-card">
-            <span class="metric-label">Clientes 24h</span>
+          <article class="radar-kpi">
             <strong id="mOnline">0</strong>
-            <small><b id="mDevices">0</b> apps instalados</small>
+            <div><b>clientes online</b><p><span id="mDevices">0</span> aguardando atendimento</p></div>
           </article>
-          <article class="summary-card metric-card">
-            <span class="metric-label">Suporte aberto</span>
+          <article class="radar-kpi">
             <strong id="mSupport">0</strong>
-            <small><b id="mUsers">0</b> usuarios do app</small>
+            <div><b>chamados</b><p id="mSupportBreakdown">0 abertos • 0 em andamento</p></div>
           </article>
         </section>
 
-        <section class="funnel-strip">
-          <div>
-            <span>Entraram no site</span>
-            <strong id="mSiteVisitors">0 / 0</strong>
-            <small>24h / total</small>
-          </div>
-          <div>
-            <span>Paginas vistas</span>
-            <strong id="mSiteViews">0 / 0</strong>
-            <small>24h / total</small>
-          </div>
-          <div>
-            <span>Checkout iniciado</span>
-            <strong id="mCheckoutStarted">0 / 0</strong>
-            <small>24h / total</small>
-          </div>
-          <div>
-            <span>Conversao site</span>
-            <strong id="mConversion">0%</strong>
-            <small>compra / visitante</small>
-          </div>
-        </section>
+        <section class="radar-top-grid">
+          <article class="radar-panel operations-panel">
+            <header class="radar-panel-head">
+              <div>
+                <h2>Receita diária (R$) e clientes ativos</h2>
+                <div class="radar-legend">
+                  <span><i class="legend-swatch orange"></i>Receita</span>
+                  <span><i class="legend-swatch line"></i>Clientes ativos</span>
+                </div>
+              </div>
+              <div class="operations-controls">
+                <div class="range-controls" role="group" aria-label="Período do gráfico">
+                  <button type="button" data-dashboard-range="7">7D</button>
+                  <button type="button" class="active" data-dashboard-range="30">30D</button>
+                  <button type="button" data-dashboard-range="90">90D</button>
+                </div>
+                <span id="operationsDateRange" class="operations-date-range">—</span>
+              </div>
+            </header>
+            <div class="operations-chart-wrap">
+              <canvas id="operationsChart" aria-label="Receita diária e clientes ativos"></canvas>
+            </div>
+          </article>
 
-        <section class="dashboard-grid">
-          <article class="panel">
-            <div class="panel-head compact">
-              <h2>Compras Stripe</h2>
-              <span id="stripeBadge" class="mini-badge">ao vivo</span>
+          <article class="radar-panel target-panel">
+            <h2>Meta mensal</h2>
+            <div class="target-gauge-wrap">
+              <canvas id="targetGaugeChart" aria-label="Progresso da meta mensal"></canvas>
+              <div class="target-gauge-value">
+                <strong id="targetPercent">0%</strong>
+                <b id="targetCurrent">R$ 0</b>
+                <span>de R$ 50.000</span>
+              </div>
             </div>
-            <div id="stripeList" class="list dense"></div>
+            <p id="targetGap">Calculando meta...</p>
           </article>
-          <article class="panel">
-            <div class="panel-head compact">
-              <h2>Site e funil</h2>
-              <span id="analyticsBadge" class="mini-badge">ao vivo</span>
-            </div>
-            <div id="analyticsList" class="list dense"></div>
-          </article>
-          <article class="panel">
-            <div class="panel-head compact">
-              <h2>Licencas vencendo</h2>
-              <span class="mini-badge muted">15 dias</span>
-            </div>
-            <div id="expiringList" class="list dense"></div>
-          </article>
-          <article class="panel">
-            <div class="panel-head compact">
-              <h2>Versoes instaladas</h2>
-              <span class="mini-badge muted">clientes</span>
-            </div>
-            <div id="versionsList" class="list dense"></div>
+
+          <article class="radar-panel delivery-panel">
+            <h2>Funil de entrega</h2>
+            <div id="deliveryFunnel" class="delivery-funnel"></div>
           </article>
         </section>
 
-        <article class="panel">
-          <div class="panel-head compact">
-            <h2>Eventos recentes</h2>
-            <span id="eventsBadge" class="mini-badge">tempo real</span>
+        <section class="lifecycle-panel" aria-label="Funis operacionais">
+          <article>
+            <h2>1. Aquisição</h2>
+            <p>Como os visitantes se tornam clientes</p>
+            <div id="acquisitionFunnel" class="compact-funnel"></div>
+          </article>
+          <article>
+            <h2>2. Ativação</h2>
+            <p>Do pagamento ao primeiro acesso</p>
+            <div id="activationFunnel" class="compact-funnel"></div>
+          </article>
+          <article>
+            <h2>3. Retenção</h2>
+            <p>Dos clientes ativos à renovação</p>
+            <div id="retentionFunnel" class="compact-funnel"></div>
+          </article>
+        </section>
+
+        <section class="diagnostics-grid">
+          <article class="radar-panel license-status-panel">
+            <h2>Status das licenças</h2>
+            <div class="license-status-body">
+              <div class="license-chart-wrap"><canvas id="licenseStatusChart" aria-label="Distribuição das licenças"></canvas></div>
+              <div id="licenseStatusLegend" class="license-status-legend"></div>
+            </div>
+          </article>
+          <article class="radar-panel support-time-panel">
+            <h2>Tempo de resolução dos chamados</h2>
+            <p>Distribuição em horas • últimos 30 dias</p>
+            <div class="support-time-chart-wrap"><canvas id="supportResolutionChart" aria-label="Tempo de resolução dos chamados"></canvas></div>
+          </article>
+          <article class="radar-panel demand-panel">
+            <h2>Demanda por horário e dia da semana</h2>
+            <p>Chamados abertos • últimos 30 dias</p>
+            <div id="supportHeatmap" class="support-heatmap" aria-label="Mapa de calor da demanda"></div>
+          </article>
+        </section>
+
+        <section class="risk-panel">
+          <h2>Próximos riscos</h2>
+          <div id="riskList" class="risk-list"></div>
+        </section>
+
+        <footer class="radar-footnote">Os dados são atualizados automaticamente. Referência: <span id="radarReferenceAt">27/07/2026 08:45</span>.</footer>
+
+        <section class="dashboard-data-sources" aria-hidden="true">
+          <span id="mSiteVisitors">0 / 0</span>
+          <span id="mSiteViews">0 / 0</span>
+          <span id="mCheckoutStarted">0 / 0</span>
+          <span id="mConversion">0%</span>
+          <span id="mUsers">0</span>
+          <span id="mStripePurchases">0 / 0</span>
+          <span id="stripeBadge">ao vivo</span>
+          <span id="analyticsBadge">ao vivo</span>
+          <span id="eventsBadge">tempo real</span>
+          <div id="stripeList"></div>
+          <div id="analyticsList"></div>
+          <div id="expiringList"></div>
+          <div id="versionsList"></div>
+          <div id="eventsList"></div>
+        </section>
+      </section>
+
+      <section id="visitsView" class="view hidden">
+        <section class="manual-visits" aria-label="Agenda manual de visitas">
+          <header class="manual-visits-toolbar">
+            <div class="manual-visits-title">
+              <h2>Visitas de hoje</h2>
+              <p id="manualVisitDateLabel">Terça-feira, 28 de julho</p>
+            </div>
+
+            <div class="manual-visits-date-actions" aria-label="Navegação por data">
+              <button id="manualVisitPreviousDay" type="button" aria-label="Dia anterior">
+                <i class="fa-solid fa-chevron-left" aria-hidden="true"></i>
+              </button>
+              <button id="manualVisitToday" type="button">Hoje</button>
+              <button id="manualVisitNextDay" type="button" aria-label="Próximo dia">
+                <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+              </button>
+            </div>
+
+            <div class="manual-visits-toolbar-actions">
+              <label for="manualVisitNeighborhood">
+                <span>Bairro:</span>
+                <select id="manualVisitNeighborhood">
+                  <option value="Pérola">Pérola</option>
+                  <option value="Centro">Centro</option>
+                  <option value="Todos">Todos</option>
+                </select>
+              </label>
+              <button id="manualVisitOpenForm" class="manual-visits-primary" type="button">
+                <i class="fa-solid fa-plus" aria-hidden="true"></i>
+                Agendar visita
+              </button>
+            </div>
+          </header>
+
+          <section class="manual-visits-timeline" aria-label="Linha do dia">
+            <div id="manualVisitsCards" class="manual-visits-cards"></div>
+            <div class="manual-visits-axis" aria-hidden="true">
+              <span class="manual-visits-axis-line"></span>
+              <span class="manual-visits-axis-start"></span>
+              <span class="manual-visits-axis-end"></span>
+              <div class="manual-visits-hours">
+                <span style="--hour-index: 0">08:00</span>
+                <span style="--hour-index: 1">09:00</span>
+                <span style="--hour-index: 2">10:00</span>
+                <span style="--hour-index: 3">11:00</span>
+                <span style="--hour-index: 4">12:00</span>
+                <span style="--hour-index: 5">13:00</span>
+                <span style="--hour-index: 6">14:00</span>
+                <span style="--hour-index: 7">15:00</span>
+                <span style="--hour-index: 8">16:00</span>
+                <span style="--hour-index: 9">17:00</span>
+              </div>
+            </div>
+            <div id="manualVisitsEmpty" class="manual-visits-empty hidden">
+              <i class="fa-regular fa-calendar" aria-hidden="true"></i>
+              <strong>Nenhuma visita neste bairro</strong>
+              <span>Agende manualmente uma empresa para preencher o seu dia.</span>
+            </div>
+          </section>
+
+          <form id="manualVisitForm" class="manual-visit-form">
+            <div class="manual-visit-form-title">
+              <h3 id="manualVisitFormTitle">Adicionar visita</h3>
+              <button id="manualVisitCancelEdit" class="manual-visit-cancel hidden" type="button">Cancelar edição</button>
+            </div>
+            <input id="manualVisitEditId" type="hidden">
+            <label class="manual-visit-company-field">
+              <span>Empresa</span>
+              <div class="manual-visit-input-icon">
+                <input id="manualVisitCompany" type="text" placeholder="Buscar empresa..." autocomplete="off" required>
+                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+              </div>
+            </label>
+            <label>
+              <span>Data</span>
+              <input id="manualVisitDate" type="date" required>
+            </label>
+            <label>
+              <span>Horário</span>
+              <select id="manualVisitTime" required>
+                <option>08:00</option>
+                <option>08:30</option>
+                <option selected>09:30</option>
+                <option>10:00</option>
+                <option>10:30</option>
+                <option>11:00</option>
+                <option>11:30</option>
+                <option>12:00</option>
+                <option>13:00</option>
+                <option>14:00</option>
+                <option>15:00</option>
+                <option>16:00</option>
+                <option>17:00</option>
+              </select>
+            </label>
+            <label>
+              <span>Duração</span>
+              <select id="manualVisitDuration">
+                <option value="30">30 min</option>
+                <option value="45" selected>45 min</option>
+                <option value="60">1 hora</option>
+                <option value="90">1h30</option>
+              </select>
+            </label>
+            <label>
+              <span>Responsável</span>
+              <select id="manualVisitOwner">
+                <option>Lucas Cesar</option>
+                <option>Isabela Gomes</option>
+              </select>
+            </label>
+            <button id="manualVisitSubmit" class="manual-visits-primary" type="submit">Agendar</button>
+
+            <label class="manual-visit-payment-toggle" for="manualVisitPaid">
+              <input id="manualVisitPaid" type="checkbox">
+              <span>
+                <i class="fa-solid fa-hand-holding-dollar" aria-hidden="true"></i>
+                Registrar pagamento recebido nesta visita
+              </span>
+            </label>
+            <div id="manualVisitPaymentFields" class="manual-visit-payment-fields hidden">
+              <label>
+                <span>Valor recebido</span>
+                <div class="manual-payment-value">
+                  <b>R$</b>
+                  <input id="manualVisitPaymentAmount" type="number" min="0.01" step="0.01" placeholder="0,00">
+                </div>
+              </label>
+              <label>
+                <span>Forma de pagamento</span>
+                <select id="manualVisitPaymentMethod">
+                  <option value="PIX">Pix</option>
+                  <option value="DINHEIRO">Dinheiro</option>
+                  <option value="CARTAO">Cartão</option>
+                  <option value="STRIPE">Link Stripe</option>
+                </select>
+              </label>
+              <p><i class="fa-solid fa-circle-check" aria-hidden="true"></i> Será salvo como recebido.</p>
+            </div>
+          </form>
+
+          <section class="manual-recent-companies">
+            <h3>Empresas recentes</h3>
+            <div id="manualRecentCompanies"></div>
+          </section>
+
+          <div id="visitsNotice" class="visits-notice hidden" role="status"></div>
+        </section>
+      </section>
+
+      <section id="visitsLegacyView" class="view hidden" aria-hidden="true">
+        <section class="visits-command-bar" aria-label="Resumo das visitas">
+          <div class="visits-funnel-compact">
+            <span class="visits-eyebrow">Funil comercial</span>
+            <div id="visitsFunnel" class="visits-funnel" aria-label="Funil de visitas"></div>
           </div>
-          <div id="eventsList" class="event-list"></div>
-        </article>
+          <div class="visits-live-location">
+            <span id="visitLocationDot" class="visits-live-dot demo" aria-hidden="true"></span>
+            <div>
+              <strong id="visitLocationTitle">Localização de demonstração</strong>
+              <span id="visitLocationMeta">Ative para planejar a partir de onde você está</span>
+            </div>
+            <button id="enableVisitLocation" class="visits-secondary-button" type="button">
+              <i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i>
+              Ativar localização
+            </button>
+          </div>
+        </section>
+
+        <section class="visits-planner">
+          <article class="visits-map-card" aria-label="Mapa da rota de hoje">
+            <header class="visits-map-header">
+              <div>
+                <span class="visits-eyebrow">Rota de hoje</span>
+                <h2>Seu próximo melhor caminho</h2>
+              </div>
+              <div class="visits-route-kpis" aria-label="Métricas da rota">
+                <span><strong id="visitsRouteCount">4</strong> paradas</span>
+                <span><strong id="visitsRouteDistance">7,4 km</strong> na rota</span>
+                <span><strong id="visitsRouteTime">1h58</strong> estimadas</span>
+              </div>
+              <button id="optimizeVisitsRoute" class="visits-primary-button" type="button">
+                <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+                Recalcular plano
+              </button>
+            </header>
+
+            <div class="visits-map">
+              <div id="visitsMap" aria-label="Mapa OpenStreetMap com rota calculada pelas ruas"></div>
+              <div id="visitMapStatus" class="visits-map-status">
+                <i class="fa-solid fa-road" aria-hidden="true"></i>
+                OpenStreetMap · rota pelas ruas
+              </div>
+            </div>
+          </article>
+
+          <aside class="visits-plan-panel">
+            <div class="visits-panel-tabs" role="tablist" aria-label="Planejamento e registro">
+              <button class="active" type="button" data-visit-panel="route" role="tab" aria-selected="true">Rota de hoje</button>
+              <button type="button" data-visit-panel="register" role="tab" aria-selected="false">Registrar visita</button>
+            </div>
+
+            <section id="visitRoutePanel" class="visits-panel-body">
+              <div class="visits-ai-card">
+                <span class="visits-ai-icon"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></span>
+                <div>
+                  <div class="visits-ai-heading">
+                    <strong>Plano sugerido</strong>
+                    <span id="visitAiSource">Plano local</span>
+                  </div>
+                  <p id="visitAiSummary">Ative sua localização e adicione oportunidades reais para planejar a rota.</p>
+                </div>
+              </div>
+
+              <ol id="visitRouteList" class="visits-route-list" aria-label="Paradas ordenadas"></ol>
+
+              <section class="visits-nearby">
+                <header>
+                  <div>
+                    <strong>Oportunidades por perto</strong>
+                    <span>Adicione sem sair muito da rota</span>
+                  </div>
+                  <button id="showAllNearbyVisits" class="visits-text-button" type="button">Ver todas</button>
+                </header>
+                <div id="visitsNearbyList"></div>
+              </section>
+
+              <button id="startVisitsRoute" class="visits-primary-button visits-start-route" type="button">
+                <i class="fa-solid fa-location-arrow" aria-hidden="true"></i>
+                Iniciar rota
+              </button>
+            </section>
+
+            <section id="visitRegisterPanel" class="visits-panel-body hidden">
+              <header class="visit-register-head">
+                <div>
+                  <span>Registrar visita</span>
+                  <strong id="visitSelectedBusiness">Nenhuma visita selecionada</strong>
+                </div>
+                <span id="visitSelectedMeta">Os dados aparecerão quando houver oportunidades reais.</span>
+              </header>
+
+              <div class="visit-outcomes" role="group" aria-label="Resultado da visita">
+                <button type="button" data-visit-outcome="not-interested">Não interessado</button>
+                <button type="button" data-visit-outcome="undecided">Indeciso</button>
+                <button type="button" class="active" data-visit-outcome="interested">Interessado</button>
+                <button type="button" data-visit-outcome="trial">Em teste</button>
+              </div>
+
+              <label class="visit-note-field">
+                <span>O que aconteceu?</span>
+                <textarea id="visitNotes" rows="5" placeholder="Registre o que o cliente disse, necessidades e próximos passos."></textarea>
+              </label>
+
+              <div class="visit-register-meta">
+                <div>
+                  <span>Nível de interesse</span>
+                  <strong id="visitInterestScore">Alto · 86%</strong>
+                </div>
+                <div>
+                  <span>Teste sugerido</span>
+                  <strong><i class="fa-regular fa-calendar" aria-hidden="true"></i> 27/07 — 03/08</strong>
+                </div>
+              </div>
+
+              <div class="visit-register-actions">
+                <button id="generateVisitTrial" class="visits-primary-button" type="button">Gerar teste de 7 dias</button>
+                <button id="saveVisitAndContinue" class="visits-secondary-button" type="button">Salvar e seguir rota <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
+              </div>
+            </section>
+          </aside>
+        </section>
+
+        <div id="visitsLegacyNotice" class="visits-notice hidden" role="status"></div>
       </section>
 
       <section id="supportView" class="view hidden">
-        <article class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>Suporte por conversa</h2>
-              <span id="supportLiveBadge" class="mini-badge">tempo real</span>
+        <section class="support-workspace" aria-label="Central de atendimento">
+          <aside class="support-queue-panel">
+            <header class="support-queue-head">
+              <h2>Fila de atendimento</h2>
+              <div class="support-queue-metrics" aria-label="Resumo da fila">
+                <span id="supportOpenBadge">0 abertos</span>
+                <span id="supportUrgentBadge">0 urgente</span>
+              </div>
+            </header>
+
+            <label class="support-search" for="supportSearch">
+              <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+              <input id="supportSearch" type="search" placeholder="Buscar chamados..." autocomplete="off">
+            </label>
+
+            <div class="support-filter-tabs" role="group" aria-label="Filtrar chamados">
+              <button type="button" class="active" data-support-filter="all">Todos</button>
+              <button type="button" data-support-filter="open">Abertos</button>
+              <button type="button" data-support-filter="working">Em atendimento</button>
             </div>
-            <input id="supportSearch" placeholder="Buscar por cliente, telefone, chave ou mensagem">
-          </div>
-          <div id="supportList" class="support-list"></div>
-        </article>
+
+            <div id="supportQueue" class="support-queue" aria-live="polite"></div>
+          </aside>
+
+          <section id="supportConversation" class="support-conversation-panel" aria-label="Conversa do chamado"></section>
+
+          <aside id="supportContext" class="support-context-panel" aria-label="Contexto do cliente"></aside>
+        </section>
+        <div id="supportNotice" class="support-action-notice hidden" role="status"></div>
       </section>
 
       <section id="licensesView" class="view hidden">
-        <article class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>Licencas</h2>
-              <span id="licenseLiveBadge" class="mini-badge">tempo real</span>
-            </div>
-            <input id="licenseSearch" placeholder="Buscar por cliente, chave, CNPJ, cidade, IP ou PC">
-          </div>
-          <div class="table-wrap">
-            <table>
+        <section class="license-summary-strip" aria-label="Resumo das licenças">
+          <article>
+            <i class="fa-regular fa-file-lines" aria-hidden="true"></i>
+            <div><strong id="licenseMetricTotal">0</strong><span>licenças</span></div>
+          </article>
+          <article>
+            <i class="fa-regular fa-circle-check" aria-hidden="true"></i>
+            <div><strong id="licenseMetricActive">0</strong><span>ativas</span></div>
+          </article>
+          <article>
+            <i class="fa-regular fa-clock" aria-hidden="true"></i>
+            <div><strong id="licenseMetricSoon">0</strong><span>vencem em 30 dias</span></div>
+          </article>
+          <article>
+            <i class="fa-regular fa-circle-xmark" aria-hidden="true"></i>
+            <div><strong id="licenseMetricExpired">0</strong><span>vencidas</span></div>
+          </article>
+        </section>
+
+        <section class="license-workspace">
+          <article class="license-renewals-panel">
+            <header class="license-renewals-head">
+              <h2>Próximas renovações</h2>
+              <div class="license-filters" role="group" aria-label="Filtrar licenças por vencimento">
+                <button type="button" class="active" data-license-filter="all">Todos</button>
+                <button type="button" data-license-filter="7">Até 7 dias</button>
+                <button type="button" data-license-filter="30">Até 30 dias</button>
+                <button type="button" data-license-filter="expired">Vencidas</button>
+              </div>
+            </header>
+
+            <label class="license-search" for="licenseSearch">
+              <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+              <input id="licenseSearch" type="search" placeholder="Buscar por cliente, chave, plano ou computador" autocomplete="off">
+            </label>
+
+            <div class="license-table-wrap">
+              <table class="license-renewals-table">
               <thead>
                 <tr>
-                  <th>Status</th>
                   <th>Cliente / local</th>
                   <th>Chave</th>
-                  <th>Produto / PC</th>
-                  <th>Rede</th>
-                  <th>Expira</th>
-                  <th>Ultimo uso</th>
-                  <th></th>
+                  <th>Plano</th>
+                  <th>Vence em</th>
+                  <th>Último uso</th>
+                  <th>Ação</th>
                 </tr>
               </thead>
               <tbody id="licensesTable"></tbody>
-            </table>
-          </div>
-        </article>
+              </table>
+            </div>
+          </article>
+
+          <aside id="licenseImmediatePanel" class="license-immediate-panel" aria-live="polite">
+            <div class="license-detail-empty">
+              <i class="fa-regular fa-folder-open" aria-hidden="true"></i>
+              <strong>Selecione uma licença</strong>
+              <span>Os dados da renovação aparecerão aqui.</span>
+            </div>
+          </aside>
+        </section>
+
+        <button id="blockedLicenseIpsButton" class="license-blocked-footer" type="button">
+          <i class="fa-solid fa-lock" aria-hidden="true"></i>
+          <span><strong id="licenseBlockedIpCount">0</strong> IPs bloqueados</span>
+          <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+        </button>
+        <div id="licenseActionNotice" class="license-action-notice hidden" role="status"></div>
       </section>
 
       <section id="devicesView" class="view hidden">
-        <article class="panel">
-          <div class="panel-head compact">
-            <h2>Clientes</h2>
-            <span id="devicesLiveBadge" class="mini-badge">tempo real</span>
+        <section class="client-health-summary" aria-label="Saúde da carteira">
+          <div class="client-health-distribution">
+            <div class="client-intelligence-title">
+              <h2>Inteligência de clientes</h2>
+              <button type="button" class="score-help" id="scoreHelpButton" aria-expanded="false" aria-controls="scoreMethodology">
+                <i class="fa-regular fa-circle-question" aria-hidden="true"></i>
+                Como calculamos
+              </button>
+            </div>
+            <div id="clientHealthBar" class="client-health-bar" aria-label="Distribuição da saúde dos clientes"></div>
+            <div id="clientHealthLegend" class="client-health-legend"></div>
           </div>
-          <div id="devicesList" class="device-grid"></div>
-        </article>
-        <article class="panel">
-          <div class="panel-head compact">
-            <h2>IPs bloqueados</h2>
-            <span id="blockedIpLiveBadge" class="mini-badge">0 bloqueado(s)</span>
+          <div class="client-health-metric">
+            <strong id="clientActiveCount">0</strong>
+            <span>clientes ativos</span>
+            <small id="clientUpdatedAt">Aguardando atualização</small>
           </div>
-          <div id="blockedIpList" class="blocked-ip-list"></div>
-        </article>
+          <div class="client-health-metric">
+            <strong id="clientSyncedPercent">0%</strong>
+            <span>sincronizados hoje</span>
+            <small id="clientSyncedCount">0 de 0 clientes</small>
+          </div>
+        </section>
+
+        <aside id="scoreMethodology" class="score-methodology hidden" aria-live="polite">
+          <strong>Nota explicável, sem caixa-preta</strong>
+          <span><b>35%</b> licença</span>
+          <span><b>35%</b> sincronização</span>
+          <span><b>20%</b> suporte</span>
+          <span><b>10%</b> pagamento, quando disponível</span>
+          <small>Sinais ausentes não derrubam a nota; reduzem a confiança exibida no detalhe.</small>
+        </aside>
+
+        <section class="client-intelligence-grid">
+          <article class="client-priority-panel">
+            <header class="client-priority-head">
+              <div>
+                <h2>Prioridade de relacionamento</h2>
+                <p>Ordenada por risco, urgência e score.</p>
+              </div>
+              <div class="client-priority-controls">
+                <label class="client-search">
+                  <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                  <input id="clientIntelligenceSearch" type="search" placeholder="Buscar cliente ou cidade" autocomplete="off">
+                </label>
+                <select id="clientHealthFilter" aria-label="Filtrar por saúde">
+                  <option value="all">Todos</option>
+                  <option value="critical">Críticos</option>
+                  <option value="attention">Atenção</option>
+                  <option value="healthy">Saudáveis</option>
+                </select>
+              </div>
+            </header>
+            <div class="client-priority-table" role="table" aria-label="Clientes por prioridade">
+              <div class="client-priority-columns" role="row">
+                <span>#</span>
+                <span>Cliente</span>
+                <span>Cidade</span>
+                <span>Plano</span>
+                <span>Saúde</span>
+                <span>Motivo</span>
+                <span>Ação sugerida</span>
+              </div>
+              <div id="devicesList" class="client-priority-list"></div>
+            </div>
+          </article>
+
+          <aside id="clientIntelligenceDetail" class="client-detail-panel" aria-live="polite"></aside>
+        </section>
+
+        <footer class="client-security-footer">
+          <span>IPs bloqueados: <strong id="blockedIpLiveBadge">0</strong></span>
+          <span aria-hidden="true">•</span>
+          <span>Última verificação: <span id="clientSecurityUpdatedAt">—</span></span>
+        </footer>
+        <div id="blockedIpList" class="hidden"></div>
       </section>
 
       <section id="downloadsView" class="view hidden">
@@ -233,7 +804,7 @@
 
       <section id="keysView" class="view hidden">
         <article class="panel key-panel">
-          <h2>Criar chave de ativacao</h2>
+          <h2>Criar chave de ativação</h2>
           <div class="form-grid">
             <label>Cliente</label>
             <input id="keyCustomer" placeholder="Nome do cliente/restaurante">
@@ -259,6 +830,7 @@
     </section>
   </main>
 
-  <script src="./app.js?v=20260605-release-downloads-1"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="./app.js?v=20260728-manual-visits-v1"></script>
 </body>
 </html>

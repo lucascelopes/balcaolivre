@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -15,18 +13,13 @@ const _supabaseAnonKey = String.fromEnvironment(
   defaultValue: 'sb_publishable_qNl5_EGAeuhN6PqTzRIeyQ_YQV2MdV6',
 );
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const BalcaoLivreApp());
-  Timer.run(() => unawaited(_initializeSupabase()));
-}
-
-Future<void> _initializeSupabase() async {
   try {
     await Supabase.initialize(
       url: _supabaseUrl,
       publishableKey: _supabaseAnonKey,
-    ).timeout(const Duration(seconds: 5));
+    ).timeout(const Duration(seconds: 10));
   } catch (error, stackTrace) {
     FlutterError.reportError(
       FlutterErrorDetails(
@@ -37,4 +30,5 @@ Future<void> _initializeSupabase() async {
       ),
     );
   }
+  runApp(const BalcaoLivreApp());
 }

@@ -1,102 +1,51 @@
-import { billingFromPlanId, getPlan, trackAdminAnalytics } from "./licensing";
+const DEFAULT_CHECKOUT_URL =
+  "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout";
 
-const STRIPE_CHECKOUT_URL = "https://api.stripe.com/v1/checkout/sessions";
+async function forwardCheckout(request) {
+  const target = new URL(
+    process.env.BALCAO_CHECKOUT_FUNCTION_URL ||
+      process.env.NEXT_PUBLIC_BALCAO_CHECKOUT_FUNCTION_URL ||
+      DEFAULT_CHECKOUT_URL
+  );
 
-const prices = {
-  mensal: process.env.STRIPE_PRICE_OFFLINE_MENSAL || "",
-  anual: process.env.STRIPE_PRICE_OFFLINE_ANUAL || "",
-  "basico-mensal": process.env.STRIPE_PRICE_BASICO_MENSAL || "",
-  "basico-anual": process.env.STRIPE_PRICE_BASICO_ANUAL || "",
-  "completo-mensal": process.env.STRIPE_PRICE_COMPLETO_MENSAL || "",
-  "completo-anual": process.env.STRIPE_PRICE_COMPLETO_ANUAL || "",
-  "offline-mensal": process.env.STRIPE_PRICE_OFFLINE_MENSAL || "",
-  "offline-anual": process.env.STRIPE_PRICE_OFFLINE_ANUAL || "",
-  "online-mensal": process.env.STRIPE_PRICE_ONLINE_MENSAL || "",
-  "online-anual": process.env.STRIPE_PRICE_ONLINE_ANUAL || ""
-};
-
-function planFromRequest(request, formData) {
-  if (formData) {
-    return String(formData.get("plan") || "").toLowerCase();
+  if (request.method === "GET") {
+    const source = new URL(request.url);
+    source.searchParams.forEach((value, key) => target.searchParams.set(key, value));
+    return Response.redirect(target.toString(), 303);
   }
 
-  return new URL(request.url).searchParams.get("plan")?.toLowerCase() || "";
-}
-
-async function createCheckout(request, formData) {
-  const plan = planFromRequest(request, formData);
-  const price = prices[plan];
-  const dynamicPlan = getPlan(plan);
-
-  if (!price && !dynamicPlan) {
-    return Response.json({ error: "Plano invalido." }, { status: 400 });
-  }
-
-  const secretKey = process.env.STRIPE_SECRET_KEY;
-
-  if (!secretKey) {
-    return Response.json(
-      { error: "STRIPE_SECRET_KEY nao configurada no servidor." },
-      { status: 500 }
-    );
-  }
-
-  const origin = request.headers.get("origin") || new URL(request.url).origin;
-  const params = new URLSearchParams({
-    mode: "subscription",
-    "line_items[0][quantity]": "1",
-    allow_promotion_codes: "true",
-    client_reference_id: plan,
-    "metadata[plan]": plan,
-    success_url: `${origin}/?checkout=sucesso&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${origin}/#planos`
-  });
-
-  if (price && !dynamicPlan) {
-    params.set("line_items[0][price]", price);
-  } else {
-    params.set("line_items[0][price_data][currency]", "brl");
-    params.set("line_items[0][price_data][unit_amount]", String(dynamicPlan.amount));
-    params.set("line_items[0][price_data][recurring][interval]", dynamicPlan.interval);
-    params.set("line_items[0][price_data][product_data][name]", dynamicPlan.name);
-  }
-
-  const stripeResponse = await fetch(STRIPE_CHECKOUT_URL, {
+  const formData = await request.formData();
+  const response = await fetch(target, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${secretKey}`,
-      "Content-Type": "application/x-www-form-urlencoded"
+      "Content-Type": "application/x-www-form-urlencoded",
+      Origin: new URL(request.url).origin
     },
-    body: params
+    body: new URLSearchParams(
+      Array.from(formData.entries()).map(([key, value]) => [key, String(value)])
+    ),
+    redirect: "manual"
   });
 
-  const data = await stripeResponse.json();
-
-  if (!stripeResponse.ok || !data.url) {
-    return Response.json(
-      { error: data.error?.message || "Nao foi possivel abrir o checkout." },
-      { status: stripeResponse.status || 500 }
-    );
+  const location = response.headers.get("location");
+  if (location && response.status >= 300 && response.status < 400) {
+    return Response.redirect(location, 303);
   }
 
-  await trackAdminAnalytics("checkout.started", {
-    plan,
-    billing: billingFromPlanId(plan),
-    amountCents: dynamicPlan?.amount || 0,
-    currency: "BRL",
-    source: "next-checkout",
-    path: new URL(request.url).pathname,
-    url: request.url
-  }).catch(() => null);
-
-  return Response.redirect(data.url, 303);
+  const body = await response.text();
+  return new Response(body, {
+    status: response.status,
+    headers: {
+      "Content-Type": response.headers.get("content-type") || "application/json; charset=utf-8",
+      "Cache-Control": "no-store"
+    }
+  });
 }
 
 export async function GET(request) {
-  return createCheckout(request);
+  return forwardCheckout(request);
 }
 
 export async function POST(request) {
-  const formData = await request.formData();
-  return createCheckout(request, formData);
+  return forwardCheckout(request);
 }

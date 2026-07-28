@@ -1,32 +1,108 @@
+using System.Diagnostics;
 using System.Net.Http;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Navigation;
 using MaterialDesignThemes.Wpf;
 
 namespace AgendaLivre.Windows;
 
 public partial class LoginWindow : Window
 {
-    private static readonly Brush ActiveBackground = new SolidColorBrush(Color.FromRgb(255, 228, 211));
+    private static readonly Brush ActiveBackground = new SolidColorBrush(Color.FromRgb(255, 244, 237));
     private static readonly Brush InactiveBackground = Brushes.Transparent;
+    private static readonly Brush ActiveBorder = new SolidColorBrush(Color.FromRgb(244, 90, 22));
+    private static readonly Brush InactiveBorder = Brushes.Transparent;
     private static readonly Brush ActiveText = new SolidColorBrush(Color.FromRgb(217, 77, 11));
     private static readonly Brush InactiveText = new SolidColorBrush(Color.FromRgb(113, 107, 102));
     private readonly AgendaAuthSessionManager _auth;
     private bool _signUpMode;
     private bool _busy;
+    private bool _authenticationSucceeded;
 
     public LoginWindow(AgendaAuthSessionManager auth)
     {
         _auth = auth ?? throw new ArgumentNullException(nameof(auth));
         InitializeComponent();
+        StateChanged += (_, _) => UpdateCustomWindowChromeState();
+        UpdateCustomWindowChromeState();
         Loaded += (_, _) => EmailTextBox.Focus();
+    }
+
+    private void CustomTitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left)
+        {
+            return;
+        }
+
+        if (e.ClickCount == 2)
+        {
+            ToggleCustomWindowState();
+            return;
+        }
+
+        try
+        {
+            DragMove();
+        }
+        catch (InvalidOperationException)
+        {
+            // The pointer may be released before the native move operation starts.
+        }
+    }
+
+    private void CustomMinimizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Minimized;
+    }
+
+    private void CustomMaximizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        ToggleCustomWindowState();
+    }
+
+    private void CustomCloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
+    private void ToggleCustomWindowState()
+    {
+        WindowState = WindowState == WindowState.Maximized
+            ? WindowState.Normal
+            : WindowState.Maximized;
+    }
+
+    private void UpdateCustomWindowChromeState()
+    {
+        if (CustomMaximizeIcon is null || CustomMaximizeButton is null)
+        {
+            return;
+        }
+
+        var isMaximized = WindowState == WindowState.Maximized;
+        CustomMaximizeIcon.Kind = isMaximized ? PackIconKind.WindowRestore : PackIconKind.WindowMaximize;
+        AutomationProperties.SetName(
+            CustomMaximizeButton,
+            isMaximized ? "Restaurar janela" : "Maximizar janela");
     }
 
     public AgendaAuthSession? Session => _auth.CurrentSession;
 
+    public event EventHandler? AuthenticationSucceeded;
+
     private void LoginModeButton_Click(object sender, RoutedEventArgs e) => SetMode(signUp: false);
 
     private void SignUpModeButton_Click(object sender, RoutedEventArgs e) => SetMode(signUp: true);
+
+    private void PrivacyLink_RequestNavigate(object sender, RequestNavigateEventArgs e)
+    {
+        Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+        e.Handled = true;
+    }
 
     private void SetMode(bool signUp)
     {
@@ -38,6 +114,8 @@ public partial class LoginWindow : Window
         _signUpMode = signUp;
         SetPasswordVisibility(visible: false);
         SignUpFieldsPanel.Visibility = signUp ? Visibility.Visible : Visibility.Collapsed;
+        LoginBenefitsPanel.Visibility = signUp ? Visibility.Collapsed : Visibility.Visible;
+        AuthFormOffset.Y = signUp ? 0 : 30;
         SignUpPrivacyText.Visibility = signUp ? Visibility.Visible : Visibility.Collapsed;
         PrivacyText.Visibility = signUp ? Visibility.Collapsed : Visibility.Visible;
         TitleText.Text = signUp ? "Crie sua conta" : "Bem-vindo de volta";
@@ -48,8 +126,10 @@ public partial class LoginWindow : Window
         PasswordHelpText.Text = signUp ? "Crie uma senha com pelo menos 6 caracteres." : "Use a senha da sua conta.";
         LoginModeButton.Background = signUp ? InactiveBackground : ActiveBackground;
         LoginModeButton.Foreground = signUp ? InactiveText : ActiveText;
+        LoginModeButton.BorderBrush = signUp ? InactiveBorder : ActiveBorder;
         SignUpModeButton.Background = signUp ? ActiveBackground : InactiveBackground;
         SignUpModeButton.Foreground = signUp ? ActiveText : InactiveText;
+        SignUpModeButton.BorderBrush = signUp ? ActiveBorder : InactiveBorder;
         HideFeedback();
         (signUp ? FullNameTextBox : EmailTextBox).Focus();
     }
@@ -73,7 +153,7 @@ public partial class LoginWindow : Window
                     BusinessNameTextBox.Text);
                 if (result.Session is not null)
                 {
-                    DialogResult = true;
+                    CompleteAuthentication();
                     return;
                 }
 
@@ -86,7 +166,7 @@ public partial class LoginWindow : Window
             }
 
             await _auth.SignInAsync(EmailTextBox.Text, PasswordInput.Password);
-            DialogResult = true;
+            CompleteAuthentication();
         }
         catch (AgendaAuthException exception)
         {
@@ -98,11 +178,20 @@ public partial class LoginWindow : Window
         }
         finally
         {
-            if (DialogResult != true)
+            if (!_authenticationSucceeded)
             {
                 SetBusy(false);
             }
         }
+    }
+
+    private void CompleteAuthentication()
+    {
+        _authenticationSucceeded = true;
+        PrimaryButton.Content = _signUpMode
+            ? "Abrindo seu cadastro..."
+            : "Abrindo sua agenda...";
+        AuthenticationSucceeded?.Invoke(this, EventArgs.Empty);
     }
 
     private bool ValidateForm()

@@ -1,38 +1,55 @@
-import { List } from "@phosphor-icons/react/ssr";
-import { downloadUrl } from "./siteLinks";
+import { sellers } from "./siteLinks";
 
-const links = [
-  ["Recursos", "/#recursos"],
+const navLinks = [
+  ["Soluções", "/#solucoes"],
+  ["Recursos", "/#solucoes"],
   ["Planos", "/#planos"],
-  ["Clientes", "/#clientes"],
+  ["Depoimentos", "/#depoimentos"],
   ["Suporte", "/#suporte"],
   ["Contato", "/#contato"]
 ];
 
-function Navigation() {
-  return links.map(([label, href]) => <a key={label} href={href}>{label}</a>);
-}
+const whatsappHref = sellers[0]?.href || "https://wa.me/5527981267551";
 
 export default function SiteHeader({ id }) {
   return (
-    <header className="bl2Header" id={id}>
-      <div className="bl2HeaderInner">
-        <a className="bl2Brand" href="/#inicio" aria-label="Balcão Livre PDV">
-          <img src="/brand/bl-orange-icon.png" alt="" aria-hidden="true" />
-          <span>Balcão Livre PDV</span>
+    <header className="lpHeader" id={id}>
+      <a className="lpBrand" href="/#inicio" aria-label="Balcão Livre">
+        <img src="/brand/bl-modern-icon.png" alt="" aria-hidden="true" />
+        <span>
+          <strong>Balcão Livre</strong>
+        </span>
+      </a>
+
+      <nav className="lpNav" aria-label="Navegação principal">
+        {navLinks.map(([label, href]) => (
+          <a key={label} href={href}>
+            {label}
+          </a>
+        ))}
+      </nav>
+
+      <div className="lpHeaderActions">
+        <a className="lpHeaderLogin" href="https://app.balcaolivrepdv.com.br">
+          Entrar
         </a>
-
-        <nav className="bl2Nav" aria-label="Navegação principal"><Navigation /></nav>
-
-        <div className="bl2HeaderActions">
-          <a className="bl2Login" href="https://pdv.balcaolivrepdv.com.br">Entrar</a>
-          <a className="bl2Button bl2ButtonPrimary" href={downloadUrl} data-analytics-action="trial_download" data-analytics-location="header">Testar grátis</a>
-        </div>
-
-        <details className="bl2MobileMenu">
-          <summary aria-label="Abrir menu"><List size={24} weight="bold" /></summary>
-          <nav><Navigation /><a href="https://pdv.balcaolivrepdv.com.br">Entrar</a><a className="bl2Button bl2ButtonPrimary" href={downloadUrl}>Testar grátis</a></nav>
-        </details>
+        <a
+          className="lpHeaderTrial"
+          href="/#planos"
+          data-analytics-action="plans_click"
+          data-analytics-location="header"
+          data-analytics-plan="balcao"
+        >
+          Ver planos
+        </a>
+        <a
+          className="lpHeaderWhatsapp"
+          href={whatsappHref}
+          data-analytics-action="whatsapp_click"
+          data-analytics-location="header"
+        >
+          WhatsApp
+        </a>
       </div>
     </header>
   );

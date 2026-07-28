@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const LICENSE_SECRET = "BalcaoLivrePDV-local-license-v1";
 const OFFLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows/BalcaoLivrePDV-Setup-1.2.2026.1.exe";
-const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.21.exe";
+const ONLINE_INSTALLER_URL = "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.29.exe";
 const TRIAL_SOURCE = "landing_trial_download";
 const TRIAL_DAYS = 7;
 const TRIAL_WHATSAPP_URL = "https://wa.me/5527981267551?text=Ola%2C%20preciso%20liberar%20outro%20teste%20do%20Balcao%20Livre%20PDV.";

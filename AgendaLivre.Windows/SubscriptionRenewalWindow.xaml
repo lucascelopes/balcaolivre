@@ -1,0 +1,207 @@
+<Window x:Class="AgendaLivre.Windows.SubscriptionRenewalWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Renovar Agenda Livre"
+        Width="900"
+        Height="620"
+        MinWidth="760"
+        MinHeight="560"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResize"
+        Background="#FFFBF7">
+    <Window.Resources>
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Height" Value="50"/>
+            <Setter Property="Padding" Value="22,0"/>
+            <Setter Property="Background" Value="#D94A14"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="8">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="OutlineButton"
+               TargetType="Button"
+               BasedOn="{StaticResource PrimaryButton}">
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="Foreground" Value="#211A17"/>
+            <Setter Property="BorderBrush" Value="#E3D7CF"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="0.9*"/>
+            <ColumnDefinition Width="1.1*"/>
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0"
+                Background="#FFF5EE"
+                BorderBrush="#E9DDD5"
+                BorderThickness="0,0,1,0">
+            <Grid Margin="52,48">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Image Width="148"
+                       Height="64"
+                       HorizontalAlignment="Left"
+                       Stretch="Uniform"
+                       Source="/AgendaLivreWindows;component/Assets/agenda-livre-mark.png"/>
+                <StackPanel Grid.Row="1" VerticalAlignment="Center">
+                    <Border Width="54"
+                            Height="54"
+                            HorizontalAlignment="Left"
+                            Background="#D94A14"
+                            CornerRadius="27">
+                        <TextBlock Text="!"
+                                   Foreground="White"
+                                   FontSize="28"
+                                   FontWeight="Black"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Margin="0,22,0,0"
+                               Text="Sua licença&#x0a;precisa ser renovada."
+                               Foreground="#211A17"
+                               FontSize="38"
+                               FontWeight="Black"
+                               LineHeight="41"/>
+                    <TextBlock Margin="0,18,0,0"
+                               Text="Seus dados continuam seguros.&#x0a;Renove para voltar a usar a mesma&#x0a;agenda na Web e no Windows."
+                               Foreground="#7B6D66"
+                               FontSize="14"
+                               LineHeight="22"/>
+                </StackPanel>
+                <TextBlock Grid.Row="2"
+                           Text="PAGAMENTO SEGURO PELA STRIPE"
+                           Foreground="#9A8276"
+                           FontSize="10"
+                           FontWeight="Bold"/>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Column="1" Margin="62,50">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <StackPanel>
+                <TextBlock Text="Renove sem perder tempo"
+                           Foreground="#211A17"
+                           FontSize="30"
+                           FontWeight="Black"/>
+                <TextBlock Margin="0,8,0,0"
+                           Text="A Stripe reutiliza o cliente e o cartão salvo com segurança. Se o banco pedir, a confirmação 3D Secure abre no navegador."
+                           Foreground="#7B6D66"
+                           FontSize="13"
+                           TextWrapping="Wrap"
+                           LineHeight="20"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="1" VerticalAlignment="Center">
+                <Border Padding="18"
+                        Background="#FFFAF6"
+                        BorderBrush="#E9DDD5"
+                        BorderThickness="1"
+                        CornerRadius="10">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Width="42"
+                                Height="34"
+                                Background="#211A17"
+                                CornerRadius="6">
+                            <TextBlock Text="••••"
+                                       Foreground="White"
+                                       FontWeight="Bold"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel Grid.Column="1" Margin="14,0,0,0">
+                            <TextBlock x:Name="SavedCardTitle"
+                                       Text="Consultando cartão salvo…"
+                                       Foreground="#211A17"
+                                       FontWeight="Bold"/>
+                            <TextBlock x:Name="SavedCardDetail"
+                                       Margin="0,3,0,0"
+                                       Text="Seus dados completos nunca passam pelo Agenda Livre."
+                                       Foreground="#7B6D66"
+                                       FontSize="11"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Button Margin="0,20,0,0"
+                        Style="{StaticResource PrimaryButton}"
+                        Tag="mensal"
+                        Click="Renew_Click"
+                        Content="Renovar mensal — R$ 49,90"/>
+                <Button Margin="0,10,0,0"
+                        Style="{StaticResource OutlineButton}"
+                        Tag="anual"
+                        Click="Renew_Click"
+                        Content="Renovar anual — R$ 598,80"/>
+                <Button Margin="0,10,0,0"
+                        Style="{StaticResource OutlineButton}"
+                        Click="Portal_Click"
+                        Content="Ver ou atualizar cartão salvo"/>
+                <TextBlock x:Name="StatusText"
+                           Margin="0,14,0,0"
+                           Foreground="#B43B11"
+                           FontSize="12"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock VerticalAlignment="Center"
+                           Foreground="#7B6D66"
+                           FontSize="11"
+                           Text="Já concluiu o pagamento?"/>
+                <Button Grid.Column="1"
+                        Padding="16,8"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Foreground="#211A17"
+                        FontWeight="Bold"
+                        Cursor="Hand"
+                        Click="Verify_Click"
+                        Content="Verificar licença →"/>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

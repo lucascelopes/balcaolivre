@@ -363,6 +363,59 @@ public partial class MainWindow
         }
     }
 
+    private async Task<InstagramPublicationsResult> FetchInstagramPublicationsAsync()
+    {
+        try
+        {
+            var payload = CreateInstagramPayload();
+            payload["limit"] = 30;
+            var response = await PostInstagramAsync("/publications", payload, TimeSpan.FromSeconds(20));
+            using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(response.Body) ? "{}" : response.Body);
+            var root = document.RootElement;
+            var message = ReadEvolutionString(root, "message", "error", "detail");
+            var connected = response.StatusCode != (HttpStatusCode)428 &&
+                            (!TryGetJsonProperty(root, "connected", out var connectedElement) ||
+                             connectedElement.ValueKind != JsonValueKind.False);
+            if ((int)response.StatusCode is < 200 or >= 300)
+            {
+                return new InstagramPublicationsResult(false, connected, message, []);
+            }
+
+            if (!TryGetJsonProperty(root, "publications", out var publications) ||
+                publications.ValueKind != JsonValueKind.Array)
+            {
+                return new InstagramPublicationsResult(true, true, "", []);
+            }
+
+            var rows = new List<InstagramPublicationRecord>();
+            foreach (var item in publications.EnumerateArray())
+            {
+                rows.Add(new InstagramPublicationRecord(
+                    ReadEvolutionString(item, "id", "mediaId"),
+                    ReadEvolutionString(item, "caption", "text"),
+                    ReadEvolutionString(item, "mediaType", "type"),
+                    ReadEvolutionString(item, "mediaUrl", "imageUrl"),
+                    ReadEvolutionString(item, "thumbnailUrl", "mediaUrl", "imageUrl"),
+                    ReadEvolutionString(item, "permalink", "url"),
+                    ReadEvolutionString(item, "username"),
+                    ReadInstagramDate(item),
+                    ReadInstagramInt(item, "likeCount", "likes"),
+                    ReadInstagramInt(item, "commentsCount", "comments")));
+            }
+
+            return new InstagramPublicationsResult(
+                true,
+                true,
+                "",
+                rows.OrderByDescending(row => row.PublishedAt).ToList());
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            Debug.WriteLine($"Instagram publications failed: {ex.Message}");
+            return new InstagramPublicationsResult(false, true, $"Instagram indisponível: {ex.Message}", []);
+        }
+    }
+
     private async Task<InstagramSendResult> SendInstagramMessageAsync(string recipientId, string text)
     {
         try
@@ -455,6 +508,30 @@ public partial class MainWindow
         return DateTime.Now;
     }
 
+    private static int ReadInstagramInt(JsonElement item, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!TryGetJsonProperty(item, name, out var value))
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
+            {
+                return Math.Max(0, number);
+            }
+
+            if (value.ValueKind == JsonValueKind.String &&
+                int.TryParse(value.GetString(), out number))
+            {
+                return Math.Max(0, number);
+            }
+        }
+
+        return 0;
+    }
+
     private static string NormalizeInstagramUsername(string value) =>
         (value ?? "").Trim().TrimStart('@').Replace(" ", "", StringComparison.Ordinal);
 
@@ -479,6 +556,23 @@ public partial class MainWindow
     private sealed record InstagramOAuthResult(bool Ok, string AuthorizationUrl, string Message);
     private sealed record InstagramActionResult(bool Ok, string Message);
     private sealed record InstagramSendResult(bool Ok, string Message, string RemoteMessageId);
+    private sealed record InstagramPublicationsResult(
+        bool Ok,
+        bool Connected,
+        string Message,
+        IReadOnlyList<InstagramPublicationRecord> Publications);
+
+    private sealed record InstagramPublicationRecord(
+        string Id,
+        string Caption,
+        string MediaType,
+        string MediaUrl,
+        string ThumbnailUrl,
+        string Permalink,
+        string Username,
+        DateTime PublishedAt,
+        int LikeCount,
+        int CommentsCount);
 
     private sealed record InstagramMessageRow(
         string Id,

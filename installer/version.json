@@ -1,8 +1,9 @@
 {
-  "version": "1.8.2026.21",
-  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.21.exe",
-  "minimumVersion": "1.8.2026.21",
-  "notes": "Balcao Livre PDV Online 1.8.2026.21. Melhora o botao direito nas mesas, comandas e delivery: o menu abre mais rapido, sem carregar a comanda antes da acao, e mantem acoes de fechar, receber, apagar e fixar entregador.",
+  "version": "1.8.2026.29",
+  "installerUrl": "https://hzvplpotsdzxygkxrgyi.supabase.co/storage/v1/object/public/balcao-livre-updates/windows-online/BalcaoLivrePDVOnline-Setup-1.8.2026.29.exe",
+  "minimumVersion": "1.8.2026.29",
+  "notes": "Balcao Livre PDV Online 1.8.2026.29. Ativacao automatica por conta e dispositivo, book inicial em seis etapas, direitos dinamicos por plano e deep link seguro sem chave visivel.",
+  "sha256": "7D12BD2698931D44635AA3E17D6CC344E88A54C6E834E73CF63BAB80717497DE",
   "required": true,
-  "publishedAt": "2026-06-12T11:37:17-03:00"
+  "publishedAt": "2026-07-28T02:20:00-03:00"
 }

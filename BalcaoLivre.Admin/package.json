@@ -1,0 +1,15 @@
+{
+  "name": "balcao-livre-admin-cloudflare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --config wrangler.jsonc",
+    "check": "wrangler deploy --dry-run --config wrangler.jsonc",
+    "deploy": "wrangler deploy --config wrangler.jsonc",
+    "secret:openrouter": "wrangler secret put OPENROUTER_API_KEY --config wrangler.jsonc",
+    "secret:supabase": "wrangler secret put SUPABASE_SERVICE_ROLE_KEY --config wrangler.jsonc"
+  },
+  "devDependencies": {
+    "wrangler": "4.114.0"
+  }
+}

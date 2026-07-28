@@ -66,7 +66,11 @@ public partial class MainWindow : Window
     private const string DefaultCheckoutFunctionUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout";
     private static bool PagBankIntegrationAvailable => false;
     private const string LegacyAdminApiUrl = "https://balcaolivrepdv.onrender.com";
-    private const string DefaultWhatsAppFunctionUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/whatsapp";
+    private const string BalcaoLivreWhatsAppFunctionEnvVar = "CLOUDFLARE_PUBLIC_URL";
+    private const string BalcaoLivreWhatsAppFunctionTunnelEnvVar = "CLOUDFLARE_TUNNEL_URL";
+    private const string BalcaoLivreWhatsAppFunctionLegacyEnvVar = "WHATSAPP_FUNCTION_URL";
+    private const string LegacyWhatsAppFunctionUrl = "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/whatsapp";
+    private const string DefaultWhatsAppFunctionUrl = "https://hzvplpotsdzxygkxrgyi.functions.supabase.co/functions/v1/whatsapp";
     private const string PublicMenuApexHost = "balcaolivrepdv.com.br";
     private const string PublicMenuHost = "cardapio.balcaolivrepdv.com.br";
     private const string DefaultPublicMenuBaseUrl = "https://cardapio.balcaolivrepdv.com.br";
@@ -3458,15 +3462,55 @@ public partial class MainWindow : Window
         return BuildAdminApiUri(DefaultPaymentsApiUrl, path);
     }
 
-    private Uri? BuildWhatsAppFunctionUri(string path)
+    private static string? ResolveConfiguredWhatsAppFunctionUrlFromEnvironment()
     {
-        var baseUrl = (_appSettings.WhatsAppFunctionUrl ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(baseUrl))
+        foreach (var environmentVariableName in new[] { BalcaoLivreWhatsAppFunctionEnvVar, BalcaoLivreWhatsAppFunctionTunnelEnvVar, BalcaoLivreWhatsAppFunctionLegacyEnvVar })
         {
-            baseUrl = DefaultWhatsAppFunctionUrl;
-            _appSettings.WhatsAppFunctionUrl = baseUrl;
+            var envUrl = (Environment.GetEnvironmentVariable(environmentVariableName) ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(envUrl))
+            {
+                continue;
+            }
+
+            if (!Uri.TryCreate(envUrl, UriKind.Absolute, out _))
+            {
+                Debug.WriteLine($"Invalid WhatsApp URL from environment variable {environmentVariableName}: {envUrl}");
+                continue;
+            }
+
+            return envUrl.Replace(LegacyWhatsAppFunctionUrl, DefaultWhatsAppFunctionUrl);
         }
 
+        return null;
+    }
+
+    private string ResolveWhatsAppFunctionUrl()
+    {
+        var configuredFromEnv = ResolveConfiguredWhatsAppFunctionUrlFromEnvironment();
+        if (!string.IsNullOrWhiteSpace(configuredFromEnv))
+        {
+            _appSettings.WhatsAppFunctionUrl = configuredFromEnv;
+            return configuredFromEnv;
+        }
+
+        var configured = (_appSettings.WhatsAppFunctionUrl ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(configured) && Uri.TryCreate(configured, UriKind.Absolute, out _))
+        {
+            return configured.Replace(LegacyWhatsAppFunctionUrl, DefaultWhatsAppFunctionUrl);
+        }
+
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            Debug.WriteLine($"Invalid configured WhatsApp function URL. Falling back to default: {configured}");
+        }
+
+        _appSettings.WhatsAppFunctionUrl = DefaultWhatsAppFunctionUrl;
+        return DefaultWhatsAppFunctionUrl;
+    }
+
+    private Uri? BuildWhatsAppFunctionUri(string path)
+    {
+        var baseUrl = ResolveWhatsAppFunctionUrl();
         if (!Uri.TryCreate(baseUrl.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri))
         {
             return null;
@@ -26210,7 +26254,16 @@ public partial class MainWindow : Window
             shouldSaveSettings = true;
         }
 
-        if (string.IsNullOrWhiteSpace(_appSettings.WhatsAppFunctionUrl))
+        var configuredWhatsAppFunctionUrlFromEnv = ResolveConfiguredWhatsAppFunctionUrlFromEnvironment();
+        if (!string.IsNullOrWhiteSpace(configuredWhatsAppFunctionUrlFromEnv))
+        {
+            if (!string.Equals(_appSettings.WhatsAppFunctionUrl, configuredWhatsAppFunctionUrlFromEnv, StringComparison.Ordinal))
+            {
+                _appSettings.WhatsAppFunctionUrl = configuredWhatsAppFunctionUrlFromEnv;
+                shouldSaveSettings = true;
+            }
+        }
+        else if (string.IsNullOrWhiteSpace(_appSettings.WhatsAppFunctionUrl))
         {
             _appSettings.WhatsAppFunctionUrl = DefaultWhatsAppFunctionUrl;
             shouldSaveSettings = true;

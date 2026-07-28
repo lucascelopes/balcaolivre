@@ -1,0 +1,1 @@
+ALTER TABLE `agenda_store_domains` ADD `provider_id` text DEFAULT '' NOT NULL;

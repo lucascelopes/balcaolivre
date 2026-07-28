@@ -1,12 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'ifood_cloud.dart';
 import 'models.dart';
+import 'secure_device.dart';
+import 'staff_security.dart';
+import 'whatsapp_cloud.dart';
 
 const _storageKey = 'balcao_livre_flutter_state_v1';
 const _paymentsApiUrl = String.fromEnvironment(
@@ -24,6 +30,12 @@ const _appVersion = String.fromEnvironment(
 );
 
 class BalcaoStore extends ChangeNotifier {
+  BalcaoStore({
+    IFoodCloudClient? ifoodClient,
+    WhatsAppCloudClient? whatsappClient,
+  }) : _ifoodClient = ifoodClient ?? IFoodCloudClient(),
+       _whatsappClient = whatsappClient ?? WhatsAppCloudClient();
+
   bool hydrated = false;
   bool loggedIn = false;
   bool authBusy = false;
@@ -32,6 +44,21 @@ class BalcaoStore extends ChangeNotifier {
   DateTime? unreconciledCashOpenedAt;
   bool onlineStoreOpen = false;
   String licenseKey = '';
+  String deviceInstallationId = '';
+  String secureDeviceId = '';
+  String secureStoreId = '';
+  String deviceLeaseToken = '';
+  String planCode = '';
+  DateTime? entitlementExpiresAt;
+  final Set<String> entitlementModules = {};
+  final Set<String> configuredServiceModes = {'SALAO'};
+  final Set<String> configuredPaymentMethods = {
+    'DINHEIRO',
+    'PIX',
+    'CREDITO',
+    'DEBITO',
+  };
+  String configuredDiningMode = 'AMBOS';
   String operatorName = 'Lucas';
   String authEmail = '';
   String authError = '';
@@ -50,8 +77,26 @@ class BalcaoStore extends ChangeNotifier {
   String search = '';
   String lastSync = '';
   bool whatsappConnected = false;
+  bool whatsappBusy = false;
   String whatsappNumber = '';
   String whatsappSessionId = '';
+  String whatsappConnectionStatus = 'DISCONNECTED';
+  String whatsappMessage = 'WhatsApp nao conectado';
+  String whatsappOnboardingUrl = '';
+  String whatsappLastSyncAt = '';
+  String securityMessage = '';
+  bool cloudBackupEnabled = true;
+  bool centralSyncEnabled = true;
+  String lastBackupAt = '';
+  String backupMessage = 'Nenhum backup gerado nesta instalacao.';
+  bool fiscalEnabled = false;
+  String fiscalProvider = 'NAO CONFIGURADO';
+  String tefProvider = 'NAO CONFIGURADO';
+  String fiscalMerchantCode = '';
+  String fiscalCscId = '';
+  String fiscalEnvironment = 'HOMOLOGACAO';
+  bool requireFiscalBeforeReceipt = false;
+  String fiscalMessage = 'Modulo Fiscal/TEF ainda nao configurado.';
   bool pointConnected = false;
   String pointConnectionStatus = 'DISCONNECTED';
   String pointDeviceName = '';
@@ -73,12 +118,24 @@ class BalcaoStore extends ChangeNotifier {
   String windowsBridgeLocalUrl = 'http://localhost:5050';
   String windowsBridgeStatus = 'Windows bridge nao conectado';
   String windowsBridgeLastPrintAt = '';
+  bool ifoodBusy = false;
+  String ifoodConnectionId = '';
+  String ifoodConnectionStatus = 'DISCONNECTED';
+  String ifoodMerchantId = '';
+  String ifoodMerchantName = '';
+  String ifoodMessage = 'iFood nao conectado';
+  String ifoodVerificationUrl = '';
+  String ifoodUserCode = '';
+  String ifoodLastSyncAt = '';
   final List<MercadoPagoTerminal> pointTerminals = [];
 
   final List<Product> products = [];
   final List<Order> orders = [];
   final List<Customer> customers = [];
+  final List<TeamMember> teamMembers = [];
+  final List<DeliveryZone> deliveryZones = [];
   final List<CashMovement> movements = [];
+  final List<CashClosingSnapshot> cashClosings = [];
   final List<StockMovement> stockMovements = [];
   final List<String> syncQueue = [];
   StreamSubscription<List<Map<String, dynamic>>>? _menuSubscription;
@@ -86,6 +143,9 @@ class BalcaoStore extends ChangeNotifier {
   StreamSubscription<List<Map<String, dynamic>>>? _orderSubscription;
   Timer? _syncDebounce;
   bool _syncRunning = false;
+  final IFoodCloudClient _ifoodClient;
+  final WhatsAppCloudClient _whatsappClient;
+  final SecureDeviceClient _secureDeviceClient = SecureDeviceClient();
 
   List<String> get categories => [
     'LANCHES',
@@ -95,16 +155,37 @@ class BalcaoStore extends ChangeNotifier {
     'DELIVERY',
     'SOBREMESAS',
   ];
-  bool get mercadoPagoCheckoutActive => pointReady;
-  List<String> get paymentMethods => mercadoPagoCheckoutActive
-      ? [
-          'Dinheiro',
-          'Pix Mercado Pago',
-          'Debito Point',
-          'Credito Point',
-          'Fiado',
-        ]
-      : ['Dinheiro', 'Pix', 'Debito', 'Credito', 'Fiado'];
+  bool hasModule(String module) =>
+      entitlementModules.isEmpty ||
+      entitlementModules.contains(module.trim().toUpperCase());
+  bool get mercadoPagoEntitled => hasModule('MERCADOPAGO_POINT');
+  bool get mercadoPagoCheckoutActive => mercadoPagoEntitled && pointReady;
+  bool get deliveryEnabled =>
+      entitlementModules.isEmpty ||
+      (configuredServiceModes.contains('DELIVERY') && hasModule('DELIVERY'));
+  bool get counterEnabled =>
+      entitlementModules.isEmpty ||
+      (configuredServiceModes.contains('BALCAO') && hasModule('BALCAO'));
+  bool get tablesEnabled =>
+      configuredServiceModes.contains('SALAO') &&
+      (configuredDiningMode == 'MESAS' || configuredDiningMode == 'AMBOS');
+  bool get commandsEnabled =>
+      configuredServiceModes.contains('SALAO') &&
+      (configuredDiningMode == 'COMANDAS' || configuredDiningMode == 'AMBOS');
+  List<String> get paymentMethods {
+    final labels = <String, String>{
+      'DINHEIRO': 'Dinheiro',
+      'PIX': mercadoPagoCheckoutActive ? 'Pix Mercado Pago' : 'Pix',
+      'DEBITO': mercadoPagoCheckoutActive ? 'Debito Point' : 'Debito',
+      'CREDITO': mercadoPagoCheckoutActive ? 'Credito Point' : 'Credito',
+      'VALE': 'Vale',
+      'FIADO': 'Fiado',
+    };
+    return configuredPaymentMethods
+        .where(labels.containsKey)
+        .map((method) => labels[method]!)
+        .toList();
+  }
 
   Order? get selectedOrder {
     for (final order in orders) {
@@ -131,8 +212,11 @@ class BalcaoStore extends ChangeNotifier {
   int get lowStockCount =>
       products.where((product) => product.stock <= product.minStock).length;
   int get pendingSyncCount => syncQueue.length;
+  bool get ifoodConnected =>
+      ifoodConnectionId.trim().isNotEmpty &&
+      ifoodConnectionStatus.toUpperCase() == 'CONNECTED';
   bool get pointHasPending => pointPendingAmount > 0;
-  bool get pointHasLicense => licenseKey.trim().isNotEmpty;
+  bool get pointHasLicense => mercadoPagoEntitled && secureStoreId.isNotEmpty;
   bool get pointHasTerminal => pointTerminalId.trim().isNotEmpty;
   bool get pointReady => pointConnected && pointHasTerminal;
   String get pointStatusLabel {
@@ -172,12 +256,65 @@ class BalcaoStore extends ChangeNotifier {
       .where((order) => isMercadoPagoMethod(order.paymentMethod))
       .length;
 
+  Iterable<CashMovement> get _todayCashMovements {
+    final now = DateTime.now();
+    return movements.where(
+      (movement) =>
+          movement.createdAt.year == now.year &&
+          movement.createdAt.month == now.month &&
+          movement.createdAt.day == now.day,
+    );
+  }
+
+  ({double pix, double credit, double debit, double other})
+  get todayPaymentTotals {
+    var pix = 0.0;
+    var credit = 0.0;
+    var debit = 0.0;
+    var total = 0.0;
+    for (final movement in _todayCashMovements.where(
+      (movement) => movement.type.toUpperCase() == 'VENDA',
+    )) {
+      final method = movement.note.toUpperCase();
+      total += movement.amount;
+      if (method.contains('PIX')) {
+        pix += movement.amount;
+      } else if (method.contains('CREDITO') || method.contains('CRÉDITO')) {
+        credit += movement.amount;
+      } else if (method.contains('DEBITO') || method.contains('DÉBITO')) {
+        debit += movement.amount;
+      }
+    }
+    return (
+      pix: pix,
+      credit: credit,
+      debit: debit,
+      other: (total - pix - credit - debit).clamp(0, double.maxFinite),
+    );
+  }
+
+  double get expectedCash {
+    var total = 0.0;
+    for (final movement in _todayCashMovements) {
+      final type = movement.type.toUpperCase();
+      if (type == 'ABERTURA' || type == 'SUPRIMENTO' || type == 'SANGRIA') {
+        total += movement.amount;
+      } else if (type == 'VENDA' &&
+          movement.note.toUpperCase().contains('DINHEIRO')) {
+        total += movement.amount;
+      }
+    }
+    return total;
+  }
+
   SupabaseClient get _supabase => Supabase.instance.client;
 
   @override
   void dispose() {
     _syncDebounce?.cancel();
     _cancelRealtime();
+    _ifoodClient.dispose();
+    _whatsappClient.dispose();
     super.dispose();
   }
 
@@ -209,6 +346,41 @@ class BalcaoStore extends ChangeNotifier {
     );
     onlineStoreOpen = json['onlineStoreOpen'] as bool? ?? false;
     licenseKey = json['licenseKey'] as String? ?? '';
+    deviceInstallationId = json['deviceInstallationId'] as String? ?? '';
+    secureDeviceId = json['secureDeviceId'] as String? ?? '';
+    secureStoreId = json['secureStoreId'] as String? ?? '';
+    deviceLeaseToken = json['deviceLeaseToken'] as String? ?? '';
+    planCode = json['planCode'] as String? ?? '';
+    entitlementExpiresAt = DateTime.tryParse(
+      '${json['entitlementExpiresAt'] ?? ''}',
+    );
+    entitlementModules
+      ..clear()
+      ..addAll(
+        (json['entitlementModules'] as List<dynamic>? ?? const [])
+            .map((item) => '$item'.trim().toUpperCase())
+            .where((item) => item.isNotEmpty),
+      );
+    configuredServiceModes
+      ..clear()
+      ..addAll(
+        (json['configuredServiceModes'] as List<dynamic>? ?? const ['SALAO'])
+            .map((item) => '$item'.trim().toUpperCase())
+            .where((item) => item.isNotEmpty),
+      );
+    configuredPaymentMethods
+      ..clear()
+      ..addAll(
+        (json['configuredPaymentMethods'] as List<dynamic>? ??
+                const ['DINHEIRO', 'PIX', 'CREDITO', 'DEBITO'])
+            .map((item) => '$item'.trim().toUpperCase())
+            .where((item) => item.isNotEmpty),
+      );
+    configuredDiningMode = (json['configuredDiningMode'] as String? ?? 'AMBOS')
+        .toUpperCase();
+    if (deviceInstallationId.length < 16) {
+      deviceInstallationId = _newInstallationId();
+    }
     operatorName = json['operatorName'] as String? ?? 'Lucas';
     authEmail = json['authEmail'] as String? ?? '';
     syncStatus = json['syncStatus'] as String? ?? 'Offline local';
@@ -240,6 +412,32 @@ class BalcaoStore extends ChangeNotifier {
     whatsappConnected = json['whatsappConnected'] as bool? ?? false;
     whatsappNumber = json['whatsappNumber'] as String? ?? '';
     whatsappSessionId = json['whatsappSessionId'] as String? ?? '';
+    whatsappConnectionStatus =
+        json['whatsappConnectionStatus'] as String? ??
+        (whatsappConnected ? 'CONNECTED' : 'DISCONNECTED');
+    whatsappMessage =
+        json['whatsappMessage'] as String? ??
+        (whatsappConnected ? 'WhatsApp conectado.' : 'WhatsApp nao conectado');
+    whatsappOnboardingUrl = json['whatsappOnboardingUrl'] as String? ?? '';
+    whatsappLastSyncAt = json['whatsappLastSyncAt'] as String? ?? '';
+    securityMessage = json['securityMessage'] as String? ?? '';
+    cloudBackupEnabled = json['cloudBackupEnabled'] as bool? ?? true;
+    centralSyncEnabled = json['centralSyncEnabled'] as bool? ?? true;
+    lastBackupAt = json['lastBackupAt'] as String? ?? '';
+    backupMessage =
+        json['backupMessage'] as String? ??
+        'Nenhum backup gerado nesta instalacao.';
+    fiscalEnabled = json['fiscalEnabled'] as bool? ?? false;
+    fiscalProvider = json['fiscalProvider'] as String? ?? 'NAO CONFIGURADO';
+    tefProvider = json['tefProvider'] as String? ?? 'NAO CONFIGURADO';
+    fiscalMerchantCode = json['fiscalMerchantCode'] as String? ?? '';
+    fiscalCscId = json['fiscalCscId'] as String? ?? '';
+    fiscalEnvironment = json['fiscalEnvironment'] as String? ?? 'HOMOLOGACAO';
+    requireFiscalBeforeReceipt =
+        json['requireFiscalBeforeReceipt'] as bool? ?? false;
+    fiscalMessage =
+        json['fiscalMessage'] as String? ??
+        'Modulo Fiscal/TEF ainda nao configurado.';
     pointConnected = json['pointConnected'] as bool? ?? false;
     pointConnectionStatus =
         json['pointConnectionStatus'] as String? ?? 'DISCONNECTED';
@@ -268,6 +466,15 @@ class BalcaoStore extends ChangeNotifier {
         'Windows bridge nao conectado';
     windowsBridgeLastPrintAt =
         json['windowsBridgeLastPrintAt'] as String? ?? '';
+    ifoodConnectionId = json['ifoodConnectionId'] as String? ?? '';
+    ifoodConnectionStatus =
+        json['ifoodConnectionStatus'] as String? ?? 'DISCONNECTED';
+    ifoodMerchantId = json['ifoodMerchantId'] as String? ?? '';
+    ifoodMerchantName = json['ifoodMerchantName'] as String? ?? '';
+    ifoodMessage = json['ifoodMessage'] as String? ?? 'iFood nao conectado';
+    ifoodVerificationUrl = json['ifoodVerificationUrl'] as String? ?? '';
+    ifoodUserCode = json['ifoodUserCode'] as String? ?? '';
+    ifoodLastSyncAt = json['ifoodLastSyncAt'] as String? ?? '';
     if (pointConnected &&
         pointTerminalId.trim().isEmpty &&
         pointSerial == 'MP-BL-001') {
@@ -299,11 +506,35 @@ class BalcaoStore extends ChangeNotifier {
           (item) => Customer.fromJson(item as Map<String, dynamic>),
         ),
       );
+    deliveryZones
+      ..clear()
+      ..addAll(
+        (json['deliveryZones'] as List<dynamic>? ?? []).map(
+          (item) => DeliveryZone.fromJson(item as Map<String, dynamic>),
+        ),
+      );
+    final savedTeam = json['teamMembers'] as List<dynamic>? ?? const [];
+    if (savedTeam.isNotEmpty) {
+      teamMembers
+        ..clear()
+        ..addAll(
+          savedTeam.map(
+            (item) => TeamMember.fromJson(item as Map<String, dynamic>),
+          ),
+        );
+    }
     movements
       ..clear()
       ..addAll(
         (json['movements'] as List<dynamic>? ?? []).map(
           (item) => CashMovement.fromJson(item as Map<String, dynamic>),
+        ),
+      );
+    cashClosings
+      ..clear()
+      ..addAll(
+        (json['cashClosings'] as List<dynamic>? ?? []).map(
+          (item) => CashClosingSnapshot.fromJson(item as Map<String, dynamic>),
         ),
       );
     stockMovements
@@ -319,10 +550,10 @@ class BalcaoStore extends ChangeNotifier {
     if (products.isEmpty || orders.isEmpty) _seed();
     selectedOrderId = selectedOrder?.id ?? orders.first.id;
     if (loggedIn &&
-        licenseKey.trim().isEmpty &&
+        deviceLeaseToken.trim().isEmpty &&
         _supabase.auth.currentSession == null) {
       loggedIn = false;
-      syncStatus = 'Entre com a conta Supabase da loja';
+      syncStatus = 'Entre com a conta da loja';
     }
     if (!loggedIn) {
       await connectFromWindowsBridge(notify: false);
@@ -353,8 +584,18 @@ class BalcaoStore extends ChangeNotifier {
         password: cleanPassword,
       );
       authEmail = cleanLogin;
-      await _loadLicenseForAuthenticatedUser();
-      loggedIn = licenseKey.isNotEmpty;
+      final session = _supabase.auth.currentSession;
+      if (session == null) {
+        throw const AuthException('A sessão da conta não foi criada.');
+      }
+      final activation = await _secureDeviceClient.activateMobile(
+        accessToken: session.accessToken,
+        installationId: deviceInstallationId,
+        displayName: 'Caixa móvel',
+        appVersion: _appVersion,
+      );
+      _applySecureActivation(activation);
+      loggedIn = deviceLeaseToken.isNotEmpty;
       _enqueue('supabase_login');
       await resumeSupabaseSync();
       authBusy = false;
@@ -382,6 +623,8 @@ class BalcaoStore extends ChangeNotifier {
       await _supabase.auth.signOut();
     }
     loggedIn = false;
+    deviceLeaseToken = '';
+    secureDeviceId = '';
     syncStatus = 'Offline local';
     await _saveAndNotify(pushSync: false);
   }
@@ -418,21 +661,26 @@ class BalcaoStore extends ChangeNotifier {
   }
 
   Future<void> resumeSupabaseSync() async {
-    if (licenseKey.trim().isEmpty) {
-      if (_supabase.auth.currentSession != null) {
-        await _loadLicenseForAuthenticatedUser();
-      }
-    }
-    if (licenseKey.trim().isEmpty) return;
+    if (deviceLeaseToken.trim().isEmpty) return;
     syncStatus = 'Conectando tempo real...';
     notifyListeners();
     try {
-      await _loadRemoteStoreOnce();
-      await _startRealtime();
+      final activation = await _secureDeviceClient.checkIn(
+        leaseToken: deviceLeaseToken,
+        appVersion: _appVersion,
+      );
+      _applySecureActivation(activation, keepLease: true);
+      if (licenseKey.toUpperCase().startsWith('BLV-')) {
+        await _loadRemoteStoreOnce();
+        await _startRealtime();
+        await _postMobileBootstrap();
+      }
     } catch (error) {
       syncStatus = 'Sync por gateway ligado: ${_friendlyAuthError(error)}';
     }
-    await _postMobileBootstrap();
+    if (syncQueue.isNotEmpty) {
+      unawaited(_pushMobileSync());
+    }
     if (!syncStatus.toLowerCase().contains('erro')) {
       syncStatus = 'Tempo real ligado';
     }
@@ -440,61 +688,78 @@ class BalcaoStore extends ChangeNotifier {
     await _saveAndNotify(pushSync: false);
   }
 
-  Future<void> _loadLicenseForAuthenticatedUser() async {
-    final user = _supabase.auth.currentUser;
-    final email = (user?.email ?? authEmail).trim().toLowerCase();
-    if (email.isEmpty) {
-      throw const AuthException('Sessao sem email.');
+  void _applySecureActivation(
+    SecureDeviceActivation activation, {
+    bool keepLease = false,
+  }) {
+    if (activation.expiresAt != null &&
+        activation.expiresAt!.isBefore(DateTime.now())) {
+      throw StateError('A assinatura expirou. Renove para continuar.');
     }
+    secureDeviceId = activation.deviceId;
+    secureStoreId = activation.storeId;
+    if (!keepLease && activation.leaseToken.isNotEmpty) {
+      deviceLeaseToken = activation.leaseToken;
+    }
+    planCode = activation.planCode;
+    entitlementExpiresAt = activation.expiresAt;
+    entitlementModules
+      ..clear()
+      ..addAll(activation.modules);
+    licenseKey = secureStoreId;
 
-    final rows = await _supabase
-        .from('bv_licenses')
-        .select(
-          'key,status,plan,customer_name,email,business_name,cnpj,phone,city,state,profile,expires_at,updated_at',
-        )
-        .eq('email', email)
-        .order('updated_at', ascending: false)
-        .limit(1);
-    final list = _rows(rows);
-    if (list.isEmpty) {
-      throw AuthException(
-        'Nenhuma licenca encontrada para $email. Cadastre esse email na licenca do cliente.',
-      );
-    }
-
-    final row = list.first;
-    final status = _text(row['status']).toUpperCase();
-    final expiresAt = DateTime.tryParse(_text(row['expires_at']));
-    if (status == 'BLOQUEADA') {
-      throw const AuthException('Licenca bloqueada no painel.');
-    }
-    if (expiresAt != null && expiresAt.isBefore(DateTime.now())) {
-      throw const AuthException('Licenca expirada. Renove para entrar.');
-    }
-
-    final profile = _map(row['profile']);
-    licenseKey = _text(row['key']).toUpperCase();
-    authEmail = email;
+    final onboarding = activation.onboarding;
+    final restaurant = _map(onboarding['restaurant']);
+    final serviceMode = _map(onboarding['service_mode']);
+    final floorPlan = _map(onboarding['floor_plan']);
+    final payments = _map(onboarding['payment_methods']);
     businessName = _firstText([
-      row['business_name'],
-      profile['businessName'],
-      profile['legalName'],
-      row['customer_name'],
+      restaurant['businessName'],
+      restaurant['business_name'],
       businessName,
     ]);
-    businessDocument = _firstText([
-      row['cnpj'],
-      profile['cnpj'],
-      profile['businessDocument'],
-      businessDocument,
+    businessLegalName = _firstText([
+      restaurant['legalName'],
+      restaurant['legal_name'],
+      businessLegalName,
     ]);
-    businessPhone = _firstText([
-      row['phone'],
-      profile['phone'],
-      profile['businessPhone'],
-      businessPhone,
-    ]);
-    onlineStoreOpen = true;
+    businessDocument = _firstText([restaurant['document'], businessDocument]);
+    businessPhone = _firstText([restaurant['phone'], businessPhone]);
+    configuredServiceModes
+      ..clear()
+      ..addAll(
+        _list(serviceMode['modes'])
+            .map((item) => '$item'.trim().toUpperCase())
+            .where((item) => item.isNotEmpty),
+      );
+    if (configuredServiceModes.isEmpty) configuredServiceModes.add('SALAO');
+    configuredDiningMode = _firstText([
+      floorPlan['diningMode'],
+      floorPlan['dining_mode'],
+      'MESAS',
+    ]).toUpperCase();
+    configuredPaymentMethods
+      ..clear()
+      ..addAll(
+        _list(payments['methods'])
+            .map((item) => '$item'.trim().toUpperCase())
+            .where((item) => item.isNotEmpty),
+      );
+    if (configuredPaymentMethods.isEmpty) {
+      configuredPaymentMethods.addAll(['DINHEIRO', 'PIX']);
+    }
+    if (!mercadoPagoEntitled) {
+      pointConnected = false;
+      pointConnectionStatus = 'DISCONNECTED';
+      pointStatus = 'Mercado Pago não incluído neste plano';
+    }
+    onlineStoreOpen = deliveryEnabled;
+  }
+
+  String _newInstallationId() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(24, (_) => random.nextInt(256));
+    return 'flutter-${base64UrlEncode(bytes).replaceAll('=', '')}';
   }
 
   Future<void> _loadRemoteStoreOnce() async {
@@ -672,11 +937,14 @@ class BalcaoStore extends ChangeNotifier {
         row['table_label'],
         _kindName(kind),
       ]),
-      address: [
-        _text(row['address']),
-        _text(row['district']),
+      customerPhone: _text(row['customer_phone']),
+      address: _text(row['address']),
+      district: _text(row['district']),
+      notes: [
         _text(row['reference']),
+        _text(row['notes']),
       ].where((part) => part.isNotEmpty).join(' - '),
+      deliveryFee: _number(row['delivery_fee']),
       ifoodRepasse: kind == OrderKind.ifood ? _number(row['total']) * 0.88 : 0,
     );
     final items = _list(row['items']);
@@ -702,7 +970,13 @@ class BalcaoStore extends ChangeNotifier {
           code: '',
           name: 'Pedido online',
           quantity: 1,
-          price: _number(row['total']),
+          price: _number(
+            row['subtotal'] ??
+                (_number(row['total']) - order.deliveryFee).clamp(
+                  0,
+                  double.maxFinite,
+                ),
+          ),
           cost: 0,
         ),
       );
@@ -792,6 +1066,51 @@ class BalcaoStore extends ChangeNotifier {
         _text(settings['unreconciledCashOpenedAt']),
       );
     }
+    ifoodConnectionId = _firstText([
+      settings['ifoodConnectionId'],
+      ifoodConnectionId,
+    ]);
+    ifoodConnectionStatus = _firstText([
+      settings['ifoodConnectionStatus'],
+      ifoodConnectionStatus,
+    ]).toUpperCase();
+    ifoodMerchantId = _firstText([
+      settings['ifoodMerchantId'],
+      ifoodMerchantId,
+    ]);
+    ifoodMerchantName = _firstText([
+      settings['ifoodMerchantName'],
+      ifoodMerchantName,
+    ]);
+    ifoodLastSyncAt = _firstText([
+      settings['ifoodLastSyncAt'],
+      ifoodLastSyncAt,
+    ]);
+    if (settings.containsKey('fiscalEnabled')) {
+      fiscalEnabled = _bool(settings['fiscalEnabled']);
+    }
+    fiscalProvider = _firstText([
+      settings['fiscalProvider'],
+      fiscalProvider,
+    ]).toUpperCase();
+    tefProvider = _firstText([
+      settings['tefProvider'],
+      tefProvider,
+    ]).toUpperCase();
+    fiscalMerchantCode = _firstText([
+      settings['fiscalMerchantCode'],
+      fiscalMerchantCode,
+    ]);
+    fiscalCscId = _firstText([settings['fiscalCscId'], fiscalCscId]);
+    fiscalEnvironment = _firstText([
+      settings['fiscalEnvironment'],
+      fiscalEnvironment,
+    ]).toUpperCase();
+    if (settings.containsKey('requireFiscalBeforeReceipt')) {
+      requireFiscalBeforeReceipt = _bool(
+        settings['requireFiscalBeforeReceipt'],
+      );
+    }
     final bridgeUrl = _normalizeBridgeBaseUrl(
       _firstText([
         settings['windowsBridgeUrl'],
@@ -833,6 +1152,24 @@ class BalcaoStore extends ChangeNotifier {
         ..addAll(customerRows.map(_customerFromSnapshot));
     }
 
+    final deliveryZoneRows = _list(
+      snapshot['deliveryZones'],
+    ).map(_map).toList();
+    if (deliveryZoneRows.isNotEmpty) {
+      deliveryZones
+        ..clear()
+        ..addAll(deliveryZoneRows.map(DeliveryZone.fromJson));
+    }
+
+    final teamRows = _list(
+      snapshot['teamMembers'] ?? snapshot['users'],
+    ).map(_map).toList();
+    if (teamRows.isNotEmpty) {
+      teamMembers
+        ..clear()
+        ..addAll(teamRows.map(TeamMember.fromJson));
+    }
+
     final movementRows = _list(
       snapshot['cashMovements'] ?? snapshot['movements'],
     ).map(_map).toList();
@@ -840,6 +1177,12 @@ class BalcaoStore extends ChangeNotifier {
       movements
         ..clear()
         ..addAll(movementRows.map(_cashMovementFromSnapshot));
+    }
+    final cashClosingRows = _list(snapshot['cashClosings']).map(_map).toList();
+    if (cashClosingRows.isNotEmpty) {
+      cashClosings
+        ..clear()
+        ..addAll(cashClosingRows.map(CashClosingSnapshot.fromJson));
     }
     final stockMovementRows = _list(
       snapshot['stockMovements'],
@@ -991,8 +1334,14 @@ class BalcaoStore extends ChangeNotifier {
         row['tableLabel'],
         row['title'],
       ]),
+      customerPhone: _text(row['customerPhone']),
       waiter: _firstText([row['waiter'], '1']),
-      address: _firstText([row['address'], row['district']]),
+      address: _text(row['address']),
+      district: _text(row['district']),
+      notes: _firstText([row['notes'], row['reference']]),
+      deliveryFee: _number(row['deliveryFee']),
+      courier: _text(row['courier']),
+      autoPrint: row['autoPrint'] as bool? ?? true,
       paymentMethod: _text(row['paymentMethod']),
       ifoodRepasse: _number(row['ifoodRepasse']),
       coverCharge: _number(row['coverCharge'] ?? row['couvert']),
@@ -1025,12 +1374,16 @@ class BalcaoStore extends ChangeNotifier {
       name: _firstText([row['name'], 'Cliente']),
       phone: _text(row['phone']),
       document: _firstText([row['document'], row['cpf'], row['cnpj']]),
-      address: [
-        _text(row['address']),
-        _text(row['district']),
-      ].where((part) => part.isNotEmpty).join(' - '),
+      address: _text(row['address']),
+      district: _text(row['district']),
+      notes: _text(row['notes']),
       points: _number(row['points']).round(),
       cashback: _number(row['cashback'] ?? row['cashbackBalance']),
+      birthday: DateTime.tryParse(_text(row['birthday'])),
+      marketingConsent: _bool(row['marketingConsent']),
+      dataConsentAt: DateTime.tryParse(_text(row['dataConsentAt'])),
+      dataConsentSource: _text(row['dataConsentSource']),
+      privacyRemovalAt: DateTime.tryParse(_text(row['privacyRemovalAt'])),
       lastPurchaseAt: DateTime.tryParse(_text(row['lastPurchaseAt'])),
     );
   }
@@ -1224,6 +1577,73 @@ class BalcaoStore extends ChangeNotifier {
     await _saveAndNotify();
   }
 
+  Future<bool> closeCashProfessionally({
+    required double countedCash,
+    required String notes,
+    required String operator,
+    required String pin,
+  }) async {
+    if (!cashOpen) {
+      securityMessage = 'O caixa ja esta fechado.';
+      notifyListeners();
+      return false;
+    }
+    if (openOrders.isNotEmpty) {
+      securityMessage = 'Resolva as comandas abertas antes de fechar o caixa.';
+      notifyListeners();
+      return false;
+    }
+    if (!countedCash.isFinite || countedCash < 0) {
+      securityMessage = 'Informe o dinheiro contado.';
+      notifyListeners();
+      return false;
+    }
+    final difference = countedCash - expectedCash;
+    if (difference.abs() >= 0.01 && notes.trim().isEmpty) {
+      securityMessage = 'Explique a diferenca antes de fechar o caixa.';
+      notifyListeners();
+      return false;
+    }
+    final authorized = await authenticateTeamMember(
+      operator: operator,
+      pin: pin,
+      permission: StaffPermission.cash,
+    );
+    if (authorized == null) return false;
+
+    final totals = todayPaymentTotals;
+    final snapshot = CashClosingSnapshot(
+      id: _id('cash-closing'),
+      expectedCash: expectedCash,
+      countedCash: countedCash,
+      difference: difference,
+      pixTotal: totals.pix,
+      creditTotal: totals.credit,
+      debitTotal: totals.debit,
+      otherTotal: totals.other,
+      operator: authorized.name,
+      notes: notes.trim(),
+      createdAt: DateTime.now(),
+    );
+    cashClosings.insert(0, snapshot);
+    cashOpen = false;
+    movements.insert(
+      0,
+      CashMovement(
+        id: _id('mov'),
+        type: 'FECHAMENTO',
+        amount: 0,
+        note:
+            'Caixa fechado por ${authorized.name}. Esperado ${snapshot.expectedCash.toStringAsFixed(2)}, contado ${snapshot.countedCash.toStringAsFixed(2)}, diferenca ${snapshot.difference.toStringAsFixed(2)}${snapshot.notes.isEmpty ? '' : '. ${snapshot.notes}'}',
+        createdAt: snapshot.createdAt,
+      ),
+    );
+    securityMessage = 'Caixa fechado e conferido por ${authorized.name}.';
+    _enqueue('cash_professional_closed');
+    await _saveAndNotify();
+    return true;
+  }
+
   Future<void> selectOrder(String id) async {
     selectedOrderId = id;
     await _saveAndNotify();
@@ -1232,9 +1652,28 @@ class BalcaoStore extends ChangeNotifier {
   Future<void> openOrder(
     OrderKind kind, {
     String customer = '',
+    String customerPhone = '',
     String address = '',
+    String district = '',
+    String notes = '',
+    String deliveryFee = '',
+    String courier = '',
+    bool autoPrint = true,
     String number = '',
   }) async {
+    final requiredModule = switch (kind) {
+      OrderKind.table => 'SALAO',
+      OrderKind.counter => 'BALCAO',
+      OrderKind.delivery => 'DELIVERY',
+      OrderKind.ifood => 'IFOOD',
+    };
+    if (!hasModule(requiredModule)) {
+      securityMessage =
+          'O plano atual não inclui ${_kindName(kind).toLowerCase()}.';
+      _enqueue('order_module_blocked');
+      await _saveAndNotify(pushSync: false);
+      return;
+    }
     final prefix = switch (kind) {
       OrderKind.delivery => 'D',
       OrderKind.ifood => 'I',
@@ -1254,7 +1693,13 @@ class BalcaoStore extends ChangeNotifier {
           : OrderStatus.open,
       createdAt: DateTime.now(),
       customerName: customer,
+      customerPhone: customerPhone,
       address: address,
+      district: district,
+      notes: notes,
+      deliveryFee: _number(deliveryFee).clamp(0, 99999).toDouble(),
+      courier: courier,
+      autoPrint: autoPrint,
       ifoodRepasse: kind == OrderKind.ifood ? 0 : 0,
     );
     orders.insert(0, order);
@@ -1776,6 +2221,14 @@ class BalcaoStore extends ChangeNotifier {
   Future<void> sendSelectedToPoint(String method) async {
     final order = selectedOrder;
     if (order == null || order.items.isEmpty || !order.isOpen) return;
+    if (!mercadoPagoEntitled) {
+      pointStatus =
+          'Mercado Pago Point não está incluído no plano Essencial mensal.';
+      pointLastError = pointStatus;
+      _enqueue('mercado_pago_not_entitled');
+      await _saveAndNotify();
+      return;
+    }
     _openCashForPaymentIfNeeded();
     if (!pointReady) {
       pointStatus = pointHasLicense
@@ -2040,6 +2493,15 @@ class BalcaoStore extends ChangeNotifier {
   }
 
   Future<void> cancelOrder(Order order) async {
+    if (order.kind == OrderKind.ifood &&
+        ifoodConnected &&
+        await sendIfoodOrderAction(
+          order,
+          'cancel',
+          reason: '501 - Loja sem produto',
+        )) {
+      return;
+    }
     order.status = OrderStatus.canceled;
     if (selectedOrderId == order.id && openOrders.isNotEmpty) {
       selectedOrderId = openOrders.first.id;
@@ -2049,6 +2511,17 @@ class BalcaoStore extends ChangeNotifier {
   }
 
   Future<void> updateOrderStatus(Order order, OrderStatus status) async {
+    if (order.kind == OrderKind.ifood && ifoodConnected) {
+      final action = switch (status) {
+        OrderStatus.preparing => 'confirm',
+        OrderStatus.dispatched || OrderStatus.delivered => 'dispatch',
+        OrderStatus.canceled => 'cancel',
+        _ => '',
+      };
+      if (action.isNotEmpty && await sendIfoodOrderAction(order, action)) {
+        return;
+      }
+    }
     order.status = status;
     _enqueue('order_status_changed');
     await _saveAndNotify();
@@ -2161,6 +2634,724 @@ class BalcaoStore extends ChangeNotifier {
     await _saveAndNotify();
   }
 
+  String get privacyNoticeText {
+    final business = businessName.trim().isNotEmpty
+        ? businessName.trim()
+        : businessLegalName.trim().isNotEmpty
+        ? businessLegalName.trim()
+        : 'Balcao Livre';
+    return '$business trata dados pessoais para cadastro, atendimento, '
+        'pedidos, pagamentos e obrigacoes legais. O titular pode solicitar '
+        'acesso, correcao, portabilidade ou eliminacao quando permitido pela LGPD.';
+  }
+
+  String? exportCustomerPrivacyData(String customerId) {
+    final customer = customers
+        .where((candidate) => candidate.id == customerId)
+        .firstOrNull;
+    if (customer == null) {
+      securityMessage = 'Selecione um cliente.';
+      notifyListeners();
+      return null;
+    }
+    securityMessage = 'Dados de ${customer.name} preparados para exportacao.';
+    notifyListeners();
+    return const JsonEncoder.withIndent('  ').convert({
+      'schema': 'balcao-livre-lgpd-customer-export',
+      'version': 1,
+      'exportedAt': DateTime.now().toIso8601String(),
+      'business': businessName,
+      'privacyNotice': privacyNoticeText,
+      'customer': customer.toJson(),
+    });
+  }
+
+  Future<bool> anonymizeCustomer(String customerId) async {
+    final customer = customers
+        .where((candidate) => candidate.id == customerId)
+        .firstOrNull;
+    if (customer == null) {
+      securityMessage = 'Selecione um cliente.';
+      notifyListeners();
+      return false;
+    }
+    final now = DateTime.now();
+    customer
+      ..document = ''
+      ..name =
+          'CLIENTE ANONIMIZADO ${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}'
+      ..phone = ''
+      ..address = ''
+      ..district = ''
+      ..notes = ''
+      ..birthday = null
+      ..marketingConsent = false
+      ..dataConsentAt = null
+      ..dataConsentSource = ''
+      ..privacyRemovalAt = now;
+    securityMessage = 'Dados pessoais removidos.';
+    _enqueue('customer_privacy_anonymized');
+    await _saveAndNotify();
+    return true;
+  }
+
+  Future<bool> saveTeamMember({
+    required String number,
+    required String name,
+    required String role,
+    String pin = '',
+  }) async {
+    final cleanNumber = number.trim();
+    final cleanName = name.trim().toUpperCase();
+    final cleanRole = role.trim().toUpperCase();
+    final cleanPin = pin.trim();
+    if (cleanNumber.isEmpty || cleanName.isEmpty || cleanPin.isEmpty) {
+      securityMessage = 'Informe numero, nome e senha do operador.';
+      notifyListeners();
+      return false;
+    }
+    if (teamMembers.any((member) => member.number == cleanNumber)) return false;
+
+    final member = TeamMember(
+      id: _id('team'),
+      number: cleanNumber,
+      name: cleanName,
+      role: cleanRole.isEmpty ? 'GARCOM' : cleanRole,
+      pinHash: StaffSecurity.hashPin(cleanPin),
+    );
+    member.normalizeRolePermissions();
+    teamMembers.insert(0, member);
+    securityMessage = 'Operador $cleanName cadastrado com senha protegida.';
+    _enqueue('team_member_saved');
+    await _saveAndNotify();
+    return true;
+  }
+
+  DeliveryZone? get suggestedDeliveryZone {
+    final active = deliveryZones.where((zone) => zone.active).toList()
+      ..sort((left, right) {
+        final leftRadius = left.radiusKm <= 0
+            ? double.maxFinite
+            : left.radiusKm;
+        final rightRadius = right.radiusKm <= 0
+            ? double.maxFinite
+            : right.radiusKm;
+        return leftRadius.compareTo(rightRadius);
+      });
+    return active.firstOrNull;
+  }
+
+  Future<bool> saveDeliveryZone({
+    String? id,
+    required String radiusKm,
+    required String fee,
+    required String minimumOrder,
+    required bool active,
+    required String operator,
+    required String pin,
+  }) async {
+    final authorized = await authenticateTeamMember(
+      operator: operator,
+      pin: pin,
+      permission: StaffPermission.deliveryZones,
+    );
+    if (authorized == null) return false;
+    final radius = _number(radiusKm);
+    final deliveryFee = _number(fee);
+    final minimum = _number(minimumOrder);
+    if (radius <= 0 || deliveryFee < 0 || minimum < 0) {
+      securityMessage = 'Informe raio, taxa e pedido minimo validos.';
+      notifyListeners();
+      return false;
+    }
+
+    final existing = deliveryZones
+        .where(
+          (zone) => zone.id == id || (zone.radiusKm - radius).abs() < 0.001,
+        )
+        .firstOrNull;
+    if (existing == null) {
+      deliveryZones.add(
+        DeliveryZone(
+          id: _id('delivery-zone'),
+          radiusKm: radius,
+          fee: deliveryFee,
+          minimumOrder: minimum,
+          active: active,
+        ),
+      );
+    } else {
+      existing
+        ..radiusKm = radius
+        ..fee = deliveryFee
+        ..minimumOrder = minimum
+        ..active = active;
+    }
+    deliveryZones.sort(
+      (left, right) => left.radiusKm.compareTo(right.radiusKm),
+    );
+    securityMessage =
+        'Faixa de entrega salva por ${authorized.name}: ate ${radius.toStringAsFixed(1)} km.';
+    _enqueue('delivery_zone_saved');
+    await _saveAndNotify();
+    return true;
+  }
+
+  Future<bool> deleteDeliveryZone({
+    required String id,
+    required String operator,
+    required String pin,
+  }) async {
+    final authorized = await authenticateTeamMember(
+      operator: operator,
+      pin: pin,
+      permission: StaffPermission.deliveryZones,
+    );
+    if (authorized == null) return false;
+    final before = deliveryZones.length;
+    deliveryZones.removeWhere((zone) => zone.id == id);
+    if (deliveryZones.length == before) {
+      securityMessage = 'Faixa de entrega nao encontrada.';
+      notifyListeners();
+      return false;
+    }
+    securityMessage = 'Faixa de entrega removida por ${authorized.name}.';
+    _enqueue('delivery_zone_deleted');
+    await _saveAndNotify();
+    return true;
+  }
+
+  Future<TeamMember?> authenticateTeamMember({
+    required String operator,
+    required String pin,
+    required StaffPermission permission,
+  }) async {
+    final cleanOperator = operator.trim().toUpperCase();
+    final cleanPin = pin.trim();
+    if (cleanOperator.isEmpty || cleanPin.isEmpty) {
+      securityMessage = 'Informe operador e senha.';
+      notifyListeners();
+      return null;
+    }
+    final member = teamMembers
+        .where(
+          (candidate) =>
+              candidate.active &&
+              (candidate.number.trim().toUpperCase() == cleanOperator ||
+                  candidate.name.trim().toUpperCase() == cleanOperator),
+        )
+        .firstOrNull;
+    if (member == null || !member.allows(permission)) {
+      securityMessage = 'Operador, senha ou permissao invalidos.';
+      notifyListeners();
+      return null;
+    }
+    var authenticated = StaffSecurity.verifyPin(member.pinHash, cleanPin);
+    if (!authenticated && member.pinHash.isEmpty) {
+      authenticated =
+          member.legacyPin == cleanPin ||
+          (member.legacyPin.isEmpty && member.number == cleanPin);
+      if (authenticated) {
+        member.pinHash = StaffSecurity.hashPin(cleanPin);
+        member.legacyPin = '';
+        _enqueue('team_pin_migrated');
+        await _saveAndNotify();
+      }
+    }
+    if (!authenticated) {
+      securityMessage = 'Operador, senha ou permissao invalidos.';
+      notifyListeners();
+      return null;
+    }
+    securityMessage = 'Autorizado por ${member.name}.';
+    notifyListeners();
+    return member;
+  }
+
+  Future<bool> applyDiscount({
+    required String amount,
+    required String reason,
+    required String operator,
+    required String pin,
+  }) async {
+    final order = selectedOrder;
+    if (order == null || !order.isOpen || order.items.isEmpty) {
+      securityMessage = 'Comanda sem valor para desconto.';
+      notifyListeners();
+      return false;
+    }
+    final value = _number(amount).abs();
+    if (value <= 0 || value >= order.subtotal) {
+      securityMessage = 'Valor de desconto invalido.';
+      notifyListeners();
+      return false;
+    }
+    final manager = await authenticateTeamMember(
+      operator: operator,
+      pin: pin,
+      permission: StaffPermission.discount,
+    );
+    if (manager == null) return false;
+    order.items.add(
+      OrderItem(
+        productId: _id('discount'),
+        code: 'DESC',
+        name: reason.trim().isEmpty ? 'DESCONTO' : reason.trim().toUpperCase(),
+        quantity: 1,
+        price: -value,
+        cost: 0,
+      ),
+    );
+    securityMessage =
+        'Desconto de ${value.toStringAsFixed(2)} autorizado por ${manager.name}.';
+    _enqueue('discount_applied');
+    await _saveAndNotify();
+    return true;
+  }
+
+  Future<void> updateBackupSettings({
+    required bool cloudBackup,
+    required bool centralSync,
+  }) async {
+    cloudBackupEnabled = cloudBackup;
+    centralSyncEnabled = centralSync;
+    backupMessage = 'Automacao de backup e sincronizacao atualizada.';
+    _enqueue('backup_settings_saved');
+    await _saveAndNotify();
+  }
+
+  Future<String?> createBackupJson({
+    required String operator,
+    required String pin,
+  }) async {
+    final authorized = await authenticateTeamMember(
+      operator: operator,
+      pin: pin,
+      permission: StaffPermission.backup,
+    );
+    if (authorized == null) {
+      backupMessage = securityMessage;
+      notifyListeners();
+      return null;
+    }
+    await _save();
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_storageKey);
+    if (raw == null || raw.trim().isEmpty) {
+      backupMessage = 'Nao foi possivel preparar os dados do backup.';
+      notifyListeners();
+      return null;
+    }
+    final payload = jsonDecode(raw);
+    if (payload is! Map<String, dynamic>) {
+      backupMessage = 'Estado local invalido para backup.';
+      notifyListeners();
+      return null;
+    }
+    final payloadJson = jsonEncode(payload);
+    final exportedAt = DateTime.now().toUtc().toIso8601String();
+    final envelope = {
+      'schema': 'balcao-livre-flutter-backup',
+      'version': 1,
+      'exportedAt': exportedAt,
+      'licenseKey': licenseKey.trim().toUpperCase(),
+      'businessName': businessName,
+      'authorizedBy': authorized.name,
+      'checksum': sha256.convert(utf8.encode(payloadJson)).toString(),
+      'payload': payload,
+    };
+    lastBackupAt = exportedAt;
+    backupMessage = 'Backup completo gerado por ${authorized.name}.';
+    _enqueue('backup_manual_created');
+    await _saveAndNotify();
+    return const JsonEncoder.withIndent('  ').convert(envelope);
+  }
+
+  Future<bool> restoreBackupJson({
+    required String backupJson,
+    required String operator,
+    required String pin,
+  }) async {
+    final authorized = await authenticateTeamMember(
+      operator: operator,
+      pin: pin,
+      permission: StaffPermission.backup,
+    );
+    if (authorized == null) {
+      backupMessage = securityMessage;
+      notifyListeners();
+      return false;
+    }
+    try {
+      final decoded = jsonDecode(backupJson);
+      if (decoded is! Map<String, dynamic> ||
+          decoded['schema'] != 'balcao-livre-flutter-backup' ||
+          decoded['version'] != 1 ||
+          decoded['payload'] is! Map<String, dynamic>) {
+        backupMessage = 'Arquivo de backup invalido ou incompatível.';
+        notifyListeners();
+        return false;
+      }
+      final payload = decoded['payload'] as Map<String, dynamic>;
+      if (payload['products'] is! List ||
+          payload['orders'] is! List ||
+          payload['teamMembers'] is! List) {
+        backupMessage = 'Backup incompleto: faltam dados operacionais.';
+        notifyListeners();
+        return false;
+      }
+      final payloadJson = jsonEncode(payload);
+      final checksum = sha256.convert(utf8.encode(payloadJson)).toString();
+      if (checksum != '${decoded['checksum'] ?? ''}') {
+        backupMessage = 'Backup alterado ou corrompido; restauracao bloqueada.';
+        notifyListeners();
+        return false;
+      }
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_storageKey, payloadJson);
+      await hydrate();
+      lastBackupAt = DateTime.now().toUtc().toIso8601String();
+      backupMessage = 'Backup restaurado por ${authorized.name}.';
+      _enqueue('backup_restored');
+      await _saveAndNotify();
+      return true;
+    } on FormatException {
+      backupMessage = 'Arquivo de backup nao contem JSON valido.';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  String productsCsv() {
+    String field(Object? value) {
+      final text = '$value'.replaceAll('"', '""');
+      return '"$text"';
+    }
+
+    final rows = <String>[
+      'codigo;nome;grupo;preco_compra;preco_venda;margem_percentual;estoque',
+      ...products.map(
+        (product) => [
+          product.code,
+          product.name,
+          product.category,
+          product.cost.toStringAsFixed(2),
+          product.price.toStringAsFixed(2),
+          product.margin.toStringAsFixed(2),
+          product.stock,
+        ].map(field).join(';'),
+      ),
+    ];
+    return rows.join('\r\n');
+  }
+
+  Future<bool> saveFiscalSettings({
+    required bool enabled,
+    required String fiscal,
+    required String tef,
+    required String merchantCode,
+    required String cscId,
+    required String environment,
+    required bool requireBeforeReceipt,
+    required String operator,
+    required String pin,
+  }) async {
+    final authorized = await authenticateTeamMember(
+      operator: operator,
+      pin: pin,
+      permission: StaffPermission.fiscal,
+    );
+    if (authorized == null) {
+      fiscalMessage = securityMessage;
+      notifyListeners();
+      return false;
+    }
+    fiscalEnabled = enabled;
+    fiscalProvider = fiscal.trim().toUpperCase().isEmpty
+        ? 'NAO CONFIGURADO'
+        : fiscal.trim().toUpperCase();
+    tefProvider = tef.trim().toUpperCase().isEmpty
+        ? 'NAO CONFIGURADO'
+        : tef.trim().toUpperCase();
+    fiscalMerchantCode = merchantCode.trim();
+    fiscalCscId = cscId.trim();
+    fiscalEnvironment = environment.trim().toUpperCase() == 'PRODUCAO'
+        ? 'PRODUCAO'
+        : 'HOMOLOGACAO';
+    requireFiscalBeforeReceipt = requireBeforeReceipt;
+    fiscalMessage = fiscalEnabled
+        ? 'Modulo Fiscal/TEF ativado por ${authorized.name}.'
+        : 'Modulo Fiscal/TEF salvo, mas ainda desativado.';
+    _enqueue('fiscal_tef_settings_saved');
+    await _saveAndNotify();
+    return true;
+  }
+
+  Future<void> connectIfood() async {
+    if (ifoodBusy) return;
+    if (licenseKey.trim().isEmpty) {
+      ifoodConnectionStatus = 'ERROR';
+      ifoodMessage = 'Entre na conta da loja antes de conectar o iFood.';
+      notifyListeners();
+      return;
+    }
+    ifoodBusy = true;
+    ifoodMessage = 'Conectando com o iFood...';
+    notifyListeners();
+    try {
+      final response = await _ifoodClient.startConnection(_ifoodContext());
+      ifoodConnectionId = _text(response['connectionId']);
+      ifoodConnectionStatus = _firstText([
+        response['status'],
+        ifoodConnectionId.isEmpty ? 'DISCONNECTED' : 'CONNECTED',
+      ]).toUpperCase();
+      ifoodMerchantId = _text(response['merchantId']);
+      ifoodMerchantName = _text(response['merchantName']);
+      ifoodMessage = _firstText([
+        response['message'],
+        ifoodConnected ? 'iFood conectado.' : 'Conexao iFood iniciada.',
+      ]);
+      ifoodVerificationUrl = _firstText([
+        response['verificationUrlComplete'],
+        response['verificationUrl'],
+      ]);
+      ifoodUserCode = _text(response['userCode']);
+      _enqueue('ifood_connected');
+      await _saveAndNotify();
+    } on IFoodCloudException catch (error) {
+      ifoodConnectionStatus = 'ERROR';
+      ifoodMessage = error.message;
+      notifyListeners();
+    } finally {
+      ifoodBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> finishIfoodConnection(String authorizationCode) async {
+    if (ifoodBusy || ifoodConnectionId.isEmpty) return;
+    ifoodBusy = true;
+    ifoodMessage = 'Finalizando autorizacao iFood...';
+    notifyListeners();
+    try {
+      final response = await _ifoodClient.finishConnection(
+        _ifoodContext(),
+        connectionId: ifoodConnectionId,
+        authorizationCode: authorizationCode.trim(),
+      );
+      ifoodConnectionStatus = 'CONNECTED';
+      ifoodMerchantId = _firstText([response['merchantId'], ifoodMerchantId]);
+      ifoodMerchantName = _firstText([
+        response['merchantName'],
+        ifoodMerchantName,
+      ]);
+      ifoodMessage = _firstText([response['message'], 'iFood conectado.']);
+      ifoodVerificationUrl = '';
+      ifoodUserCode = '';
+      _enqueue('ifood_connected');
+      await _saveAndNotify();
+    } on IFoodCloudException catch (error) {
+      ifoodConnectionStatus = 'ERROR';
+      ifoodMessage = error.message;
+      notifyListeners();
+    } finally {
+      ifoodBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<int> syncIfoodOrders() async {
+    if (ifoodBusy || ifoodConnectionId.isEmpty) return 0;
+    ifoodBusy = true;
+    ifoodMessage = 'Buscando pedidos iFood...';
+    notifyListeners();
+    try {
+      final response = await _ifoodClient.syncOrders(
+        _ifoodContext(),
+        connectionId: ifoodConnectionId,
+      );
+      var imported = 0;
+      for (final row in _rows(response['orders'])) {
+        if (_upsertIfoodOrder(row)) imported++;
+      }
+      ifoodConnectionStatus = 'CONNECTED';
+      ifoodLastSyncAt = _firstText([
+        response['syncedAt'],
+        DateTime.now().toIso8601String(),
+      ]);
+      ifoodMessage = _firstText([
+        response['message'],
+        '$imported pedido(s) iFood sincronizado(s).',
+      ]);
+      _enqueue('ifood_orders_synced');
+      await _saveAndNotify();
+      return imported;
+    } on IFoodCloudException catch (error) {
+      ifoodConnectionStatus = 'ERROR';
+      ifoodMessage = error.message;
+      notifyListeners();
+      return 0;
+    } finally {
+      ifoodBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> sendIfoodOrderAction(
+    Order order,
+    String action, {
+    String reason = '',
+  }) async {
+    if (ifoodBusy || !ifoodConnected || order.kind != OrderKind.ifood) {
+      return false;
+    }
+    final externalId = order.id.replaceFirst(RegExp(r'^ifood-'), '');
+    ifoodBusy = true;
+    ifoodMessage = 'Enviando acao ao iFood...';
+    notifyListeners();
+    try {
+      final response = await _ifoodClient.sendOrderAction(
+        _ifoodContext(),
+        connectionId: ifoodConnectionId,
+        orderId: externalId,
+        action: action,
+        reason: reason,
+      );
+      order.status = _ifoodOrderStatus(response['status'] ?? action);
+      ifoodMessage = _firstText([
+        response['message'],
+        'Pedido iFood atualizado.',
+      ]);
+      _enqueue('ifood_order_action');
+      await _saveAndNotify();
+      return true;
+    } on IFoodCloudException catch (error) {
+      ifoodMessage = error.message;
+      notifyListeners();
+      return false;
+    } finally {
+      ifoodBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Map<String, dynamic> _ifoodContext() {
+    return {
+      'licenseKey': licenseKey.trim().toUpperCase(),
+      'machineHash': _machineHash,
+      'machineCode': _machineCode,
+      'businessName': businessName,
+      'legalName': businessLegalName,
+      'cnpj': businessDocument,
+      'phone': businessPhone,
+      'address': businessAddress,
+      'city': businessCity,
+      'state': businessUf,
+      'appVersion': _appVersion,
+    };
+  }
+
+  bool _upsertIfoodOrder(Map<String, dynamic> row) {
+    final externalId = _firstText([row['orderId'], row['id']]);
+    if (externalId.isEmpty) return false;
+    final id = 'ifood-$externalId';
+    final existing = orders.where((order) => order.id == id).firstOrNull;
+    final rawItems = _rows(row['items']);
+    final items = rawItems.map((item) {
+      final code = _firstText([
+        item['code'],
+        item['externalCode'],
+        item['productId'],
+      ]);
+      final product = products
+          .where(
+            (candidate) =>
+                candidate.id == _text(item['productId']) ||
+                candidate.code == code,
+          )
+          .firstOrNull;
+      return OrderItem(
+        productId: product?.id ?? _firstText([item['productId'], code]),
+        code: code,
+        name: _firstText([item['name'], 'Item iFood']),
+        quantity: _number(item['quantity']).round().clamp(1, 999),
+        price: _number(item['unitPrice'] ?? item['price']),
+        cost: product?.cost ?? 0,
+      );
+    }).toList();
+    final status = _ifoodOrderStatus(row['status']);
+    if (existing != null) {
+      existing
+        ..number = _firstText([row['displayId'], existing.number])
+        ..status = status
+        ..customerName = _firstText([
+          row['customerName'],
+          existing.customerName,
+        ])
+        ..address = [
+          _text(row['address']),
+          _text(row['district']),
+        ].where((part) => part.isNotEmpty).join(' - ')
+        ..paymentMethod = _firstText([
+          row['paymentMethod'],
+          row['paymentSummary'],
+          existing.paymentMethod,
+        ])
+        ..ifoodRepasse = _number(row['total']) * 0.88
+        ..servicePercent = 0;
+      if (items.isNotEmpty) {
+        existing.items
+          ..clear()
+          ..addAll(items);
+      }
+      return false;
+    }
+
+    final order = Order(
+      id: id,
+      number: _firstText([
+        row['displayId'],
+        'I${(orders.length + 1).toString().padLeft(5, '0')}',
+      ]),
+      kind: OrderKind.ifood,
+      status: status,
+      createdAt: DateTime.tryParse(_text(row['createdAt'])) ?? DateTime.now(),
+      customerName: _firstText([row['customerName'], 'CLIENTE IFOOD']),
+      address: [
+        _text(row['address']),
+        _text(row['district']),
+      ].where((part) => part.isNotEmpty).join(' - '),
+      paymentMethod: _firstText([row['paymentMethod'], row['paymentSummary']]),
+      ifoodRepasse: _number(row['total']) * 0.88,
+      servicePercent: 0,
+      items: items,
+    );
+    orders.insert(0, order);
+    selectedOrderId = order.id;
+    return true;
+  }
+
+  OrderStatus _ifoodOrderStatus(Object? value) {
+    final status = _text(value).toUpperCase();
+    if (status.contains('CANCEL')) return OrderStatus.canceled;
+    if (status.contains('DELIVER') || status.contains('CONCLUDE')) {
+      return OrderStatus.delivered;
+    }
+    if (status.contains('DISPATCH') ||
+        status.contains('DESPACH') ||
+        status.contains('READY') ||
+        status.contains('PRONTO') ||
+        status.contains('PICKUP')) {
+      return OrderStatus.dispatched;
+    }
+    if (status.contains('CONFIRM') ||
+        status.contains('PREPAR') ||
+        status == 'CFM') {
+      return OrderStatus.preparing;
+    }
+    return OrderStatus.open;
+  }
+
   Future<void> simulateIfoodOrder() async {
     final order = Order(
       id: _id('ifood'),
@@ -2196,45 +3387,194 @@ class BalcaoStore extends ChangeNotifier {
     await _saveAndNotify();
   }
 
-  String whatsappQrPayload() {
-    final session = whatsappSessionId.isEmpty
-        ? 'wa-${businessName.hashCode.abs()}'
-        : whatsappSessionId;
-    final storeKey = licenseKey.isEmpty
-        ? _slugKey(businessName)
-        : licenseKey.toLowerCase();
-    return jsonEncode({
-      'provider': 'evolution',
-      'app': 'balcao-livre-pdv',
-      'store': businessName,
-      'storeKey': storeKey,
-      'session': session,
-      'sync': 'real-time',
-    });
+  String get whatsappQrPayload => whatsappOnboardingUrl.trim();
+
+  Future<void> connectWhatsApp(String number) async {
+    if (whatsappBusy) return;
+    final phone = number.trim();
+    if (licenseKey.trim().isEmpty) {
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage = 'Entre na conta da loja antes de conectar o WhatsApp.';
+      notifyListeners();
+      return;
+    }
+    if (phone.isEmpty) {
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage = 'Informe o numero do WhatsApp da loja com DDD.';
+      notifyListeners();
+      return;
+    }
+    whatsappBusy = true;
+    whatsappMessage = 'Conectando o numero da loja...';
+    notifyListeners();
+    try {
+      final response = await _whatsappClient.activate(
+        _whatsappContext('whatsapp.activate'),
+        storePhone: phone,
+      );
+      _applyWhatsAppResponse(response, fallbackPhone: phone);
+      _enqueue(
+        whatsappConnected
+            ? 'whatsapp_connected'
+            : 'whatsapp_connection_pending',
+      );
+      await _saveAndNotify();
+    } on WhatsAppCloudException catch (error) {
+      whatsappConnected = false;
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage = error.message;
+      notifyListeners();
+    } finally {
+      whatsappBusy = false;
+      notifyListeners();
+    }
   }
 
   Future<void> refreshWhatsAppQr() async {
-    whatsappSessionId = _id('wa');
-    whatsappConnected = false;
-    whatsappNumber = '';
-    _enqueue('whatsapp_qr_refreshed');
-    await _saveAndNotify();
+    if (whatsappBusy) return;
+    if (licenseKey.trim().isEmpty) {
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage = 'Entre na conta da loja antes de consultar o WhatsApp.';
+      notifyListeners();
+      return;
+    }
+    whatsappBusy = true;
+    whatsappMessage = 'Consultando conexao do WhatsApp...';
+    notifyListeners();
+    try {
+      final response = await _whatsappClient.status(
+        _whatsappContext('whatsapp.status'),
+        storePhone: whatsappNumber,
+      );
+      _applyWhatsAppResponse(response, fallbackPhone: whatsappNumber);
+      whatsappLastSyncAt = DateTime.now().toIso8601String();
+      _enqueue('whatsapp_status_synced');
+      await _saveAndNotify();
+    } on WhatsAppCloudException catch (error) {
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage = error.message;
+      notifyListeners();
+    } finally {
+      whatsappBusy = false;
+      notifyListeners();
+    }
   }
 
-  Future<void> connectWhatsApp(String number) async {
-    whatsappConnected = true;
-    whatsappNumber = number.trim().isEmpty ? '+55 conectado' : number.trim();
-    if (whatsappSessionId.isEmpty) whatsappSessionId = _id('wa');
-    _enqueue('whatsapp_connected');
-    await _saveAndNotify();
+  Future<bool> sendWhatsAppMessage({
+    required String customerPhone,
+    required String message,
+    String messageId = '',
+    String customerName = '',
+    String boardKind = '',
+    String boardNumber = '',
+    double total = 0,
+  }) async {
+    if (whatsappBusy || licenseKey.trim().isEmpty) return false;
+    whatsappBusy = true;
+    whatsappMessage = 'Enviando WhatsApp...';
+    notifyListeners();
+    try {
+      final response = await _whatsappClient.send(
+        _whatsappContext('whatsapp.send'),
+        storePhone: whatsappNumber,
+        customerPhone: customerPhone,
+        message: message,
+        messageId: messageId,
+        customerName: customerName,
+        boardKind: boardKind,
+        boardNumber: boardNumber,
+        total: total,
+      );
+      _applyWhatsAppResponse(response, fallbackPhone: whatsappNumber);
+      _enqueue(
+        whatsappConnected ? 'whatsapp_message_sent' : 'whatsapp_send_pending',
+      );
+      await _saveAndNotify();
+      return whatsappConnected;
+    } on WhatsAppCloudException catch (error) {
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage = error.message;
+      notifyListeners();
+      return false;
+    } finally {
+      whatsappBusy = false;
+      notifyListeners();
+    }
   }
 
   Future<void> disconnectWhatsApp() async {
-    whatsappConnected = false;
-    whatsappNumber = '';
-    whatsappSessionId = _id('wa');
-    _enqueue('whatsapp_disconnected');
-    await _saveAndNotify();
+    if (whatsappBusy) return;
+    if (licenseKey.trim().isEmpty) {
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage =
+          'Entre na conta da loja antes de desconectar o WhatsApp.';
+      notifyListeners();
+      return;
+    }
+    whatsappBusy = true;
+    whatsappMessage = 'Desconectando WhatsApp...';
+    notifyListeners();
+    try {
+      final response = await _whatsappClient.disconnect(
+        _whatsappContext('whatsapp.disconnect'),
+      );
+      whatsappConnected = false;
+      whatsappConnectionStatus = 'DISCONNECTED';
+      whatsappMessage = _firstText([
+        response['message'],
+        'WhatsApp desconectado.',
+      ]);
+      whatsappNumber = '';
+      whatsappSessionId = '';
+      whatsappOnboardingUrl = '';
+      whatsappLastSyncAt = DateTime.now().toIso8601String();
+      _enqueue('whatsapp_disconnected');
+      await _saveAndNotify();
+    } on WhatsAppCloudException catch (error) {
+      whatsappConnectionStatus = 'ERROR';
+      whatsappMessage = error.message;
+      notifyListeners();
+    } finally {
+      whatsappBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Map<String, dynamic> _whatsappContext(String eventName) {
+    return {
+      ..._baseLicensePayload(eventName),
+      'localWhen': DateTime.now().toIso8601String(),
+    };
+  }
+
+  void _applyWhatsAppResponse(
+    Map<String, dynamic> response, {
+    required String fallbackPhone,
+  }) {
+    final pending = response['pending'] == true;
+    final connected = response['ok'] == true && !pending;
+    whatsappConnected = connected;
+    whatsappConnectionStatus = connected
+        ? 'CONNECTED'
+        : pending
+        ? 'PENDING'
+        : 'ERROR';
+    whatsappNumber = _firstText([response['storePhone'], fallbackPhone]);
+    whatsappMessage = _firstText([
+      response['message'],
+      connected
+          ? 'WhatsApp conectado.'
+          : pending
+          ? 'Conexao do WhatsApp aguardando confirmacao.'
+          : 'WhatsApp nao conectado.',
+    ]);
+    whatsappOnboardingUrl = connected ? '' : _text(response['onboardingUrl']);
+    whatsappSessionId = _firstText([
+      response['phoneNumberId'],
+      response['wabaId'],
+      whatsappSessionId,
+    ]);
+    whatsappLastSyncAt = DateTime.now().toIso8601String();
   }
 
   Future<void> updateBusinessName(String value) async {
@@ -2449,6 +3789,54 @@ class BalcaoStore extends ChangeNotifier {
           points: 9,
         ),
       ]);
+    teamMembers
+      ..clear()
+      ..addAll([
+        TeamMember(
+          id: 'team-1',
+          number: '1',
+          name: operatorName.toUpperCase(),
+          role: 'CAIXA',
+          pinHash:
+              r'PBKDF2$120000$AAECAwQFBgcICQoLDA0ODw==$MM3KlKQuwzYe1OTSQPFAJ0QREJZOQge/8zWqoROvWTA=',
+          canCash: true,
+          canCancel: true,
+          canDiscount: true,
+          canDelivery: true,
+        ),
+        TeamMember(
+          id: 'team-2',
+          number: '2',
+          name: 'LUCAS CESAR',
+          role: 'GERENTE',
+          pinHash:
+              r'PBKDF2$120000$EBESExQVFhcYGRobHB0eHw==$zV3rw3sx0cCLGcKV2G7yh8n34lgL/N96TwUnSfDAjyE=',
+          canTransfer: true,
+          canCancel: true,
+          canDiscount: true,
+          canManageProducts: true,
+          canReports: true,
+          canCash: true,
+          canDelivery: true,
+          canInventory: true,
+          canKitchen: true,
+          canIFood: true,
+          canSettings: true,
+          canBackup: true,
+          canFiscal: true,
+          canDeliveryZones: true,
+          canCentralSync: true,
+        ),
+        TeamMember(
+          id: 'team-3',
+          number: '3',
+          name: 'ENTREGADOR APP',
+          role: 'ENTREGADOR',
+          pinHash:
+              r'PBKDF2$120000$ICEiIyQlJicoKSorLC0uLw==$G6nVdLtJVx+nEbSzt4AVtcedir1/SRBbKy6FtPy2IJ0=',
+          canDelivery: true,
+        ),
+      ]);
     orders
       ..clear()
       ..addAll([
@@ -2523,7 +3911,11 @@ class BalcaoStore extends ChangeNotifier {
   }
 
   void _enqueue(String type) {
-    syncQueue.insert(0, '${DateTime.now().toIso8601String()}|$type');
+    final eventId = _newInstallationId().replaceFirst('flutter-', 'evt-');
+    syncQueue.insert(
+      0,
+      '$eventId|${DateTime.now().toUtc().toIso8601String()}|$type',
+    );
   }
 
   Future<void> _saveAndNotify({bool pushSync = true}) async {
@@ -2533,7 +3925,9 @@ class BalcaoStore extends ChangeNotifier {
   }
 
   void _scheduleMobileSync() {
-    if (!loggedIn || licenseKey.trim().isEmpty || syncQueue.isEmpty) return;
+    if (!loggedIn || deviceLeaseToken.trim().isEmpty || syncQueue.isEmpty) {
+      return;
+    }
     _syncDebounce?.cancel();
     _syncDebounce = Timer(const Duration(seconds: 2), () {
       unawaited(_pushMobileSync());
@@ -2543,21 +3937,29 @@ class BalcaoStore extends ChangeNotifier {
   Future<void> _pushMobileSync() async {
     if (_syncRunning ||
         !loggedIn ||
-        licenseKey.trim().isEmpty ||
+        deviceLeaseToken.trim().isEmpty ||
         syncQueue.isEmpty) {
       return;
     }
     _syncRunning = true;
     final events = syncQueue.take(100).map((line) {
       final parts = line.split('|');
-      final when = parts.isNotEmpty
+      final currentFormat = parts.length >= 3 && parts.first.startsWith('evt-');
+      final eventId = currentFormat
           ? parts.first
-          : DateTime.now().toIso8601String();
-      final type = parts.length > 1
+          : line.hashCode.toUnsigned(32).toRadixString(16).padLeft(8, '0');
+      final when = currentFormat
+          ? parts[1]
+          : parts.isNotEmpty
+          ? parts.first
+          : DateTime.now().toUtc().toIso8601String();
+      final type = currentFormat
+          ? parts.sublist(2).join('|')
+          : parts.length > 1
           ? parts.sublist(1).join('|')
           : 'mobile.event';
       return {
-        'id': line.hashCode.toUnsigned(32).toRadixString(16),
+        'id': eventId,
         'type': type,
         'status': 'pending',
         'createdAt': when,
@@ -2569,20 +3971,21 @@ class BalcaoStore extends ChangeNotifier {
         },
       };
     }).toList();
-    final response = await _postLicense('/mobile/sync', {
-      ..._baseLicensePayload('mobile.sync'),
-      'events': events,
-      'snapshot': _mobileSnapshot(),
-    });
-    _syncRunning = false;
-    if (response.ok) {
+    try {
+      await _secureDeviceClient.syncDevice(
+        leaseToken: deviceLeaseToken,
+        events: events,
+        snapshot: _mobileSnapshot(),
+      );
+      _syncRunning = false;
       syncQueue.clear();
       lastSync = _time(DateTime.now());
       syncStatus = 'Tempo real ligado';
       await _save();
       notifyListeners();
-    } else {
-      syncStatus = response.message;
+    } catch (error) {
+      _syncRunning = false;
+      syncStatus = _friendlyAuthError(error);
       notifyListeners();
     }
   }
@@ -2614,6 +4017,11 @@ class BalcaoStore extends ChangeNotifier {
         'supabaseRealtime': true,
         'windowsBridgeUrl': windowsBridgeUrl,
         'windowsBridgeLocalUrl': windowsBridgeLocalUrl,
+        'fiscalEnabled': fiscalEnabled,
+        'fiscalProvider': fiscalProvider,
+        'tefProvider': tefProvider,
+        'fiscalEnvironment': fiscalEnvironment,
+        'requireFiscalBeforeReceipt': requireFiscalBeforeReceipt,
       },
       'metrics': {
         'openOrders': openOrders.length,
@@ -2637,6 +4045,18 @@ class BalcaoStore extends ChangeNotifier {
         'autoSync': 1,
         'cashOpen': cashOpen ? 1 : 0,
         'lastSyncAt': DateTime.now().toIso8601String(),
+        'ifoodConnectionId': ifoodConnectionId,
+        'ifoodConnectionStatus': ifoodConnectionStatus,
+        'ifoodMerchantId': ifoodMerchantId,
+        'ifoodMerchantName': ifoodMerchantName,
+        'ifoodLastSyncAt': ifoodLastSyncAt,
+        'fiscalEnabled': fiscalEnabled,
+        'fiscalProvider': fiscalProvider,
+        'tefProvider': tefProvider,
+        'fiscalMerchantCode': fiscalMerchantCode,
+        'fiscalCscId': fiscalCscId,
+        'fiscalEnvironment': fiscalEnvironment,
+        'requireFiscalBeforeReceipt': requireFiscalBeforeReceipt,
       },
       'profile': {
         'email': authEmail,
@@ -2652,7 +4072,11 @@ class BalcaoStore extends ChangeNotifier {
       'products': products.map((item) => item.toJson()).toList(),
       'orders': orders.map((item) => item.toJson()).toList(),
       'customers': customers.map((item) => item.toJson()).toList(),
+      'deliveryZones': deliveryZones.map((item) => item.toJson()).toList(),
+      'teamMembers': teamMembers.map((item) => item.toJson()).toList(),
+      'users': teamMembers.map((item) => item.toJson()).toList(),
       'cashMovements': movements.map((item) => item.toJson()).toList(),
+      'cashClosings': cashClosings.map((item) => item.toJson()).toList(),
       'stockMovements': stockMovements.map((item) => item.toJson()).toList(),
     };
   }
@@ -2882,29 +4306,6 @@ class BalcaoStore extends ChangeNotifier {
     return clean;
   }
 
-  String _slugKey(String value) {
-    final buffer = StringBuffer();
-    var previousDash = false;
-    for (final code in value.toLowerCase().codeUnits) {
-      final allowed = (code >= 97 && code <= 122) || (code >= 48 && code <= 57);
-      if (allowed) {
-        buffer.writeCharCode(code);
-        previousDash = false;
-      } else if (!previousDash) {
-        buffer.write('-');
-        previousDash = true;
-      }
-    }
-    var clean = buffer.toString();
-    while (clean.startsWith('-')) {
-      clean = clean.substring(1);
-    }
-    while (clean.endsWith('-')) {
-      clean = clean.substring(0, clean.length - 1);
-    }
-    return clean.isEmpty ? 'loja' : clean;
-  }
-
   String _kindName(OrderKind kind) {
     return switch (kind) {
       OrderKind.table => 'Mesa',
@@ -2962,6 +4363,16 @@ class BalcaoStore extends ChangeNotifier {
         'cashReconciliationRequired': cashReconciliationRequired,
         'unreconciledCashOpenedAt': unreconciledCashOpenedAt?.toIso8601String(),
         'onlineStoreOpen': onlineStoreOpen,
+        'deviceInstallationId': deviceInstallationId,
+        'secureDeviceId': secureDeviceId,
+        'secureStoreId': secureStoreId,
+        'deviceLeaseToken': deviceLeaseToken,
+        'planCode': planCode,
+        'entitlementExpiresAt': entitlementExpiresAt?.toIso8601String(),
+        'entitlementModules': entitlementModules.toList()..sort(),
+        'configuredServiceModes': configuredServiceModes.toList()..sort(),
+        'configuredPaymentMethods': configuredPaymentMethods.toList()..sort(),
+        'configuredDiningMode': configuredDiningMode,
         'licenseKey': licenseKey,
         'operatorName': operatorName,
         'authEmail': authEmail,
@@ -2982,6 +4393,23 @@ class BalcaoStore extends ChangeNotifier {
         'whatsappConnected': whatsappConnected,
         'whatsappNumber': whatsappNumber,
         'whatsappSessionId': whatsappSessionId,
+        'whatsappConnectionStatus': whatsappConnectionStatus,
+        'whatsappMessage': whatsappMessage,
+        'whatsappOnboardingUrl': whatsappOnboardingUrl,
+        'whatsappLastSyncAt': whatsappLastSyncAt,
+        'securityMessage': securityMessage,
+        'cloudBackupEnabled': cloudBackupEnabled,
+        'centralSyncEnabled': centralSyncEnabled,
+        'lastBackupAt': lastBackupAt,
+        'backupMessage': backupMessage,
+        'fiscalEnabled': fiscalEnabled,
+        'fiscalProvider': fiscalProvider,
+        'tefProvider': tefProvider,
+        'fiscalMerchantCode': fiscalMerchantCode,
+        'fiscalCscId': fiscalCscId,
+        'fiscalEnvironment': fiscalEnvironment,
+        'requireFiscalBeforeReceipt': requireFiscalBeforeReceipt,
+        'fiscalMessage': fiscalMessage,
         'pointConnected': pointConnected,
         'pointConnectionStatus': pointConnectionStatus,
         'pointDeviceName': pointDeviceName,
@@ -3003,10 +4431,21 @@ class BalcaoStore extends ChangeNotifier {
         'windowsBridgeLocalUrl': windowsBridgeLocalUrl,
         'windowsBridgeStatus': windowsBridgeStatus,
         'windowsBridgeLastPrintAt': windowsBridgeLastPrintAt,
+        'ifoodConnectionId': ifoodConnectionId,
+        'ifoodConnectionStatus': ifoodConnectionStatus,
+        'ifoodMerchantId': ifoodMerchantId,
+        'ifoodMerchantName': ifoodMerchantName,
+        'ifoodMessage': ifoodMessage,
+        'ifoodVerificationUrl': ifoodVerificationUrl,
+        'ifoodUserCode': ifoodUserCode,
+        'ifoodLastSyncAt': ifoodLastSyncAt,
         'products': products.map((item) => item.toJson()).toList(),
         'orders': orders.map((item) => item.toJson()).toList(),
         'customers': customers.map((item) => item.toJson()).toList(),
+        'deliveryZones': deliveryZones.map((item) => item.toJson()).toList(),
+        'teamMembers': teamMembers.map((item) => item.toJson()).toList(),
         'movements': movements.map((item) => item.toJson()).toList(),
+        'cashClosings': cashClosings.map((item) => item.toJson()).toList(),
         'stockMovements': stockMovements.map((item) => item.toJson()).toList(),
         'syncQueue': syncQueue,
       }),

@@ -1,0 +1,6 @@
+# Copy to key.properties (ignored by Git) only on a trusted build machine.
+# Keep this signing key stable so personalized APK updates remain compatible.
+storeFile=C:/secure/agenda-livre-release.jks
+storePassword=replace-on-build-machine
+keyAlias=agenda-livre
+keyPassword=replace-on-build-machine

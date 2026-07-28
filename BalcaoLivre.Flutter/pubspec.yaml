@@ -1,5 +1,5 @@
 name: balcao_livre_flutter
-description: "A new Flutter project."
+description: "Aplicativo móvel oficial do Balcão Livre PDV."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -40,6 +40,7 @@ dependencies:
   supabase_flutter: ^2.14.2
   url_launcher: ^6.3.2
   file_picker: ^10.3.8
+  crypto: ^3.0.6
 
 dev_dependencies:
   flutter_test:

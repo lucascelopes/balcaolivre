@@ -7,8 +7,14 @@ export const downloadUrl =
 export const onlineDownloadUrl =
   `${licenseFunctionUrl}?plan=online`;
 
+export const pdvWebUrl =
+  "https://app.balcaolivrepdv.com.br";
+
 export const checkoutFunctionUrl =
   "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/checkout";
+
+export const handoffFunctionUrl =
+  "https://hzvplpotsdzxygkxrgyi.supabase.co/functions/v1/handoff";
 
 export const sellers = [
   {

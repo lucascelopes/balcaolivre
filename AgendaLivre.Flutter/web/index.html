@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="Agenda Livre — agenda, clientes, equipe e financeiro em um só lugar.">
+  <meta name="theme-color" content="#ED6823">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Agenda Livre">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>Agenda Livre</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #FAF9F7;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    (() => {
+      const flutterCaches = new Set([
+        'flutter-app-cache',
+        'flutter-temp-cache',
+        'flutter-app-manifest',
+      ]);
+
+      void (async () => {
+        try {
+          if ('serviceWorker' in navigator) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(
+              registrations.map(async (registration) => {
+                const worker =
+                  registration.active || registration.waiting || registration.installing;
+                if (!worker) return;
+                const path = new URL(worker.scriptURL).pathname;
+                if (path.endsWith('/flutter_service_worker.js')) {
+                  await registration.unregister();
+                }
+              }),
+            );
+          }
+          if ('caches' in window) {
+            const names = await caches.keys();
+            await Promise.all(
+              names.filter((name) => flutterCaches.has(name)).map((name) => caches.delete(name)),
+            );
+          }
+        } catch (_) {
+          // Cache cleanup is best effort and must never block the auth screen.
+        }
+      })();
+    })();
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

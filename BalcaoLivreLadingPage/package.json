@@ -2,27 +2,40 @@
   "name": "balcao-livre-landing-page",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "sync:pdv": "node scripts/sync-pdv-assets.mjs",
-    "dev": "npm run sync:pdv && next dev",
-    "build": "npm run sync:pdv && next build",
-    "start": "next start",
-    "build:cloudflare": "npm run sync:pdv && opennextjs-cloudflare build",
-    "preview:cloudflare": "npm run build:cloudflare && opennextjs-cloudflare preview",
-    "deploy:cloudflare": "npm run build:cloudflare && opennextjs-cloudflare deploy"
+    "sync:agenda-web": "node scripts/sync-agenda-web.mjs",
+    "dev": "npm run sync:pdv && npm run sync:agenda-web && vinext dev",
+    "build": "npm run sync:pdv && npm run sync:agenda-web && vinext build",
+    "build:agenda-sites": "npm run build",
+    "cloudflare:saas:configure": "powershell -ExecutionPolicy Bypass -File scripts/configure-cloudflare-saas.ps1",
+    "start": "vinext start",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
+    "drizzle-orm": "0.45.2",
     "lucide-react": "^1.21.0",
-    "next": "15.5.18",
-    "react": "18.2.0",
-    "react-dom": "18.2.0"
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "1.19.11",
-    "wrangler": "4.104.0"
+    "@cloudflare/vite-plugin": "1.37.1",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "drizzle-kit": "0.31.10",
+    "react-server-dom-webpack": "19.2.6",
+    "typescript": "5.9.3",
+    "vinext": "0.0.50",
+    "vite": "8.0.13",
+    "wrangler": "4.92.0"
   }
 }
