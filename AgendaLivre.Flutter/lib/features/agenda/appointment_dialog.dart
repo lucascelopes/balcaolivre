@@ -37,7 +37,7 @@ Future<void> showAppointmentDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         child: SizedBox(
           width: math.min(900, mediaSize.width - 48),
-          height: math.min(620, mediaSize.height - 32),
+          height: math.min(520, mediaSize.height - 32),
           child: content,
         ),
       );
@@ -51,6 +51,13 @@ Future<void> showAppointmentDialog(
 }
 
 enum _AppointmentEditAction { duplicate, noShow, cancel, delete }
+
+class _ScheduleAssistantIssue {
+  const _ScheduleAssistantIssue(this.code, this.message);
+
+  final String code;
+  final String message;
+}
 
 class _AppointmentDialog extends StatefulWidget {
   const _AppointmentDialog({
@@ -86,6 +93,7 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
   String? _error;
   bool _saving = false;
   int _step = 0;
+  String _acknowledgedScheduleKey = '';
 
   bool get _editing => widget.appointment != null;
 
@@ -134,6 +142,9 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
       text: source?.resourceName ?? '',
     );
     _notesController = TextEditingController(text: source?.notes ?? '');
+    if (source?.scheduleExceptionAcknowledged ?? false) {
+      _acknowledgedScheduleKey = _scheduleKey(source!.start, source.end);
+    }
   }
 
   @override
@@ -252,6 +263,59 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
   Widget build(BuildContext context) {
     final t = AgendaThemeTokens.of(context);
     final compact = MediaQuery.sizeOf(context).width < 720;
+    if (!compact) {
+      return Material(
+        key: const Key('appointment-dialog'),
+        color: t.panel,
+        child: Row(
+          children: [
+            SizedBox(width: 270, child: _wpfDesktopSidebar()),
+            Expanded(
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 52,
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 10),
+                        child: IconButton(
+                          tooltip: 'Fechar agendamento',
+                          onPressed: _saving
+                              ? null
+                              : () => Navigator.pop(context),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (_error != null) _errorBanner(),
+                  if (_editingScheduleOutsideWindow && _scheduleUnchanged)
+                    _scheduleWarningBanner(),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      key: const Key('appointment-dialog-scroll'),
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
+                      child: IndexedStack(
+                        index: _step,
+                        sizing: StackFit.loose,
+                        children: [
+                          _scheduleStep(),
+                          _clientStep(),
+                          _reviewStep(false),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Divider(height: 1, color: t.line),
+                  _wizardFooter(false),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Material(
       key: const Key('appointment-dialog'),
       color: t.panel,
@@ -284,6 +348,297 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
           ),
           Divider(height: 1, color: t.line),
           _wizardFooter(compact),
+        ],
+      ),
+    );
+  }
+
+  Widget _wpfDesktopSidebar() {
+    final t = AgendaThemeTokens.of(context);
+    final source = widget.appointment;
+    final title = _editing ? 'Editar agendamento' : 'Novo agendamento';
+    final subtitle = _editing
+        ? appointmentStatusLabel(source!.status)
+        : 'Preencha o horário, o serviço e os dados do cliente.';
+    final dateParts = const <String>[
+      'JAN',
+      'FEV',
+      'MAR',
+      'ABR',
+      'MAI',
+      'JUN',
+      'JUL',
+      'AGO',
+      'SET',
+      'OUT',
+      'NOV',
+      'DEZ',
+    ];
+    return ColoredBox(
+      color: const Color(0xFF171513),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 18, 18, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF24211F),
+                      border: Border.all(color: const Color(0xFF494441)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(
+                      Icons.event_available_outlined,
+                      color: Colors.white,
+                      size: 19,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          subtitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFFCBC5C1),
+                            fontSize: 11.5,
+                            height: 1.25,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 13),
+              _wpfSidebarStep(0, 'Horário'),
+              _wpfSidebarStep(1, 'Cliente'),
+              _wpfSidebarStep(2, 'Confirmar', last: true),
+              const Divider(color: Color(0xFF3C3835), height: 16),
+              Row(
+                children: [
+                  Container(
+                    width: 64,
+                    height: 58,
+                    decoration: BoxDecoration(
+                      color: t.accent,
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    alignment: Alignment.center,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _date.day.toString().padLeft(2, '0'),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 23,
+                            height: 1,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          dateParts[_date.month - 1],
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _dateLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFFCBC5C1),
+                            fontSize: 10.5,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '${_timeKey(_time)} – '
+                          '${_timeKey(TimeOfDay.fromDateTime(_start.add(Duration(minutes: _duration))))}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          'Duração: $_duration min',
+                          style: const TextStyle(
+                            color: Color(0xFFCBC5C1),
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 9),
+              _wpfSidebarSummaryRow(
+                Icons.content_cut_rounded,
+                'Serviço',
+                _serviceSummary,
+              ),
+              _wpfSidebarSummaryRow(
+                Icons.person_outline_rounded,
+                'Profissional',
+                _selectedProfessional?.name ?? 'Profissional não definido',
+              ),
+              _wpfSidebarSummaryRow(
+                Icons.chair_alt_outlined,
+                'Mesa, cadeira ou lavatório',
+                _resourceController.text.trim().isEmpty
+                    ? 'Recurso não definido'
+                    : _resourceController.text.trim(),
+              ),
+              _wpfSidebarSummaryRow(
+                Icons.sell_outlined,
+                'Valor total',
+                _priceSummary,
+                emphasize: true,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _wpfSidebarStep(int index, String label, {bool last = false}) {
+    final t = AgendaThemeTokens.of(context);
+    final active = _step == index;
+    final reached = index <= _step;
+    return InkWell(
+      key: Key('appointment-step-${index + 1}'),
+      onTap: _saving ? null : () => _goToStep(index),
+      child: SizedBox(
+        height: last ? 38 : 42,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 34,
+              child: Column(
+                children: [
+                  Container(
+                    width: 29,
+                    height: 29,
+                    decoration: BoxDecoration(
+                      color: active ? t.accent : const Color(0xFF24211F),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: reached ? t.accent : const Color(0xFF5C5652),
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      '${index + 1}',
+                      style: TextStyle(
+                        color: active ? Colors.white : const Color(0xFFD4CECA),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (!last)
+                    Expanded(
+                      child: Container(
+                        width: 1,
+                        color: const Color(0xFF5C5652),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: TextStyle(
+                color: active ? Colors.white : const Color(0xFFCBC5C1),
+                fontSize: 13.5,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _wpfSidebarSummaryRow(
+    IconData icon,
+    String label,
+    String value, {
+    bool emphasize = false,
+  }) {
+    final t = AgendaThemeTokens.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: Color(0xFF3C3835))),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: Colors.white, size: 19),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Color(0xFFAAA39F),
+                    fontSize: 10.5,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: emphasize ? t.accent : Colors.white,
+                    fontSize: emphasize ? 14.5 : 11.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -660,6 +1015,10 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
               professionalAndResource: _professionalResourceSummary,
               price: _priceSummary,
             ),
+            if (_scheduleAssistantIssue case final issue?) ...[
+              const SizedBox(height: 10),
+              _scheduleAssistantCard(issue),
+            ],
           ],
         ),
       ),
@@ -969,7 +1328,7 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
       padding: EdgeInsets.all(compact ? 12 : 16),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final stacked = compact || constraints.maxWidth < 780;
+          final stacked = compact || constraints.maxWidth < 640;
           if (stacked) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1052,11 +1411,14 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
         ),
       ],
       child: IgnorePointer(
-        child: OutlinedButton.icon(
-          style: _footerButtonStyle(minWidth: 122),
+        child: OutlinedButton(
+          style: _footerButtonStyle(minWidth: 44).copyWith(
+            padding: const WidgetStatePropertyAll(
+              EdgeInsets.symmetric(horizontal: 10),
+            ),
+          ),
           onPressed: () {},
-          icon: const Icon(Icons.more_horiz_rounded, size: 18),
-          label: const Text('Mais ações'),
+          child: const Icon(Icons.more_horiz_rounded, size: 18),
         ),
       ),
     ),
@@ -1245,12 +1607,304 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
     final start = _start;
     final end = start.add(Duration(minutes: _duration));
     final businessError = _controller.validateBusinessWindow(start, end);
-    if (businessError != null && !_scheduleUnchanged) return businessError;
+    if (businessError != null &&
+        !_scheduleUnchanged &&
+        !_isScheduleExceptionAcknowledged) {
+      return 'Este horário é excepcional. Use a sugestão ou confirme abaixo que você foi avisado antes de continuar.';
+    }
     if (!_editing && start.isBefore(DateTime.now())) {
       return 'Escolha um horário futuro para o novo agendamento.';
     }
     return null;
   }
+
+  _ScheduleAssistantIssue? get _scheduleAssistantIssue =>
+      _describeScheduleIssue(_start, _start.add(Duration(minutes: _duration)));
+
+  bool get _isScheduleExceptionAcknowledged =>
+      _acknowledgedScheduleKey ==
+      _scheduleKey(_start, _start.add(Duration(minutes: _duration)));
+
+  _ScheduleAssistantIssue? _describeScheduleIssue(
+    DateTime start,
+    DateTime end,
+  ) {
+    final settings = _controller.data.settings;
+    final professional = _selectedProfessional?.name.trim().isNotEmpty ?? false
+        ? _selectedProfessional!.name.trim()
+        : 'O profissional';
+    final workdayStart = DateTime(
+      start.year,
+      start.month,
+      start.day,
+      settings.workdayStartHour,
+    );
+    final workdayEnd = DateTime(
+      start.year,
+      start.month,
+      start.day,
+      settings.workdayEndHour,
+    );
+
+    if (!_controller.isConfiguredWorkday(start)) {
+      return _ScheduleAssistantIssue(
+        'closed_day',
+        'O estabelecimento está fechado no dia selecionado. '
+            '$professional precisará trabalhar em um dia sem expediente.',
+      );
+    }
+    if (start.isBefore(workdayStart)) {
+      final minutes = workdayStart.difference(start).inMinutes.clamp(1, 1440);
+      return _ScheduleAssistantIssue(
+        'before_opening',
+        'O atendimento começa $minutes min antes da abertura '
+            '(${_clock(workdayStart)}). $professional precisará chegar antes do expediente.',
+      );
+    }
+    if (end.isAfter(workdayEnd)) {
+      final minutes = end.difference(workdayEnd).inMinutes.clamp(1, 1440);
+      return _ScheduleAssistantIssue(
+        'after_closing',
+        'O atendimento terminaria às ${_clock(end)}, $minutes min depois do '
+            'fechamento (${_clock(workdayEnd)}). $professional poderá precisar ficar após o expediente.',
+      );
+    }
+    if (_controller.overlapsConfiguredBreak(start, end)) {
+      return _ScheduleAssistantIssue(
+        'break_overlap',
+        'O atendimento ocupa o intervalo de '
+            '${settings.workdayBreakStartHour.toString().padLeft(2, '0')}:00 às '
+            '${settings.workdayBreakEndHour.toString().padLeft(2, '0')}:00. '
+            '$professional poderá ficar sem parte do horário de almoço.',
+      );
+    }
+    return null;
+  }
+
+  DateTime? _findScheduleSuggestion() {
+    final requested = _start;
+    final professionalId = _professionalId ?? '';
+    final resource = _resourceController.text.trim().toLowerCase();
+    DateTime? best;
+    var bestScore = double.infinity;
+
+    for (var dayOffset = 0; dayOffset < 15; dayOffset++) {
+      final day = requested.add(Duration(days: dayOffset));
+      if (!_controller.isConfiguredWorkday(day)) continue;
+      final settings = _controller.data.settings;
+      final dayStart = DateTime(
+        day.year,
+        day.month,
+        day.day,
+        settings.workdayStartHour,
+      );
+      final dayEnd = DateTime(
+        day.year,
+        day.month,
+        day.day,
+        settings.workdayEndHour,
+      );
+      for (
+        var candidate = dayStart;
+        !candidate.add(Duration(minutes: _duration)).isAfter(dayEnd);
+        candidate = candidate.add(const Duration(minutes: 15))
+      ) {
+        final candidateEnd = candidate.add(Duration(minutes: _duration));
+        if (_controller.overlapsConfiguredBreak(candidate, candidateEnd) ||
+            _hasScheduleConflict(
+              candidate,
+              candidateEnd,
+              professionalId,
+              resource,
+            ) ||
+            (!_editing &&
+                candidate.isBefore(
+                  DateTime.now().subtract(const Duration(minutes: 5)),
+                ))) {
+          continue;
+        }
+        final dayDistance =
+            candidate.difference(requested).inDays.abs() * 1440.0;
+        final timeDistance =
+            (candidate.hour * 60 +
+                    candidate.minute -
+                    (requested.hour * 60 + requested.minute))
+                .abs()
+                .toDouble();
+        final score = dayDistance + timeDistance;
+        if (score < bestScore) {
+          best = candidate;
+          bestScore = score;
+        }
+      }
+    }
+    return best;
+  }
+
+  bool _hasScheduleConflict(
+    DateTime start,
+    DateTime end,
+    String professionalId,
+    String resource,
+  ) => _controller.data.appointments.any((item) {
+    if (item.id == widget.appointment?.id ||
+        item.status == AppointmentStatus.cancelled ||
+        item.status == AppointmentStatus.noShow) {
+      return false;
+    }
+    final overlaps = start.isBefore(item.end) && end.isAfter(item.start);
+    if (!overlaps) return false;
+    final sameProfessional =
+        professionalId.isNotEmpty && item.professionalId == professionalId;
+    final sameResource =
+        resource.isNotEmpty &&
+        item.resourceName.trim().toLowerCase() == resource;
+    return sameProfessional || sameResource;
+  });
+
+  Widget _scheduleAssistantCard(_ScheduleAssistantIssue issue) {
+    final t = AgendaThemeTokens.of(context);
+    final suggestion = _findScheduleSuggestion();
+    final end = _start.add(Duration(minutes: _duration));
+    final message = suggestion == null
+        ? '${issue.message} Não encontrei outro encaixe livre nos próximos 15 dias.'
+        : '${issue.message} Melhor encaixe livre: '
+              '${DateUtils.isSameDay(suggestion, _start) ? 'hoje, ' : '${_shortDate(suggestion)}, '}'
+              '${_clock(suggestion)}–${_clock(suggestion.add(Duration(minutes: _duration)))}.';
+
+    return Container(
+      key: const Key('schedule-assistant-card'),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8F3),
+        border: Border.all(color: t.accent),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: t.accent,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.auto_fix_high,
+                  color: Colors.white,
+                  size: 15,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Sugestão inteligente de horário',
+                      style: TextStyle(
+                        color: t.ink,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      _isScheduleExceptionAcknowledged
+                          ? 'Exceção confirmada · o aviso ficará registrado'
+                          : 'Regras da agenda verificadas',
+                      style: TextStyle(color: t.muted, fontSize: 9.5),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 37, top: 7),
+            child: Text(
+              message,
+              style: TextStyle(color: t.ink, fontSize: 11.5, height: 1.35),
+            ),
+          ),
+          const SizedBox(height: 9),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final confirmation = CheckboxListTile(
+                key: const Key('schedule-assistant-acknowledge'),
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _isScheduleExceptionAcknowledged,
+                onChanged: (value) => setState(() {
+                  _acknowledgedScheduleKey = value == true
+                      ? _scheduleKey(_start, end)
+                      : '';
+                  _error = null;
+                }),
+                title: Text(
+                  'Fui avisado e quero manter ${_clock(_start)}–${_clock(end)}',
+                  style: TextStyle(
+                    color: t.ink,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              );
+              final useSuggestion = suggestion == null
+                  ? null
+                  : SizedBox(
+                      height: 34,
+                      child: FilledButton.icon(
+                        key: const Key('schedule-assistant-use-suggestion'),
+                        onPressed: () => setState(() {
+                          _date = DateUtils.dateOnly(suggestion);
+                          _time = TimeOfDay.fromDateTime(suggestion);
+                          _acknowledgedScheduleKey = '';
+                          _error = null;
+                        }),
+                        icon: const Icon(Icons.schedule, size: 15),
+                        label: Text(
+                          DateUtils.isSameDay(suggestion, _start)
+                              ? 'Usar ${_clock(suggestion)}'
+                              : 'Usar ${_shortDate(suggestion)} ${_clock(suggestion)}',
+                        ),
+                      ),
+                    );
+              if (constraints.maxWidth < 560) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [confirmation, ?useSuggestion],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: confirmation),
+                  if (useSuggestion != null) ...[
+                    const SizedBox(width: 12),
+                    useSuggestion,
+                  ],
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _scheduleKey(DateTime start, DateTime end) =>
+      '${start.toIso8601String()}|${end.toIso8601String()}';
+
+  String _clock(DateTime value) =>
+      '${value.hour.toString().padLeft(2, '0')}:'
+      '${value.minute.toString().padLeft(2, '0')}';
+
+  String _shortDate(DateTime value) =>
+      '${value.day.toString().padLeft(2, '0')}/'
+      '${value.month.toString().padLeft(2, '0')}';
 
   Appointment _draft({DateTime? start}) {
     final source = widget.appointment;
@@ -1260,6 +1914,12 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
     final professional = _professionals
         .where((item) => item.id == _professionalId)
         .firstOrNull;
+    final draftStart = start ?? _start;
+    final draftEnd = draftStart.add(Duration(minutes: _duration));
+    final issue = _describeScheduleIssue(draftStart, draftEnd);
+    final acknowledged =
+        issue != null &&
+        _acknowledgedScheduleKey == _scheduleKey(draftStart, draftEnd);
     return Appointment(
       id: source?.id,
       segment: _segment.trim(),
@@ -1271,11 +1931,23 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
       professionalId: professional?.id ?? '',
       professionalName: professional?.name ?? '',
       resourceName: _resourceController.text.trim(),
-      start: start ?? _start,
+      start: draftStart,
       durationMinutes: _duration,
       price: _parsePrice(_priceController.text) ?? 0,
       status: source?.status ?? AppointmentStatus.scheduled,
       notes: _notesController.text.trim(),
+      externalSource: source?.externalSource ?? '',
+      externalReference: source?.externalReference ?? '',
+      bookingChannel: source?.bookingChannel ?? '',
+      channelConversationId: source?.channelConversationId ?? '',
+      channelExternalUserId: source?.channelExternalUserId ?? '',
+      channelUsername: source?.channelUsername ?? '',
+      scheduleExceptionAcknowledged: acknowledged,
+      scheduleExceptionReason: acknowledged ? issue.message : '',
+      scheduleExceptionAssistantSource: acknowledged ? 'local-rules' : '',
+      scheduleExceptionAcknowledgedAt: acknowledged
+          ? (source?.scheduleExceptionAcknowledgedAt ?? DateTime.now())
+          : null,
       createdAt: source?.createdAt,
       updatedAt: DateTime.now(),
     );
@@ -1341,6 +2013,10 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
       price: source.price,
       status: AppointmentStatus.scheduled,
       notes: source.notes,
+      externalSource: source.externalSource,
+      bookingChannel: source.bookingChannel,
+      channelExternalUserId: source.channelExternalUserId,
+      channelUsername: source.channelUsername,
     );
     final error = await _controller.saveAppointment(duplicate);
     if (!mounted) return;
@@ -1814,7 +2490,7 @@ class _ResponsiveFields extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth < 560 ? 1 : 2;
+        final columns = constraints.maxWidth < 500 ? 1 : 2;
         const spacing = 12.0;
         final width =
             (constraints.maxWidth - spacing * (columns - 1)) / columns;

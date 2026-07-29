@@ -129,8 +129,12 @@ void main() {
     await tester.tap(find.byKey(const Key('desktop-enter-pdv')));
     await tester.pump();
     expect(find.byKey(const Key('pdv-desktop')), findsOneWidget);
+    controller.data.appointments.first.status = AppointmentStatus.done;
     await tester.tap(find.text('Encerrar PDV'));
-    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('pdv-cash-closing-dialog')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('pdv-cash-closing-confirm')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('desktop-topbar')), findsOneWidget);
 
     tester.view.physicalSize = const Size(390, 844);
@@ -139,9 +143,22 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('mobile-enter-pdv')));
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('pdv-cash-opening-dialog')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('pdv-cash-opening-skip')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('pdv-mobile')), findsOneWidget);
     await tester.tap(find.byKey(const Key('pdv-mobile-exit')));
-    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('pdv-cash-closing-dialog')), findsOneWidget);
+    await tester.drag(
+      find.byKey(const Key('pdv-cash-closing-dialog')),
+      const Offset(0, -700),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('pdv-cash-closing-confirm')).hitTestable(),
+    );
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('mobile-quick-navigation')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -300,6 +317,14 @@ AgendaController _pdvController() {
           price: 35,
           stockQuantity: 8,
           minimumStock: 2,
+        ),
+      ],
+      cashSessions: [
+        CashSession(
+          id: 'cash-open',
+          operatorName: 'Lucas Cesar Lopes',
+          openingBalance: 100,
+          openedAt: DateTime(2026, 7, 14, 8),
         ),
       ],
     )

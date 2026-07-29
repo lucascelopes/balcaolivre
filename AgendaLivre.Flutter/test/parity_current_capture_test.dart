@@ -33,7 +33,7 @@ void main() {
   });
 
   for (final capture in <(String, Size)>[
-    ('06-flutter-maquininha-automatica-desktop.png', const Size(1366, 768)),
+    ('06-flutter-maquininha-automatica-desktop.png', const Size(1382, 736)),
     ('07-flutter-maquininha-automatica-mobile.png', const Size(390, 844)),
   ]) {
     testWidgets('captura ${capture.$1}', (tester) async {
@@ -42,10 +42,10 @@ void main() {
   }
 
   for (final capture in <(String, Size, bool)>[
-    ('09-flutter-maquininha-setup-desktop.png', const Size(1366, 768), false),
+    ('09-flutter-maquininha-setup-desktop.png', const Size(1382, 736), false),
     (
       '10-flutter-maquininha-conectada-desktop.png',
-      const Size(1366, 768),
+      const Size(1382, 736),
       true,
     ),
     ('11-flutter-maquininha-setup-mobile.png', const Size(390, 844), false),
@@ -61,7 +61,7 @@ void main() {
   }
 
   for (final capture in <(String, Size)>[
-    ('14-flutter-pdv-desktop.png', const Size(1366, 768)),
+    ('14-flutter-pdv-desktop.png', const Size(1382, 736)),
     ('15-flutter-pdv-mobile.png', const Size(390, 844)),
   ]) {
     testWidgets('captura ${capture.$1}', (tester) async {
@@ -70,7 +70,7 @@ void main() {
   }
 
   for (final capture in <(String, Size)>[
-    ('18-flutter-marketing-desktop.png', const Size(1366, 768)),
+    ('18-flutter-marketing-desktop.png', const Size(1382, 736)),
     ('19-flutter-marketing-mobile.png', const Size(390, 844)),
   ]) {
     testWidgets('captura ${capture.$1}', (tester) async {
@@ -109,7 +109,7 @@ Future<void> _capturePointWait(
 
   await tester.pumpWidget(
     MaterialApp(
-      theme: AgendaThemes.byId('').toThemeData().copyWith(
+      theme: AgendaThemes.byId('aesthetic-coral').toThemeData().copyWith(
         textTheme: ThemeData.light().textTheme.apply(fontFamily: 'Segoe UI'),
       ),
       home: Scaffold(
@@ -219,7 +219,7 @@ Future<void> _captureSettings(
 
   await tester.pumpWidget(
     MaterialApp(
-      theme: AgendaThemes.byId('').toThemeData().copyWith(
+      theme: AgendaThemes.byId('aesthetic-coral').toThemeData().copyWith(
         textTheme: ThemeData.light().textTheme.apply(fontFamily: 'Segoe UI'),
       ),
       home: Scaffold(
@@ -266,12 +266,12 @@ Future<void> _capturePdv(
 
   await tester.pumpWidget(
     MaterialApp(
-      theme: AgendaThemes.byId('').toThemeData().copyWith(
+      theme: AgendaThemes.byId('aesthetic-coral').toThemeData().copyWith(
         textTheme: ThemeData.light().textTheme.apply(fontFamily: 'Segoe UI'),
       ),
       home: PdvPage(
         controller: controller,
-        referenceNow: DateTime(2026, 7, 23, 14, 2),
+        referenceNow: DateTime(2026, 7, 29, 10, 35),
         onExit: () {},
         onNavigate: (_) {},
       ),
@@ -284,11 +284,6 @@ Future<void> _capturePdv(
     );
   });
   await tester.pump();
-  if (size.width >= 720) {
-    await tester.tap(find.byKey(const Key('pdv-appointment-a-running')));
-    await tester.pump();
-  }
-
   final layoutError = tester.takeException();
   await expectLater(
     find.byKey(Key(size.width >= 720 ? 'pdv-desktop' : 'pdv-mobile')),
@@ -343,7 +338,7 @@ Future<void> _captureMarketing(
       key: captureKey,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: AgendaThemes.byId('').toThemeData().copyWith(
+        theme: AgendaThemes.byId('aesthetic-coral').toThemeData().copyWith(
           textTheme: ThemeData.light().textTheme.apply(fontFamily: 'Segoe UI'),
         ),
         home: ResponsiveAgendaShell(
@@ -376,69 +371,62 @@ Future<void> _captureMarketing(
 }
 
 AgendaController _pdvController() {
-  final selectedDate = DateTime(2026, 7, 23);
+  final selectedDate = DateTime(2026, 7, 29);
   final appointments = <Appointment>[
     Appointment(
       id: 'a-running',
-      customerName: 'Isabela Ferreira',
-      serviceName: 'Coloração + Tratamento capilar',
+      customerName: 'Ana Clara Souza',
+      serviceName: 'Coloração completa',
       professionalId: 'camila',
       professionalName: 'Camila Rocha',
       resourceName: 'Cadeira 1',
-      start: DateTime(2026, 7, 23, 13, 30),
-      durationMinutes: 120,
+      start: DateTime(2026, 7, 29, 10),
+      durationMinutes: 150,
       price: 280,
       status: AppointmentStatus.inService,
-      serviceStartedAt: DateTime(2026, 7, 23, 13, 30),
+      serviceStartedAt: DateTime(2026, 7, 29, 10),
       serviceLines: [
         AppointmentServiceLine(
           serviceId: 'coloracao',
-          serviceName: 'Coloração',
-          durationMinutes: 90,
-          unitPrice: 220,
-        ),
-        AppointmentServiceLine(
-          serviceId: 'tratamento',
-          serviceName: 'Tratamento capilar',
-          durationMinutes: 30,
-          unitPrice: 60,
+          serviceName: 'Coloração completa',
+          durationMinutes: 150,
+          unitPrice: 280,
         ),
       ],
     ),
     Appointment(
-      id: 'a-marina',
-      customerName: 'Marina Dias',
-      serviceName: 'Pedicure',
+      id: 'a-beatriz',
+      customerName: 'Beatriz Lima',
+      serviceName: 'Manicure',
       professionalId: 'julia',
       professionalName: 'Júlia Martins',
-      start: DateTime(2026, 7, 23, 14),
-      durationMinutes: 60,
+      start: DateTime(2026, 7, 29, 11),
+      durationMinutes: 45,
       price: 55,
       status: AppointmentStatus.waiting,
     ),
     Appointment(
-      id: 'a-sofia',
-      customerName: 'Sofia Reis',
-      serviceName: 'Massagem facial',
+      id: 'a-renata',
+      customerName: 'Renata Alves',
+      serviceName: 'Limpeza de pele',
       professionalId: 'mariana',
       professionalName: 'Mariana Costa',
-      start: DateTime(2026, 7, 23, 16),
-      durationMinutes: 60,
+      start: DateTime(2026, 7, 29, 13),
+      durationMinutes: 75,
       price: 120,
+      status: AppointmentStatus.scheduled,
+    ),
+    Appointment(
+      id: 'a-isabela',
+      customerName: 'Isabela Fernandes',
+      serviceName: 'Corte feminino',
+      professionalId: 'nina',
+      professionalName: 'Nina Almeida',
+      start: DateTime(2026, 7, 29, 9),
+      durationMinutes: 60,
+      price: 90,
       status: AppointmentStatus.confirmed,
     ),
-    for (var index = 0; index < 5; index++)
-      Appointment(
-        id: 'a-earlier-$index',
-        customerName: 'Cliente ${index + 1}',
-        serviceName: 'Atendimento',
-        professionalId: index.isEven ? 'camila' : 'julia',
-        professionalName: index.isEven ? 'Camila Rocha' : 'Júlia Martins',
-        start: DateTime(2026, 7, 23, 8 + index),
-        durationMinutes: 30,
-        price: 70,
-        status: AppointmentStatus.confirmed,
-      ),
   ];
   final data = AgendaData(
     settings: AgendaSettings(
@@ -483,6 +471,18 @@ AgendaController _pdvController() {
         id: 'mariana',
         name: 'Mariana Costa',
         role: 'Esteticista',
+        segments: const ['Estética'],
+      ),
+      Professional(
+        id: 'nina',
+        name: 'Nina Almeida',
+        role: 'Cabeleireira e proprietária',
+        segments: const ['Estética'],
+      ),
+      Professional(
+        id: 'laura',
+        name: 'Laura Freitas',
+        role: 'Assistente',
         segments: const ['Estética'],
       ),
     ],

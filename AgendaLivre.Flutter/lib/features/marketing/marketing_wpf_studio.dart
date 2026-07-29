@@ -17,6 +17,8 @@ class MarketingWpfStudio extends StatefulWidget {
     required this.onCopy,
     required this.onWhatsApp,
     required this.onInstagram,
+    required this.onBack,
+    this.initialChannel = 2,
   });
 
   final String businessName;
@@ -30,6 +32,8 @@ class MarketingWpfStudio extends StatefulWidget {
   final VoidCallback onCopy;
   final VoidCallback onWhatsApp;
   final VoidCallback onInstagram;
+  final VoidCallback onBack;
+  final int initialChannel;
 
   @override
   State<MarketingWpfStudio> createState() => _MarketingWpfStudioState();
@@ -73,11 +77,17 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
     'Maquiagem',
   ];
 
-  int _channel = 2;
+  late int _channel;
   int _selectedImage = 0;
   String _topic = 'Maquiagem';
   final Set<String> _selectedTimes = {..._times};
   final _search = TextEditingController(text: 'maquiagem');
+
+  @override
+  void initState() {
+    super.initState();
+    _channel = widget.initialChannel.clamp(0, 2);
+  }
 
   @override
   void dispose() {
@@ -122,6 +132,16 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
       fit: BoxFit.scaleDown,
       child: Row(
         children: [
+          IconButton(
+            key: const Key('marketing-studio-back'),
+            onPressed: widget.onBack,
+            tooltip: 'Voltar para Marketing',
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+            padding: EdgeInsets.zero,
+            icon: Icon(Icons.arrow_back, color: t.ink, size: 18),
+          ),
+          const SizedBox(width: 5),
           Text(
             'ESTÚDIO DE CONTEÚDO',
             style: TextStyle(
@@ -210,7 +230,7 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
               ],
             )
           : SizedBox(
-              height: 372,
+              height: 412,
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -609,21 +629,24 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
     ),
   );
 
-  Widget _topicRow() => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      for (final topic in _topics) ...[
-        _ChoicePill(
-          label: topic,
-          selected: topic == _topic,
-          onTap: () => setState(() {
-            _topic = topic;
-            _search.text = topic.toLowerCase();
-          }),
-        ),
-        const SizedBox(width: 5),
+  Widget _topicRow() => SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final topic in _topics) ...[
+          _ChoicePill(
+            label: topic,
+            selected: topic == _topic,
+            onTap: () => setState(() {
+              _topic = topic;
+              _search.text = topic.toLowerCase();
+            }),
+          ),
+          const SizedBox(width: 5),
+        ],
       ],
-    ],
+    ),
   );
 
   Widget _searchBox(AgendaThemeTokens t) => Row(

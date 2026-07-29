@@ -38,7 +38,7 @@ void main() {
     });
   }
 
-  testWidgets('Painel usa empresa no cumprimento e responsável no subtítulo', (
+  testWidgets('Painel usa o primeiro nome do responsável como no WPF', (
     tester,
   ) async {
     final controller = AgendaController(_MemoryAgendaRepository())
@@ -54,9 +54,8 @@ void main() {
       HomePage(controller: controller),
     );
 
-    expect(find.textContaining('Studio Nina Beauty'), findsOneWidget);
-    expect(find.byKey(const Key('home-owner-name')), findsOneWidget);
-    expect(find.text('Nina Almeida'), findsOneWidget);
+    expect(find.textContaining(', Nina'), findsOneWidget);
+    expect(find.text('MINHA AGENDA'), findsOneWidget);
     expect(find.byKey(const Key('home-occupancy-card')), findsOneWidget);
     expect(find.byKey(const Key('home-week-performance-card')), findsOneWidget);
     expect(find.text('Próximos horários'), findsNothing);

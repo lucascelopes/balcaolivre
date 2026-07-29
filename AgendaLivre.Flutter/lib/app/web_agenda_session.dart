@@ -551,8 +551,20 @@ class AgendaWebSessionController extends ChangeNotifier
       onLogout: signOut,
       instagramService: instagramService,
       mercadoPagoService: mercadoPagoService,
+      accountApi: stateApi,
+      deviceId: deviceId,
       authenticatedEmail: session.email,
+      professionalId: session.professionalId,
+      permissionScope: session.permissionScope,
     );
+    if (session.isProfessionalAccount) {
+      controller.page = AgendaPage.agenda;
+    }
+    await controller.initialize();
+    if (!_isSessionCurrent(generation: generation, userId: session.userId)) {
+      controller.dispose();
+      return;
+    }
     agendaController = controller;
     errorMessage = null;
     successMessage = null;

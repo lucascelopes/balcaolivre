@@ -18,7 +18,7 @@ void main() {
 
     expect(
       tester.getSize(find.byKey(const Key('appointment-dialog'))),
-      const Size(900, 620),
+      const Size(900, 520),
     );
     expect(find.byKey(const Key('appointment-step-1')), findsOneWidget);
     expect(find.byKey(const Key('appointment-step-2')), findsOneWidget);
@@ -48,7 +48,6 @@ void main() {
     expect(find.byKey(const Key('appointment-save')).hitTestable(), findsOne);
     expect(tester.getTopLeft(footer).dy, closeTo(footerTop, .1));
     expect(tester.takeException(), isNull);
-
     await tester.tap(find.byKey(const Key('appointment-save')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('appointment-dialog')), findsNothing);
@@ -83,6 +82,30 @@ void main() {
       find.byKey(const Key('appointment-continue')).hitTestable(),
       findsOne,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('assistente sugere um encaixe para horário excepcional', (
+    tester,
+  ) async {
+    final start = _futureMondayAtTen().copyWith(hour: 21);
+    await _pumpNewDialog(tester, const Size(1382, 736), initialStart: start);
+
+    expect(find.byKey(const Key('schedule-assistant-card')), findsOneWidget);
+    expect(find.text('Sugestão inteligente de horário'), findsOneWidget);
+    expect(
+      find.byKey(const Key('schedule-assistant-use-suggestion')),
+      findsOneWidget,
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('schedule-assistant-use-suggestion')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('schedule-assistant-use-suggestion')),
+    );
+    await tester.pump();
+    expect(find.byKey(const Key('schedule-assistant-card')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }
@@ -143,6 +166,42 @@ Future<_DialogHarness> _pumpDialog(WidgetTester tester, Size size) async {
   await tester.tap(find.text('Abrir agendamento'));
   await tester.pumpAndSettle();
   return _DialogHarness(repository);
+}
+
+Future<void> _pumpNewDialog(
+  WidgetTester tester,
+  Size size, {
+  required DateTime initialStart,
+}) async {
+  tester.view.devicePixelRatio = 1;
+  tester.view.physicalSize = size;
+  addTearDown(tester.view.reset);
+
+  final data = AgendaSeedData.salon(referenceDate: initialStart);
+  final controller = AgendaController(_MemoryAgendaRepository(data))
+    ..data = data
+    ..loading = false;
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: AgendaThemes.byId('').toThemeData(),
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => Center(
+            child: ElevatedButton(
+              onPressed: () => showAppointmentDialog(
+                context,
+                controller,
+                initialStart: initialStart,
+              ),
+              child: const Text('Novo agendamento'),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.tap(find.text('Novo agendamento'));
+  await tester.pumpAndSettle();
 }
 
 DateTime _futureMondayAtTen() {

@@ -11,6 +11,7 @@ import '../../services/mercado_pago_service.dart';
 import '../agenda/appointment_payment_dialog.dart';
 import '../establishment/editor_dialogs.dart';
 import '../payments/mercado_pago_settings_dialog.dart';
+import 'finance_wpf_dashboard.dart';
 import 'product_sale_dialog.dart';
 
 const _positive = Color(0xFF16A34A);
@@ -106,6 +107,17 @@ class _FinancePageState extends State<FinancePage> {
     return AnimatedBuilder(
       animation: widget.controller,
       builder: (context, _) {
+        const legacyDashboard = bool.fromEnvironment(
+          'AGENDA_FINANCE_LEGACY_DASHBOARD',
+        );
+        if (!legacyDashboard) {
+          return FinanceWpfDashboard(
+            controller: widget.controller,
+            onReceive: _registerPayment,
+            onExpense: _registerExpense,
+            onProduct: _sellProduct,
+          );
+        }
         final snapshot = _FinanceSnapshot.from(widget.controller);
         final desktop = MediaQuery.sizeOf(context).width >= 1200;
         return ColoredBox(
@@ -137,6 +149,11 @@ class _FinancePageState extends State<FinancePage> {
                     ),
                     const SizedBox(height: 14),
                     _FinanceMetricStrip(snapshot: snapshot, desktop: desktop),
+                    const SizedBox(height: 14),
+                    _FinanceChannelAttributionCard(
+                      snapshot: snapshot,
+                      desktop: desktop,
+                    ),
                     const SizedBox(height: 14),
                     _buildPrimaryCards(snapshot, desktop),
                     const SizedBox(height: 10),
@@ -937,6 +954,184 @@ class _FinanceSourcesCard extends StatelessWidget {
           _ValueLine(label: 'Produtos vendidos', value: money(productTotal)),
           _ValueLine(label: 'Recebimentos avulsos', value: money(manualTotal)),
         ],
+      ),
+    );
+  }
+}
+
+class _FinanceChannelAttributionCard extends StatelessWidget {
+  const _FinanceChannelAttributionCard({
+    required this.snapshot,
+    required this.desktop,
+  });
+
+  final _FinanceSnapshot snapshot;
+  final bool desktop;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AgendaThemeTokens.of(context);
+    final cards = <_FinanceChannelSummary>[
+      snapshot.directChannel,
+      snapshot.whatsAppChannel,
+      snapshot.instagramChannel,
+    ];
+    return _FinanceSurface(
+      key: const Key('finance-channel-attribution-card'),
+      radius: 16,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Receita e agenda por canal',
+                      style: TextStyle(
+                        color: t.ink,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'A origem acompanha o cliente, o agendamento e o recebimento.',
+                      style: TextStyle(color: t.muted, fontSize: 10.5),
+                    ),
+                  ],
+                ),
+              ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: t.accentSoft,
+                  border: Border.all(color: t.line),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  child: Text(
+                    [
+                          if (snapshot.whatsAppLinked) 'WhatsApp',
+                          if (snapshot.instagramLinked) 'Instagram',
+                        ].join(' + ').trim().isEmpty
+                        ? 'Canais não conectados'
+                        : '${[if (snapshot.whatsAppLinked) 'WhatsApp', if (snapshot.instagramLinked) 'Instagram'].join(' + ')} sincronizado(s)',
+                    style: TextStyle(
+                      color: t.accentDark,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (desktop)
+            Row(
+              children: [
+                for (var index = 0; index < cards.length; index++) ...[
+                  if (index > 0) const SizedBox(width: 8),
+                  Expanded(child: _FinanceChannelTile(data: cards[index])),
+                ],
+              ],
+            )
+          else
+            Column(
+              children: [
+                for (var index = 0; index < cards.length; index++) ...[
+                  if (index > 0) const SizedBox(height: 8),
+                  _FinanceChannelTile(data: cards[index]),
+                ],
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FinanceChannelTile extends StatelessWidget {
+  const _FinanceChannelTile({required this.data});
+
+  final _FinanceChannelSummary data;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AgendaThemeTokens.of(context);
+    final (icon, tone, background, label) = switch (data.channel) {
+      'whatsapp' => (
+        Icons.chat_rounded,
+        const Color(0xFF15803D),
+        const Color(0xFFDCFCE7),
+        'WhatsApp',
+      ),
+      'instagram' => (
+        Icons.camera_alt_outlined,
+        const Color(0xFFBE185D),
+        const Color(0xFFFCE7F3),
+        'Instagram',
+      ),
+      _ => (
+        Icons.calendar_month_outlined,
+        t.ink,
+        t.graySoft,
+        'Direto / balcão',
+      ),
+    };
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: background.withValues(alpha: .45),
+        border: Border.all(color: tone.withValues(alpha: .18)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: background,
+              child: Icon(icon, size: 19, color: tone),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: t.ink,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Text(
+                    money(data.revenue, cents: false),
+                    style: TextStyle(
+                      color: tone,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Text(
+                    '${data.appointments} agendamento(s)'
+                    '${data.channel == 'direct' ? '' : ' · ${data.conversations} conversa(s)'}',
+                    style: TextStyle(color: t.muted, fontSize: 9.5),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1927,6 +2122,184 @@ class _PaymentDialogState extends State<_PaymentDialog> {
     );
   }
 
+  List<Widget> _desktopPaymentFields(
+    AgendaThemeTokens t,
+    List<String> customers,
+  ) {
+    return [
+      Row(
+        children: [
+          AgendaIconBadge(
+            Icons.account_balance_wallet_outlined,
+            size: 38,
+            iconSize: 19,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Recebimento',
+                  style: TextStyle(
+                    color: t.ink,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Identifique de onde veio o valor.',
+                  style: TextStyle(color: t.muted, fontSize: 11.5),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 14),
+      _DialogPair(
+        left: _FinanceLabeledField(
+          label: 'Descrição',
+          fieldKey: const Key('payment-description-field'),
+          child: TextFormField(
+            controller: _description,
+            autofocus: true,
+            style: const TextStyle(fontSize: 13),
+            onChanged: (_) => setState(() {}),
+            decoration: _financeTextDecoration(
+              t,
+              hintText: 'Ex: Sinal de agendamento',
+              minHeight: 44,
+            ),
+            validator: (value) => value == null || value.trim().isEmpty
+                ? 'Informe a descrição.'
+                : null,
+          ),
+        ),
+        right: _FinanceLabeledField(
+          label: 'Cliente',
+          fieldKey: const Key('payment-customer-field'),
+          child: Autocomplete<String>(
+            optionsBuilder: (text) {
+              final query = text.text.trim().toLowerCase();
+              if (query.isEmpty) return customers;
+              return customers.where(
+                (item) => item.toLowerCase().contains(query),
+              );
+            },
+            onSelected: (value) => _customer = value,
+            fieldViewBuilder: (context, controller, focusNode, onSubmit) {
+              return TextFormField(
+                controller: controller,
+                focusNode: focusNode,
+                style: const TextStyle(fontSize: 13),
+                decoration: _financeComboDecoration(
+                  t,
+                  height: 44,
+                  suffixIcon: const Icon(
+                    Icons.arrow_drop_down_rounded,
+                    size: 20,
+                  ),
+                ),
+                onChanged: (value) => setState(() => _customer = value),
+              );
+            },
+          ),
+        ),
+      ),
+      const SizedBox(height: 12),
+      _DialogPair(
+        left: _FinanceLabeledField(
+          label: 'Categoria',
+          fieldKey: const Key('payment-category-field'),
+          child: DropdownButtonFormField<String>(
+            initialValue: _category,
+            isExpanded: true,
+            style: TextStyle(color: t.ink, fontSize: 13),
+            decoration: _financeComboDecoration(t, height: 44),
+            items: [
+              for (final item in _categories)
+                DropdownMenuItem(value: item, child: Text(item)),
+            ],
+            onChanged: (value) =>
+                setState(() => _category = value ?? _category),
+          ),
+        ),
+        right: _FinanceLabeledField(
+          label: 'Forma de pagamento',
+          fieldKey: const Key('payment-method-field'),
+          child: DropdownButtonFormField<String>(
+            initialValue: _method,
+            isExpanded: true,
+            style: TextStyle(color: t.ink, fontSize: 13),
+            decoration: _financeComboDecoration(t, height: 44),
+            items: [
+              for (final item in _paymentMethods)
+                DropdownMenuItem(
+                  value: item,
+                  child: Text(
+                    item,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: (value) => setState(() => _method = value ?? _method),
+          ),
+        ),
+      ),
+      const SizedBox(height: 12),
+      _FinanceLabeledField(
+        label: 'Valor recebido',
+        fieldKey: const Key('payment-value-field'),
+        child: TextFormField(
+          controller: _value,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          style: TextStyle(
+            color: t.ink,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+          decoration: _financeTextDecoration(
+            t,
+            hintText: '0,00',
+            minHeight: 44,
+          ).copyWith(prefixText: 'R\$ '),
+          validator: (value) {
+            final parsed = _parseMoney(value ?? '');
+            return parsed == null || parsed <= 0
+                ? 'Informe um valor maior que zero.'
+                : null;
+          },
+        ),
+      ),
+      const SizedBox(height: 12),
+      _FinanceLabeledField(
+        label: 'Observações',
+        fieldKey: const Key('payment-notes-field'),
+        child: SizedBox(
+          height: 64,
+          child: TextFormField(
+            controller: _notes,
+            expands: true,
+            minLines: null,
+            maxLines: null,
+            textAlignVertical: TextAlignVertical.top,
+            style: const TextStyle(fontSize: 13),
+            decoration: _financeTextDecoration(
+              t,
+              hintText:
+                  'Ex: pago antecipado, comprovante enviado, ajuste manual',
+              minHeight: 64,
+              multiline: true,
+            ),
+          ),
+        ),
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = AgendaThemeTokens.of(context);
@@ -1945,11 +2318,13 @@ class _PaymentDialogState extends State<_PaymentDialog> {
             .isNotEmpty;
     return _FinanceDialogShell(
       dialogKey: const Key('finance-payment-dialog'),
-      desktopWidth: 1040,
+      desktopWidth: 880,
       bodyHorizontalPadding: 0,
-      maxHeight: 760,
+      maxHeight: 580,
       title: 'Registrar pagamento',
       subtitle: 'Lance um recebimento avulso no financeiro.',
+      headerIcon: Icons.account_balance_wallet_outlined,
+      showFooter: false,
       primaryLabel: _saving ? 'Registrando...' : 'Registrar pagamento',
       primaryButtonWidth: 164,
       saving: _saving,
@@ -1970,131 +2345,163 @@ class _PaymentDialogState extends State<_PaymentDialog> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    'Dados do recebimento',
-                    style: TextStyle(
-                      color: t.ink,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 22),
-                  _FinanceLabeledField(
-                    label: 'Descrição',
-                    fieldKey: const Key('payment-description-field'),
-                    child: TextFormField(
-                      controller: _description,
-                      autofocus: true,
-                      style: const TextStyle(fontSize: 13),
-                      decoration: _financeTextDecoration(
-                        t,
-                        hintText: 'Ex: Sinal de agendamento',
-                        minHeight: 38,
+                  if (split)
+                    ..._desktopPaymentFields(t, customers)
+                  else ...[
+                    Text(
+                      'Dados do recebimento',
+                      style: TextStyle(
+                        color: t.ink,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
                       ),
-                      validator: (value) =>
-                          value == null || value.trim().isEmpty
-                          ? 'Informe a descrição.'
-                          : null,
                     ),
-                  ),
-                  const SizedBox(height: 18),
-                  _DialogPair(
-                    left: _FinanceLabeledField(
-                      label: 'Cliente',
-                      fieldKey: const Key('payment-customer-field'),
-                      child: Autocomplete<String>(
-                        optionsBuilder: (text) {
-                          final query = text.text.trim().toLowerCase();
-                          if (query.isEmpty) return customers;
-                          return customers.where(
-                            (item) => item.toLowerCase().contains(query),
-                          );
-                        },
-                        onSelected: (value) => _customer = value,
-                        fieldViewBuilder:
-                            (context, controller, focusNode, onSubmit) {
-                              return TextFormField(
-                                controller: controller,
-                                focusNode: focusNode,
-                                style: const TextStyle(fontSize: 13),
-                                decoration: _financeComboDecoration(
-                                  t,
-                                  height: 38,
-                                  suffixIcon: const Icon(
-                                    Icons.arrow_drop_down_rounded,
-                                    size: 20,
+                    const SizedBox(height: 22),
+                    _FinanceLabeledField(
+                      label: 'Descrição',
+                      fieldKey: const Key('payment-description-field'),
+                      child: TextFormField(
+                        controller: _description,
+                        autofocus: true,
+                        style: const TextStyle(fontSize: 13),
+                        onChanged: (_) => setState(() {}),
+                        decoration: _financeTextDecoration(
+                          t,
+                          hintText: 'Ex: Sinal de agendamento',
+                          minHeight: 38,
+                        ),
+                        validator: (value) =>
+                            value == null || value.trim().isEmpty
+                            ? 'Informe a descrição.'
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _DialogPair(
+                      left: _FinanceLabeledField(
+                        label: 'Cliente',
+                        fieldKey: const Key('payment-customer-field'),
+                        child: Autocomplete<String>(
+                          optionsBuilder: (text) {
+                            final query = text.text.trim().toLowerCase();
+                            if (query.isEmpty) return customers;
+                            return customers.where(
+                              (item) => item.toLowerCase().contains(query),
+                            );
+                          },
+                          onSelected: (value) => _customer = value,
+                          fieldViewBuilder:
+                              (context, controller, focusNode, onSubmit) {
+                                return TextFormField(
+                                  controller: controller,
+                                  focusNode: focusNode,
+                                  style: const TextStyle(fontSize: 13),
+                                  decoration: _financeComboDecoration(
+                                    t,
+                                    height: 38,
+                                    suffixIcon: const Icon(
+                                      Icons.arrow_drop_down_rounded,
+                                      size: 20,
+                                    ),
                                   ),
-                                ),
-                                onChanged: (value) =>
-                                    setState(() => _customer = value),
-                              );
-                            },
+                                  onChanged: (value) =>
+                                      setState(() => _customer = value),
+                                );
+                              },
+                        ),
+                      ),
+                      right: _FinanceLabeledField(
+                        label: 'Categoria',
+                        fieldKey: const Key('payment-category-field'),
+                        child: DropdownButtonFormField<String>(
+                          initialValue: _category,
+                          isExpanded: true,
+                          style: TextStyle(color: t.ink, fontSize: 13),
+                          decoration: _financeComboDecoration(t, height: 38),
+                          items: [
+                            for (final item in _categories)
+                              DropdownMenuItem(value: item, child: Text(item)),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _category = value ?? _category),
+                        ),
                       ),
                     ),
-                    right: _FinanceLabeledField(
-                      label: 'Categoria',
-                      fieldKey: const Key('payment-category-field'),
+                    const SizedBox(height: 18),
+                    _FinanceLabeledField(
+                      label: 'Forma de pagamento',
+                      fieldKey: const Key('payment-method-field'),
                       child: DropdownButtonFormField<String>(
-                        initialValue: _category,
+                        initialValue: _method,
                         isExpanded: true,
                         style: TextStyle(color: t.ink, fontSize: 13),
                         decoration: _financeComboDecoration(t, height: 38),
                         items: [
-                          for (final item in _categories)
-                            DropdownMenuItem(value: item, child: Text(item)),
+                          for (final item in _paymentMethods)
+                            DropdownMenuItem(
+                              value: item,
+                              child: Text(
+                                item,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                         ],
                         onChanged: (value) =>
-                            setState(() => _category = value ?? _category),
+                            setState(() => _method = value ?? _method),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 18),
-                  _FinanceLabeledField(
-                    label: 'Forma de pagamento',
-                    fieldKey: const Key('payment-method-field'),
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _method,
-                      isExpanded: true,
-                      style: TextStyle(color: t.ink, fontSize: 13),
-                      decoration: _financeComboDecoration(t, height: 38),
-                      items: [
-                        for (final item in _paymentMethods)
-                          DropdownMenuItem(
-                            value: item,
-                            child: Text(
-                              item,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                      ],
-                      onChanged: (value) =>
-                          setState(() => _method = value ?? _method),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  _FinanceLabeledField(
-                    label: 'Observações',
-                    fieldKey: const Key('payment-notes-field'),
-                    child: SizedBox(
-                      height: 66,
+                    const SizedBox(height: 18),
+                    _FinanceLabeledField(
+                      label: 'Valor recebido',
+                      fieldKey: const Key('payment-value-field'),
                       child: TextFormField(
-                        controller: _notes,
-                        expands: true,
-                        minLines: null,
-                        maxLines: null,
-                        textAlignVertical: TextAlignVertical.top,
-                        style: const TextStyle(fontSize: 13),
+                        controller: _value,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        style: TextStyle(
+                          color: t.ink,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
                         decoration: _financeTextDecoration(
                           t,
-                          hintText:
-                              'Ex: pago antecipado, comprovante enviado, ajuste manual',
-                          minHeight: 66,
-                          multiline: true,
+                          hintText: '0,00',
+                          minHeight: 44,
+                        ).copyWith(prefixText: 'R\$ '),
+                        validator: (value) {
+                          final parsed = _parseMoney(value ?? '');
+                          return parsed == null || parsed <= 0
+                              ? 'Informe um valor maior que zero.'
+                              : null;
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _FinanceLabeledField(
+                      label: 'Observações',
+                      fieldKey: const Key('payment-notes-field'),
+                      child: SizedBox(
+                        height: 66,
+                        child: TextFormField(
+                          controller: _notes,
+                          expands: true,
+                          minLines: null,
+                          maxLines: null,
+                          textAlignVertical: TextAlignVertical.top,
+                          style: const TextStyle(fontSize: 13),
+                          decoration: _financeTextDecoration(
+                            t,
+                            hintText:
+                                'Ex: pago antecipado, comprovante enviado, ajuste manual',
+                            minHeight: 66,
+                            multiline: true,
+                          ),
                         ),
                       ),
                     ),
-                  ),
+                  ],
                   if (_error != null) ...[
                     const SizedBox(height: 10),
                     Text(
@@ -2106,12 +2513,15 @@ class _PaymentDialogState extends State<_PaymentDialog> {
               ),
             );
             final summary = _PaymentSummary(
+              descriptionController: _description,
               valueController: _value,
               category: _category,
               method: _method,
               customer: _customer,
-              notes: _notes.text,
               ready: ready,
+              saving: _saving,
+              onCancel: () => Navigator.of(context).pop(false),
+              onPrimary: _submit,
             );
             if (!split) {
               return Column(
@@ -2140,24 +2550,35 @@ class _PaymentDialogState extends State<_PaymentDialog> {
 
 class _PaymentSummary extends StatelessWidget {
   const _PaymentSummary({
+    required this.descriptionController,
     required this.valueController,
     required this.category,
     required this.method,
     required this.customer,
-    required this.notes,
     required this.ready,
+    required this.saving,
+    required this.onCancel,
+    required this.onPrimary,
   });
 
+  final TextEditingController descriptionController;
   final TextEditingController valueController;
   final String category;
   final String method;
   final String customer;
-  final String notes;
   final bool ready;
+  final bool saving;
+  final VoidCallback onCancel;
+  final VoidCallback onPrimary;
 
   @override
   Widget build(BuildContext context) {
     final t = AgendaThemeTokens.of(context);
+    final parsed = _parseMoney(valueController.text);
+    final formatted = parsed == null ? 'R\$ 0,00' : money(parsed);
+    final compact =
+        MediaQuery.sizeOf(context).width < 650 ||
+        MediaQuery.sizeOf(context).height < 500;
     return Container(
       key: const Key('payment-summary'),
       color: const Color(0xFFFFFCFA),
@@ -2174,50 +2595,27 @@ class _PaymentSummary extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          _FinanceLabeledField(
-            label: 'Valor recebido',
-            fieldKey: const Key('payment-value-field'),
-            child: TextFormField(
-              controller: valueController,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              style: TextStyle(
-                color: t.accent,
-                fontSize: 27,
-                fontWeight: FontWeight.w800,
-              ),
-              decoration:
-                  _financeTextDecoration(
-                    t,
-                    hintText: '0,00',
-                    minHeight: 58,
-                  ).copyWith(
-                    prefixText: 'R\$ ',
-                    prefixStyle: TextStyle(
-                      color: t.accent,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    filled: false,
-                    contentPadding: EdgeInsets.zero,
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: t.accent),
-                    ),
-                  ),
-              validator: (value) {
-                final parsed = _parseMoney(value ?? '');
-                return parsed == null || parsed <= 0
-                    ? 'Informe um valor maior que zero.'
-                    : null;
-              },
+          Text(
+            formatted,
+            key: const Key('payment-summary-value'),
+            style: TextStyle(
+              color: t.ink,
+              fontSize: 30,
+              height: 1.1,
+              fontWeight: FontWeight.w800,
             ),
           ),
           const SizedBox(height: 10),
           Divider(height: 1, color: t.line),
           const SizedBox(height: 10),
+          _PaymentSummaryRow(
+            icon: Icons.description_outlined,
+            label: 'Descrição',
+            value: descriptionController.text.trim().isEmpty
+                ? 'Não informada'
+                : descriptionController.text.trim(),
+          ),
+          const SizedBox(height: 4),
           _PaymentSummaryRow(
             icon: Icons.event_outlined,
             label: 'Categoria',
@@ -2234,12 +2632,6 @@ class _PaymentSummary extends StatelessWidget {
             icon: Icons.person_outline,
             label: 'Cliente',
             value: customer.trim().isEmpty ? 'Não informado' : customer.trim(),
-          ),
-          const SizedBox(height: 4),
-          _PaymentSummaryRow(
-            icon: Icons.description_outlined,
-            label: 'Observações',
-            value: notes.trim().isEmpty ? 'Nenhuma observação' : notes.trim(),
           ),
           const SizedBox(height: 6),
           Container(
@@ -2288,6 +2680,34 @@ class _PaymentSummary extends StatelessWidget {
               ],
             ),
           ),
+          if (!compact) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 40,
+              child: OutlinedButton(
+                key: const Key('finance-dialog-cancel'),
+                onPressed: saving ? null : onCancel,
+                child: const Text('Cancelar'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 40,
+              child: ElevatedButton(
+                key: const Key('finance-dialog-save'),
+                onPressed: saving ? null : onPrimary,
+                child: saving
+                    ? const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('Registrar pagamento'),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -2310,8 +2730,14 @@ class _PaymentSummaryRow extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 20, color: t.muted),
-        const SizedBox(width: 11),
+        AgendaIconBadge(
+          icon,
+          size: 34,
+          iconSize: 17,
+          background: t.panel,
+          color: t.ink,
+        ),
+        const SizedBox(width: 9),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -2426,11 +2852,12 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
     final t = AgendaThemeTokens.of(context);
     return _FinanceDialogShell(
       dialogKey: const Key('finance-expense-dialog'),
-      desktopWidth: 1040,
+      desktopWidth: 1020,
       bodyHorizontalPadding: 0,
-      maxHeight: 840,
+      maxHeight: 556,
       title: 'Nova despesa',
       subtitle: 'Registre custos do dia, fornecedores ou operação.',
+      headerIcon: Icons.receipt_long_outlined,
       primaryLabel: _saving ? 'Salvando...' : 'Salvar despesa',
       saving: _saving,
       onCancel: () => Navigator.of(context).pop(false),
@@ -2450,15 +2877,17 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    'Dados da despesa',
-                    style: TextStyle(
-                      color: t.ink,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
+                  if (!split) ...[
+                    Text(
+                      'Dados da despesa',
+                      style: TextStyle(
+                        color: t.ink,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 18),
+                    const SizedBox(height: 18),
+                  ],
                   _FinanceLabeledField(
                     label: 'Descrição',
                     fieldKey: const Key('expense-description-field'),
@@ -2741,6 +3170,8 @@ class _FinanceDialogShell extends StatelessWidget {
     required this.onCancel,
     required this.onPrimary,
     required this.child,
+    this.headerIcon,
+    this.showFooter = true,
   });
 
   final Key dialogKey;
@@ -2755,12 +3186,14 @@ class _FinanceDialogShell extends StatelessWidget {
   final VoidCallback onCancel;
   final VoidCallback onPrimary;
   final Widget child;
+  final IconData? headerIcon;
+  final bool showFooter;
 
   @override
   Widget build(BuildContext context) {
     final t = AgendaThemeTokens.of(context);
     final viewport = MediaQuery.sizeOf(context);
-    final compact = viewport.width < 650;
+    final compact = viewport.width < 650 || viewport.height < 500;
     final horizontalInset = compact ? 8.0 : 20.0;
     final verticalInset = compact ? 8.0 : 16.0;
     final width = math.min(
@@ -2771,7 +3204,7 @@ class _FinanceDialogShell extends StatelessWidget {
       620.0,
       math.min(maxHeight, math.max(0.0, viewport.height - verticalInset * 2)),
     );
-    final radius = BorderRadius.circular(compact ? 14 : 2);
+    final radius = BorderRadius.circular(compact ? 14 : 16);
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -2794,7 +3227,7 @@ class _FinanceDialogShell extends StatelessWidget {
             children: [
               Container(
                 key: const Key('finance-dialog-header'),
-                constraints: const BoxConstraints(minHeight: 88),
+                constraints: const BoxConstraints(minHeight: 84),
                 width: double.infinity,
                 padding: EdgeInsets.fromLTRB(
                   compact ? 16 : 22,
@@ -2803,29 +3236,47 @@ class _FinanceDialogShell extends StatelessWidget {
                   compact ? 14 : 18,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFF9F4),
+                  color: t.panel,
                   border: Border(bottom: BorderSide(color: t.line)),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        color: t.ink,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        height: 1.2,
+                    if (headerIcon != null) ...[
+                      AgendaIconBadge(headerIcon!, size: 42, iconSize: 20),
+                      const SizedBox(width: 12),
+                    ],
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: TextStyle(
+                              color: t.ink,
+                              fontSize: 21,
+                              fontWeight: FontWeight.w700,
+                              height: 1.2,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            subtitle,
+                            style: TextStyle(
+                              color: t.muted,
+                              fontSize: 12,
+                              height: 1.25,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        color: t.muted,
-                        fontSize: 13,
-                        height: 1.25,
-                      ),
+                    IconButton(
+                      key: const Key('finance-dialog-close'),
+                      tooltip: 'Fechar',
+                      onPressed: saving ? null : onCancel,
+                      icon: const Icon(Icons.close_rounded, size: 20),
                     ),
                   ],
                 ),
@@ -2835,95 +3286,96 @@ class _FinanceDialogShell extends StatelessWidget {
                   key: const Key('finance-dialog-scroll'),
                   padding: EdgeInsets.fromLTRB(
                     compact ? 16 : bodyHorizontalPadding,
-                    compact ? 14 : 20,
+                    compact ? 14 : 10,
                     compact ? 16 : bodyHorizontalPadding,
                     compact ? 16 : 18,
                   ),
                   child: child,
                 ),
               ),
-              Container(
-                key: const Key('finance-dialog-footer'),
-                width: double.infinity,
-                padding: EdgeInsets.fromLTRB(
-                  compact ? 16 : 22,
-                  compact ? 12 : 16,
-                  compact ? 16 : 22,
-                  compact ? 14 : 18,
-                ),
-                decoration: BoxDecoration(
-                  color: t.panel,
-                  border: Border(top: BorderSide(color: t.line)),
-                ),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final cancelButton = SizedBox(
-                      width: 110,
-                      height: 40,
-                      child: OutlinedButton(
-                        key: const Key('finance-dialog-cancel'),
-                        onPressed: saving ? null : onCancel,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: t.ink,
-                          padding: EdgeInsets.zero,
-                          minimumSize: const Size(110, 40),
-                          side: BorderSide(color: t.line),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+              if (showFooter || compact)
+                Container(
+                  key: const Key('finance-dialog-footer'),
+                  width: double.infinity,
+                  padding: EdgeInsets.fromLTRB(
+                    compact ? 16 : 22,
+                    compact ? 12 : 16,
+                    compact ? 16 : 22,
+                    compact ? 14 : 18,
+                  ),
+                  decoration: BoxDecoration(
+                    color: t.panel,
+                    border: Border(top: BorderSide(color: t.line)),
+                  ),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final cancelButton = SizedBox(
+                        width: 110,
+                        height: 40,
+                        child: OutlinedButton(
+                          key: const Key('finance-dialog-cancel'),
+                          onPressed: saving ? null : onCancel,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: t.ink,
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(110, 40),
+                            side: BorderSide(color: t.line),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
+                          child: const Text('Cancelar'),
                         ),
-                        child: const Text('Cancelar'),
-                      ),
-                    );
-                    final primaryButton = SizedBox(
-                      width: primaryButtonWidth,
-                      height: 40,
-                      child: ElevatedButton(
-                        key: const Key('finance-dialog-save'),
-                        onPressed: saving ? null : onPrimary,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          minimumSize: Size(primaryButtonWidth, 40),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                      );
+                      final primaryButton = SizedBox(
+                        width: primaryButtonWidth,
+                        height: 40,
+                        child: ElevatedButton(
+                          key: const Key('finance-dialog-save'),
+                          onPressed: saving ? null : onPrimary,
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            minimumSize: Size(primaryButtonWidth, 40),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
-                        ),
-                        child: saving
-                            ? const SizedBox.square(
-                                dimension: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
+                          child: saving
+                              ? const SizedBox.square(
+                                  dimension: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text(
+                                  primaryLabel,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              )
-                            : Text(
-                                primaryLabel,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                      ),
-                    );
-                    if (constraints.maxWidth >= 120 + primaryButtonWidth) {
-                      return Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
+                        ),
+                      );
+                      if (constraints.maxWidth >= 120 + primaryButtonWidth) {
+                        return Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            cancelButton,
+                            const SizedBox(width: 10),
+                            primaryButton,
+                          ],
+                        );
+                      }
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          cancelButton,
-                          const SizedBox(width: 10),
                           primaryButton,
+                          const SizedBox(height: 8),
+                          cancelButton,
                         ],
                       );
-                    }
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        primaryButton,
-                        const SizedBox(height: 8),
-                        cancelButton,
-                      ],
-                    );
-                  },
+                    },
+                  ),
                 ),
-              ),
             ],
           ),
         ),
@@ -2984,23 +3436,23 @@ InputDecoration _financeTextDecoration(
         ? const EdgeInsets.fromLTRB(12, 10, 12, 10)
         : const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
     border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(16),
       borderSide: BorderSide(color: t.line),
     ),
     enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(16),
       borderSide: BorderSide(color: t.line),
     ),
     focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(16),
       borderSide: BorderSide(color: t.accent, width: 1.3),
     ),
     errorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(16),
       borderSide: const BorderSide(color: _negative),
     ),
     focusedErrorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(16),
       borderSide: const BorderSide(color: _negative, width: 1.3),
     ),
   );
@@ -3017,13 +3469,21 @@ InputDecoration _financeComboDecoration(
     hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
     suffixIcon: suffixIcon,
     suffixIconConstraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-    filled: false,
+    filled: true,
+    fillColor: t.panel,
     isDense: true,
     constraints: BoxConstraints(minHeight: height, maxHeight: height),
     contentPadding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-    border: UnderlineInputBorder(borderSide: BorderSide(color: t.line)),
-    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: t.line)),
-    focusedBorder: UnderlineInputBorder(
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
+      borderSide: BorderSide(color: t.line),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
+      borderSide: BorderSide(color: t.line),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
       borderSide: BorderSide(color: t.accent, width: 1.3),
     ),
   );
@@ -3070,6 +3530,11 @@ class _FinanceSnapshot {
     required this.pendingTotal,
     required this.expenses,
     required this.chartDays,
+    required this.directChannel,
+    required this.whatsAppChannel,
+    required this.instagramChannel,
+    required this.whatsAppLinked,
+    required this.instagramLinked,
   });
 
   final double serviceMonth;
@@ -3082,6 +3547,11 @@ class _FinanceSnapshot {
   final double pendingTotal;
   final List<ExpenseItem> expenses;
   final List<_FinanceDay> chartDays;
+  final _FinanceChannelSummary directChannel;
+  final _FinanceChannelSummary whatsAppChannel;
+  final _FinanceChannelSummary instagramChannel;
+  final bool whatsAppLinked;
+  final bool instagramLinked;
 
   factory _FinanceSnapshot.from(AgendaController controller) {
     final today = DateUtils.dateOnly(DateTime.now());
@@ -3120,6 +3590,24 @@ class _FinanceSnapshot {
       );
     });
     final receivedMonth = serviceMonth + productMonth + manualMonth;
+    final directChannel = _financeChannelSummary(
+      data,
+      monthStart,
+      nextMonth,
+      'direct',
+    );
+    final whatsAppChannel = _financeChannelSummary(
+      data,
+      monthStart,
+      nextMonth,
+      'whatsapp',
+    );
+    final instagramChannel = _financeChannelSummary(
+      data,
+      monthStart,
+      nextMonth,
+      'instagram',
+    );
     return _FinanceSnapshot(
       serviceMonth: serviceMonth,
       productMonth: productMonth,
@@ -3131,6 +3619,11 @@ class _FinanceSnapshot {
       pendingTotal: pending.fold<double>(0, (sum, item) => sum + item.price),
       expenses: expenses,
       chartDays: chartDays,
+      directChannel: directChannel,
+      whatsAppChannel: whatsAppChannel,
+      instagramChannel: instagramChannel,
+      whatsAppLinked: data.settings.whatsAppLinked,
+      instagramLinked: data.settings.instagramLinked,
     );
   }
 
@@ -3174,6 +3667,112 @@ class _FinanceDay {
 
   final DateTime day;
   final double value;
+}
+
+class _FinanceChannelSummary {
+  const _FinanceChannelSummary({
+    required this.channel,
+    required this.appointments,
+    required this.conversations,
+    required this.revenue,
+  });
+
+  final String channel;
+  final int appointments;
+  final int conversations;
+  final double revenue;
+}
+
+_FinanceChannelSummary _financeChannelSummary(
+  AgendaData data,
+  DateTime start,
+  DateTime end,
+  String channel,
+) {
+  final normalized = _financeNormalizeChannel(channel);
+  final appointments = data.appointments
+      .where(
+        (item) =>
+            _isBetween(item.start, start, end) &&
+            item.status != AppointmentStatus.blocked &&
+            _financeAppointmentChannel(item) == normalized,
+      )
+      .toList();
+  final appointmentById = <String, Appointment>{
+    for (final item in data.appointments) item.id: item,
+  };
+  var revenue = appointments
+      .where((item) => item.status == AppointmentStatus.done)
+      .fold<double>(0, (sum, item) => sum + item.price);
+  revenue += data.productSales
+      .where(
+        (item) =>
+            _isBetween(item.soldAt, start, end) &&
+            _financeResolvedChannel(
+                  item.sourceChannel,
+                  item.appointmentId,
+                  appointmentById,
+                ) ==
+                normalized,
+      )
+      .fold<double>(0, (sum, item) => sum + item.total);
+  revenue += data.manualPayments
+      .where(
+        (item) =>
+            _isBetween(item.paidAt, start, end) &&
+            _financeResolvedChannel(
+                  item.sourceChannel,
+                  item.appointmentId,
+                  appointmentById,
+                ) ==
+                normalized,
+      )
+      .fold<double>(0, (sum, item) => sum + item.value);
+  final conversations = data.channelConversations.where((item) {
+    final timestamp = item.lastMessageAt ?? item.updatedAt;
+    return _financeNormalizeChannel(item.channel) == normalized &&
+        _isBetween(timestamp, start, end);
+  }).length;
+  return _FinanceChannelSummary(
+    channel: normalized,
+    appointments: appointments.length,
+    conversations: conversations,
+    revenue: revenue,
+  );
+}
+
+String _financeResolvedChannel(
+  String source,
+  String appointmentId,
+  Map<String, Appointment> appointmentById,
+) {
+  if (source.trim().isNotEmpty) return _financeNormalizeChannel(source);
+  final appointment = appointmentById[appointmentId];
+  return appointment == null
+      ? 'direct'
+      : _financeAppointmentChannel(appointment);
+}
+
+String _financeAppointmentChannel(Appointment appointment) =>
+    _financeNormalizeChannel(
+      appointment.bookingChannel.trim().isNotEmpty
+          ? appointment.bookingChannel
+          : appointment.externalSource,
+    );
+
+String _financeNormalizeChannel(String value) {
+  final normalized = value.trim().toLowerCase();
+  if (normalized.contains('whatsapp') ||
+      normalized == 'wa' ||
+      normalized == 'evolution') {
+    return 'whatsapp';
+  }
+  if (normalized.contains('instagram') ||
+      normalized == 'ig' ||
+      normalized == 'direct') {
+    return 'instagram';
+  }
+  return 'direct';
 }
 
 bool _isBetween(DateTime value, DateTime start, DateTime end) =>

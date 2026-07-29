@@ -43,7 +43,7 @@ void main() {
             key: captureKey,
             child: MaterialApp(
               debugShowCheckedModeBanner: false,
-              theme: AgendaThemes.byId('').toThemeData(),
+              theme: AgendaThemes.byId('aesthetic-coral').toThemeData(),
               home: ResponsiveAgendaShell(
                 controller: controller,
                 referenceNow: _referenceNow,
@@ -57,7 +57,7 @@ void main() {
         if (size.width == 1200) {
           expect(
             tester.getSize(find.byKey(const Key('home-hero'))).height,
-            176,
+            138,
           );
         } else {
           expect(find.byType(BottomNavigationBar), findsNothing);
@@ -94,7 +94,7 @@ void main() {
     );
   }
 
-  for (final size in <Size>[const Size(1200, 640), const Size(390, 844)]) {
+  for (final size in <Size>[const Size(1382, 736), const Size(390, 844)]) {
     testWidgets(
       'captura escolha de tema real em ${size.width.toInt()}x${size.height.toInt()}',
       (tester) async {
@@ -117,12 +117,32 @@ void main() {
             key: captureKey,
             child: MaterialApp(
               debugShowCheckedModeBanner: false,
-              theme: AgendaThemes.byId('').toThemeData(),
+              theme: AgendaThemes.byId('aesthetic-coral').toThemeData(),
               home: OnboardingPage(controller: controller),
             ),
           ),
         );
         await _settleVisualAssets(tester);
+        await _enterOnboardingText(
+          tester,
+          const Key('onboarding-name-field'),
+          'Nina Almeida',
+        );
+        await _enterOnboardingText(
+          tester,
+          const Key('onboarding-phone-field'),
+          '(33) 99800-7978',
+        );
+        await _enterOnboardingText(
+          tester,
+          const Key('onboarding-email-field'),
+          'nina@studionina.com.br',
+        );
+        await _enterOnboardingText(
+          tester,
+          const Key('onboarding-business-field'),
+          'Studio Nina Beauty',
+        );
         expect(tester.takeException(), isNull);
         await expectLater(
           find.byKey(captureKey),
@@ -132,26 +152,6 @@ void main() {
           ),
         );
 
-        await _enterOnboardingText(
-          tester,
-          const Key('onboarding-name-field'),
-          'Marina Teste',
-        );
-        await _enterOnboardingText(
-          tester,
-          const Key('onboarding-phone-field'),
-          '(33) 99131-4125',
-        );
-        await _enterOnboardingText(
-          tester,
-          const Key('onboarding-email-field'),
-          'contato@studiofluxo.com.br',
-        );
-        await _enterOnboardingText(
-          tester,
-          const Key('onboarding-business-field'),
-          'Studio Fluxo',
-        );
         await _tapOnboarding(tester, const Key('onboarding-primary'));
         await _tapOnboarding(tester, const Key('onboarding-segment-salao'));
 
@@ -184,7 +184,7 @@ void main() {
             key: captureKey,
             child: MaterialApp(
               debugShowCheckedModeBanner: false,
-              theme: AgendaThemes.byId('').toThemeData(),
+              theme: AgendaThemes.byId('aesthetic-coral').toThemeData(),
               home: ResponsiveAgendaShell(
                 controller: controller,
                 referenceNow: _referenceNow,
@@ -206,7 +206,11 @@ void main() {
     );
   }
 
-  for (final size in <Size>[const Size(1200, 640), const Size(390, 844)]) {
+  for (final size in <Size>[
+    const Size(1366, 768),
+    const Size(1200, 640),
+    const Size(390, 844),
+  ]) {
     testWidgets(
       'captura shell e Financeiro reais em ${size.width.toInt()}x${size.height.toInt()}',
       (tester) async {
@@ -222,7 +226,7 @@ void main() {
             key: captureKey,
             child: MaterialApp(
               debugShowCheckedModeBanner: false,
-              theme: AgendaThemes.byId('').toThemeData(),
+              theme: AgendaThemes.byId('aesthetic-coral').toThemeData(),
               home: ResponsiveAgendaShell(
                 controller: controller,
                 referenceNow: _referenceNow,
@@ -309,7 +313,7 @@ void main() {
         key: captureKey,
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
-          theme: AgendaThemes.byId('').toThemeData(),
+          theme: AgendaThemes.byId('aesthetic-coral').toThemeData(),
           home: ResponsiveAgendaShell(
             controller: controller,
             referenceNow: _referenceNow,
@@ -407,7 +411,7 @@ AgendaController _seededController() {
     (item) => item.id == 'professional-manicure-1',
   );
   data.settings
-    ..themeId = ''
+    ..themeId = 'aesthetic-coral'
     ..accountFullName = 'Marina Teste'
     ..businessName = 'Studio Fluxo';
   return AgendaController(_MemoryAgendaRepository())

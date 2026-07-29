@@ -34,7 +34,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final topNew = tester.widget<ElevatedButton>(
-        _elevatedButtonWithText('Novo agendamento'),
+        _elevatedButtonWithText('Novo'),
       );
       final newService = tester.widget<ElevatedButton>(
         _elevatedButtonWithText('Criar serviço'),

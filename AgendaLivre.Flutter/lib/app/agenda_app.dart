@@ -30,7 +30,9 @@ class _AgendaLivreAppState extends State<AgendaLivreApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    widget.controller.initialize();
+    if (widget.controller.loading) {
+      unawaited(widget.controller.initialize());
+    }
     _cloudRefreshTimer = Timer.periodic(
       _cloudRefreshInterval,
       (_) => _refreshCloudIfActive(),

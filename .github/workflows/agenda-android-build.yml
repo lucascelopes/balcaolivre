@@ -1,0 +1,366 @@
+name: Agenda Livre Android personalizado
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: Build específico; deixe vazio para assumir o próximo da fila
+        required: false
+        type: string
+  push:
+    branches:
+      - main
+      - codex/**
+    paths:
+      - "AgendaLivre.Flutter/**"
+      - ".github/workflows/agenda-android-build.yml"
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agenda-android-${{ inputs.build_id || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validar APK Android
+    if: ${{ github.event_name != 'schedule' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Configurar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.38.7"
+          cache: true
+
+      - name: Analisar e gerar APK de validação
+        shell: bash
+        working-directory: AgendaLivre.Flutter
+        run: |
+          set -euo pipefail
+          flutter config --no-analytics
+          flutter pub get
+          flutter analyze --no-pub
+          flutter build apk --debug --no-pub \
+            --dart-define=AGENDA_ANDROID_DEV_MODE=true \
+            --dart-define=AGENDA_LIVRE_API_BASE=https://app.minhaagendalivre.com.br
+
+      - name: Verificar pacote
+        id: validation_artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="AgendaLivre.Flutter/build/app/outputs/flutter-apk/app-debug.apk"
+          [[ -s "$apk" ]]
+          echo "sha256=$(sha256sum "$apk" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          echo "size=$(stat -c '%s' "$apk")" >> "$GITHUB_OUTPUT"
+
+      - name: Disponibilizar APK de validação
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgendaLivre-Android-QA
+          path: AgendaLivre.Flutter/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  build:
+    name: Gerar APK personalizado
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      AGENDA_ANDROID_API_BASE_URL: ${{ secrets.AGENDA_ANDROID_API_BASE_URL }}
+      AGENDA_ANDROID_BUILDER_SECRET: ${{ secrets.AGENDA_ANDROID_BUILDER_SECRET }}
+      AGENDA_ANDROID_EXPECTED_CERT_SHA256: ${{ secrets.AGENDA_ANDROID_CERT_SHA256 }}
+      AGENDA_ANDROID_STORE_PASSWORD: ${{ secrets.AGENDA_ANDROID_STORE_PASSWORD }}
+      AGENDA_ANDROID_KEY_ALIAS: ${{ secrets.AGENDA_ANDROID_KEY_ALIAS }}
+      AGENDA_ANDROID_KEY_PASSWORD: ${{ secrets.AGENDA_ANDROID_KEY_PASSWORD }}
+
+    steps:
+      - name: Validar configuração do executor
+        id: request
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested_build="${{ inputs.build_id }}"
+          if [[ -n "$requested_build" && ! "$requested_build" =~ ^[A-Za-z0-9_-]{8,128}$ ]]; then
+            echo "Identificador de build inválido." >&2
+            exit 1
+          fi
+          if [[ ! "${AGENDA_ANDROID_API_BASE_URL}" =~ ^https:// ]]; then
+            echo "AGENDA_ANDROID_API_BASE_URL deve usar HTTPS." >&2
+            exit 1
+          fi
+          required=(
+            AGENDA_ANDROID_BUILDER_SECRET
+            AGENDA_ANDROID_EXPECTED_CERT_SHA256
+            AGENDA_ANDROID_STORE_PASSWORD
+            AGENDA_ANDROID_KEY_ALIAS
+            AGENDA_ANDROID_KEY_PASSWORD
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Secret obrigatório ausente: ${name}" >&2
+              exit 1
+            fi
+          done
+          echo "requested_build=$requested_build" >> "$GITHUB_OUTPUT"
+
+      - name: Assumir build da fila
+        id: manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          api_root="${AGENDA_ANDROID_API_BASE_URL%/}"
+          requested_build="${{ steps.request.outputs.requested_build }}"
+          worker_id="github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          manifest_path="${RUNNER_TEMP}/agenda-android-manifest.json"
+          if [[ -n "$requested_build" ]]; then
+            claim_url="${api_root}/api/agenda/android/internal/builds/${requested_build}"
+          else
+            claim_url="${api_root}/api/agenda/android/internal/builds/next"
+          fi
+
+          http_status="$(curl --silent --show-error \
+            -X POST \
+            -H "Authorization: Builder ${AGENDA_ANDROID_BUILDER_SECRET}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data "{\"workerId\":\"${worker_id}\"}" \
+            --output "$manifest_path" \
+            --write-out '%{http_code}' \
+            "$claim_url")"
+
+          if [[ "$http_status" == "204" ]]; then
+            echo "Nenhum build aguardando na fila."
+            echo "has_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ ! "$http_status" =~ ^2 ]]; then
+            echo "O backend recusou o claim do build (HTTP ${http_status})." >&2
+            sed -n '1,5p' "$manifest_path" >&2
+            exit 1
+          fi
+
+          jq -e '.ok == true and .build.id and .build.appName and .build.versionCode and .build.versionName and .build.branding.icon.url and .build.provisioning.token and .build.callbacks.artifact and .build.callbacks.failure' \
+            "$manifest_path" >/dev/null
+          chmod 600 "$manifest_path"
+          build_id="$(jq -r '.build.id' "$manifest_path")"
+          if [[ ! "$build_id" =~ ^[A-Za-z0-9_-]{8,128}$ ]]; then
+            echo "O backend retornou um identificador inválido." >&2
+            exit 1
+          fi
+          echo "has_build=true" >> "$GITHUB_OUTPUT"
+          echo "path=$manifest_path" >> "$GITHUB_OUTPUT"
+          echo "build_id=$build_id" >> "$GITHUB_OUTPUT"
+
+      - name: Baixar código
+        if: ${{ steps.manifest.outputs.has_build == 'true' }}
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        if: ${{ steps.manifest.outputs.has_build == 'true' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Configurar Flutter
+        if: ${{ steps.manifest.outputs.has_build == 'true' }}
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.38.7"
+          cache: true
+
+      - name: Preparar ferramentas
+        if: ${{ steps.manifest.outputs.has_build == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --no-input "Pillow==11.3.0"
+          flutter config --no-analytics
+
+      - name: Baixar identidade visual
+        if: ${{ steps.manifest.outputs.has_build == 'true' }}
+        id: branding
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="${{ steps.manifest.outputs.path }}"
+          icon_url="$(jq -r '.build.branding.icon.url' "$manifest")"
+          cover_url="$(jq -r '.build.branding.cover.url // empty' "$manifest")"
+          if [[ -z "$cover_url" ]]; then
+            echo "A foto do estabelecimento não veio no manifesto." >&2
+            exit 1
+          fi
+
+          download_branding() {
+            local url="$1"
+            local output="$2"
+            curl --fail-with-body --silent --show-error \
+              --retry 3 --retry-all-errors \
+              -H "Authorization: Builder ${AGENDA_ANDROID_BUILDER_SECRET}" \
+              "$url" --output "$output"
+          }
+
+          icon_path="${RUNNER_TEMP}/agenda-tenant-icon"
+          cover_path="${RUNNER_TEMP}/agenda-tenant-cover"
+          download_branding "$icon_url" "$icon_path"
+          download_branding "$cover_url" "$cover_path"
+          [[ -s "$icon_path" && -s "$cover_path" ]]
+          expected_icon="$(jq -r '.build.branding.icon.sha256' "$manifest" | tr '[:upper:]' '[:lower:]')"
+          expected_cover="$(jq -r '.build.branding.cover.sha256' "$manifest" | tr '[:upper:]' '[:lower:]')"
+          actual_icon="$(sha256sum "$icon_path" | cut -d ' ' -f 1)"
+          actual_cover="$(sha256sum "$cover_path" | cut -d ' ' -f 1)"
+          if [[ "$actual_icon" != "$expected_icon" || "$actual_cover" != "$expected_cover" ]]; then
+            echo "A identidade visual baixada não corresponde ao manifesto." >&2
+            exit 1
+          fi
+          echo "icon=$icon_path" >> "$GITHUB_OUTPUT"
+          echo "cover=$cover_path" >> "$GITHUB_OUTPUT"
+
+      - name: Aplicar nome, ícone, foto e ativação
+        if: ${{ steps.manifest.outputs.has_build == 'true' }}
+        id: tenant
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata="${RUNNER_TEMP}/agenda-android-metadata.json"
+          dart_defines="${RUNNER_TEMP}/agenda-android-dart-defines.json"
+          python3 AgendaLivre.Flutter/tool/prepare_android_tenant.py \
+            --manifest "${{ steps.manifest.outputs.path }}" \
+            --icon "${{ steps.branding.outputs.icon }}" \
+            --cover "${{ steps.branding.outputs.cover }}" \
+            --project AgendaLivre.Flutter \
+            --api-base-url "${AGENDA_ANDROID_API_BASE_URL%/}" \
+            --metadata-output "$metadata" \
+            --dart-defines-output "$dart_defines"
+          chmod 600 "$dart_defines"
+          echo "metadata=$metadata" >> "$GITHUB_OUTPUT"
+          echo "dart_defines=$dart_defines" >> "$GITHUB_OUTPUT"
+          echo "version_code=$(jq -r '.versionCode' "$metadata")" >> "$GITHUB_OUTPUT"
+          echo "version_name=$(jq -r '.versionName' "$metadata")" >> "$GITHUB_OUTPUT"
+          echo "file_name=$(jq -r '.fileName' "$metadata")" >> "$GITHUB_OUTPUT"
+
+      - name: Restaurar chave de assinatura
+        if: ${{ steps.manifest.outputs.has_build == 'true' }}
+        id: signing
+        shell: bash
+        env:
+          AGENDA_ANDROID_KEYSTORE_BASE64: ${{ secrets.AGENDA_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${AGENDA_ANDROID_KEYSTORE_BASE64:-}" ]]; then
+            echo "Secret obrigatório ausente: AGENDA_ANDROID_KEYSTORE_BASE64" >&2
+            exit 1
+          fi
+          key_path="${RUNNER_TEMP}/agenda-livre-release.jks"
+          printf '%s' "$AGENDA_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$key_path"
+          chmod 600 "$key_path"
+          keytool -list \
+            -keystore "$key_path" \
+            -storepass "$AGENDA_ANDROID_STORE_PASSWORD" \
+            -alias "$AGENDA_ANDROID_KEY_ALIAS" >/dev/null
+          echo "path=$key_path" >> "$GITHUB_OUTPUT"
+
+      - name: Gerar APK assinado
+        if: ${{ steps.manifest.outputs.has_build == 'true' }}
+        shell: bash
+        working-directory: AgendaLivre.Flutter
+        env:
+          AGENDA_ANDROID_KEYSTORE_PATH: ${{ steps.signing.outputs.path }}
+          AGENDA_ANDROID_STORE_PASSWORD: ${{ secrets.AGENDA_ANDROID_STORE_PASSWORD }}
+          AGENDA_ANDROID_KEY_ALIAS: ${{ secrets.AGENDA_ANDROID_KEY_ALIAS }}
+          AGENDA_ANDROID_KEY_PASSWORD: ${{ secrets.AGENDA_ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter build apk --release \
+            --build-number "${{ steps.tenant.outputs.version_code }}" \
+            --build-name "${{ steps.tenant.outputs.version_name }}" \
+            --dart-define-from-file "${{ steps.tenant.outputs.dart_defines }}"
+
+      - name: Verificar assinatura e identidade
+        if: ${{ steps.manifest.outputs.has_build == 'true' }}
+        id: artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_apk="AgendaLivre.Flutter/build/app/outputs/flutter-apk/app-release.apk"
+          [[ -s "$source_apk" ]]
+          output_apk="${RUNNER_TEMP}/${{ steps.tenant.outputs.file_name }}"
+          cp "$source_apk" "$output_apk"
+
+          apksigner_path="$(find "${ANDROID_HOME}/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          [[ -x "$apksigner_path" ]]
+          verification="$($apksigner_path verify --print-certs "$output_apk")"
+          certificate="$(printf '%s\n' "$verification" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr -d ': ' | tr '[:lower:]' '[:upper:]')"
+          expected="$(printf '%s' "$AGENDA_ANDROID_EXPECTED_CERT_SHA256" | tr -d ': ' | tr '[:lower:]' '[:upper:]')"
+          if [[ -z "$certificate" || "$certificate" != "$expected" ]]; then
+            echo "A assinatura não corresponde ao certificado estável configurado." >&2
+            exit 1
+          fi
+          sha256="$(sha256sum "$output_apk" | cut -d ' ' -f 1)"
+          size="$(stat -c '%s' "$output_apk")"
+          echo "path=$output_apk" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          echo "size=$size" >> "$GITHUB_OUTPUT"
+
+      - name: Enviar APK privado e finalizar
+        if: ${{ steps.manifest.outputs.has_build == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="${{ steps.manifest.outputs.path }}"
+          artifact_url="$(jq -r '.build.callbacks.artifact' "$manifest")"
+          response="${RUNNER_TEMP}/agenda-android-upload-response.json"
+          curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "Authorization: Builder ${AGENDA_ANDROID_BUILDER_SECRET}" \
+            -H "Content-Type: application/vnd.android.package-archive" \
+            -H "X-Agenda-Apk-Sha256: ${{ steps.artifact.outputs.sha256 }}" \
+            --data-binary "@${{ steps.artifact.outputs.path }}" \
+            "$artifact_url" \
+            --output "$response"
+          jq -e '.ok == true and .build.status == "ready"' "$response" >/dev/null
+
+      - name: Informar falha ao Agenda Livre
+        if: ${{ failure() && steps.manifest.outputs.has_build == 'true' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          failure_url="$(jq -r '.build.callbacks.failure' '${{ steps.manifest.outputs.path }}')"
+          curl --fail --silent --show-error \
+            -X POST \
+            -H "Authorization: Builder ${AGENDA_ANDROID_BUILDER_SECRET}" \
+            -H "Content-Type: application/json" \
+            --data '{"code":"runner_failed","message":"A preparação do aplicativo não foi concluída."}' \
+            "$failure_url" >/dev/null
+
+      - name: Limpar material sensível
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            "${RUNNER_TEMP}/agenda-livre-release.jks" \
+            "${RUNNER_TEMP}/agenda-android-manifest.json" \
+            "${RUNNER_TEMP}/agenda-android-dart-defines.json" \
+            "${RUNNER_TEMP}/agenda-tenant-icon" \
+            "${RUNNER_TEMP}/agenda-tenant-cover"

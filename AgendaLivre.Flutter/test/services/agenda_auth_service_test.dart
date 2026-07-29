@@ -1047,6 +1047,130 @@ void main() {
       );
     },
   );
+
+  test('sessão lê a política da conta profissional no app_metadata', () async {
+    final transport = FakeHttpTransport((request) {
+      if (request.uri.path.endsWith('/api/agenda/account/config')) {
+        return _configResponse();
+      }
+      if (request.uri.queryParameters['grant_type'] == 'password') {
+        return _jsonResponse(<String, Object?>{
+          'access_token': 'access-staff',
+          'refresh_token': 'refresh-staff',
+          'expires_in': 3600,
+          'user': <String, Object?>{
+            'id': 'staff-user-1',
+            'email': 'camila@example.com',
+          },
+        });
+      }
+      if (request.uri.path.endsWith('/auth/v1/user')) {
+        return _jsonResponse(<String, Object?>{
+          'id': 'staff-user-1',
+          'email': 'camila@example.com',
+          'app_metadata': <String, Object?>{
+            'agenda_owner_user_id': 'owner-user-1',
+            'agenda_professional_id': 'professional-1',
+            'agenda_permission_scope': 'agenda_clients',
+            'agenda_require_password_change': true,
+          },
+        });
+      }
+      fail('Requisição inesperada: ${request.uri}');
+    });
+    final preferences = await SharedPreferences.getInstance();
+    final auth = _auth(preferences, transport);
+
+    final session = await auth.signIn(
+      email: 'camila@example.com',
+      password: 'Senha@123',
+    );
+
+    expect(session.isProfessionalAccount, isTrue);
+    expect(session.effectiveAccountUserId, 'owner-user-1');
+    expect(session.professionalId, 'professional-1');
+    expect(session.permissionScope, 'agenda_clients');
+    expect(session.requiresPasswordChange, isTrue);
+    final restored = AgendaAuthSession.fromJson(session.toJson());
+    expect(restored?.permissionScope, 'agenda_clients');
+    expect(restored?.professionalId, 'professional-1');
+  });
+
+  test('API cria acesso profissional pela função agenda-staff', () async {
+    late ServiceHttpRequest staffRequest;
+    final transport = FakeHttpTransport((request) {
+      if (request.uri.path.endsWith('/api/agenda/account/config')) {
+        return _configResponse();
+      }
+      if (request.uri.queryParameters['grant_type'] == 'password') {
+        return _authResponse(
+          accessToken: 'access-owner',
+          refreshToken: 'refresh-owner',
+          expiresIn: 3600,
+        );
+      }
+      if (request.uri.path.endsWith('/auth/v1/user')) {
+        return _jsonResponse(<String, Object?>{
+          'id': 'user-1',
+          'email': 'nina@example.com',
+        });
+      }
+      if (request.uri.path.endsWith('/functions/v1/agenda-staff')) {
+        staffRequest = request;
+        return _jsonResponse(<String, Object?>{
+          'ok': true,
+          'authUserId': 'staff-user-1',
+          'status': 'pending_payment',
+          'seatKind': 'paid',
+          'monthlyPriceCents': 1990,
+          'checkoutUrl': 'https://checkout.stripe.com/c/pay_test',
+        });
+      }
+      fail('Requisição inesperada: ${request.uri}');
+    });
+    final preferences = await SharedPreferences.getInstance();
+    final config = AgendaRemoteConfigService(
+      preferences: preferences,
+      transport: transport,
+      apiBase: Uri.parse('https://agenda.example'),
+    );
+    final auth = AgendaAuthService(
+      preferences: preferences,
+      configService: config,
+      transport: transport,
+    );
+    await auth.signIn(email: 'nina@example.com', password: 'segredo123');
+    final api = AgendaAccountApi(
+      configService: config,
+      authService: auth,
+      transport: transport,
+    );
+
+    final result = await api.createProfessionalAccess(
+      professionalId: 'professional-1',
+      name: 'Camila Rocha',
+      role: 'Cabeleireira',
+      email: 'camila@example.com',
+      password: 'Senha@123',
+      permissionScope: 'agenda_clients',
+      requirePasswordChange: true,
+      deviceId: 'desktop-owner',
+    );
+
+    expect(staffRequest.method, 'POST');
+    expect(staffRequest.uri.path, '/functions/v1/agenda-staff');
+    expect(staffRequest.headers['Authorization'], 'Bearer access-owner');
+    expect(staffRequest.headers['apikey'], 'sb_publishable_test');
+    final body = Map<String, dynamic>.from(
+      jsonDecode(staffRequest.body!) as Map,
+    );
+    expect(body['action'], 'create');
+    expect(body['permissionScope'], 'agenda_clients');
+    expect(body['requirePasswordChange'], isTrue);
+    expect(result.authUserId, 'staff-user-1');
+    expect(result.monthlyPriceCents, 1990);
+    expect(result.checkoutUrl, startsWith('https://checkout.stripe.com/'));
+  });
 }
 
 Map<String, Object?> _storedSession({

@@ -14,6 +14,10 @@ class ProductSale {
     this.paymentProvider = '',
     this.paymentReference = '',
     this.paymentStatus = '',
+    this.cashSessionId = '',
+    this.appointmentId = '',
+    this.sourceChannel = '',
+    this.channelConversationId = '',
     this.notes = '',
     DateTime? soldAt,
   }) : id = agendaIdOrGenerate(id),
@@ -30,6 +34,10 @@ class ProductSale {
   String paymentProvider;
   String paymentReference;
   String paymentStatus;
+  String cashSessionId;
+  String appointmentId;
+  String sourceChannel;
+  String channelConversationId;
   String notes;
   DateTime soldAt;
 
@@ -50,6 +58,10 @@ class ProductSale {
     paymentProvider: jsonString(json, 'PaymentProvider'),
     paymentReference: jsonString(json, 'PaymentReference'),
     paymentStatus: jsonString(json, 'PaymentStatus'),
+    cashSessionId: jsonString(json, 'CashSessionId'),
+    appointmentId: jsonString(json, 'AppointmentId'),
+    sourceChannel: jsonString(json, 'SourceChannel'),
+    channelConversationId: jsonString(json, 'ChannelConversationId'),
     notes: jsonString(json, 'Notes'),
     soldAt: jsonDateTime(json, 'SoldAt', fallback: DateTime.now()),
   );
@@ -66,6 +78,10 @@ class ProductSale {
     'PaymentProvider': paymentProvider,
     'PaymentReference': paymentReference,
     'PaymentStatus': paymentStatus,
+    'CashSessionId': cashSessionId,
+    'AppointmentId': appointmentId,
+    'SourceChannel': sourceChannel,
+    'ChannelConversationId': channelConversationId,
     'Notes': notes,
     'SoldAt': soldAt.toIso8601String(),
   };

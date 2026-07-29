@@ -66,7 +66,7 @@ void main() {
     }
     expect(tester.getSize(find.byKey(_logo)), const Size(180, 48));
     final primarySize = tester.getSize(find.byKey(_primary));
-    expect(primarySize.width, 416);
+    expect(primarySize.width, 610);
     expect(primarySize.height, 48);
 
     final context = tester.element(find.byKey(_card));
@@ -90,6 +90,11 @@ void main() {
       await _pumpOnboarding(tester, size);
 
       expect(find.byKey(_mobileHeader), findsOneWidget);
+      expect(
+        find.byKey(const Key('onboarding-mobile-illustration')),
+        findsOneWidget,
+      );
+      expect(find.byKey(_illustration), findsOneWidget);
       for (final key in [_name, _phone, _email, _business]) {
         final rect = tester.getRect(find.byKey(key));
         expect(rect.left, greaterThanOrEqualTo(16));
@@ -121,12 +126,12 @@ void main() {
     _expectProgress(tester, '2/6');
     expect(find.text('Agora, escolha o seu estilo'), findsOneWidget);
     expect(find.byKey(_skip), findsNothing);
-    expect(find.byKey(_themeSkip), findsOneWidget);
+    expect(find.byKey(_themeSkip), findsNothing);
     final themeCardSize = tester.getSize(
       find.byKey(const Key('onboarding-theme-default')),
     );
-    expect(themeCardSize.width, closeTo(140.5, .1));
-    expect(themeCardSize.height, closeTo(146, .1));
+    expect(themeCardSize.width, closeTo(299, .1));
+    expect(themeCardSize.height, closeTo(132, .1));
 
     await _tap(tester, _back);
     _expectProgress(tester, '2/6');

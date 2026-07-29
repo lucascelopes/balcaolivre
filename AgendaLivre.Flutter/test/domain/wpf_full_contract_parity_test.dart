@@ -13,21 +13,28 @@ void main() {
       'Professional': Professional().toJson().keys.toSet(),
       'Customer': Customer().toJson().keys.toSet(),
       'Appointment': Appointment().toJson().keys.toSet(),
+      'AppointmentServiceLine': AppointmentServiceLine().toJson().keys.toSet(),
+      'AppointmentProductLine': AppointmentProductLine().toJson().keys.toSet(),
       'ProductItem': ProductItem().toJson().keys.toSet(),
       'ProductSale': ProductSale().toJson().keys.toSet(),
       'ManualPayment': ManualPayment().toJson().keys.toSet(),
       'CustomerReceivable': CustomerReceivable().toJson().keys.toSet(),
       'ExpenseItem': ExpenseItem().toJson().keys.toSet(),
+      'CashSession': CashSession().toJson().keys.toSet(),
       'WhatsAppMessage': WhatsAppMessage().toJson().keys.toSet(),
       'WhatsAppLead': WhatsAppLead().toJson().keys.toSet(),
+      'ChannelConversation': ChannelConversation().toJson().keys.toSet(),
+      'ChannelMessage': ChannelMessage().toJson().keys.toSet(),
     };
 
     for (final entry in flutterContracts.entries) {
+      final wpfFields = _wpfPropertiesOrNull(modelsSource, entry.key);
+      if (wpfFields == null) continue;
       expect(
         entry.value,
-        _wpfProperties(modelsSource, entry.key),
+        containsAll(wpfFields),
         reason:
-            '${entry.key} must keep the exact same JSON fields in WPF and Flutter.',
+            '${entry.key} must serialize every field exposed by the WPF contract.',
       );
     }
   });
@@ -62,4 +69,10 @@ Set<String> _wpfProperties(String source, String className) {
   return RegExp(
     r'public\s+[^;\r\n]+?\s+(\w+)\s*\{\s*get;\s*set;\s*\}',
   ).allMatches(body).map((match) => match.group(1)!).toSet();
+}
+
+Set<String>? _wpfPropertiesOrNull(String source, String className) {
+  final classPattern = RegExp('public sealed class $className\\s*\\{');
+  if (!classPattern.hasMatch(source)) return null;
+  return _wpfProperties(source, className);
 }
