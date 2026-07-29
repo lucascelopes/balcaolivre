@@ -1,11 +1,22 @@
+import 'dart:convert';
+
 import 'package:agenda_livre/app/agenda_controller.dart';
 import 'package:agenda_livre/app/web_agenda_root.dart';
 import 'package:agenda_livre/app/web_agenda_session.dart';
+import 'package:agenda_livre/features/onboarding/onboarding_page.dart';
 import 'package:agenda_livre/services/agenda_account_api.dart';
+import 'package:agenda_livre/services/http_transport.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../services/fake_http_transport.dart';
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+  });
+
   testWidgets('AuthGate mostra login quando não existe sessão Web', (
     tester,
   ) async {
@@ -189,7 +200,92 @@ void main() {
     expect(find.text('Bem-vindo de volta'), findsOneWidget);
     expect(find.textContaining('Senha alterada com sucesso'), findsOneWidget);
   });
+
+  testWidgets(
+    'conta nova recebe sete dias e abre o questionário antes da renovação',
+    (tester) async {
+      final now = DateTime.now().toUtc();
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        AgendaAuthService.sessionKey: jsonEncode(<String, Object?>{
+          'userId': 'new-user',
+          'email': 'nova@example.com',
+          'accessToken': 'new-access',
+          'refreshToken': 'new-refresh',
+          'expiresAt': now.add(const Duration(hours: 1)).toIso8601String(),
+          'issuer': 'https://example.supabase.co',
+          'identityVerifiedAt': now.toIso8601String(),
+        }),
+      });
+      final transport = FakeHttpTransport((request) {
+        if (request.uri.path.endsWith('/api/agenda/account/config')) {
+          return _jsonResponse(<String, Object?>{
+            'supabaseUrl': 'https://example.supabase.co',
+            'publishableKey': 'sb_publishable_test',
+            'syncUrl': '/api/agenda/account/state',
+          });
+        }
+        if (request.uri.path.endsWith('/auth/v1/user')) {
+          return _jsonResponse(<String, Object?>{
+            'id': 'new-user',
+            'email': 'nova@example.com',
+          });
+        }
+        if (request.uri.path.endsWith('/api/agenda/account/state')) {
+          return _jsonResponse(<String, Object?>{
+            'exists': false,
+            'revision': 0,
+            'schemaVersion': 1,
+            'payload': null,
+            'updatedAt': now.toIso8601String(),
+            'trial': <String, Object?>{
+              'active': true,
+              'daysRemaining': 7,
+              'startedAt': now.toIso8601String(),
+              'endsAt': now.add(const Duration(days: 7)).toIso8601String(),
+            },
+            'entitlement': <String, Object?>{
+              'status': 'trialing',
+              'canUse': true,
+              'daysRemaining': 7,
+              'trialStartedAt': now.toIso8601String(),
+              'trialEndsAt': now.add(const Duration(days: 7)).toIso8601String(),
+            },
+          });
+        }
+        if (request.uri.path.endsWith('/api/agenda/subscriptions/summary')) {
+          return _jsonResponse(<String, Object?>{'ok': true, 'card': null});
+        }
+        fail('Requisição inesperada: ${request.method} ${request.uri}');
+      });
+      final preferences = await SharedPreferences.getInstance();
+      final session = AgendaWebSessionController(
+        preferences: preferences,
+        transport: transport,
+        apiBase: Uri.parse('https://agenda.example'),
+      );
+      addTearDown(session.dispose);
+
+      await tester.pumpWidget(AgendaLivreWebRoot(session: session));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(OnboardingPage), findsOneWidget);
+      expect(find.text('Renove para continuar com sua agenda.'), findsNothing);
+      expect(session.agendaController?.trialStatusLabel, contains('7 dias'));
+      expect(
+        find.byKey(const Key('onboarding-mobile-illustration')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
+
+ServiceHttpResponse _jsonResponse(Map<String, Object?> body) =>
+    ServiceHttpResponse(
+      statusCode: 200,
+      body: jsonEncode(body),
+      headers: const <String, String>{'content-type': 'application/json'},
+    );
 
 class _FakeWebSession extends ChangeNotifier implements AgendaWebSession {
   @override

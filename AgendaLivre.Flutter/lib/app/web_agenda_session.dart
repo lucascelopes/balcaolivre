@@ -560,6 +560,11 @@ class AgendaWebSessionController extends ChangeNotifier
     if (session.isProfessionalAccount) {
       controller.page = AgendaPage.agenda;
     }
+    await controller.initialize();
+    if (!_isSessionCurrent(generation: generation, userId: session.userId)) {
+      controller.dispose();
+      return;
+    }
     agendaController = controller;
     errorMessage = null;
     successMessage = null;

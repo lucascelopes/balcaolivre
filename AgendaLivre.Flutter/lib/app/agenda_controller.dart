@@ -145,7 +145,8 @@ class AgendaController extends ChangeNotifier {
     final repository = _repository is AgendaEntitlementRepository
         ? _repository as AgendaEntitlementRepository
         : null;
-    return hasAuthenticatedSession &&
+    return !loading &&
+        hasAuthenticatedSession &&
         repository != null &&
         !repository.entitlementCanUse;
   }

@@ -82,15 +82,21 @@ class _AgendaLivreWebRootState extends State<AgendaLivreWebRoot>
         }
         final controller = widget.session.agendaController;
         if (controller != null) {
-          if (managedSession != null && controller.needsSubscriptionRenewal) {
-            return MaterialApp(
-              title: 'Renovar Agenda Livre',
-              debugShowCheckedModeBanner: false,
-              theme: AgendaThemes.byId('').toThemeData(),
-              home: AgendaSubscriptionRenewalPage(session: managedSession),
-            );
-          }
-          return AgendaLivreApp(controller: controller);
+          return AnimatedBuilder(
+            animation: controller,
+            builder: (context, _) {
+              if (managedSession != null &&
+                  controller.needsSubscriptionRenewal) {
+                return MaterialApp(
+                  title: 'Renovar Agenda Livre',
+                  debugShowCheckedModeBanner: false,
+                  theme: AgendaThemes.byId('').toThemeData(),
+                  home: AgendaSubscriptionRenewalPage(session: managedSession),
+                );
+              }
+              return AgendaLivreApp(controller: controller);
+            },
+          );
         }
         return MaterialApp(
           title: 'Agenda Livre',

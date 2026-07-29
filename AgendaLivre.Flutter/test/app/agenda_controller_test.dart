@@ -55,6 +55,26 @@ void main() {
       },
     );
 
+    test('waits for entitlement before deciding whether to renew', () async {
+      final activeTrial = AgendaController(
+        _EntitlementAgendaRepository(_baseData(), canUse: true),
+        onLogout: () async {},
+      );
+      final expired = AgendaController(
+        _EntitlementAgendaRepository(_baseData(), canUse: false),
+        onLogout: () async {},
+      );
+
+      expect(activeTrial.needsSubscriptionRenewal, isFalse);
+      expect(expired.needsSubscriptionRenewal, isFalse);
+
+      await activeTrial.initialize();
+      await expired.initialize();
+
+      expect(activeTrial.needsSubscriptionRenewal, isFalse);
+      expect(expired.needsSubscriptionRenewal, isTrue);
+    });
+
     test(
       'applies the cloud automatically on startup and later conflicts',
       () async {
@@ -1338,6 +1358,19 @@ class _FakeAgendaRepository implements AgendaRepository {
 
   static AgendaData _clone(AgendaData data) =>
       AgendaData.fromJson(data.toJson());
+}
+
+class _EntitlementAgendaRepository extends _FakeAgendaRepository
+    implements AgendaEntitlementRepository {
+  _EntitlementAgendaRepository(super.initial, {required this.canUse});
+
+  final bool canUse;
+
+  @override
+  bool get entitlementCanUse => canUse;
+
+  @override
+  String get entitlementStatus => canUse ? 'trialing' : 'expired';
 }
 
 class _FakeSyncAgendaRepository extends ChangeNotifier

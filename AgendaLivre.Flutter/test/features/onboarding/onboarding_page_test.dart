@@ -90,6 +90,11 @@ void main() {
       await _pumpOnboarding(tester, size);
 
       expect(find.byKey(_mobileHeader), findsOneWidget);
+      expect(
+        find.byKey(const Key('onboarding-mobile-illustration')),
+        findsOneWidget,
+      );
+      expect(find.byKey(_illustration), findsOneWidget);
       for (final key in [_name, _phone, _email, _business]) {
         final rect = tester.getRect(find.byKey(key));
         expect(rect.left, greaterThanOrEqualTo(16));
