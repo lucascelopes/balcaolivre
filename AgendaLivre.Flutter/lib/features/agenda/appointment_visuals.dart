@@ -152,10 +152,12 @@ class AgendaDarkMetricStrip extends StatelessWidget {
     super.key,
     required this.metrics,
     this.compact = false,
+    this.footer,
   });
 
   final List<AgendaDarkMetricData> metrics;
   final bool compact;
+  final Widget? footer;
 
   @override
   Widget build(BuildContext context) {
@@ -176,29 +178,35 @@ class AgendaDarkMetricStrip extends StatelessWidget {
             borderRadius: BorderRadius.circular(compact ? 18 : 22),
           ),
           padding: const EdgeInsets.all(8),
-          child: Wrap(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              for (var index = 0; index < metrics.length; index++)
-                SizedBox(
-                  width: itemWidth,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      border: Border(
-                        right: index % columns == columns - 1
-                            ? BorderSide.none
-                            : const BorderSide(color: Color(0xFF3A3734)),
-                        bottom: index ~/ columns == rows - 1
-                            ? BorderSide.none
-                            : const BorderSide(color: Color(0xFF3A3734)),
+              Wrap(
+                children: [
+                  for (var index = 0; index < metrics.length; index++)
+                    SizedBox(
+                      width: itemWidth,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          border: Border(
+                            right: index % columns == columns - 1
+                                ? BorderSide.none
+                                : const BorderSide(color: Color(0xFF3A3734)),
+                            bottom: index ~/ columns == rows - 1
+                                ? BorderSide.none
+                                : const BorderSide(color: Color(0xFF3A3734)),
+                          ),
+                        ),
+                        child: _AgendaDarkMetric(
+                          metric: metrics[index],
+                          accent: t.accent,
+                          compact: columns < 4,
+                        ),
                       ),
                     ),
-                    child: _AgendaDarkMetric(
-                      metric: metrics[index],
-                      accent: t.accent,
-                      compact: columns < 4,
-                    ),
-                  ),
-                ),
+                ],
+              ),
+              ?footer,
             ],
           ),
         );

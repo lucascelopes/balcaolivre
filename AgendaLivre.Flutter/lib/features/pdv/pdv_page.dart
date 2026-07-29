@@ -706,29 +706,32 @@ class _PdvTopBar extends StatelessWidget {
           ),
           VerticalDivider(width: 1, color: t.line),
           SizedBox(
-            width: 126,
+            width: 160,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 28),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Text(
-                    DateUtils.isSameDay(date, DateTime.now()) ? 'HOJE' : 'DIA',
-                    style: TextStyle(
-                      color: t.accentDark,
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w900,
+                  Icon(Icons.calendar_month_outlined, size: 16, color: t.ink),
+                  const SizedBox(width: 7),
+                  Flexible(
+                    child: Text(
+                      '${DateUtils.isSameDay(date, DateTime.now()) ? 'Hoje, ' : ''}'
+                      '${date.day.toString().padLeft(2, '0')}/'
+                      '${date.month.toString().padLeft(2, '0')}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: t.ink,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${date.day.toString().padLeft(2, '0')} ${_pdvMonthShort(date.month)}',
-                    style: TextStyle(
-                      color: t.ink,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  const SizedBox(width: 3),
+                  Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    size: 16,
+                    color: t.ink,
                   ),
                 ],
               ),
@@ -746,8 +749,7 @@ class _PdvTopBar extends StatelessWidget {
                         controller: searchController,
                         onChanged: onSearch,
                         decoration: const InputDecoration(
-                          hintText:
-                              'Buscar clientes, agendamentos, serviços...',
+                          hintText: 'Pesquisar em todo o Agenda Livre...',
                           prefixIcon: Icon(Icons.search_rounded, size: 20),
                           contentPadding: EdgeInsets.symmetric(vertical: 11),
                         ),
@@ -2958,21 +2960,6 @@ String _pdvFullDate(DateTime date) =>
     '${date.day.toString().padLeft(2, '0')}/'
     '${date.month.toString().padLeft(2, '0')}/'
     '${date.year}';
-
-String _pdvMonthShort(int month) => const <String>[
-  'JAN',
-  'FEV',
-  'MAR',
-  'ABR',
-  'MAI',
-  'JUN',
-  'JUL',
-  'AGO',
-  'SET',
-  'OUT',
-  'NOV',
-  'DEZ',
-][month.clamp(1, 12) - 1];
 
 String _weekdayShort(DateTime date) => const <String>[
   'seg',

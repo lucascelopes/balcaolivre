@@ -18,7 +18,7 @@ void main() {
 
     expect(
       tester.getSize(find.byKey(const Key('appointment-dialog'))),
-      const Size(900, 620),
+      const Size(900, 520),
     );
     expect(find.byKey(const Key('appointment-step-1')), findsOneWidget);
     expect(find.byKey(const Key('appointment-step-2')), findsOneWidget);
@@ -48,7 +48,6 @@ void main() {
     expect(find.byKey(const Key('appointment-save')).hitTestable(), findsOne);
     expect(tester.getTopLeft(footer).dy, closeTo(footerTop, .1));
     expect(tester.takeException(), isNull);
-
     await tester.tap(find.byKey(const Key('appointment-save')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('appointment-dialog')), findsNothing);

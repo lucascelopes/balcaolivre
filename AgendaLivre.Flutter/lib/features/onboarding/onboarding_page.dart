@@ -1006,20 +1006,16 @@ class _OnboardingPageState extends State<OnboardingPage> {
               ),
             ],
           ),
-          const SizedBox(height: 38),
-          Row(
-            children: [
-              _businessLogoButton(width: 180),
-              const SizedBox(width: 14),
-              _primaryButton(
-                label: 'Continuar',
-                width: 416,
-                height: 48,
-                backgroundColor: t.accent,
-                fontSize: 14,
-                onPressed: _continue,
-              ),
-            ],
+          const SizedBox(height: 24),
+          _businessLogoButton(width: 180),
+          const SizedBox(height: 10),
+          _primaryButton(
+            label: 'Continuar',
+            width: 610,
+            height: 48,
+            backgroundColor: t.accent,
+            fontSize: 14,
+            onPressed: _continue,
           ),
         ],
       ),
@@ -1462,8 +1458,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
           SizedBox(height: desktop ? 46 : 24),
           LayoutBuilder(
             builder: (context, constraints) {
-              final columns = desktop ? 4 : 2;
-              final outerPadding = desktop ? 6.0 : 0.0;
+              final columns = 2;
+              final outerPadding = 0.0;
               final gap = desktop ? 12.0 : 12.0;
               final available = constraints.maxWidth - (outerPadding * 2);
               final width = (available - gap * (columns - 1)) / columns;
@@ -1483,7 +1479,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                           'onboarding-theme-${theme.id.isEmpty ? 'default' : theme.id}',
                         ),
                         width: width,
-                        height: desktop ? 146 : 142,
+                        height: desktop ? 132 : 142,
                         child: _ThemeCard(
                           theme: theme,
                           description: _themeDescription(theme.id),
@@ -1499,25 +1495,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
           ),
           SizedBox(height: desktop ? 18 : 24),
           if (desktop)
-            Row(
-              children: [
-                _primaryButton(
-                  label: 'Continuar',
-                  width: 415,
-                  onPressed: _continue,
-                ),
-                const Spacer(),
-                SizedBox(
-                  width: 150,
-                  height: 48,
-                  child: OutlinedButton(
-                    key: const Key('onboarding-theme-skip'),
-                    onPressed: _finishing ? null : _skipTheme,
-                    child: const Text('Pular tema'),
-                  ),
-                ),
-              ],
-            )
+            _primaryButton(label: 'Continuar', width: 610, onPressed: _continue)
           else
             Wrap(
               spacing: 12,

@@ -644,17 +644,25 @@ class _AgendaTopBarState extends State<_AgendaTopBar> {
             key: _dateButtonKey,
             width: 128,
             height: 40,
-            child: OutlinedButton(
+            child: TextButton(
               key: const Key('topbar-date-button'),
               onPressed: _showDatePopover,
-              style: _topBarOutlinedStyle(t),
+              style: TextButton.styleFrom(
+                foregroundColor: t.ink,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                alignment: Alignment.centerLeft,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                textStyle: const TextStyle(
+                  fontFamily: 'Segoe UI',
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
               child: Row(
                 children: [
-                  Icon(
-                    Icons.calendar_month_outlined,
-                    size: 15,
-                    color: t.accent,
-                  ),
+                  Icon(Icons.calendar_month_outlined, size: 15, color: t.ink),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(

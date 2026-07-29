@@ -13,7 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
-const _desktopSize = Size(1366, 768);
+const _desktopSize = Size(1382, 736);
 const _mobileSize = Size(390, 844);
 final _referenceNow = DateTime(2026, 7, 19, 9);
 
@@ -40,6 +40,7 @@ void main() {
     ('07-estabelecimento-desktop.png', AgendaPage.establishment),
     ('08-marketing-desktop.png', AgendaPage.marketing),
     ('09-configuracoes-desktop.png', AgendaPage.settings),
+    ('23-suporte-desktop.png', AgendaPage.support),
   ];
 
   for (final (fileName, page) in desktopScreens) {
@@ -61,6 +62,7 @@ void main() {
     ('16-estabelecimento-mobile.png', AgendaPage.establishment),
     ('17-configuracoes-mobile.png', AgendaPage.settings),
     ('18-relatorios-mobile.png', AgendaPage.reports),
+    ('24-suporte-mobile.png', AgendaPage.support),
   ];
 
   for (final (fileName, page) in mobileScreens) {
@@ -82,6 +84,14 @@ void main() {
       await _captureSelectedAgenda(tester, size: size, fileName: fileName);
     });
   }
+
+  testWidgets('captura 25-nova-despesa-desktop.png', (tester) async {
+    await _captureExpenseDialog(
+      tester,
+      size: _desktopSize,
+      fileName: '25-nova-despesa-desktop.png',
+    );
+  });
 
   for (final (fileName, size) in <(String, Size)>[
     ('03-editar-agendamento-desktop.png', _desktopSize),
@@ -155,7 +165,7 @@ Future<void> _captureShell(
       key: captureKey,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: AgendaThemes.byId('').toThemeData(),
+        theme: AgendaThemes.byId('aesthetic-coral').toThemeData(),
         home: ResponsiveAgendaShell(
           controller: controller,
           referenceNow: _referenceNow,
@@ -189,7 +199,7 @@ Future<void> _captureAppointmentEditor(
       key: captureKey,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: AgendaThemes.byId('').toThemeData(),
+        theme: AgendaThemes.byId('aesthetic-coral').toThemeData(),
         home: Builder(
           builder: (context) => Scaffold(
             body: Center(
@@ -233,7 +243,7 @@ Future<void> _captureSelectedAgenda(
       key: captureKey,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: AgendaThemes.byId('').toThemeData(),
+        theme: AgendaThemes.byId('aesthetic-coral').toThemeData(),
         home: ResponsiveAgendaShell(
           controller: controller,
           referenceNow: _referenceNow,
@@ -267,7 +277,7 @@ Future<void> _capturePaymentDialog(
       key: captureKey,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: AgendaThemes.byId('').toThemeData(),
+        theme: AgendaThemes.byId('aesthetic-coral').toThemeData(),
         home: ResponsiveAgendaShell(
           controller: controller,
           referenceNow: _referenceNow,
@@ -282,6 +292,39 @@ Future<void> _capturePaymentDialog(
   await tester.tap(receive);
   await tester.pumpAndSettle();
   expect(find.byKey(const Key('finance-payment-dialog')), findsOneWidget);
+  expect(tester.takeException(), isNull);
+  await _saveCapture(tester, captureKey, fileName);
+}
+
+Future<void> _captureExpenseDialog(
+  WidgetTester tester, {
+  required Size size,
+  required String fileName,
+}) async {
+  _setViewport(tester, size);
+  final controller = _seededController()..navigate(AgendaPage.finance);
+  const captureKey = Key('ux-audit-expense-capture');
+
+  await tester.pumpWidget(
+    RepaintBoundary(
+      key: captureKey,
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AgendaThemes.byId('aesthetic-coral').toThemeData(),
+        home: ResponsiveAgendaShell(
+          controller: controller,
+          referenceNow: _referenceNow,
+        ),
+      ),
+    ),
+  );
+  await _settleVisualAssets(tester);
+  final expense = find.byKey(const Key('finance-quick-expense'));
+  await tester.ensureVisible(expense);
+  await tester.pumpAndSettle();
+  await tester.tap(expense);
+  await tester.pumpAndSettle();
+  expect(find.byKey(const Key('finance-expense-dialog')), findsOneWidget);
   expect(tester.takeException(), isNull);
   await _saveCapture(tester, captureKey, fileName);
 }
@@ -301,7 +344,7 @@ Future<void> _captureCustomerEditor(
       key: captureKey,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: AgendaThemes.byId('').toThemeData(),
+        theme: AgendaThemes.byId('aesthetic-coral').toThemeData(),
         home: Builder(
           builder: (context) => Scaffold(
             body: Center(
@@ -369,7 +412,7 @@ AgendaController _seededController() {
     ),
   );
   data.settings
-    ..themeId = ''
+    ..themeId = 'aesthetic-coral'
     ..accountFullName = 'Marina Teste'
     ..businessName = 'Studio Fluxo'
     ..onboardingCompleted = true;

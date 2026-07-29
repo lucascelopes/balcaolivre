@@ -37,7 +37,7 @@ Future<void> showAppointmentDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         child: SizedBox(
           width: math.min(900, mediaSize.width - 48),
-          height: math.min(620, mediaSize.height - 32),
+          height: math.min(520, mediaSize.height - 32),
           child: content,
         ),
       );
@@ -263,6 +263,59 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
   Widget build(BuildContext context) {
     final t = AgendaThemeTokens.of(context);
     final compact = MediaQuery.sizeOf(context).width < 720;
+    if (!compact) {
+      return Material(
+        key: const Key('appointment-dialog'),
+        color: t.panel,
+        child: Row(
+          children: [
+            SizedBox(width: 270, child: _wpfDesktopSidebar()),
+            Expanded(
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 52,
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 10),
+                        child: IconButton(
+                          tooltip: 'Fechar agendamento',
+                          onPressed: _saving
+                              ? null
+                              : () => Navigator.pop(context),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (_error != null) _errorBanner(),
+                  if (_editingScheduleOutsideWindow && _scheduleUnchanged)
+                    _scheduleWarningBanner(),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      key: const Key('appointment-dialog-scroll'),
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
+                      child: IndexedStack(
+                        index: _step,
+                        sizing: StackFit.loose,
+                        children: [
+                          _scheduleStep(),
+                          _clientStep(),
+                          _reviewStep(false),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Divider(height: 1, color: t.line),
+                  _wizardFooter(false),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Material(
       key: const Key('appointment-dialog'),
       color: t.panel,
@@ -295,6 +348,297 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
           ),
           Divider(height: 1, color: t.line),
           _wizardFooter(compact),
+        ],
+      ),
+    );
+  }
+
+  Widget _wpfDesktopSidebar() {
+    final t = AgendaThemeTokens.of(context);
+    final source = widget.appointment;
+    final title = _editing ? 'Editar agendamento' : 'Novo agendamento';
+    final subtitle = _editing
+        ? appointmentStatusLabel(source!.status)
+        : 'Preencha o horário, o serviço e os dados do cliente.';
+    final dateParts = const <String>[
+      'JAN',
+      'FEV',
+      'MAR',
+      'ABR',
+      'MAI',
+      'JUN',
+      'JUL',
+      'AGO',
+      'SET',
+      'OUT',
+      'NOV',
+      'DEZ',
+    ];
+    return ColoredBox(
+      color: const Color(0xFF171513),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 18, 18, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF24211F),
+                      border: Border.all(color: const Color(0xFF494441)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(
+                      Icons.event_available_outlined,
+                      color: Colors.white,
+                      size: 19,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          subtitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFFCBC5C1),
+                            fontSize: 11.5,
+                            height: 1.25,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 13),
+              _wpfSidebarStep(0, 'Horário'),
+              _wpfSidebarStep(1, 'Cliente'),
+              _wpfSidebarStep(2, 'Confirmar', last: true),
+              const Divider(color: Color(0xFF3C3835), height: 16),
+              Row(
+                children: [
+                  Container(
+                    width: 64,
+                    height: 58,
+                    decoration: BoxDecoration(
+                      color: t.accent,
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    alignment: Alignment.center,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _date.day.toString().padLeft(2, '0'),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 23,
+                            height: 1,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          dateParts[_date.month - 1],
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _dateLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFFCBC5C1),
+                            fontSize: 10.5,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '${_timeKey(_time)} – '
+                          '${_timeKey(TimeOfDay.fromDateTime(_start.add(Duration(minutes: _duration))))}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          'Duração: $_duration min',
+                          style: const TextStyle(
+                            color: Color(0xFFCBC5C1),
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 9),
+              _wpfSidebarSummaryRow(
+                Icons.content_cut_rounded,
+                'Serviço',
+                _serviceSummary,
+              ),
+              _wpfSidebarSummaryRow(
+                Icons.person_outline_rounded,
+                'Profissional',
+                _selectedProfessional?.name ?? 'Profissional não definido',
+              ),
+              _wpfSidebarSummaryRow(
+                Icons.chair_alt_outlined,
+                'Mesa, cadeira ou lavatório',
+                _resourceController.text.trim().isEmpty
+                    ? 'Recurso não definido'
+                    : _resourceController.text.trim(),
+              ),
+              _wpfSidebarSummaryRow(
+                Icons.sell_outlined,
+                'Valor total',
+                _priceSummary,
+                emphasize: true,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _wpfSidebarStep(int index, String label, {bool last = false}) {
+    final t = AgendaThemeTokens.of(context);
+    final active = _step == index;
+    final reached = index <= _step;
+    return InkWell(
+      key: Key('appointment-step-${index + 1}'),
+      onTap: _saving ? null : () => _goToStep(index),
+      child: SizedBox(
+        height: last ? 38 : 42,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 34,
+              child: Column(
+                children: [
+                  Container(
+                    width: 29,
+                    height: 29,
+                    decoration: BoxDecoration(
+                      color: active ? t.accent : const Color(0xFF24211F),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: reached ? t.accent : const Color(0xFF5C5652),
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      '${index + 1}',
+                      style: TextStyle(
+                        color: active ? Colors.white : const Color(0xFFD4CECA),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (!last)
+                    Expanded(
+                      child: Container(
+                        width: 1,
+                        color: const Color(0xFF5C5652),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: TextStyle(
+                color: active ? Colors.white : const Color(0xFFCBC5C1),
+                fontSize: 13.5,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _wpfSidebarSummaryRow(
+    IconData icon,
+    String label,
+    String value, {
+    bool emphasize = false,
+  }) {
+    final t = AgendaThemeTokens.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: Color(0xFF3C3835))),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: Colors.white, size: 19),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Color(0xFFAAA39F),
+                    fontSize: 10.5,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: emphasize ? t.accent : Colors.white,
+                    fontSize: emphasize ? 14.5 : 11.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -984,7 +1328,7 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
       padding: EdgeInsets.all(compact ? 12 : 16),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final stacked = compact || constraints.maxWidth < 780;
+          final stacked = compact || constraints.maxWidth < 640;
           if (stacked) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1067,11 +1411,14 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
         ),
       ],
       child: IgnorePointer(
-        child: OutlinedButton.icon(
-          style: _footerButtonStyle(minWidth: 122),
+        child: OutlinedButton(
+          style: _footerButtonStyle(minWidth: 44).copyWith(
+            padding: const WidgetStatePropertyAll(
+              EdgeInsets.symmetric(horizontal: 10),
+            ),
+          ),
           onPressed: () {},
-          icon: const Icon(Icons.more_horiz_rounded, size: 18),
-          label: const Text('Mais ações'),
+          child: const Icon(Icons.more_horiz_rounded, size: 18),
         ),
       ),
     ),
@@ -2143,7 +2490,7 @@ class _ResponsiveFields extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth < 560 ? 1 : 2;
+        final columns = constraints.maxWidth < 500 ? 1 : 2;
         const spacing = 12.0;
         final width =
             (constraints.maxWidth - spacing * (columns - 1)) / columns;

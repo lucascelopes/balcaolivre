@@ -30,7 +30,7 @@ void main() {
     await _openPaymentDialog(tester);
     expect(
       tester.getSize(find.byKey(const Key('finance-payment-dialog'))),
-      const Size(1040, 620),
+      const Size(880, 580),
     );
     expect(tester.takeException(), isNull);
     await _closeDialog(tester);
@@ -38,7 +38,7 @@ void main() {
     await _openExpenseDialog(tester);
     expect(
       tester.getSize(find.byKey(const Key('finance-expense-dialog'))),
-      const Size(1040, 620),
+      const Size(1020, 556),
     );
     expect(tester.takeException(), isNull);
   });
@@ -57,7 +57,8 @@ void main() {
         tester,
         size: size,
         dialogKey: const Key('finance-payment-dialog'),
-        desktopWidth: 1040,
+        desktopWidth: 880,
+        maxHeight: 580,
         firstFieldKey: const Key('payment-description-field'),
         pairedFieldKey: const Key('payment-customer-field'),
         stackedOnDesktop: true,
@@ -82,7 +83,8 @@ void main() {
         tester,
         size: size,
         dialogKey: const Key('finance-expense-dialog'),
-        desktopWidth: 1040,
+        desktopWidth: 1020,
+        maxHeight: 556,
         firstFieldKey: const Key('expense-description-field'),
         pairedFieldKey: const Key('expense-category-field'),
         stackedOnDesktop: true,
@@ -311,16 +313,17 @@ void _expectResponsiveDialog(
   required Size size,
   required Key dialogKey,
   required double desktopWidth,
+  required double maxHeight,
   required Key firstFieldKey,
   required Key pairedFieldKey,
   bool stackedOnDesktop = false,
 }) {
-  final compact = size.width < 650;
+  final compact = size.width < 650 || size.height < 500;
   final expectedWidth = compact
       ? size.width - 16
       : desktopWidth.clamp(0, size.width - 40).toDouble();
   final expectedHeight = (size.height - (compact ? 16 : 32))
-      .clamp(0, 620)
+      .clamp(0, maxHeight)
       .toDouble();
   final dialog = find.byKey(dialogKey);
   final dialogRect = tester.getRect(dialog);

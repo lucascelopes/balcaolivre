@@ -46,7 +46,7 @@ class HomePage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _homeHero(context, now, targetDate, compact),
+                  _wpfHomeHero(context, now, targetDate, compact),
                   const SizedBox(height: 14),
                   _metrics(context, targetDate, nextDate, items),
                   const SizedBox(height: 14),
@@ -81,6 +81,120 @@ class HomePage extends StatelessWidget {
           },
         );
       },
+    );
+  }
+
+  Widget _wpfHomeHero(
+    BuildContext context,
+    DateTime now,
+    DateTime targetDate,
+    bool compact,
+  ) {
+    if (compact) return _homeHero(context, now, targetDate, true);
+    final t = AgendaThemeTokens.of(context);
+    final ownerName = controller.data.settings.accountFullName.trim().isEmpty
+        ? 'Responsável'
+        : controller.data.settings.accountFullName.trim();
+    final ownerFirstName = ownerName
+        .split(RegExp(r'\s+'))
+        .firstWhere((part) => part.isNotEmpty, orElse: () => ownerName);
+    final header = SizedBox(
+      key: const Key('home-hero'),
+      height: compact ? 124 : 138,
+      child: Stack(
+        clipBehavior: Clip.hardEdge,
+        children: [
+          Positioned(
+            right: compact ? -70 : 0,
+            top: compact ? 3 : -15,
+            width: compact ? 250 : 360,
+            height: 138,
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: .065,
+                child: Image.asset(
+                  'assets/branding/agenda-livre-logo-source.png',
+                  fit: BoxFit.contain,
+                  alignment: Alignment.centerRight,
+                ),
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 660),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'MINHA AGENDA',
+                        style: TextStyle(
+                          color: t.ink,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Container(width: 44, height: 1, color: t.accent),
+                    ],
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    '${_greeting(now)}, $ownerFirstName',
+                    key: const Key('home-greeting'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: t.ink,
+                      fontSize: compact ? 26 : 29,
+                      fontWeight: FontWeight.w800,
+                      height: 1.16,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    fullDate(targetDate).toLowerCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: t.muted, fontSize: 12.5),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (!compact) return header;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        header,
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _openAgenda(targetDate),
+                icon: const Icon(Icons.calendar_month_rounded, size: 18),
+                label: const Text('Ver agenda'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: () => _newAppointment(context, targetDate),
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('Agendar'),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -368,6 +482,14 @@ class HomePage extends StatelessWidget {
           }.contains(item.status),
         )
         .fold<double>(0, (sum, item) => sum + item.price);
+    final realized = controller.revenueBetween(today, tomorrow);
+    final confirmationBase = confirmed + pending;
+    final confirmedShare = confirmationBase == 0
+        ? 0.0
+        : confirmed / confirmationBase;
+    final cashShare = forecast <= 0
+        ? 0.0
+        : (realized / forecast).clamp(0.0, 1.0);
     return AgendaDarkMetricStrip(
       key: const Key('home-metrics'),
       metrics: [
@@ -403,6 +525,161 @@ class HomePage extends StatelessWidget {
           tone: Colors.white,
         ),
       ],
+      footer: _homeMetricFooter(
+        context,
+        confirmed: confirmed,
+        pending: pending,
+        confirmedShare: confirmedShare,
+        cashShare: cashShare,
+      ),
+    );
+  }
+
+  Widget _homeMetricFooter(
+    BuildContext context, {
+    required int confirmed,
+    required int pending,
+    required double confirmedShare,
+    required double cashShare,
+  }) {
+    final t = AgendaThemeTokens.of(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 760) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 6),
+          child: SizedBox(
+            height: 45,
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 32),
+                    child: Column(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(7),
+                          child: SizedBox(
+                            height: 14,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: (confirmedShare * 1000).round().clamp(
+                                    1,
+                                    999,
+                                  ),
+                                  child: ColoredBox(color: t.accent),
+                                ),
+                                Expanded(
+                                  flex: ((1 - confirmedShare) * 1000)
+                                      .round()
+                                      .clamp(1, 999),
+                                  child: const ColoredBox(
+                                    color: Color(0xFFFAD8C2),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 7),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                color: t.accent,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            const SizedBox(width: 7),
+                            const Text(
+                              'Confirmados',
+                              style: TextStyle(
+                                color: Color(0xFFD9D4CF),
+                                fontSize: 10.5,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              '$confirmed',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 22),
+                            Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFAD8C2),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            const SizedBox(width: 7),
+                            const Text(
+                              'A confirmar',
+                              style: TextStyle(
+                                color: Color(0xFFD9D4CF),
+                                fontSize: 10.5,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              '$pending',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const VerticalDivider(
+                  width: 1,
+                  thickness: 1,
+                  color: Color(0x32FFFFFF),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 30, right: 10),
+                    child: Column(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: LinearProgressIndicator(
+                            value: cashShare,
+                            minHeight: 12,
+                            color: t.accent,
+                            backgroundColor: const Color(0xFF353230),
+                          ),
+                        ),
+                        const SizedBox(height: 7),
+                        Text(
+                          '${(cashShare * 100).round()}%',
+                          style: const TextStyle(
+                            color: Color(0xFFD9D4CF),
+                            fontSize: 10.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -437,55 +714,102 @@ class HomePage extends StatelessWidget {
       backgroundColor: t.panel,
     );
 
-    Widget navigation() => Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 32,
-          child: OutlinedButton(
-            key: const Key('home-previous-day'),
-            onPressed: () =>
-                controller.selectDate(today.subtract(const Duration(days: 1))),
-            style: toolbarButtonStyle,
-            child: const Icon(Icons.chevron_left_rounded, size: 17),
+    Widget navigation() => Container(
+      width: 70,
+      height: 32,
+      decoration: BoxDecoration(
+        color: t.panel,
+        border: Border.all(color: t.line),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: IconButton(
+              key: const Key('home-previous-day'),
+              tooltip: 'Período anterior',
+              onPressed: () => controller.selectDate(
+                today.subtract(const Duration(days: 1)),
+              ),
+              padding: EdgeInsets.zero,
+              icon: const Icon(Icons.chevron_left_rounded, size: 17),
+            ),
           ),
-        ),
-        const SizedBox(width: 6),
-        OutlinedButton(
-          key: const Key('home-today'),
-          onPressed: () => controller.selectDate(currentDate),
-          style: toolbarButtonStyle,
-          child: const Text('Hoje'),
-        ),
-        const SizedBox(width: 6),
-        SizedBox(
-          width: 32,
-          child: OutlinedButton(
-            key: const Key('home-next-day'),
-            onPressed: () =>
-                controller.selectDate(today.add(const Duration(days: 1))),
-            style: toolbarButtonStyle,
-            child: const Icon(Icons.chevron_right_rounded, size: 17),
+          Container(width: 1, height: 20, color: t.line),
+          Expanded(
+            child: IconButton(
+              key: const Key('home-next-day'),
+              tooltip: 'Próximo período',
+              onPressed: () =>
+                  controller.selectDate(today.add(const Duration(days: 1))),
+              padding: EdgeInsets.zero,
+              icon: const Icon(Icons.chevron_right_rounded, size: 17),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
 
-    Widget modes() => Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        OutlinedButton(
-          onPressed: () => _openAgenda(today),
-          style: toolbarButtonStyle,
-          child: const Text('Dia'),
-        ),
-        const SizedBox(width: 6),
-        OutlinedButton(
-          onPressed: () => _openAgenda(today),
-          style: toolbarButtonStyle,
-          child: const Text('Padrão'),
-        ),
-      ],
+    Widget todayButton() => OutlinedButton(
+      key: const Key('home-today'),
+      onPressed: () => controller.selectDate(currentDate),
+      style: toolbarButtonStyle,
+      child: const Text('Hoje'),
+    );
+
+    Widget modes() => Container(
+      width: 212,
+      height: 32,
+      decoration: BoxDecoration(
+        color: t.panel,
+        border: Border.all(color: t.line),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Row(
+        children: [
+          Expanded(
+            child: Material(
+              color: t.accentSoft,
+              child: InkWell(
+                onTap: () => _openAgenda(today),
+                child: Center(
+                  child: Text(
+                    'Dia',
+                    style: TextStyle(
+                      color: t.accentDark,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: InkWell(
+              onTap: () => _openAgenda(today),
+              child: Center(
+                child: Text(
+                  'Semana',
+                  style: TextStyle(color: t.ink, fontSize: 12.5),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: InkWell(
+              onTap: () => _openAgenda(today),
+              child: Center(
+                child: Text(
+                  'Mês',
+                  style: TextStyle(color: t.ink, fontSize: 12.5),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
 
     return AgendaPanel(
@@ -502,6 +826,8 @@ class HomePage extends StatelessWidget {
                 Row(
                   children: [
                     navigation(),
+                    const SizedBox(width: 6),
+                    todayButton(),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
@@ -526,22 +852,54 @@ class HomePage extends StatelessWidget {
           else
             Row(
               children: [
-                navigation(),
-                const SizedBox(width: 18),
                 Expanded(
-                  child: Text(
-                    scheduleTitle,
-                    key: const Key('home-schedule-title'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: t.ink,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: t.accentSoft,
+                          borderRadius: BorderRadius.circular(17),
+                        ),
+                        alignment: Alignment.center,
+                        child: Icon(
+                          Icons.calendar_month_rounded,
+                          color: t.accentDark,
+                          size: 17,
+                        ),
+                      ),
+                      const SizedBox(width: 9),
+                      Flexible(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              scheduleTitle,
+                              key: const Key('home-schedule-title'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: t.ink,
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Agenda do dia',
+                              style: TextStyle(color: t.muted, fontSize: 10.5),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 12),
+                navigation(),
+                const SizedBox(width: 6),
+                todayButton(),
+                const SizedBox(width: 8),
                 modes(),
               ],
             ),

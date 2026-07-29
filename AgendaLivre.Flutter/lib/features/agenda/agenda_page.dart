@@ -56,6 +56,8 @@ class _AgendaPageState extends State<AgendaPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  _pageHeading(context, compact: compact),
+                  const SizedBox(height: 14),
                   _metrics(items),
                   if (selected != null) ...[
                     const SizedBox(height: 14),
@@ -94,6 +96,49 @@ class _AgendaPageState extends State<AgendaPage> {
           },
         );
       },
+    );
+  }
+
+  Widget _pageHeading(BuildContext context, {required bool compact}) {
+    final t = AgendaThemeTokens.of(context);
+    return SizedBox(
+      height: compact ? 88 : 78,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'AGENDA',
+                style: TextStyle(
+                  color: t.ink,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(width: 44, height: 1, color: t.accent),
+            ],
+          ),
+          const SizedBox(height: 7),
+          Text(
+            'Agenda de hoje',
+            style: TextStyle(
+              color: t.ink,
+              fontSize: compact ? 25 : 29,
+              height: 1.08,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            fullDate(controller.selectedDate).toLowerCase(),
+            style: TextStyle(color: t.muted, fontSize: 12.5),
+          ),
+        ],
+      ),
     );
   }
 
