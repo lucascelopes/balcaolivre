@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../domain/models/models.dart';
 import '../domain/repositories/agenda_repository.dart';
+import '../services/agenda_account_api.dart';
 import '../services/instagram_service.dart';
 import '../services/mercado_pago_service.dart';
 
@@ -15,10 +16,49 @@ enum AgendaPage {
   reports,
   establishment,
   marketing,
+  support,
   settings,
 }
 
 enum AgendaViewMode { board, list, week }
+
+class PdvCashClosingSnapshot {
+  const PdvCashClosingSnapshot({
+    required this.session,
+    required this.appointmentCount,
+    required this.completedCount,
+    required this.cancelledCount,
+    required this.noShowCount,
+    required this.serviceElapsedSeconds,
+    required this.totalSales,
+    required this.cashSales,
+    required this.pixSales,
+    required this.creditCardSales,
+    required this.debitCardSales,
+    required this.cardSales,
+    required this.cashEntries,
+    required this.cashWithdrawals,
+    required this.expectedBalance,
+    required this.hasRunningAppointment,
+  });
+
+  final CashSession session;
+  final int appointmentCount;
+  final int completedCount;
+  final int cancelledCount;
+  final int noShowCount;
+  final int serviceElapsedSeconds;
+  final double totalSales;
+  final double cashSales;
+  final double pixSales;
+  final double creditCardSales;
+  final double debitCardSales;
+  final double cardSales;
+  final double cashEntries;
+  final double cashWithdrawals;
+  final double expectedBalance;
+  final bool hasRunningAppointment;
+}
 
 class AgendaController extends ChangeNotifier {
   AgendaController(
@@ -26,7 +66,11 @@ class AgendaController extends ChangeNotifier {
     Future<void> Function()? onLogout,
     this.instagramService,
     this.mercadoPagoService,
+    this.accountApi,
+    this.deviceId = '',
     this.authenticatedEmail = '',
+    this.professionalId = '',
+    this.permissionScope = '',
   }) : _onLogout = onLogout {
     final repository = _repository;
     if (repository is Listenable) {
@@ -38,7 +82,11 @@ class AgendaController extends ChangeNotifier {
   final Future<void> Function()? _onLogout;
   final InstagramService? instagramService;
   final MercadoPagoService? mercadoPagoService;
+  final AgendaAccountApi? accountApi;
+  final String deviceId;
   final String authenticatedEmail;
+  final String professionalId;
+  final String permissionScope;
 
   AgendaData data = AgendaData();
   AgendaPage page = AgendaPage.home;
@@ -51,6 +99,16 @@ class AgendaController extends ChangeNotifier {
   bool _resolvingSyncConflict = false;
 
   bool get hasAuthenticatedSession => _onLogout != null;
+  bool get isProfessionalAccount => professionalId.trim().isNotEmpty;
+  bool get isProfessionalManager =>
+      isProfessionalAccount && permissionScope == 'manager';
+
+  bool canAccessPage(AgendaPage value) {
+    if (!isProfessionalAccount || isProfessionalManager) return true;
+    if (value == AgendaPage.agenda || value == AgendaPage.support) return true;
+    return permissionScope == 'agenda_clients' &&
+        value == AgendaPage.establishment;
+  }
 
   AgendaSyncRepository? get _syncRepository =>
       _repository is AgendaSyncRepository
@@ -82,6 +140,19 @@ class AgendaController extends ChangeNotifier {
         repository.hasTrialStatus &&
         !repository.trialActive;
   }
+
+  bool get needsSubscriptionRenewal {
+    final repository = _repository is AgendaEntitlementRepository
+        ? _repository as AgendaEntitlementRepository
+        : null;
+    return hasAuthenticatedSession &&
+        repository != null &&
+        !repository.entitlementCanUse;
+  }
+
+  String get entitlementStatus => _repository is AgendaEntitlementRepository
+      ? (_repository as AgendaEntitlementRepository).entitlementStatus
+      : 'unknown';
 
   Future<void> initialize() async {
     loading = true;
@@ -125,6 +196,211 @@ class AgendaController extends ChangeNotifier {
     if (identity.isEmpty) return trial ?? accountName;
     if (trial == null) return identity;
     return '$identity | $trial';
+  }
+
+  CashSession? openCashSessionForDay([DateTime? reference]) {
+    final day = reference ?? DateTime.now();
+    return data.cashSessions
+        .where(
+          (session) =>
+              session.isOpen && _sameCalendarDay(session.openedAt, day),
+        )
+        .lastOrNull;
+  }
+
+  Future<CashSession> openCashSession({
+    required double openingBalance,
+    String operatorName = '',
+    String terminalName = 'PDV principal',
+    String notes = '',
+    DateTime? openedAt,
+  }) async {
+    final now = openedAt ?? DateTime.now();
+    final existing = openCashSessionForDay(now);
+    if (existing != null) return existing;
+    final session = CashSession(
+      operatorName: operatorName.trim().isEmpty
+          ? accountName
+          : operatorName.trim(),
+      terminalName: terminalName.trim().isEmpty
+          ? 'PDV principal'
+          : terminalName.trim(),
+      openingBalance: openingBalance.clamp(0, 999999.99),
+      openedAt: now,
+      notes: notes.trim(),
+    );
+    data.cashSessions.add(session);
+    await _persist();
+    return session;
+  }
+
+  CashSession cashSessionForClosing([DateTime? reference]) {
+    final now = reference ?? DateTime.now();
+    return openCashSessionForDay(now) ??
+        CashSession(
+          operatorName: accountName,
+          terminalName: 'PDV principal',
+          openedAt: _earliestPdvActivity(now),
+        );
+  }
+
+  PdvCashClosingSnapshot buildPdvCashClosingSnapshot(
+    CashSession session, {
+    DateTime? reference,
+  }) {
+    final now = reference ?? DateTime.now();
+    final appointments = data.appointments
+        .where(
+          (item) =>
+              _sameCalendarDay(item.start, session.openedAt) &&
+              item.status != AppointmentStatus.blocked,
+        )
+        .toList(growable: false);
+    final paidAppointments = appointments.where(
+      (item) =>
+          item.paymentConfirmedAt != null &&
+          _belongsToCashSession(
+            item.cashSessionId,
+            item.paymentConfirmedAt!,
+            session,
+            now,
+          ),
+    );
+    final productSales = data.productSales.where(
+      (item) =>
+          _belongsToCashSession(
+            item.cashSessionId,
+            item.soldAt,
+            session,
+            now,
+          ) &&
+          !item.notes.toLowerCase().startsWith('atendimento '),
+    );
+    final payments = data.manualPayments.where(
+      (item) =>
+          _belongsToCashSession(item.cashSessionId, item.paidAt, session, now),
+    );
+    final sales = <({String method, double value})>[
+      for (final item in paidAppointments)
+        (method: item.paymentMethod, value: pdvAppointmentTotal(item)),
+      for (final item in productSales)
+        (method: item.paymentMethod, value: item.total),
+      for (final item in payments.where(
+        (item) => item.category.trim().toLowerCase() != 'ajuste',
+      ))
+        (
+          method: item.paymentMethod,
+          value: item.value.clamp(0, double.infinity),
+        ),
+    ];
+    final cashEntries = payments
+        .where(
+          (item) =>
+              item.category.trim().toLowerCase() == 'ajuste' &&
+              _isCashPayment(item.paymentMethod),
+        )
+        .fold<double>(
+          0,
+          (sum, item) => sum + item.value.clamp(0, double.infinity),
+        );
+    final cashWithdrawals = data.expenses
+        .where(
+          (item) =>
+              item.isPaid &&
+              _isCashPayment(item.paymentMethod) &&
+              _belongsToCashSession(
+                item.cashSessionId,
+                item.date,
+                session,
+                now,
+              ),
+        )
+        .fold<double>(
+          0,
+          (sum, item) => sum + item.value.clamp(0, double.infinity),
+        );
+    double sumWhere(bool Function(String method) predicate) => sales
+        .where((item) => predicate(item.method))
+        .fold<double>(0, (sum, item) => sum + item.value);
+    final cashSales = sumWhere(_isCashPayment);
+    final pixSales = sumWhere(_isPixPayment);
+    final debitSales = sumWhere(_isDebitPayment);
+    final creditSales = sumWhere(_isCreditPayment);
+    final cardSales = sales
+        .where(
+          (item) => !_isCashPayment(item.method) && !_isPixPayment(item.method),
+        )
+        .fold<double>(0, (sum, item) => sum + item.value);
+    final expected =
+        session.openingBalance + cashSales + cashEntries - cashWithdrawals;
+    final elapsed = appointments.fold<int>(
+      0,
+      (sum, item) => sum + item.serviceElapsedSeconds.clamp(0, 0x7fffffff),
+    );
+
+    return PdvCashClosingSnapshot(
+      session: session,
+      appointmentCount: appointments.length,
+      completedCount: appointments
+          .where((item) => item.status == AppointmentStatus.done)
+          .length,
+      cancelledCount: appointments
+          .where((item) => item.status == AppointmentStatus.cancelled)
+          .length,
+      noShowCount: appointments
+          .where((item) => item.status == AppointmentStatus.noShow)
+          .length,
+      serviceElapsedSeconds: elapsed,
+      totalSales: sales.fold<double>(0, (sum, item) => sum + item.value),
+      cashSales: cashSales,
+      pixSales: pixSales,
+      creditCardSales: creditSales,
+      debitCardSales: debitSales,
+      cardSales: cardSales,
+      cashEntries: cashEntries,
+      cashWithdrawals: cashWithdrawals,
+      expectedBalance: expected,
+      hasRunningAppointment: appointments.any(
+        (item) => item.status == AppointmentStatus.inService,
+      ),
+    );
+  }
+
+  Future<CashSession> closeCashSession(
+    CashSession session, {
+    required double closingBalance,
+    String notes = '',
+    bool printSummaryOnClose = true,
+    DateTime? closedAt,
+  }) async {
+    final now = closedAt ?? DateTime.now();
+    final snapshot = buildPdvCashClosingSnapshot(session, reference: now);
+    session
+      ..closingBalance = closingBalance.clamp(0, 999999.99)
+      ..expectedClosingBalance = snapshot.expectedBalance
+      ..closingDifference =
+          closingBalance.clamp(0, 999999.99) - snapshot.expectedBalance
+      ..totalSales = snapshot.totalSales
+      ..cashSales = snapshot.cashSales
+      ..pixSales = snapshot.pixSales
+      ..creditCardSales = snapshot.creditCardSales
+      ..debitCardSales = snapshot.debitCardSales
+      ..cardSales = snapshot.cardSales
+      ..cashEntries = snapshot.cashEntries
+      ..cashWithdrawals = snapshot.cashWithdrawals
+      ..appointmentCount = snapshot.appointmentCount
+      ..completedAppointmentCount = snapshot.completedCount
+      ..cancelledAppointmentCount = snapshot.cancelledCount
+      ..noShowAppointmentCount = snapshot.noShowCount
+      ..serviceElapsedSeconds = snapshot.serviceElapsedSeconds
+      ..printSummaryOnClose = printSummaryOnClose
+      ..closedAt = now
+      ..notes = notes.trim();
+    if (!data.cashSessions.any((item) => item.id == session.id)) {
+      data.cashSessions.add(session);
+    }
+    await _persist();
+    return session;
   }
 
   List<Appointment> get appointmentsForSelectedDate {
@@ -211,6 +487,7 @@ class AgendaController extends ChangeNotifier {
       .fold<double>(0, (sum, item) => sum + item.value);
 
   void navigate(AgendaPage value) {
+    if (!canAccessPage(value)) return;
     if (page == value) return;
     page = value;
     notifyListeners();
@@ -236,6 +513,7 @@ class AgendaController extends ChangeNotifier {
   Future<String?> saveAppointment(Appointment appointment) async {
     appointment.durationMinutes = appointment.durationMinutes.clamp(5, 480);
     appointment.price = appointment.price < 0 ? 0 : appointment.price;
+    _normalizeAppointmentChannel(appointment);
     appointment.updatedAt = DateTime.now();
 
     final index = data.appointments.indexWhere(
@@ -251,7 +529,12 @@ class AgendaController extends ChangeNotifier {
       appointment.start,
       appointment.end,
     );
-    if (businessWindowError != null && !scheduleUnchanged) {
+    final acknowledgedException =
+        appointment.scheduleExceptionAcknowledged &&
+        appointment.scheduleExceptionReason.trim().isNotEmpty;
+    if (businessWindowError != null &&
+        !scheduleUnchanged &&
+        !acknowledgedException) {
       return businessWindowError;
     }
 
@@ -271,6 +554,8 @@ class AgendaController extends ChangeNotifier {
         appointment.customerName.trim().isNotEmpty) {
       _upsertCustomerFromAppointment(appointment);
     }
+    _linkChannelConversationToAppointment(appointment);
+    _propagateAppointmentChannel(appointment);
     await _persist();
     return null;
   }
@@ -526,7 +811,9 @@ class AgendaController extends ChangeNotifier {
       ..paymentStatus = paymentStatus.trim().isEmpty
           ? 'approved'
           : paymentStatus.trim()
+      ..cashSessionId = openCashSessionForDay(now)?.id ?? ''
       ..updatedAt = now;
+    _propagateAppointmentChannel(current);
     await _persist();
     return null;
   }
@@ -580,6 +867,7 @@ class AgendaController extends ChangeNotifier {
       ..paymentProvider = provider
       ..paymentReference = reference
       ..paymentStatus = status
+      ..cashSessionId = openCashSessionForDay(now)?.id ?? ''
       ..updatedAt = now;
 
     if (current.productSalesRecordedAt == null) {
@@ -597,6 +885,10 @@ class AgendaController extends ChangeNotifier {
             paymentProvider: provider,
             paymentReference: reference,
             paymentStatus: status,
+            cashSessionId: current.cashSessionId,
+            appointmentId: current.id,
+            sourceChannel: _appointmentChannel(current),
+            channelConversationId: current.channelConversationId,
             notes: 'Atendimento ${current.id}',
             soldAt: now,
           ),
@@ -614,6 +906,7 @@ class AgendaController extends ChangeNotifier {
       current.productSalesRecordedAt = now;
     }
 
+    _propagateAppointmentChannel(current);
     await _persist();
     return null;
   }
@@ -652,6 +945,8 @@ class AgendaController extends ChangeNotifier {
       updatedAt: now,
       paymentProvider: 'customer_account',
       paymentStatus: 'pending',
+      sourceChannel: _appointmentChannel(current),
+      channelConversationId: current.channelConversationId,
     );
 
     current
@@ -664,6 +959,7 @@ class AgendaController extends ChangeNotifier {
       ..paymentStatus = 'pending'
       ..updatedAt = now;
     data.customerReceivables.add(receivable);
+    _propagateAppointmentChannel(current);
     await _persist();
     return null;
   }
@@ -800,7 +1096,19 @@ class AgendaController extends ChangeNotifier {
       ..paymentProvider = sale.paymentProvider.trim()
       ..paymentReference = sale.paymentReference.trim()
       ..paymentStatus = sale.paymentStatus.trim()
+      ..cashSessionId = openCashSessionForDay(sale.soldAt)?.id ?? ''
       ..notes = sale.notes.trim();
+    final sourceAppointment = data.appointments
+        .where(
+          (item) =>
+              sale.appointmentId.isNotEmpty && item.id == sale.appointmentId,
+        )
+        .firstOrNull;
+    if (sourceAppointment != null) {
+      sale
+        ..sourceChannel = _appointmentChannel(sourceAppointment)
+        ..channelConversationId = sourceAppointment.channelConversationId;
+    }
 
     data.productSales.add(sale);
     product.stockQuantity = (product.stockQuantity - sale.quantity).clamp(
@@ -879,7 +1187,8 @@ class AgendaController extends ChangeNotifier {
         ..paymentMethod = method
         ..paymentProvider = provider
         ..paymentReference = reference
-        ..paymentStatus = status;
+        ..paymentStatus = status
+        ..cashSessionId = openCashSessionForDay(now)?.id ?? '';
 
       final appointment = data.appointments
           .where(
@@ -894,6 +1203,7 @@ class AgendaController extends ChangeNotifier {
         ..paymentProvider = provider
         ..paymentReference = reference
         ..paymentStatus = status
+        ..cashSessionId = openCashSessionForDay(now)?.id ?? ''
         ..updatedAt = now;
     }
 
@@ -903,12 +1213,26 @@ class AgendaController extends ChangeNotifier {
 
   Future<void> addPayment(ManualPayment payment) async {
     payment.value = payment.value < 0 ? 0 : payment.value;
+    payment.cashSessionId = openCashSessionForDay(payment.paidAt)?.id ?? '';
+    final sourceAppointment = data.appointments
+        .where(
+          (item) =>
+              payment.appointmentId.isNotEmpty &&
+              item.id == payment.appointmentId,
+        )
+        .firstOrNull;
+    if (sourceAppointment != null) {
+      payment
+        ..sourceChannel = _appointmentChannel(sourceAppointment)
+        ..channelConversationId = sourceAppointment.channelConversationId;
+    }
     data.manualPayments.add(payment);
     await _persist();
   }
 
   Future<void> addExpense(ExpenseItem expense) async {
     expense.value = expense.value < 0 ? 0 : expense.value;
+    expense.cashSessionId = openCashSessionForDay(expense.date)?.id ?? '';
     data.expenses.add(expense);
     await _persist();
   }
@@ -922,6 +1246,16 @@ class AgendaController extends ChangeNotifier {
           .toList();
     }
     data.settings.whatsAppLastMessageAt = message.createdAt;
+    _mergeWhatsAppChannelMessage(message);
+    await _persist();
+  }
+
+  Future<void> mergeInstagramMessages(
+    Iterable<InstagramMessage> messages,
+  ) async {
+    for (final message in messages) {
+      _mergeInstagramChannelMessage(message);
+    }
     await _persist();
   }
 
@@ -1251,6 +1585,10 @@ class AgendaController extends ChangeNotifier {
           segment: appointment.segment,
           profile: appointment.customerProfile,
           notes: appointment.notes,
+          instagramUsername: appointment.channelUsername,
+          preferredChannel: _appointmentChannel(appointment),
+          acquisitionChannel: _appointmentChannel(appointment),
+          externalChannelUserId: appointment.channelExternalUserId,
           lastSeenAt: appointment.start,
         ),
       );
@@ -1262,6 +1600,220 @@ class AgendaController extends ChangeNotifier {
         ..segment = appointment.segment
         ..profile = appointment.customerProfile
         ..lastSeenAt = appointment.start;
+      final channel = _appointmentChannel(appointment);
+      if (channel != 'direct') {
+        if (customer.preferredChannel.trim().isEmpty) {
+          customer.preferredChannel = channel;
+        }
+        if (customer.acquisitionChannel.trim().isEmpty) {
+          customer.acquisitionChannel = channel;
+        }
+        if (channel == 'instagram' &&
+            appointment.channelUsername.trim().isNotEmpty) {
+          customer.instagramUsername = appointment.channelUsername;
+        }
+        if (appointment.channelExternalUserId.trim().isNotEmpty) {
+          customer.externalChannelUserId = appointment.channelExternalUserId;
+        }
+      }
+    }
+  }
+
+  void _normalizeAppointmentChannel(Appointment appointment) {
+    final channel = _normalizeChannel(
+      appointment.bookingChannel.trim().isNotEmpty
+          ? appointment.bookingChannel
+          : appointment.externalSource,
+    );
+    if (channel == 'direct' &&
+        appointment.bookingChannel.trim().isEmpty &&
+        appointment.externalSource.trim().isEmpty) {
+      return;
+    }
+    appointment
+      ..bookingChannel = channel
+      ..externalSource = channel;
+  }
+
+  String _appointmentChannel(Appointment appointment) => _normalizeChannel(
+    appointment.bookingChannel.trim().isNotEmpty
+        ? appointment.bookingChannel
+        : appointment.externalSource,
+  );
+
+  void _propagateAppointmentChannel(Appointment appointment) {
+    final channel = _appointmentChannel(appointment);
+    for (final receivable in data.customerReceivables.where(
+      (item) => item.appointmentId == appointment.id,
+    )) {
+      receivable
+        ..sourceChannel = channel
+        ..channelConversationId = appointment.channelConversationId;
+    }
+    for (final payment in data.manualPayments.where(
+      (item) => item.appointmentId == appointment.id,
+    )) {
+      payment
+        ..sourceChannel = channel
+        ..channelConversationId = appointment.channelConversationId;
+    }
+    for (final sale in data.productSales.where(
+      (item) => item.appointmentId == appointment.id,
+    )) {
+      sale
+        ..sourceChannel = channel
+        ..channelConversationId = appointment.channelConversationId;
+    }
+  }
+
+  void _linkChannelConversationToAppointment(Appointment appointment) {
+    ChannelConversation? conversation;
+    if (appointment.channelConversationId.trim().isNotEmpty) {
+      conversation = data.channelConversations
+          .where((item) => item.id == appointment.channelConversationId)
+          .firstOrNull;
+    }
+    conversation ??= data.channelConversations
+        .where(
+          (item) =>
+              _normalizeChannel(item.channel) ==
+                  _appointmentChannel(appointment) &&
+              appointment.externalReference.trim().isNotEmpty &&
+              item.externalConversationId == appointment.externalReference,
+        )
+        .firstOrNull;
+    if (conversation == null) return;
+    appointment
+      ..bookingChannel = _normalizeChannel(conversation.channel)
+      ..externalSource = _normalizeChannel(conversation.channel)
+      ..externalReference = conversation.externalConversationId
+      ..channelConversationId = conversation.id
+      ..channelExternalUserId = conversation.externalUserId
+      ..channelUsername = conversation.externalUsername;
+    conversation
+      ..appointmentId = appointment.id
+      ..customerId = appointment.customerId
+      ..customerName = appointment.customerName
+      ..phone = appointment.customerPhone
+      ..updatedAt = DateTime.now();
+  }
+
+  void _mergeWhatsAppChannelMessage(WhatsAppMessage source) {
+    final externalConversationId = _firstNonEmpty(<String>[
+      source.conversationId,
+      source.leadId,
+      _normalizedBrazilPhone(source.phone),
+    ]);
+    if (externalConversationId.isEmpty) return;
+    final conversationId = 'channel:whatsapp:$externalConversationId';
+    var conversation = data.channelConversations
+        .where((item) => item.id == conversationId)
+        .firstOrNull;
+    conversation ??= ChannelConversation(
+      id: conversationId,
+      channel: 'whatsapp',
+      externalConversationId: externalConversationId,
+    );
+    if (!data.channelConversations.contains(conversation)) {
+      data.channelConversations.add(conversation);
+    }
+    conversation
+      ..accountId = source.instance
+      ..customerName = source.customerName
+      ..phone = _normalizedBrazilPhone(source.phone)
+      ..lastMessageAt = source.createdAt
+      ..updatedAt = source.createdAt;
+    if (source.direction.toLowerCase() == 'entrada') {
+      conversation
+        ..lastInboundAt = source.createdAt
+        ..unread = true
+        ..unreadCount += 1;
+    } else {
+      conversation
+        ..lastOutboundAt = source.createdAt
+        ..unread = false
+        ..unreadCount = 0;
+    }
+    final externalMessageId = _firstNonEmpty(<String>[
+      source.providerMessageId,
+      source.clientRequestId,
+      source.id,
+    ]);
+    final id = 'channel-message:whatsapp:$externalMessageId';
+    if (!data.channelMessages.any((item) => item.id == id)) {
+      data.channelMessages.add(
+        ChannelMessage(
+          id: id,
+          channel: 'whatsapp',
+          accountId: source.instance,
+          conversationId: conversation.id,
+          externalMessageId: externalMessageId,
+          customerId: conversation.customerId,
+          appointmentId: conversation.appointmentId,
+          direction: source.direction,
+          text: source.message,
+          status: source.status,
+          createdAt: source.createdAt,
+        ),
+      );
+    }
+  }
+
+  void _mergeInstagramChannelMessage(InstagramMessage source) {
+    if (source.instagramScopedId.trim().isEmpty) return;
+    final conversationId =
+        'channel:instagram:${source.instagramScopedId.trim()}';
+    var conversation = data.channelConversations
+        .where((item) => item.id == conversationId)
+        .firstOrNull;
+    conversation ??= ChannelConversation(
+      id: conversationId,
+      channel: 'instagram',
+      accountId: data.settings.instagramAccountId,
+      externalConversationId: source.instagramScopedId.trim(),
+      externalUserId: source.instagramScopedId.trim(),
+    );
+    if (!data.channelConversations.contains(conversation)) {
+      data.channelConversations.add(conversation);
+    }
+    conversation
+      ..externalUsername = source.senderUsername
+      ..customerName = source.senderName
+      ..lastMessageAt = source.createdAt
+      ..updatedAt = source.createdAt;
+    if (source.inbound) {
+      conversation
+        ..lastInboundAt = source.createdAt
+        ..unread = true
+        ..unreadCount += 1;
+    } else {
+      conversation
+        ..lastOutboundAt = source.createdAt
+        ..unread = false
+        ..unreadCount = 0;
+    }
+    final externalMessageId = source.id.trim().isEmpty
+        ? '${source.instagramScopedId}:${source.createdAt.toIso8601String()}'
+        : source.id.trim();
+    final id = 'channel-message:instagram:$externalMessageId';
+    if (!data.channelMessages.any((item) => item.id == id)) {
+      data.channelMessages.add(
+        ChannelMessage(
+          id: id,
+          channel: 'instagram',
+          accountId: data.settings.instagramAccountId,
+          conversationId: conversation.id,
+          externalMessageId: externalMessageId,
+          externalUserId: source.instagramScopedId,
+          externalUsername: source.senderUsername,
+          customerId: conversation.customerId,
+          appointmentId: conversation.appointmentId,
+          direction: source.direction,
+          text: source.text,
+          status: source.status,
+          createdAt: source.createdAt,
+        ),
+      );
     }
   }
 
@@ -1319,6 +1871,66 @@ class AgendaController extends ChangeNotifier {
         .toList();
   }
 
+  DateTime _earliestPdvActivity(DateTime day) {
+    final candidates = <DateTime>[
+      for (final item in data.appointments.where(
+        (item) => _sameCalendarDay(item.start, day),
+      ))
+        item.paymentConfirmedAt ?? item.start,
+      for (final item in data.productSales.where(
+        (item) => _sameCalendarDay(item.soldAt, day),
+      ))
+        item.soldAt,
+      for (final item in data.manualPayments.where(
+        (item) => _sameCalendarDay(item.paidAt, day),
+      ))
+        item.paidAt,
+      for (final item in data.expenses.where(
+        (item) => _sameCalendarDay(item.date, day),
+      ))
+        item.date,
+    ]..sort();
+    return candidates.firstOrNull ?? day;
+  }
+
+  static bool _belongsToCashSession(
+    String cashSessionId,
+    DateTime occurredAt,
+    CashSession session,
+    DateTime end,
+  ) {
+    final linked = cashSessionId.trim();
+    return (linked.isNotEmpty &&
+            linked.toLowerCase() == session.id.toLowerCase()) ||
+        (linked.isEmpty &&
+            !occurredAt.isBefore(session.openedAt) &&
+            !occurredAt.isAfter(end));
+  }
+
+  static bool _isCashPayment(String method) =>
+      method.toLowerCase().contains('dinheiro');
+
+  static bool _isPixPayment(String method) =>
+      method.toLowerCase().contains('pix');
+
+  static bool _isDebitPayment(String method) {
+    final value = method.toLowerCase();
+    return value.contains('débito') ||
+        value.contains('debito') ||
+        value.contains('debit');
+  }
+
+  static bool _isCreditPayment(String method) {
+    final value = method.toLowerCase();
+    return value.contains('crédito') ||
+        value.contains('credito') ||
+        value.contains('credit') ||
+        (!_isDebitPayment(value) &&
+            (value.contains('cartão') ||
+                value.contains('cartao') ||
+                value.contains('card')));
+  }
+
   Future<void> _persist() async {
     _dataMutationGeneration++;
     await _repository.save(data);
@@ -1344,6 +1956,11 @@ class AgendaController extends ChangeNotifier {
 
 int _minInt(int first, int second) => first < second ? first : second;
 
+bool _sameCalendarDay(DateTime first, DateTime second) =>
+    first.year == second.year &&
+    first.month == second.month &&
+    first.day == second.day;
+
 extension _FirstOrNull<T> on Iterable<T> {
   T? get firstOrNull => isEmpty ? null : first;
 }
@@ -1363,6 +1980,28 @@ String _normalizedBrazilPhone(String value) {
     digits = digits.substring(2);
   }
   return digits;
+}
+
+String _normalizeChannel(String value) {
+  final normalized = value.trim().toLowerCase();
+  if (normalized.contains('whatsapp') ||
+      normalized == 'wa' ||
+      normalized == 'evolution') {
+    return 'whatsapp';
+  }
+  if (normalized.contains('instagram') ||
+      normalized == 'ig' ||
+      normalized == 'direct') {
+    return 'instagram';
+  }
+  return 'direct';
+}
+
+String _firstNonEmpty(Iterable<String> values) {
+  for (final value in values) {
+    if (value.trim().isNotEmpty) return value.trim();
+  }
+  return '';
 }
 
 String _buildOnboardingAddress({

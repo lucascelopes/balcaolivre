@@ -178,6 +178,10 @@ class AgendaAuthSession {
     required this.expiresAt,
     this.issuer = '',
     this.identityVerifiedAt,
+    this.ownerUserId = '',
+    this.professionalId = '',
+    this.permissionScope = '',
+    this.requiresPasswordChange = false,
   });
 
   final String userId;
@@ -187,9 +191,17 @@ class AgendaAuthSession {
   final DateTime expiresAt;
   final String issuer;
   final DateTime? identityVerifiedAt;
+  final String ownerUserId;
+  final String professionalId;
+  final String permissionScope;
+  final bool requiresPasswordChange;
 
   bool get hasVerifiedIdentity =>
       issuer.trim().isNotEmpty && identityVerifiedAt != null;
+  bool get isProfessionalAccount =>
+      ownerUserId.trim().isNotEmpty && professionalId.trim().isNotEmpty;
+  String get effectiveAccountUserId =>
+      isProfessionalAccount ? ownerUserId : userId;
 
   bool get expiresSoon => expiresAt.isBefore(
     DateTime.now().toUtc().add(const Duration(minutes: 2)),
@@ -203,6 +215,10 @@ class AgendaAuthSession {
     'expiresAt': expiresAt.toUtc().toIso8601String(),
     'issuer': issuer,
     'identityVerifiedAt': identityVerifiedAt?.toUtc().toIso8601String(),
+    'ownerUserId': ownerUserId,
+    'professionalId': professionalId,
+    'permissionScope': permissionScope,
+    'requiresPasswordChange': requiresPasswordChange,
   };
 
   static AgendaAuthSession? fromJson(Map<String, dynamic> json) {
@@ -226,6 +242,10 @@ class AgendaAuthSession {
       identityVerifiedAt: DateTime.tryParse(
         _string(json['identityVerifiedAt']),
       )?.toUtc(),
+      ownerUserId: _string(json['ownerUserId']),
+      professionalId: _string(json['professionalId']),
+      permissionScope: _string(json['permissionScope']),
+      requiresPasswordChange: json['requiresPasswordChange'] == true,
     );
   }
 }
@@ -943,6 +963,10 @@ class AgendaAuthService {
       expiresAt: session.expiresAt,
       issuer: expectedIssuer,
       identityVerifiedAt: _clock().toUtc(),
+      ownerUserId: identity.ownerUserId,
+      professionalId: identity.professionalId,
+      permissionScope: identity.permissionScope,
+      requiresPasswordChange: identity.requiresPasswordChange,
     );
     await _commitSession(operation, verified);
     return verified;
@@ -1086,7 +1110,7 @@ class AgendaAuthService {
         statusCode: 401,
       );
     }
-    return _AgendaAuthIdentity(userId: userId, email: _string(user['email']));
+    return _AgendaAuthIdentity.fromUserJson(user);
   }
 
   AgendaAuthSession _sessionFromAuthJson(
@@ -1104,6 +1128,7 @@ class AgendaAuthService {
     final email = _firstString(user, const <String>[
       'email',
     ], fallback: fallbackEmail);
+    final identity = _AgendaAuthIdentity.fromUserJson(user);
     final accessToken = _string(json['access_token']);
     final refreshToken = _string(json['refresh_token']).isEmpty
         ? fallbackRefreshToken
@@ -1131,6 +1156,10 @@ class AgendaAuthService {
       expiresAt: expiresAt,
       issuer: issuer,
       identityVerifiedAt: identityVerifiedAt,
+      ownerUserId: identity.ownerUserId,
+      professionalId: identity.professionalId,
+      permissionScope: identity.permissionScope,
+      requiresPasswordChange: identity.requiresPasswordChange,
     );
   }
 
@@ -1256,10 +1285,48 @@ class _AgendaAuthCallback {
 }
 
 class _AgendaAuthIdentity {
-  const _AgendaAuthIdentity({required this.userId, required this.email});
+  const _AgendaAuthIdentity({
+    required this.userId,
+    required this.email,
+    this.ownerUserId = '',
+    this.professionalId = '',
+    this.permissionScope = '',
+    this.requiresPasswordChange = false,
+  });
 
   final String userId;
   final String email;
+  final String ownerUserId;
+  final String professionalId;
+  final String permissionScope;
+  final bool requiresPasswordChange;
+
+  factory _AgendaAuthIdentity.fromUserJson(Map<String, dynamic> user) {
+    final rawMetadata = user['app_metadata'];
+    final metadata = rawMetadata is Map
+        ? Map<String, dynamic>.from(rawMetadata)
+        : <String, dynamic>{};
+    return _AgendaAuthIdentity(
+      userId: _string(user['id']),
+      email: _string(user['email']),
+      ownerUserId: _firstString(metadata, const <String>[
+        'agenda_owner_user_id',
+        'agendaOwnerUserId',
+      ]),
+      professionalId: _firstString(metadata, const <String>[
+        'agenda_professional_id',
+        'agendaProfessionalId',
+      ]),
+      permissionScope: _firstString(metadata, const <String>[
+        'agenda_permission_scope',
+        'agendaPermissionScope',
+      ]),
+      requiresPasswordChange:
+          metadata['agenda_require_password_change'] == true ||
+          _string(metadata['agenda_require_password_change']).toLowerCase() ==
+              'true',
+    );
+  }
 }
 
 class AgendaTrialStatus {
@@ -1287,6 +1354,73 @@ class AgendaTrialStatus {
   }
 }
 
+class AgendaEntitlement {
+  const AgendaEntitlement({
+    this.status = 'pending_activation',
+    this.canUse = false,
+    this.trialStartedAt,
+    this.trialEndsAt,
+    this.daysRemaining = 0,
+    this.currentPeriodEndsAt,
+    this.graceEndsAt,
+    this.paymentUrl = '',
+    this.supportUrl = '',
+  });
+
+  final String status;
+  final bool canUse;
+  final DateTime? trialStartedAt;
+  final DateTime? trialEndsAt;
+  final int daysRemaining;
+  final DateTime? currentPeriodEndsAt;
+  final DateTime? graceEndsAt;
+  final String paymentUrl;
+  final String supportUrl;
+
+  bool get isPaid => status == 'active' || status == 'past_due';
+  bool get needsRenewal => !canUse;
+
+  static AgendaEntitlement fromJson(Object? value) {
+    if (value is! Map) return const AgendaEntitlement();
+    final json = Map<String, dynamic>.from(value);
+    return AgendaEntitlement(
+      status: _string(json['status']).trim().toLowerCase(),
+      canUse: json['canUse'] == true,
+      trialStartedAt: DateTime.tryParse(_string(json['trialStartedAt'])),
+      trialEndsAt: DateTime.tryParse(_string(json['trialEndsAt'])),
+      daysRemaining: _integer(json['daysRemaining']),
+      currentPeriodEndsAt: DateTime.tryParse(
+        _string(json['currentPeriodEndsAt']),
+      ),
+      graceEndsAt: DateTime.tryParse(_string(json['graceEndsAt'])),
+      paymentUrl: _string(json['paymentUrl']),
+      supportUrl: _string(json['supportUrl']),
+    );
+  }
+}
+
+class AgendaBillingCard {
+  const AgendaBillingCard({
+    required this.brand,
+    required this.last4,
+    required this.expMonth,
+    required this.expYear,
+  });
+
+  final String brand;
+  final String last4;
+  final int expMonth;
+  final int expYear;
+
+  String get displayBrand => switch (brand.toLowerCase()) {
+    'visa' => 'Visa',
+    'mastercard' => 'Mastercard',
+    'amex' => 'American Express',
+    'elo' => 'Elo',
+    _ => 'Cartão',
+  };
+}
+
 class AgendaRemoteState {
   const AgendaRemoteState({
     required this.exists,
@@ -1295,6 +1429,7 @@ class AgendaRemoteState {
     required this.payload,
     required this.updatedAt,
     required this.trial,
+    this.entitlement = const AgendaEntitlement(),
   });
 
   final bool exists;
@@ -1303,6 +1438,7 @@ class AgendaRemoteState {
   final Map<String, dynamic>? payload;
   final DateTime? updatedAt;
   final AgendaTrialStatus trial;
+  final AgendaEntitlement entitlement;
 
   static AgendaRemoteState fromJson(Map<String, dynamic> json) {
     final rawPayload = json['payload'];
@@ -1313,8 +1449,25 @@ class AgendaRemoteState {
       payload: rawPayload is Map ? Map<String, dynamic>.from(rawPayload) : null,
       updatedAt: DateTime.tryParse(_string(json['updatedAt'])),
       trial: AgendaTrialStatus.fromJson(json['trial']),
+      entitlement: AgendaEntitlement.fromJson(json['entitlement']),
     );
   }
+}
+
+class AgendaStaffAccountResult {
+  const AgendaStaffAccountResult({
+    required this.authUserId,
+    required this.status,
+    required this.seatKind,
+    required this.monthlyPriceCents,
+    this.checkoutUrl = '',
+  });
+
+  final String authUserId;
+  final String status;
+  final String seatKind;
+  final int monthlyPriceCents;
+  final String checkoutUrl;
 }
 
 abstract interface class AgendaAccountStateClient {
@@ -1426,11 +1579,140 @@ class AgendaAccountApi implements AgendaAccountStateClient {
     return uri;
   }
 
+  Future<Uri> createSubscriptionPortal() async {
+    final config = await _configService.load();
+    final response = await _authorizedRequest(
+      config,
+      method: 'POST',
+      uri: _resolveUri(
+        _configService.apiBase,
+        '/api/agenda/subscriptions/portal',
+      ),
+      body: '{}',
+    );
+    if (!response.isSuccess) {
+      throw AgendaApiException.fromResponse(
+        response,
+        fallbackMessage: 'Não foi possível abrir sua assinatura agora.',
+      );
+    }
+    final rawPortal = _decodeObject(response.body)['portal'];
+    final portal = rawPortal is Map
+        ? Map<String, dynamic>.from(rawPortal)
+        : <String, dynamic>{};
+    final uri = Uri.tryParse(_firstString(portal, const <String>['url']));
+    if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
+      throw const AgendaApiException(
+        'portal_response_invalid',
+        'O servidor não retornou um link seguro da Stripe.',
+      );
+    }
+    return uri;
+  }
+
+  Future<AgendaBillingCard?> getSubscriptionCardSummary() async {
+    final config = await _configService.load();
+    final response = await _authorizedRequest(
+      config,
+      method: 'GET',
+      uri: _resolveUri(
+        _configService.apiBase,
+        '/api/agenda/subscriptions/summary',
+      ),
+    );
+    if (!response.isSuccess) {
+      throw AgendaApiException.fromResponse(
+        response,
+        fallbackMessage: 'Não foi possível consultar o cartão salvo agora.',
+      );
+    }
+    final rawCard = _decodeObject(response.body)['card'];
+    if (rawCard is! Map) return null;
+    final card = Map<String, dynamic>.from(rawCard);
+    final last4 = _string(card['last4']);
+    if (!RegExp(r'^\d{4}$').hasMatch(last4)) return null;
+    return AgendaBillingCard(
+      brand: _string(card['brand']),
+      last4: last4,
+      expMonth: _integer(card['expMonth']),
+      expYear: _integer(card['expYear']),
+    );
+  }
+
+  Future<AgendaEntitlement> claimSubscription(String sessionId) async {
+    final config = await _configService.load();
+    final response = await _authorizedRequest(
+      config,
+      method: 'POST',
+      uri: _resolveUri(
+        _configService.apiBase,
+        '/api/agenda/subscriptions/claim',
+      ),
+      body: jsonEncode(<String, String>{'sessionId': sessionId}),
+    );
+    if (!response.isSuccess) {
+      throw AgendaApiException.fromResponse(
+        response,
+        fallbackMessage: 'Não foi possível ativar sua assinatura agora.',
+      );
+    }
+    return AgendaEntitlement.fromJson(
+      _decodeObject(response.body)['entitlement'],
+    );
+  }
+
+  Future<AgendaStaffAccountResult> createProfessionalAccess({
+    required String professionalId,
+    required String name,
+    required String role,
+    required String email,
+    required String password,
+    required String permissionScope,
+    required bool requirePasswordChange,
+    required String deviceId,
+  }) async {
+    final config = await _configService.load();
+    final response = await _authorizedRequest(
+      config,
+      method: 'POST',
+      uri: config.supabaseUrl.resolve('/functions/v1/agenda-staff'),
+      headers: <String, String>{'apikey': config.publishableKey},
+      body: jsonEncode(<String, Object?>{
+        'action': 'create',
+        'professionalId': professionalId,
+        'name': name,
+        'role': role,
+        'email': email,
+        'password': password,
+        'permissionScope': permissionScope,
+        'requirePasswordChange': requirePasswordChange,
+        'deviceId': deviceId,
+      }),
+    );
+    if (!response.isSuccess) {
+      throw AgendaApiException.fromResponse(
+        response,
+        fallbackMessage: response.statusCode == 409
+            ? 'Este acesso já está em uso em outro dispositivo.'
+            : 'Não foi possível criar o acesso do profissional.',
+      );
+    }
+    final value = _decodeObject(response.body);
+    return AgendaStaffAccountResult(
+      authUserId: _string(value['authUserId']),
+      status: _string(value['status']),
+      seatKind: _string(value['seatKind']),
+      monthlyPriceCents: _integer(value['monthlyPriceCents']),
+      checkoutUrl: _string(value['checkoutUrl']),
+    );
+  }
+
   Future<ServiceHttpResponse> _authorizedRequest(
     AgendaRemoteConfig config, {
     required String method,
     Uri? uri,
     String? body,
+    Map<String, String> headers = const <String, String>{},
   }) async {
     Future<ServiceHttpResponse> send(String token) => _transport.send(
       ServiceHttpRequest(
@@ -1440,6 +1722,7 @@ class AgendaAccountApi implements AgendaAccountStateClient {
           'Accept': 'application/json',
           if (body != null) 'Content-Type': 'application/json; charset=utf-8',
           'Authorization': 'Bearer $token',
+          ...headers,
         },
         body: body,
         timeout: const Duration(seconds: 20),

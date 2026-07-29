@@ -295,6 +295,7 @@ class _InstagramSettingsDialogState extends State<_InstagramSettingsDialog> {
     }
     final rows = [...result.messages]
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    await widget.controller.mergeInstagramMessages(rows);
     final inbound = rows.where((message) => message.inbound).toList();
     if (!mounted) return;
     setState(() {
@@ -338,21 +339,22 @@ class _InstagramSettingsDialogState extends State<_InstagramSettingsDialog> {
         );
       }
       final now = DateTime.now();
+      final outgoing = InstagramMessage(
+        id: result.remoteMessageId,
+        instagramScopedId: _selectedRecipientId,
+        senderName: _displayName,
+        senderUsername: _username,
+        text: text,
+        direction: 'saida',
+        createdAt: now,
+        status: 'enviado',
+      );
+      await widget.controller.mergeInstagramMessages(<InstagramMessage>[
+        outgoing,
+      ]);
       if (!mounted) return;
       setState(() {
-        _messages = <InstagramMessage>[
-          ..._messages,
-          InstagramMessage(
-            id: result.remoteMessageId,
-            instagramScopedId: _selectedRecipientId,
-            senderName: _displayName,
-            senderUsername: _username,
-            text: text,
-            direction: 'saida',
-            createdAt: now,
-            status: 'enviado',
-          ),
-        ];
+        _messages = <InstagramMessage>[..._messages, outgoing];
         _reply.clear();
         _message = 'Resposta enviada pelo Instagram.';
       });

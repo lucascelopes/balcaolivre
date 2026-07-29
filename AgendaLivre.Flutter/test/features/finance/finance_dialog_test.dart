@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:agenda_livre/app/agenda_controller.dart';
 import 'package:agenda_livre/app/theme/agenda_theme.dart';
 import 'package:agenda_livre/domain/models/agenda_data.dart';
@@ -6,13 +8,18 @@ import 'package:agenda_livre/features/finance/finance_page.dart';
 import 'package:agenda_livre/services/http_transport.dart';
 import 'package:agenda_livre/services/mercado_pago_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import '../../services/fake_http_transport.dart';
 
 void main() {
-  setUpAll(() => initializeDateFormatting('pt_BR'));
+  setUpAll(() async {
+    await initializeDateFormatting('pt_BR');
+    await _loadTestFont('Segoe UI', r'C:\Windows\Fonts\segoeui.ttf');
+    await _loadTestFont('Ahem', r'C:\Windows\Fonts\segoeui.ttf');
+  });
 
   testWidgets('mantém as dimensões desktop dos diálogos financeiros', (
     tester,
@@ -195,6 +202,31 @@ void main() {
     expect(payment.paymentStatus, 'approved');
   });
 
+  testWidgets('executa as ações do cabeçalho financeiro alinhado ao WPF', (
+    tester,
+  ) async {
+    final harness = await _pumpFinance(tester, const Size(1382, 736));
+
+    await tester.tap(find.text('Nova movimentação'));
+    await tester.pumpAndSettle();
+    expect(find.text('Escolha o que deseja registrar.'), findsOneWidget);
+    expect(find.text('Lançar entrada'), findsWidgets);
+    expect(find.text('Lançar despesa'), findsWidgets);
+    expect(find.text('Vender produto'), findsWidgets);
+    Navigator.of(
+      tester.element(find.text('Escolha o que deseja registrar.')),
+    ).pop();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Atualizar análise'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('Exportar'));
+    await tester.pumpAndSettle();
+    expect(harness.controller.page, AgendaPage.reports);
+  });
+
   testWidgets('renderiza o novo resumo lateral do recebimento', (tester) async {
     await _pumpFinance(tester, const Size(1358, 695));
     await _openPaymentDialog(tester);
@@ -216,6 +248,13 @@ void main() {
       matchesGoldenFile('goldens/expense_dialog_option3.png'),
     );
   });
+}
+
+Future<void> _loadTestFont(String family, String path) async {
+  final loader = FontLoader(family);
+  final bytes = await File(path).readAsBytes();
+  loader.addFont(Future<ByteData>.value(ByteData.sublistView(bytes)));
+  await loader.load();
 }
 
 Future<_FinanceHarness> _pumpFinance(

@@ -206,7 +206,11 @@ void main() {
     );
   }
 
-  for (final size in <Size>[const Size(1200, 640), const Size(390, 844)]) {
+  for (final size in <Size>[
+    const Size(1366, 768),
+    const Size(1200, 640),
+    const Size(390, 844),
+  ]) {
     testWidgets(
       'captura shell e Financeiro reais em ${size.width.toInt()}x${size.height.toInt()}',
       (tester) async {

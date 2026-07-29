@@ -13,13 +13,18 @@ void main() {
       'Professional': Professional().toJson().keys.toSet(),
       'Customer': Customer().toJson().keys.toSet(),
       'Appointment': Appointment().toJson().keys.toSet(),
+      'AppointmentServiceLine': AppointmentServiceLine().toJson().keys.toSet(),
+      'AppointmentProductLine': AppointmentProductLine().toJson().keys.toSet(),
       'ProductItem': ProductItem().toJson().keys.toSet(),
       'ProductSale': ProductSale().toJson().keys.toSet(),
       'ManualPayment': ManualPayment().toJson().keys.toSet(),
       'CustomerReceivable': CustomerReceivable().toJson().keys.toSet(),
       'ExpenseItem': ExpenseItem().toJson().keys.toSet(),
+      'CashSession': CashSession().toJson().keys.toSet(),
       'WhatsAppMessage': WhatsAppMessage().toJson().keys.toSet(),
       'WhatsAppLead': WhatsAppLead().toJson().keys.toSet(),
+      'ChannelConversation': ChannelConversation().toJson().keys.toSet(),
+      'ChannelMessage': ChannelMessage().toJson().keys.toSet(),
     };
 
     for (final entry in flutterContracts.entries) {

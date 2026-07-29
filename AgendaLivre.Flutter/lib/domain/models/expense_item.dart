@@ -8,6 +8,7 @@ class ExpenseItem {
     this.category = '',
     this.supplier = '',
     this.paymentMethod = '',
+    this.cashSessionId = '',
     this.notes = '',
     this.value = 0,
     DateTime? date,
@@ -20,6 +21,7 @@ class ExpenseItem {
   String category;
   String supplier;
   String paymentMethod;
+  String cashSessionId;
   String notes;
   double value;
   DateTime date;
@@ -31,6 +33,7 @@ class ExpenseItem {
     category: jsonString(json, 'Category'),
     supplier: jsonString(json, 'Supplier'),
     paymentMethod: jsonString(json, 'PaymentMethod'),
+    cashSessionId: jsonString(json, 'CashSessionId'),
     notes: jsonString(json, 'Notes'),
     value: jsonDouble(json, 'Value'),
     date: jsonDateTime(json, 'Date', fallback: DateTime.now()),
@@ -43,6 +46,7 @@ class ExpenseItem {
     'Category': category,
     'Supplier': supplier,
     'PaymentMethod': paymentMethod,
+    'CashSessionId': cashSessionId,
     'Notes': notes,
     'Value': value,
     'Date': date.toIso8601String(),

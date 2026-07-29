@@ -10,88 +10,77 @@ import 'package:intl/date_symbol_data_local.dart';
 void main() {
   setUpAll(() => initializeDateFormatting('pt_BR'));
 
-  testWidgets('mantém o grid do WPF no mínimo desktop de 1200x640', (
-    tester,
-  ) async {
+  testWidgets('mantém o dashboard analítico do WPF no desktop', (tester) async {
     await _pumpFinance(tester, const Size(1200, 640), contentWidth: 940);
 
-    final hero = tester.getRect(find.byKey(const Key('finance-hero')));
-    final strip = tester.getRect(find.byKey(const Key('finance-metric-strip')));
-    final sources = tester.getRect(
-      find.byKey(const Key('finance-sources-card')),
+    final result = tester.getRect(
+      find.byKey(const Key('finance-result-formation-card')),
     );
-    final pending = tester.getRect(
-      find.byKey(const Key('finance-pending-card')),
+    final nextThirtyDays = tester.getRect(
+      find.byKey(const Key('finance-next-30-days-card')),
     );
-    final expenses = tester.getRect(
-      find.byKey(const Key('finance-expenses-card')),
+    final risk = tester.getRect(find.byKey(const Key('finance-risk-card')));
+    final funnel = tester.getRect(
+      find.byKey(const Key('finance-receipt-funnel-card')),
     );
-    final chart = tester.getRect(find.byKey(const Key('finance-chart-card')));
-    final mercadoPago = tester.getRect(
-      find.byKey(const Key('finance-mercado-pago-card')),
+    final composition = tester.getRect(
+      find.byKey(const Key('finance-receipt-composition-card')),
     );
 
-    // O WPF reserva 260 px para a barra lateral no seu MinWidth de 1200.
-    expect(hero.left, closeTo(288, .1));
-    expect(hero.right, closeTo(1164, .1));
-    expect(strip.left, closeTo(hero.left, .1));
-    expect(strip.right, closeTo(hero.right, .1));
-    expect(strip.height, closeTo(102, .1));
-    expect(sources.width / pending.width, closeTo(1.22, .03));
-    expect(expenses.width - pending.width, closeTo(10, 1));
-    expect((sources.top - pending.top).abs(), lessThan(.1));
-    expect((sources.bottom - expenses.bottom).abs(), lessThan(.1));
-    expect(chart.width / mercadoPago.width, closeTo(2.15 / 1.1, .04));
-    expect((chart.top - mercadoPago.top).abs(), lessThan(.1));
-    expect((chart.bottom - mercadoPago.bottom).abs(), lessThan(.1));
-    expect(find.text('Lançar entrada'), findsOneWidget);
-    expect(find.text('Lançar despesa'), findsOneWidget);
-    expect(find.text('Vender produto'), findsOneWidget);
+    expect(find.byKey(const Key('finance-kpi-grid')), findsOneWidget);
+    expect(find.byKey(const Key('finance-kpi-Receita')), findsOneWidget);
+    expect(
+      find.byKey(const Key('finance-kpi-Agenda a receber')),
+      findsOneWidget,
+    );
+    expect(result.top, closeTo(nextThirtyDays.top, .1));
+    expect(result.bottom, closeTo(nextThirtyDays.bottom, .1));
+    expect(risk.top, closeTo(funnel.top, .1));
+    expect(risk.top, closeTo(composition.top, .1));
+    expect(risk.bottom, closeTo(funnel.bottom, .1));
+    expect(risk.bottom, closeTo(composition.bottom, .1));
+    expect(find.byKey(const Key('finance-forecast-card')), findsOneWidget);
+    expect(
+      find.byKey(const Key('finance-quick-operations-card')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('reempilha os mesmos blocos do WPF sem overflow em 390x844', (
+  testWidgets('reempilha o dashboard do WPF sem overflow em 390x844', (
     tester,
   ) async {
     await _pumpFinance(tester, const Size(390, 844));
 
-    expect(find.byKey(const Key('finance-primary-stack')), findsOneWidget);
-    expect(find.byKey(const Key('finance-lower-stack')), findsOneWidget);
-    expect(find.byKey(const Key('finance-metric-strip')), findsOneWidget);
-    final hero = tester.getRect(find.byKey(const Key('finance-hero')));
-    final strip = tester.getRect(find.byKey(const Key('finance-metric-strip')));
     final result = tester.getRect(
-      find.byKey(const Key('finance-metric-result')),
+      find.byKey(const Key('finance-result-formation-card')),
     );
-    final received = tester.getRect(
-      find.byKey(const Key('finance-metric-received')),
+    final nextThirtyDays = tester.getRect(
+      find.byKey(const Key('finance-next-30-days-card')),
     );
-    final pending = tester.getRect(
-      find.byKey(const Key('finance-metric-pending')),
+    final risk = tester.getRect(find.byKey(const Key('finance-risk-card')));
+    final funnel = tester.getRect(
+      find.byKey(const Key('finance-receipt-funnel-card')),
     );
-    final expenses = tester.getRect(
-      find.byKey(const Key('finance-metric-expenses')),
+    final composition = tester.getRect(
+      find.byKey(const Key('finance-receipt-composition-card')),
     );
-    expect(hero.left, closeTo(14, .1));
-    expect(hero.right, closeTo(376, .1));
-    expect(strip.height, closeTo(188, .1));
-    expect(result.top, closeTo(received.top, .1));
-    expect(pending.top, greaterThan(result.top));
-    expect(pending.top, closeTo(expenses.top, .1));
-    final stripWidget = tester.widget<Container>(
-      find.byKey(const Key('finance-metric-strip')),
-    );
-    expect(
-      (stripWidget.decoration! as BoxDecoration).color,
-      const Color(0xFF171614),
-    );
-    expect(find.text('Lançar entrada'), findsOneWidget);
-    expect(find.text('Lançar despesa'), findsOneWidget);
-    expect(find.text('Vender produto'), findsOneWidget);
+
+    expect(find.text('Financeiro'), findsOneWidget);
+    expect(find.byKey(const Key('finance-kpi-grid')), findsOneWidget);
+    expect(result.left, closeTo(14, .1));
+    expect(result.right, closeTo(376, .1));
+    expect(nextThirtyDays.top, greaterThan(result.bottom));
+    expect(risk.top, greaterThan(nextThirtyDays.bottom));
+    expect(funnel.top, greaterThan(risk.bottom));
+    expect(composition.top, greaterThan(funnel.bottom));
+    expect(find.byKey(const Key('finance-quick-receive')), findsOneWidget);
+    expect(find.byKey(const Key('finance-quick-expense')), findsOneWidget);
+    expect(find.byKey(const Key('finance-quick-product')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('calcula recebimentos e pendências pelas mesmas datas do WPF', (
+  testWidgets('calcula receita e agenda a receber pelas datas do WPF', (
     tester,
   ) async {
     final now = DateTime.now();
@@ -158,48 +147,38 @@ void main() {
 
     await _pumpFinance(tester, const Size(390, 844), data: data);
 
-    final sources = find.byKey(const Key('finance-sources-card'));
+    final revenue = find.byKey(const Key('finance-kpi-Receita'));
     expect(
-      find.descendant(of: sources, matching: find.textContaining('110,00')),
-      findsNWidgets(2),
+      find.descendant(of: revenue, matching: find.textContaining('110,00')),
+      findsOneWidget,
     );
-    final pendingCard = find.byKey(const Key('finance-pending-card'));
+    final pending = find.byKey(const Key('finance-kpi-Agenda a receber'));
     expect(
-      find.descendant(of: pendingCard, matching: find.text('Ainda em aberto')),
+      find.descendant(of: pending, matching: find.textContaining('45,00')),
       findsOneWidget,
     );
     expect(
-      find.descendant(of: pendingCard, matching: find.textContaining('45,00')),
-      findsNWidgets(2),
+      find.descendant(
+        of: pending,
+        matching: find.text('1 atendimento(s) sem recebimento'),
+      ),
+      findsOneWidget,
     );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('abre a cobrança vinculada ao atendimento pendente escolhido', (
+  testWidgets('abre o lançamento de entrada pelas operações rápidas', (
     tester,
   ) async {
-    final pending = Appointment(
-      id: 'pending-to-receive',
-      customerName: 'Mariana Costa',
-      serviceName: 'Manicure',
-      start: DateTime.now(),
-      price: 55,
-      status: AppointmentStatus.done,
-    );
-    await _pumpFinance(
-      tester,
-      const Size(1200, 720),
-      data: AgendaData(appointments: [pending]),
-    );
+    await _pumpFinance(tester, const Size(1200, 720));
 
-    await tester.tap(
-      find.byKey(const ValueKey('finance-receive-pending-to-receive')),
-    );
+    await tester.ensureVisible(find.byKey(const Key('finance-quick-receive')));
+    await tester.tap(find.byKey(const Key('finance-quick-receive')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('appointment-payment-dialog')), findsOneWidget);
-    expect(find.byKey(const Key('finance-payment-dialog')), findsNothing);
-    expect(find.text('Mariana Costa'), findsWidgets);
+    expect(find.byKey(const Key('finance-payment-dialog')), findsOneWidget);
+    expect(find.byKey(const Key('appointment-payment-dialog')), findsNothing);
+    expect(find.text('Registrar pagamento'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 }

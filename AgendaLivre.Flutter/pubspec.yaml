@@ -43,7 +43,9 @@ dependencies:
   url_launcher: ^6.3.2
   font_awesome_flutter: ^11.0.0
   file_picker: ^10.3.8
-  image: ^4.5.4
+  image: 4.2.0
+  pdf: ^3.11.3
+  printing: ^5.14.2
 
 dev_dependencies:
   flutter_test:
@@ -80,6 +82,11 @@ flutter:
     - assets/branding/marketing-site-hero-hair.png
     - assets/branding/marketing-story-background.png
     - assets/themes/
+
+  fonts:
+    - family: LibreBaskerville
+      fonts:
+        - asset: assets/fonts/LibreBaskerville-Variable.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

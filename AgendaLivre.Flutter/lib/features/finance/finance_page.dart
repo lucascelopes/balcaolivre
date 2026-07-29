@@ -11,6 +11,7 @@ import '../../services/mercado_pago_service.dart';
 import '../agenda/appointment_payment_dialog.dart';
 import '../establishment/editor_dialogs.dart';
 import '../payments/mercado_pago_settings_dialog.dart';
+import 'finance_wpf_dashboard.dart';
 import 'product_sale_dialog.dart';
 
 const _positive = Color(0xFF16A34A);
@@ -106,6 +107,17 @@ class _FinancePageState extends State<FinancePage> {
     return AnimatedBuilder(
       animation: widget.controller,
       builder: (context, _) {
+        const legacyDashboard = bool.fromEnvironment(
+          'AGENDA_FINANCE_LEGACY_DASHBOARD',
+        );
+        if (!legacyDashboard) {
+          return FinanceWpfDashboard(
+            controller: widget.controller,
+            onReceive: _registerPayment,
+            onExpense: _registerExpense,
+            onProduct: _sellProduct,
+          );
+        }
         final snapshot = _FinanceSnapshot.from(widget.controller);
         final desktop = MediaQuery.sizeOf(context).width >= 1200;
         return ColoredBox(
@@ -137,6 +149,11 @@ class _FinancePageState extends State<FinancePage> {
                     ),
                     const SizedBox(height: 14),
                     _FinanceMetricStrip(snapshot: snapshot, desktop: desktop),
+                    const SizedBox(height: 14),
+                    _FinanceChannelAttributionCard(
+                      snapshot: snapshot,
+                      desktop: desktop,
+                    ),
                     const SizedBox(height: 14),
                     _buildPrimaryCards(snapshot, desktop),
                     const SizedBox(height: 10),
@@ -937,6 +954,184 @@ class _FinanceSourcesCard extends StatelessWidget {
           _ValueLine(label: 'Produtos vendidos', value: money(productTotal)),
           _ValueLine(label: 'Recebimentos avulsos', value: money(manualTotal)),
         ],
+      ),
+    );
+  }
+}
+
+class _FinanceChannelAttributionCard extends StatelessWidget {
+  const _FinanceChannelAttributionCard({
+    required this.snapshot,
+    required this.desktop,
+  });
+
+  final _FinanceSnapshot snapshot;
+  final bool desktop;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AgendaThemeTokens.of(context);
+    final cards = <_FinanceChannelSummary>[
+      snapshot.directChannel,
+      snapshot.whatsAppChannel,
+      snapshot.instagramChannel,
+    ];
+    return _FinanceSurface(
+      key: const Key('finance-channel-attribution-card'),
+      radius: 16,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Receita e agenda por canal',
+                      style: TextStyle(
+                        color: t.ink,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'A origem acompanha o cliente, o agendamento e o recebimento.',
+                      style: TextStyle(color: t.muted, fontSize: 10.5),
+                    ),
+                  ],
+                ),
+              ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: t.accentSoft,
+                  border: Border.all(color: t.line),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  child: Text(
+                    [
+                          if (snapshot.whatsAppLinked) 'WhatsApp',
+                          if (snapshot.instagramLinked) 'Instagram',
+                        ].join(' + ').trim().isEmpty
+                        ? 'Canais não conectados'
+                        : '${[if (snapshot.whatsAppLinked) 'WhatsApp', if (snapshot.instagramLinked) 'Instagram'].join(' + ')} sincronizado(s)',
+                    style: TextStyle(
+                      color: t.accentDark,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (desktop)
+            Row(
+              children: [
+                for (var index = 0; index < cards.length; index++) ...[
+                  if (index > 0) const SizedBox(width: 8),
+                  Expanded(child: _FinanceChannelTile(data: cards[index])),
+                ],
+              ],
+            )
+          else
+            Column(
+              children: [
+                for (var index = 0; index < cards.length; index++) ...[
+                  if (index > 0) const SizedBox(height: 8),
+                  _FinanceChannelTile(data: cards[index]),
+                ],
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FinanceChannelTile extends StatelessWidget {
+  const _FinanceChannelTile({required this.data});
+
+  final _FinanceChannelSummary data;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AgendaThemeTokens.of(context);
+    final (icon, tone, background, label) = switch (data.channel) {
+      'whatsapp' => (
+        Icons.chat_rounded,
+        const Color(0xFF15803D),
+        const Color(0xFFDCFCE7),
+        'WhatsApp',
+      ),
+      'instagram' => (
+        Icons.camera_alt_outlined,
+        const Color(0xFFBE185D),
+        const Color(0xFFFCE7F3),
+        'Instagram',
+      ),
+      _ => (
+        Icons.calendar_month_outlined,
+        t.ink,
+        t.graySoft,
+        'Direto / balcão',
+      ),
+    };
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: background.withValues(alpha: .45),
+        border: Border.all(color: tone.withValues(alpha: .18)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: background,
+              child: Icon(icon, size: 19, color: tone),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: t.ink,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Text(
+                    money(data.revenue, cents: false),
+                    style: TextStyle(
+                      color: tone,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Text(
+                    '${data.appointments} agendamento(s)'
+                    '${data.channel == 'direct' ? '' : ' · ${data.conversations} conversa(s)'}',
+                    style: TextStyle(color: t.muted, fontSize: 9.5),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -3070,6 +3265,11 @@ class _FinanceSnapshot {
     required this.pendingTotal,
     required this.expenses,
     required this.chartDays,
+    required this.directChannel,
+    required this.whatsAppChannel,
+    required this.instagramChannel,
+    required this.whatsAppLinked,
+    required this.instagramLinked,
   });
 
   final double serviceMonth;
@@ -3082,6 +3282,11 @@ class _FinanceSnapshot {
   final double pendingTotal;
   final List<ExpenseItem> expenses;
   final List<_FinanceDay> chartDays;
+  final _FinanceChannelSummary directChannel;
+  final _FinanceChannelSummary whatsAppChannel;
+  final _FinanceChannelSummary instagramChannel;
+  final bool whatsAppLinked;
+  final bool instagramLinked;
 
   factory _FinanceSnapshot.from(AgendaController controller) {
     final today = DateUtils.dateOnly(DateTime.now());
@@ -3120,6 +3325,24 @@ class _FinanceSnapshot {
       );
     });
     final receivedMonth = serviceMonth + productMonth + manualMonth;
+    final directChannel = _financeChannelSummary(
+      data,
+      monthStart,
+      nextMonth,
+      'direct',
+    );
+    final whatsAppChannel = _financeChannelSummary(
+      data,
+      monthStart,
+      nextMonth,
+      'whatsapp',
+    );
+    final instagramChannel = _financeChannelSummary(
+      data,
+      monthStart,
+      nextMonth,
+      'instagram',
+    );
     return _FinanceSnapshot(
       serviceMonth: serviceMonth,
       productMonth: productMonth,
@@ -3131,6 +3354,11 @@ class _FinanceSnapshot {
       pendingTotal: pending.fold<double>(0, (sum, item) => sum + item.price),
       expenses: expenses,
       chartDays: chartDays,
+      directChannel: directChannel,
+      whatsAppChannel: whatsAppChannel,
+      instagramChannel: instagramChannel,
+      whatsAppLinked: data.settings.whatsAppLinked,
+      instagramLinked: data.settings.instagramLinked,
     );
   }
 
@@ -3174,6 +3402,112 @@ class _FinanceDay {
 
   final DateTime day;
   final double value;
+}
+
+class _FinanceChannelSummary {
+  const _FinanceChannelSummary({
+    required this.channel,
+    required this.appointments,
+    required this.conversations,
+    required this.revenue,
+  });
+
+  final String channel;
+  final int appointments;
+  final int conversations;
+  final double revenue;
+}
+
+_FinanceChannelSummary _financeChannelSummary(
+  AgendaData data,
+  DateTime start,
+  DateTime end,
+  String channel,
+) {
+  final normalized = _financeNormalizeChannel(channel);
+  final appointments = data.appointments
+      .where(
+        (item) =>
+            _isBetween(item.start, start, end) &&
+            item.status != AppointmentStatus.blocked &&
+            _financeAppointmentChannel(item) == normalized,
+      )
+      .toList();
+  final appointmentById = <String, Appointment>{
+    for (final item in data.appointments) item.id: item,
+  };
+  var revenue = appointments
+      .where((item) => item.status == AppointmentStatus.done)
+      .fold<double>(0, (sum, item) => sum + item.price);
+  revenue += data.productSales
+      .where(
+        (item) =>
+            _isBetween(item.soldAt, start, end) &&
+            _financeResolvedChannel(
+                  item.sourceChannel,
+                  item.appointmentId,
+                  appointmentById,
+                ) ==
+                normalized,
+      )
+      .fold<double>(0, (sum, item) => sum + item.total);
+  revenue += data.manualPayments
+      .where(
+        (item) =>
+            _isBetween(item.paidAt, start, end) &&
+            _financeResolvedChannel(
+                  item.sourceChannel,
+                  item.appointmentId,
+                  appointmentById,
+                ) ==
+                normalized,
+      )
+      .fold<double>(0, (sum, item) => sum + item.value);
+  final conversations = data.channelConversations.where((item) {
+    final timestamp = item.lastMessageAt ?? item.updatedAt;
+    return _financeNormalizeChannel(item.channel) == normalized &&
+        _isBetween(timestamp, start, end);
+  }).length;
+  return _FinanceChannelSummary(
+    channel: normalized,
+    appointments: appointments.length,
+    conversations: conversations,
+    revenue: revenue,
+  );
+}
+
+String _financeResolvedChannel(
+  String source,
+  String appointmentId,
+  Map<String, Appointment> appointmentById,
+) {
+  if (source.trim().isNotEmpty) return _financeNormalizeChannel(source);
+  final appointment = appointmentById[appointmentId];
+  return appointment == null
+      ? 'direct'
+      : _financeAppointmentChannel(appointment);
+}
+
+String _financeAppointmentChannel(Appointment appointment) =>
+    _financeNormalizeChannel(
+      appointment.bookingChannel.trim().isNotEmpty
+          ? appointment.bookingChannel
+          : appointment.externalSource,
+    );
+
+String _financeNormalizeChannel(String value) {
+  final normalized = value.trim().toLowerCase();
+  if (normalized.contains('whatsapp') ||
+      normalized == 'wa' ||
+      normalized == 'evolution') {
+    return 'whatsapp';
+  }
+  if (normalized.contains('instagram') ||
+      normalized == 'ig' ||
+      normalized == 'direct') {
+    return 'instagram';
+  }
+  return 'direct';
 }
 
 bool _isBetween(DateTime value, DateTime start, DateTime end) =>

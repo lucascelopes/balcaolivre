@@ -379,13 +379,17 @@ class AgendaEmptyState extends StatelessWidget {
         // chrome instead of letting the copy and CTA overflow vertically.
         final short =
             constraints.hasBoundedHeight && constraints.maxHeight <= 260;
-        final narrow = compact && (constraints.maxWidth < 240 || short);
-        final badgeSize = narrow ? 38.0 : (compact ? 46.0 : 58.0);
+        final veryShort =
+            constraints.hasBoundedHeight && constraints.maxHeight <= 240;
+        final narrow = constraints.maxWidth < 240 || short;
+        final badgeSize = veryShort
+            ? 30.0
+            : (narrow ? 38.0 : (compact ? 46.0 : 58.0));
         return Center(
           child: Padding(
             padding: EdgeInsets.symmetric(
               horizontal: narrow ? 10 : 20,
-              vertical: narrow ? 8 : (compact ? 14 : 28),
+              vertical: veryShort ? 4 : (narrow ? 8 : (compact ? 14 : 28)),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -393,15 +397,19 @@ class AgendaEmptyState extends StatelessWidget {
                 AgendaIconBadge(
                   icon,
                   size: badgeSize,
-                  iconSize: narrow ? 19 : (compact ? 22 : 28),
+                  iconSize: veryShort
+                      ? 16
+                      : (narrow ? 19 : (compact ? 22 : 28)),
                 ),
-                SizedBox(height: narrow ? 8 : 13),
+                SizedBox(height: veryShort ? 5 : (narrow ? 8 : 13)),
                 Text(
                   title,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: t.ink,
-                    fontSize: narrow ? 14 : (compact ? 15 : 17),
+                    fontSize: veryShort
+                        ? 13
+                        : (narrow ? 14 : (compact ? 15 : 17)),
                     height: narrow ? 1.15 : null,
                     fontWeight: FontWeight.w800,
                   ),
@@ -414,20 +422,20 @@ class AgendaEmptyState extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: t.muted,
-                      fontSize: narrow ? 11.5 : 12.5,
+                      fontSize: veryShort ? 10.5 : (narrow ? 11.5 : 12.5),
                       height: narrow ? 1.25 : 1.35,
                     ),
                   ),
                 ),
                 if (actionLabel != null && onAction != null) ...[
-                  SizedBox(height: narrow ? 10 : 15),
+                  SizedBox(height: veryShort ? 6 : (narrow ? 10 : 15)),
                   SizedBox(
                     width: narrow ? double.infinity : null,
                     child: ElevatedButton(
                       onPressed: onAction,
                       style: narrow
                           ? ElevatedButton.styleFrom(
-                              minimumSize: const Size(0, 38),
+                              minimumSize: Size(0, veryShort ? 34 : 38),
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 9,
                               ),

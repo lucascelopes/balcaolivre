@@ -1,6 +1,6 @@
 # Agenda Livre Flutter
 
-Versão responsiva do Agenda Livre para Web, Android e iOS. No desktop Web, o shell, as páginas e os fluxos principais reproduzem a identidade e a hierarquia visual do aplicativo Windows WPF.
+Versão responsiva do Agenda Livre para Web, Windows, Android e iOS. No desktop, o shell, as páginas e os fluxos principais reproduzem a identidade e a hierarquia visual do aplicativo Windows WPF.
 
 ## Funcionalidades
 
@@ -38,6 +38,14 @@ Para gerar a versão Web:
 flutter build web --release
 ```
 
+Para gerar o aplicativo Windows:
+
+```powershell
+flutter build windows --release
+```
+
+O build Windows exige o Visual Studio com a carga de trabalho **Desenvolvimento para desktop com C++**. A automação **Agenda Livre Windows** gera o mesmo pacote em um executor Windows na nuvem.
+
 O projeto iOS está incluído, mas a compilação e assinatura precisam ser feitas em um macOS com Xcode.
 
 ## Dados compartilhados com o Agenda Livre Windows
@@ -59,4 +67,5 @@ Em uma divergência de revisão, a nuvem é aplicada automaticamente, como no WP
 flutter analyze
 flutter test
 flutter build web --release
+flutter build windows --release
 ```

@@ -12,7 +12,10 @@ import '../../services/agenda_account_api.dart';
 typedef AgendaUnauthorizedCallback = FutureOr<void> Function();
 
 class SyncingAgendaRepository extends ChangeNotifier
-    implements AgendaRepository, AgendaSyncRepository {
+    implements
+        AgendaRepository,
+        AgendaSyncRepository,
+        AgendaEntitlementRepository {
   SyncingAgendaRepository({
     required AgendaRepository local,
     required AgendaAccountStateClient remote,
@@ -49,6 +52,7 @@ class SyncingAgendaRepository extends ChangeNotifier
   AgendaRevisionConflict? _conflict;
   String? _lastSyncError;
   AgendaTrialStatus _trial = const AgendaTrialStatus();
+  AgendaEntitlement _entitlement = const AgendaEntitlement();
   bool _hasTrialStatus = false;
   int _localMutationGeneration = 0;
   DateTime? _lastRemoteCheckAt;
@@ -72,6 +76,12 @@ class SyncingAgendaRepository extends ChangeNotifier
 
   @override
   int get trialDaysRemaining => _trial.daysRemaining;
+
+  @override
+  String get entitlementStatus => _entitlement.status;
+
+  @override
+  bool get entitlementCanUse => _entitlement.canUse;
 
   @override
   bool get hasConflict => _conflict != null;
@@ -140,6 +150,7 @@ class SyncingAgendaRepository extends ChangeNotifier
       final remoteState = await _remote.fetchState();
       _validateSchema(remoteState);
       _trial = remoteState.trial;
+      _entitlement = remoteState.entitlement;
       _hasTrialStatus = true;
 
       final pending = _pendingPayload;
@@ -347,6 +358,7 @@ class SyncingAgendaRepository extends ChangeNotifier
     final startingRevision = _revision;
     final startingSchemaVersion = _schemaVersion;
     final startingTrial = _trial;
+    final startingEntitlement = _entitlement;
     final startingHasTrialStatus = _hasTrialStatus;
     final refreshDone = Completer<void>();
     _refreshDoneCompleter = refreshDone;
@@ -363,6 +375,7 @@ class SyncingAgendaRepository extends ChangeNotifier
       // applies a strictly newer server snapshot.
       if (!remoteState.exists || remoteState.revision <= startingRevision) {
         _trial = remoteState.trial;
+        _entitlement = remoteState.entitlement;
         _hasTrialStatus = true;
         _lastSyncError = null;
         return null;
@@ -418,6 +431,7 @@ class SyncingAgendaRepository extends ChangeNotifier
           _revision = startingRevision;
           _schemaVersion = startingSchemaVersion;
           _trial = startingTrial;
+          _entitlement = startingEntitlement;
           _hasTrialStatus = startingHasTrialStatus;
           await _persistSyncMetadata();
           return null;
@@ -589,6 +603,7 @@ class SyncingAgendaRepository extends ChangeNotifier
     _revision = state.revision;
     _schemaVersion = state.schemaVersion;
     _trial = state.trial;
+    _entitlement = state.entitlement;
     _hasTrialStatus = true;
   }
 
