@@ -1,12 +1,14 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/agenda_controller.dart';
 import '../../app/theme/agenda_theme.dart';
 import '../../core/formatters.dart';
 import '../../core/ui.dart';
 import '../../domain/models/models.dart';
+import '../../services/agenda_account_api.dart';
 import 'customer_account_dialog.dart';
 
 Future<bool> showCustomerEditorDialog(
@@ -2504,8 +2506,16 @@ class _ProfessionalEditorDialogState extends State<_ProfessionalEditorDialog> {
   late final TextEditingController _document;
   late final TextEditingController _commission;
   late final TextEditingController _notes;
+  late final TextEditingController _accessEmail;
+  late final TextEditingController _password;
+  late final TextEditingController _confirmPassword;
   late final List<TextEditingController> _previewControllers;
   late bool _active;
+  late bool _requirePasswordChange;
+  String _permissionScope = 'own_agenda';
+  bool _showPassword = false;
+  bool _showConfirmPassword = false;
+  String? _accessError;
   bool _saving = false;
 
   @override
@@ -2531,7 +2541,14 @@ class _ProfessionalEditorDialogState extends State<_ProfessionalEditorDialog> {
       text: _decimalText(professional?.commissionPercent ?? 0),
     );
     _notes = TextEditingController(text: professional?.notes ?? '');
+    _accessEmail = TextEditingController(text: professional?.email ?? '');
+    _password = TextEditingController();
+    _confirmPassword = TextEditingController();
     _active = professional?.isActive ?? true;
+    _requirePasswordChange = professional?.requiresPasswordChange ?? true;
+    _permissionScope = professional?.permissionScope.trim().isNotEmpty == true
+        ? professional!.permissionScope
+        : 'own_agenda';
     _previewControllers = [_name, _role, _phone, _commission];
     for (final controller in _previewControllers) {
       controller.addListener(_refreshPreview);
@@ -2551,6 +2568,9 @@ class _ProfessionalEditorDialogState extends State<_ProfessionalEditorDialog> {
     _document.dispose();
     _commission.dispose();
     _notes.dispose();
+    _accessEmail.dispose();
+    _password.dispose();
+    _confirmPassword.dispose();
     super.dispose();
   }
 
@@ -2560,9 +2580,20 @@ class _ProfessionalEditorDialogState extends State<_ProfessionalEditorDialog> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _saving = true);
+    final creating = widget.professional == null;
+    if (creating) {
+      final accessError = _validateProfessionalAccess();
+      if (accessError != null) {
+        setState(() => _accessError = accessError);
+        return;
+      }
+    }
+    setState(() {
+      _saving = true;
+      _accessError = null;
+    });
     final existing = widget.professional;
-    final professional = Professional(
+    var professional = Professional(
       id: existing?.id,
       name: _name.text.trim(),
       role: _role.text.trim(),
@@ -2578,81 +2609,160 @@ class _ProfessionalEditorDialogState extends State<_ProfessionalEditorDialog> {
       commissionPercent: _parseDecimal(_commission.text),
       notes: _notes.text.trim(),
       isActive: _active,
+      authUserId: existing?.authUserId ?? '',
+      accessStatus: existing?.accessStatus ?? '',
+      permissionScope: existing?.permissionScope ?? '',
+      seatKind: existing?.seatKind ?? '',
+      monthlyPriceCents: existing?.monthlyPriceCents ?? 0,
+      requiresPasswordChange: existing?.requiresPasswordChange ?? false,
     );
-    await widget.controller.saveProfessional(professional);
-    if (!mounted) return;
-    Navigator.of(context).pop(true);
+    try {
+      Uri? checkout;
+      if (creating && widget.controller.accountApi != null) {
+        final result = await widget.controller.accountApi!
+            .createProfessionalAccess(
+              professionalId: professional.id,
+              name: professional.name,
+              role: professional.role,
+              email: _accessEmail.text.trim().toLowerCase(),
+              password: _password.text,
+              permissionScope: _permissionScope,
+              requirePasswordChange: _requirePasswordChange,
+              deviceId: widget.controller.deviceId,
+            );
+        professional = Professional(
+          id: professional.id,
+          name: professional.name,
+          role: professional.role,
+          segments: professional.segments,
+          phone: professional.phone,
+          email: _accessEmail.text.trim().toLowerCase(),
+          document: professional.document,
+          commissionPercent: professional.commissionPercent,
+          notes: professional.notes,
+          isActive: professional.isActive,
+          authUserId: result.authUserId,
+          accessStatus: result.status,
+          permissionScope: _permissionScope,
+          seatKind: result.seatKind,
+          monthlyPriceCents: result.monthlyPriceCents,
+          requiresPasswordChange: _requirePasswordChange,
+        );
+        checkout = Uri.tryParse(result.checkoutUrl);
+      }
+      await widget.controller.saveProfessional(professional);
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+      if (checkout != null &&
+          checkout.scheme == 'https' &&
+          checkout.host.isNotEmpty) {
+        await launchUrl(checkout, mode: LaunchMode.platformDefault);
+      }
+    } on AgendaApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _accessError = error.message;
+      });
+    } on Object {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _accessError =
+            'Não foi possível criar o profissional. Tente novamente.';
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final creating = widget.professional == null;
     return _EditorDialogShell(
       frameKey: const ValueKey('professional-editor-dialog-frame'),
-      desktopWidth: 860,
-      desktopHeight: 612,
-      title: widget.professional == null
-          ? 'Criar profissional'
-          : 'Editar profissional',
-      subtitle: 'Cadastre quem atende e em qual agenda ele aparece.',
-      saveLabel: widget.professional == null
-          ? 'Salvar profissional'
-          : 'Salvar alterações',
+      desktopWidth: creating ? 1100 : 860,
+      desktopHeight: creating ? 710 : 612,
+      title: creating ? 'Criar profissional' : 'Editar profissional',
+      subtitle: creating
+          ? 'Cadastre os dados e crie o acesso individual ao Agenda Livre.'
+          : 'Cadastre quem atende e em qual agenda ele aparece.',
+      saveLabel: creating ? 'Salvar e criar profissional' : 'Salvar alterações',
       saving: _saving,
       onSave: _submit,
-      formFlex: 64,
-      previewFlex: 36,
-      form: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const _EditorSectionHeading(
-              icon: Icons.badge_outlined,
-              title: 'Identificação',
-              subtitle: 'Dados usados na agenda e no cadastro da equipe.',
-            ),
-            _editorFieldRow(
-              _CompactLabeledField(
-                label: 'Nome do profissional',
-                child: _compactEditorTextField(
-                  context,
-                  controller: _name,
-                  autofocus: true,
-                  hintText: 'Ex: Lucas',
-                  validator: _required,
-                ),
-              ),
-              _CompactLabeledField(
-                label: 'Função',
-                child: _compactEditorTextField(
-                  context,
-                  controller: _role,
-                  hintText: 'Ex: Barbeiro, mecânico, dentista',
-                ),
-              ),
-            ),
-            const SizedBox(height: 9),
-            _editorFieldRow(
-              _CompactLabeledField(
-                label: 'Telefone / WhatsApp',
-                child: _compactEditorTextField(
-                  context,
-                  controller: _phone,
-                  hintText: 'Ex: (27) 99999-0000',
-                  keyboardType: TextInputType.phone,
-                ),
-              ),
-              _CompactLabeledField(
-                label: 'E-mail',
-                child: _compactEditorTextField(
-                  context,
-                  controller: _email,
-                  hintText: 'Ex: profissional@email.com',
-                  keyboardType: TextInputType.emailAddress,
-                ),
+      formFlex: creating ? 50 : 64,
+      previewFlex: creating ? 50 : 36,
+      form: _professionalDetailsForm(context, creating: creating),
+      preview: creating
+          ? _professionalAccountPanel(context)
+          : _professionalPreview(context),
+    );
+  }
+
+  Widget _professionalDetailsForm(
+    BuildContext context, {
+    required bool creating,
+  }) {
+    return Form(
+      key: _formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _EditorSectionHeading(
+            icon: Icons.badge_outlined,
+            title: creating ? 'Dados do profissional' : 'Identificação',
+            subtitle: creating
+                ? 'Informações exibidas na agenda e no cadastro da equipe.'
+                : 'Dados usados na agenda e no cadastro da equipe.',
+          ),
+          _editorFieldRow(
+            _CompactLabeledField(
+              label: 'Nome do profissional',
+              child: _compactEditorTextField(
+                context,
+                controller: _name,
+                autofocus: true,
+                hintText: creating ? 'Ex: Camila Rocha' : 'Ex: Lucas',
+                validator: _required,
               ),
             ),
-            const SizedBox(height: 9),
+            _CompactLabeledField(
+              label: 'Função',
+              child: _compactEditorTextField(
+                context,
+                controller: _role,
+                hintText: creating
+                    ? 'Profissional'
+                    : 'Ex: Barbeiro, mecânico, dentista',
+              ),
+            ),
+          ),
+          const SizedBox(height: 9),
+          _editorFieldRow(
+            _CompactLabeledField(
+              label: 'Telefone / WhatsApp',
+              child: _compactEditorTextField(
+                context,
+                controller: _phone,
+                hintText: creating ? '(33) 99999-9999' : 'Ex: (27) 99999-0000',
+                keyboardType: TextInputType.phone,
+              ),
+            ),
+            creating
+                ? _CompactLabeledField(
+                    label: 'Segmento atendido',
+                    child: _compactLockedField(context, value: _segments.text),
+                  )
+                : _CompactLabeledField(
+                    label: 'E-mail',
+                    child: _compactEditorTextField(
+                      context,
+                      controller: _email,
+                      hintText: 'Ex: profissional@email.com',
+                      keyboardType: TextInputType.emailAddress,
+                    ),
+                  ),
+          ),
+          const SizedBox(height: 9),
+          if (!creating) ...[
             const _EditorSectionHeading(
               icon: Icons.payments_outlined,
               title: 'Agenda e financeiro',
@@ -2673,40 +2783,368 @@ class _ProfessionalEditorDialogState extends State<_ProfessionalEditorDialog> {
               ),
             ),
             const SizedBox(height: 9),
-            _editorFieldRow(
-              _CompactLabeledField(
-                label: 'Comissão padrão (%)',
-                child: _compactEditorTextField(
-                  context,
-                  controller: _commission,
-                  hintText: 'Ex: 40',
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                ),
-              ),
-              _ActiveEditorCheckbox(
-                label: 'Profissional ativo na agenda',
-                value: _active,
-                onChanged: (value) => setState(() => _active = value),
-              ),
-            ),
-            const SizedBox(height: 9),
+          ],
+          _editorFieldRow(
             _CompactLabeledField(
-              label: 'Observações internas',
+              label: 'Comissão padrão (%)',
               child: _compactEditorTextField(
                 context,
-                controller: _notes,
-                hintText: 'Ex: folgas, especialidades, restrições de horário',
-                height: 44,
-                minLines: 2,
-                maxLines: 2,
+                controller: _commission,
+                hintText: creating ? '0,00' : 'Ex: 40',
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
               ),
             ),
-          ],
+            _ActiveEditorCheckbox(
+              label: 'Profissional ativo na agenda',
+              value: _active,
+              onChanged: (value) => setState(() => _active = value),
+            ),
+          ),
+          const SizedBox(height: 9),
+          _CompactLabeledField(
+            label: 'Observações internas',
+            child: _compactEditorTextField(
+              context,
+              controller: _notes,
+              hintText: creating
+                  ? 'Ex.: especialidades, observações, metas, etc.'
+                  : 'Ex: folgas, especialidades, restrições de horário',
+              height: creating ? 76 : 44,
+              minLines: 2,
+              maxLines: creating ? 4 : 2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? _validateProfessionalAccess() {
+    if (widget.controller.accountApi == null ||
+        widget.controller.deviceId.trim().isEmpty) {
+      return 'Entre com a conta principal para criar o acesso individual.';
+    }
+    final email = _accessEmail.text.trim();
+    if (!RegExp(
+      r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+      caseSensitive: false,
+    ).hasMatch(email)) {
+      return 'Informe um e-mail válido para o acesso.';
+    }
+    if (_passwordStrength(_password.text) < 4) {
+      return 'A senha precisa ter 8 caracteres, maiúscula, minúscula, número e símbolo.';
+    }
+    if (_password.text != _confirmPassword.text) {
+      return 'As senhas não são iguais.';
+    }
+    return null;
+  }
+
+  int _passwordStrength(String password) {
+    if (password.isEmpty) return 0;
+    var score = password.length >= 8 ? 1 : 0;
+    if (RegExp(r'[A-Z]').hasMatch(password) &&
+        RegExp(r'[a-z]').hasMatch(password)) {
+      score++;
+    }
+    if (RegExp(r'\d').hasMatch(password)) score++;
+    if (RegExp(r'[^A-Za-z0-9]').hasMatch(password)) score++;
+    return math.min(4, score);
+  }
+
+  Widget _professionalAccountPanel(BuildContext context) {
+    final t = AgendaThemeTokens.of(context);
+    final accountAvailable =
+        widget.controller.accountApi != null &&
+        widget.controller.deviceId.trim().isNotEmpty;
+    final strength = _passwordStrength(_password.text);
+    final strengthLabel = switch (strength) {
+      0 => 'informe uma senha',
+      1 => 'fraca',
+      2 => 'razoável',
+      3 => 'boa',
+      _ => 'forte',
+    };
+    final strengthColor = switch (strength) {
+      <= 1 => const Color(0xFFDC2626),
+      2 => const Color(0xFFF59E0B),
+      3 => t.accent,
+      _ => const Color(0xFF16A34A),
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _EditorSectionHeading(
+          icon: Icons.shield_outlined,
+          title: 'Conta para entrar no app',
+          subtitle: 'O profissional entra com o próprio e-mail e senha.',
+        ),
+        const SizedBox(height: 3),
+        _CompactLabeledField(
+          label: 'E-mail de acesso',
+          child: _compactEditorTextField(
+            context,
+            key: const ValueKey('professional-access-email'),
+            controller: _accessEmail,
+            hintText: 'profissional@email.com',
+            keyboardType: TextInputType.emailAddress,
+          ),
+        ),
+        const SizedBox(height: 9),
+        _editorFieldRow(
+          _CompactLabeledField(
+            label: 'Senha inicial',
+            child: _professionalPasswordField(
+              context,
+              key: const ValueKey('professional-access-password'),
+              controller: _password,
+              hintText: 'Crie uma senha forte',
+              obscureText: !_showPassword,
+              onToggleVisibility: () =>
+                  setState(() => _showPassword = !_showPassword),
+            ),
+          ),
+          _CompactLabeledField(
+            label: 'Confirmar senha',
+            child: _professionalPasswordField(
+              context,
+              key: const ValueKey('professional-access-confirmation'),
+              controller: _confirmPassword,
+              hintText: 'Digite novamente',
+              obscureText: !_showConfirmPassword,
+              onToggleVisibility: () =>
+                  setState(() => _showConfirmPassword = !_showConfirmPassword),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Força da senha: $strengthLabel',
+          style: TextStyle(color: t.muted, fontSize: 11),
+        ),
+        const SizedBox(height: 5),
+        Row(
+          children: List<Widget>.generate(
+            5,
+            (index) => Expanded(
+              child: Container(
+                height: 5,
+                margin: EdgeInsets.only(left: index == 0 ? 0 : 3),
+                decoration: BoxDecoration(
+                  color: index < strength ? strengthColor : t.line,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Use 8 ou mais caracteres com maiúscula, minúscula, número e símbolo.',
+          style: TextStyle(color: t.muted, fontSize: 11),
+        ),
+        CheckboxListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          title: Text(
+            'Pedir nova senha no primeiro acesso',
+            style: TextStyle(color: t.ink, fontSize: 12),
+          ),
+          value: _requirePasswordChange,
+          onChanged: accountAvailable
+              ? (value) =>
+                    setState(() => _requirePasswordChange = value ?? true)
+              : null,
+        ),
+        _CompactLabeledField(
+          label: 'Permissões no app',
+          child: SizedBox(
+            height: 36,
+            child: DropdownButtonFormField<String>(
+              key: const ValueKey('professional-access-permission'),
+              initialValue: _permissionScope,
+              isExpanded: true,
+              style: TextStyle(color: t.ink, fontSize: 12),
+              decoration: _compactEditorDecoration(
+                context,
+                hintText: 'Somente a própria agenda',
+              ),
+              items: const [
+                DropdownMenuItem(
+                  value: 'own_agenda',
+                  child: Text('Somente a própria agenda'),
+                ),
+                DropdownMenuItem(
+                  value: 'agenda_clients',
+                  child: Text('Agenda e clientes'),
+                ),
+                DropdownMenuItem(value: 'manager', child: Text('Gerência')),
+              ],
+              onChanged: accountAvailable
+                  ? (value) =>
+                        setState(() => _permissionScope = value ?? 'own_agenda')
+                  : null,
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        _professionalInfoCard(
+          context,
+          icon: Icons.laptop_outlined,
+          text:
+              'Acesso individual: uma conta não pode ficar ativa em dois aparelhos.',
+        ),
+        const SizedBox(height: 12),
+        _professionalPricingCard(context),
+        if (!accountAvailable) ...[
+          const SizedBox(height: 10),
+          _professionalInfoCard(
+            context,
+            icon: Icons.cloud_off_outlined,
+            text:
+                'Entre com a conta principal na Web ou no Desktop para criar o acesso.',
+          ),
+        ],
+        if (_accessError != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            _accessError!,
+            key: const ValueKey('professional-access-error'),
+            style: const TextStyle(
+              color: Color(0xFFB91C1C),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _professionalPasswordField(
+    BuildContext context, {
+    required Key key,
+    required TextEditingController controller,
+    required String hintText,
+    required bool obscureText,
+    required VoidCallback onToggleVisibility,
+  }) {
+    final t = AgendaThemeTokens.of(context);
+    return SizedBox(
+      height: 32,
+      child: TextField(
+        key: key,
+        controller: controller,
+        obscureText: obscureText,
+        onChanged: (_) => setState(() => _accessError = null),
+        style: TextStyle(color: t.ink, fontSize: 12),
+        decoration: _compactEditorDecoration(
+          context,
+          hintText: hintText,
+          suffixIcon: IconButton(
+            tooltip: obscureText ? 'Mostrar senha' : 'Ocultar senha',
+            padding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+            onPressed: onToggleVisibility,
+            icon: Icon(
+              obscureText ? Icons.visibility_outlined : Icons.visibility_off,
+              size: 15,
+              color: t.muted,
+            ),
+          ),
         ),
       ),
-      preview: _professionalPreview(context),
+    );
+  }
+
+  Widget _professionalInfoCard(
+    BuildContext context, {
+    required IconData icon,
+    required String text,
+  }) {
+    final t = AgendaThemeTokens.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F7F5),
+        border: Border.all(color: t.line),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: t.ink),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(text, style: TextStyle(color: t.ink, fontSize: 11.5)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _professionalPricingCard(BuildContext context) {
+    final t = AgendaThemeTokens.of(context);
+    final ownerName = _firstFilled([
+      widget.controller.data.settings.accountFullName,
+    ], fallback: 'proprietário');
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: t.accentSoft,
+        border: Border.all(color: t.accent),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Wrap(
+        spacing: 22,
+        runSpacing: 10,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          CircleAvatar(
+            radius: 17,
+            backgroundColor: t.panel,
+            foregroundColor: t.ink,
+            child: const Icon(Icons.attach_money_rounded, size: 18),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '1º profissional incluído: R\$ 0,00',
+                style: TextStyle(
+                  color: t.ink,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                'Vinculado à conta principal de $ownerName',
+                style: TextStyle(color: t.muted, fontSize: 11),
+              ),
+            ],
+          ),
+          Text.rich(
+            TextSpan(
+              style: TextStyle(
+                color: t.ink,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+              children: [
+                const TextSpan(text: 'Demais profissionais: '),
+                TextSpan(
+                  text: '+ R\$ 19,90/mês',
+                  style: TextStyle(color: t.accent),
+                ),
+                const TextSpan(text: ' cada'),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

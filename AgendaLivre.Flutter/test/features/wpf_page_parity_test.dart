@@ -40,17 +40,25 @@ void main() {
       expect(tester.takeException(), isNull);
 
       await _pumpPage(tester, size, FinancePage(controller: controller));
-      expect(find.text('Mercado Pago'), findsOneWidget);
+      expect(find.byKey(const Key('finance-kpi-grid')), findsOneWidget);
+      expect(
+        find.byKey(const Key('finance-next-30-days-card')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('finance-forecast-card')), findsOneWidget);
       expect(tester.takeException(), isNull);
 
       await _pumpPage(tester, size, ReportsPage(controller: controller));
-      expect(find.text('Leituras rápidas'), findsOneWidget);
+      expect(find.text('Destaques do período'), findsOneWidget);
+      expect(find.text('Dia'), findsOneWidget);
+      expect(find.text('Semana'), findsOneWidget);
+      expect(find.text('Mês'), findsOneWidget);
       expect(tester.takeException(), isNull);
 
       await _pumpPage(tester, size, MarketingPage(controller: controller));
-      expect(find.text('Fila de contatos'), findsOneWidget);
-      expect(find.text('Mensagens prontas'), findsOneWidget);
-      expect(find.text('Instagram'), findsOneWidget);
+      expect(find.text('Suas campanhas'), findsOneWidget);
+      expect(find.text('Criar campanha'), findsWidgets);
+      expect(find.text('WhatsApp'), findsOneWidget);
       expect(tester.takeException(), isNull);
 
       await _pumpPage(tester, size, EstablishmentPage(controller: controller));

@@ -10,80 +10,66 @@ import 'package:intl/date_symbol_data_local.dart';
 void main() {
   setUpAll(() => initializeDateFormatting('pt_BR'));
 
-  testWidgets('repete a grade 3 por 2 e as ações do WPF no desktop', (
+  testWidgets('replica o relatório operacional atual do WPF no desktop', (
     tester,
   ) async {
     await _pumpReports(tester, const Size(1366, 768));
 
-    expect(find.text('AGENDA LIVRE'), findsOneWidget);
+    expect(find.text('RELATÓRIOS'), findsOneWidget);
     expect(find.text('Relatórios'), findsOneWidget);
-    expect(find.text('Copiar resumo'), findsOneWidget);
-    expect(find.text('Pré-visualizar'), findsOneWidget);
-    expect(find.text('Copiar CSV'), findsOneWidget);
-    expect(find.text('Leituras rápidas'), findsOneWidget);
-    expect(find.text('Serviços mais realizados'), findsOneWidget);
-    expect(find.text('Profissionais'), findsOneWidget);
+    expect(find.text('Imprimir'), findsOneWidget);
+    expect(find.text('Exportar'), findsOneWidget);
+    expect(find.text('Dia'), findsOneWidget);
+    expect(find.text('Semana'), findsOneWidget);
+    expect(find.text('Mês'), findsOneWidget);
+    expect(find.text('Movimento no mês'), findsOneWidget);
+    expect(find.text('Destaques do período'), findsOneWidget);
 
     final appointments = tester.getRect(
-      find.byKey(const ValueKey('report-metric-Agendamentos')),
-    );
-    final completed = tester.getRect(
-      find.byKey(const ValueKey('report-metric-Finalizados')),
-    );
-    final lost = tester.getRect(
-      find.byKey(const ValueKey('report-metric-Cancelados/faltas')),
+      find.byKey(const ValueKey('reports-metric-Atendimentos')),
     );
     final revenue = tester.getRect(
-      find.byKey(const ValueKey('report-metric-Receita')),
+      find.byKey(const ValueKey('reports-metric-Receita')),
     );
     final ticket = tester.getRect(
-      find.byKey(const ValueKey('report-metric-Ticket médio')),
+      find.byKey(const ValueKey('reports-metric-Ticket médio')),
+    );
+    final attendance = tester.getRect(
+      find.byKey(const ValueKey('reports-metric-Taxa de presença')),
+    );
+    final cancellations = tester.getRect(
+      find.byKey(const ValueKey('reports-metric-Cancelamentos')),
     );
 
-    expect((appointments.top - completed.top).abs(), lessThan(.1));
-    expect((appointments.top - lost.top).abs(), lessThan(.1));
-    expect((revenue.top - ticket.top).abs(), lessThan(.1));
-    expect(revenue.top, greaterThan(appointments.bottom));
-    expect((appointments.width - completed.width).abs(), lessThan(.1));
-    expect(
-      tester
-          .getSize(
-            find.byKey(const ValueKey('reports-appointments-chart-canvas')),
-          )
-          .width,
-      greaterThan(400),
-    );
+    expect((appointments.top - revenue.top).abs(), lessThan(.1));
+    expect((appointments.top - ticket.top).abs(), lessThan(.1));
+    expect((appointments.top - attendance.top).abs(), lessThan(.1));
+    expect((appointments.top - cancellations.top).abs(), lessThan(.1));
+    expect((appointments.width - revenue.width).abs(), lessThan(.1));
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('reorganiza para duas colunas no mobile sem overflow', (
+  testWidgets('reorganiza métricas e cartões no mobile sem overflow', (
     tester,
   ) async {
     await _pumpReports(tester, const Size(390, 844));
 
     final appointments = tester.getRect(
-      find.byKey(const ValueKey('report-metric-Agendamentos')),
+      find.byKey(const ValueKey('reports-metric-Atendimentos')),
     );
-    final completed = tester.getRect(
-      find.byKey(const ValueKey('report-metric-Finalizados')),
+    final revenue = tester.getRect(
+      find.byKey(const ValueKey('reports-metric-Receita')),
     );
-    final lost = tester.getRect(
-      find.byKey(const ValueKey('report-metric-Cancelados/faltas')),
+    final ticket = tester.getRect(
+      find.byKey(const ValueKey('reports-metric-Ticket médio')),
     );
 
-    expect((appointments.top - completed.top).abs(), lessThan(.1));
-    expect(lost.top, greaterThan(appointments.bottom));
-    expect(completed.right, lessThanOrEqualTo(390));
-    expect(find.text('Copiar resumo'), findsOneWidget);
-    expect(find.text('Copiar CSV'), findsOneWidget);
-    expect(
-      tester
-          .getSize(
-            find.byKey(const ValueKey('reports-appointments-chart-canvas')),
-          )
-          .width,
-      greaterThan(300),
-    );
+    expect((appointments.top - revenue.top).abs(), lessThan(.1));
+    expect(ticket.top, greaterThanOrEqualTo(appointments.bottom));
+    expect(revenue.right, lessThanOrEqualTo(390));
+    expect(find.text('Imprimir'), findsOneWidget);
+    expect(find.text('Exportar'), findsOneWidget);
+    expect(find.text('Movimento no mês'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

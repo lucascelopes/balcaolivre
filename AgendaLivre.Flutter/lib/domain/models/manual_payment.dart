@@ -11,6 +11,10 @@ class ManualPayment {
     this.paymentProvider = '',
     this.paymentReference = '',
     this.paymentStatus = '',
+    this.cashSessionId = '',
+    this.appointmentId = '',
+    this.sourceChannel = '',
+    this.channelConversationId = '',
     this.notes = '',
     this.value = 0,
     DateTime? paidAt,
@@ -25,6 +29,10 @@ class ManualPayment {
   String paymentProvider;
   String paymentReference;
   String paymentStatus;
+  String cashSessionId;
+  String appointmentId;
+  String sourceChannel;
+  String channelConversationId;
   String notes;
   double value;
   DateTime paidAt;
@@ -38,6 +46,10 @@ class ManualPayment {
     paymentProvider: jsonString(json, 'PaymentProvider'),
     paymentReference: jsonString(json, 'PaymentReference'),
     paymentStatus: jsonString(json, 'PaymentStatus'),
+    cashSessionId: jsonString(json, 'CashSessionId'),
+    appointmentId: jsonString(json, 'AppointmentId'),
+    sourceChannel: jsonString(json, 'SourceChannel'),
+    channelConversationId: jsonString(json, 'ChannelConversationId'),
     notes: jsonString(json, 'Notes'),
     value: jsonDouble(json, 'Value'),
     paidAt: jsonDateTime(json, 'PaidAt', fallback: DateTime.now()),
@@ -52,6 +64,10 @@ class ManualPayment {
     'PaymentProvider': paymentProvider,
     'PaymentReference': paymentReference,
     'PaymentStatus': paymentStatus,
+    'CashSessionId': cashSessionId,
+    'AppointmentId': appointmentId,
+    'SourceChannel': sourceChannel,
+    'ChannelConversationId': channelConversationId,
     'Notes': notes,
     'Value': value,
     'PaidAt': paidAt.toIso8601String(),

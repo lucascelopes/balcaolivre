@@ -52,6 +52,13 @@ Future<void> showAppointmentDialog(
 
 enum _AppointmentEditAction { duplicate, noShow, cancel, delete }
 
+class _ScheduleAssistantIssue {
+  const _ScheduleAssistantIssue(this.code, this.message);
+
+  final String code;
+  final String message;
+}
+
 class _AppointmentDialog extends StatefulWidget {
   const _AppointmentDialog({
     required this.controller,
@@ -86,6 +93,7 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
   String? _error;
   bool _saving = false;
   int _step = 0;
+  String _acknowledgedScheduleKey = '';
 
   bool get _editing => widget.appointment != null;
 
@@ -134,6 +142,9 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
       text: source?.resourceName ?? '',
     );
     _notesController = TextEditingController(text: source?.notes ?? '');
+    if (source?.scheduleExceptionAcknowledged ?? false) {
+      _acknowledgedScheduleKey = _scheduleKey(source!.start, source.end);
+    }
   }
 
   @override
@@ -660,6 +671,10 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
               professionalAndResource: _professionalResourceSummary,
               price: _priceSummary,
             ),
+            if (_scheduleAssistantIssue case final issue?) ...[
+              const SizedBox(height: 10),
+              _scheduleAssistantCard(issue),
+            ],
           ],
         ),
       ),
@@ -1245,12 +1260,304 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
     final start = _start;
     final end = start.add(Duration(minutes: _duration));
     final businessError = _controller.validateBusinessWindow(start, end);
-    if (businessError != null && !_scheduleUnchanged) return businessError;
+    if (businessError != null &&
+        !_scheduleUnchanged &&
+        !_isScheduleExceptionAcknowledged) {
+      return 'Este horário é excepcional. Use a sugestão ou confirme abaixo que você foi avisado antes de continuar.';
+    }
     if (!_editing && start.isBefore(DateTime.now())) {
       return 'Escolha um horário futuro para o novo agendamento.';
     }
     return null;
   }
+
+  _ScheduleAssistantIssue? get _scheduleAssistantIssue =>
+      _describeScheduleIssue(_start, _start.add(Duration(minutes: _duration)));
+
+  bool get _isScheduleExceptionAcknowledged =>
+      _acknowledgedScheduleKey ==
+      _scheduleKey(_start, _start.add(Duration(minutes: _duration)));
+
+  _ScheduleAssistantIssue? _describeScheduleIssue(
+    DateTime start,
+    DateTime end,
+  ) {
+    final settings = _controller.data.settings;
+    final professional = _selectedProfessional?.name.trim().isNotEmpty ?? false
+        ? _selectedProfessional!.name.trim()
+        : 'O profissional';
+    final workdayStart = DateTime(
+      start.year,
+      start.month,
+      start.day,
+      settings.workdayStartHour,
+    );
+    final workdayEnd = DateTime(
+      start.year,
+      start.month,
+      start.day,
+      settings.workdayEndHour,
+    );
+
+    if (!_controller.isConfiguredWorkday(start)) {
+      return _ScheduleAssistantIssue(
+        'closed_day',
+        'O estabelecimento está fechado no dia selecionado. '
+            '$professional precisará trabalhar em um dia sem expediente.',
+      );
+    }
+    if (start.isBefore(workdayStart)) {
+      final minutes = workdayStart.difference(start).inMinutes.clamp(1, 1440);
+      return _ScheduleAssistantIssue(
+        'before_opening',
+        'O atendimento começa $minutes min antes da abertura '
+            '(${_clock(workdayStart)}). $professional precisará chegar antes do expediente.',
+      );
+    }
+    if (end.isAfter(workdayEnd)) {
+      final minutes = end.difference(workdayEnd).inMinutes.clamp(1, 1440);
+      return _ScheduleAssistantIssue(
+        'after_closing',
+        'O atendimento terminaria às ${_clock(end)}, $minutes min depois do '
+            'fechamento (${_clock(workdayEnd)}). $professional poderá precisar ficar após o expediente.',
+      );
+    }
+    if (_controller.overlapsConfiguredBreak(start, end)) {
+      return _ScheduleAssistantIssue(
+        'break_overlap',
+        'O atendimento ocupa o intervalo de '
+            '${settings.workdayBreakStartHour.toString().padLeft(2, '0')}:00 às '
+            '${settings.workdayBreakEndHour.toString().padLeft(2, '0')}:00. '
+            '$professional poderá ficar sem parte do horário de almoço.',
+      );
+    }
+    return null;
+  }
+
+  DateTime? _findScheduleSuggestion() {
+    final requested = _start;
+    final professionalId = _professionalId ?? '';
+    final resource = _resourceController.text.trim().toLowerCase();
+    DateTime? best;
+    var bestScore = double.infinity;
+
+    for (var dayOffset = 0; dayOffset < 15; dayOffset++) {
+      final day = requested.add(Duration(days: dayOffset));
+      if (!_controller.isConfiguredWorkday(day)) continue;
+      final settings = _controller.data.settings;
+      final dayStart = DateTime(
+        day.year,
+        day.month,
+        day.day,
+        settings.workdayStartHour,
+      );
+      final dayEnd = DateTime(
+        day.year,
+        day.month,
+        day.day,
+        settings.workdayEndHour,
+      );
+      for (
+        var candidate = dayStart;
+        !candidate.add(Duration(minutes: _duration)).isAfter(dayEnd);
+        candidate = candidate.add(const Duration(minutes: 15))
+      ) {
+        final candidateEnd = candidate.add(Duration(minutes: _duration));
+        if (_controller.overlapsConfiguredBreak(candidate, candidateEnd) ||
+            _hasScheduleConflict(
+              candidate,
+              candidateEnd,
+              professionalId,
+              resource,
+            ) ||
+            (!_editing &&
+                candidate.isBefore(
+                  DateTime.now().subtract(const Duration(minutes: 5)),
+                ))) {
+          continue;
+        }
+        final dayDistance =
+            candidate.difference(requested).inDays.abs() * 1440.0;
+        final timeDistance =
+            (candidate.hour * 60 +
+                    candidate.minute -
+                    (requested.hour * 60 + requested.minute))
+                .abs()
+                .toDouble();
+        final score = dayDistance + timeDistance;
+        if (score < bestScore) {
+          best = candidate;
+          bestScore = score;
+        }
+      }
+    }
+    return best;
+  }
+
+  bool _hasScheduleConflict(
+    DateTime start,
+    DateTime end,
+    String professionalId,
+    String resource,
+  ) => _controller.data.appointments.any((item) {
+    if (item.id == widget.appointment?.id ||
+        item.status == AppointmentStatus.cancelled ||
+        item.status == AppointmentStatus.noShow) {
+      return false;
+    }
+    final overlaps = start.isBefore(item.end) && end.isAfter(item.start);
+    if (!overlaps) return false;
+    final sameProfessional =
+        professionalId.isNotEmpty && item.professionalId == professionalId;
+    final sameResource =
+        resource.isNotEmpty &&
+        item.resourceName.trim().toLowerCase() == resource;
+    return sameProfessional || sameResource;
+  });
+
+  Widget _scheduleAssistantCard(_ScheduleAssistantIssue issue) {
+    final t = AgendaThemeTokens.of(context);
+    final suggestion = _findScheduleSuggestion();
+    final end = _start.add(Duration(minutes: _duration));
+    final message = suggestion == null
+        ? '${issue.message} Não encontrei outro encaixe livre nos próximos 15 dias.'
+        : '${issue.message} Melhor encaixe livre: '
+              '${DateUtils.isSameDay(suggestion, _start) ? 'hoje, ' : '${_shortDate(suggestion)}, '}'
+              '${_clock(suggestion)}–${_clock(suggestion.add(Duration(minutes: _duration)))}.';
+
+    return Container(
+      key: const Key('schedule-assistant-card'),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8F3),
+        border: Border.all(color: t.accent),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: t.accent,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.auto_fix_high,
+                  color: Colors.white,
+                  size: 15,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Sugestão inteligente de horário',
+                      style: TextStyle(
+                        color: t.ink,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      _isScheduleExceptionAcknowledged
+                          ? 'Exceção confirmada · o aviso ficará registrado'
+                          : 'Regras da agenda verificadas',
+                      style: TextStyle(color: t.muted, fontSize: 9.5),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 37, top: 7),
+            child: Text(
+              message,
+              style: TextStyle(color: t.ink, fontSize: 11.5, height: 1.35),
+            ),
+          ),
+          const SizedBox(height: 9),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final confirmation = CheckboxListTile(
+                key: const Key('schedule-assistant-acknowledge'),
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _isScheduleExceptionAcknowledged,
+                onChanged: (value) => setState(() {
+                  _acknowledgedScheduleKey = value == true
+                      ? _scheduleKey(_start, end)
+                      : '';
+                  _error = null;
+                }),
+                title: Text(
+                  'Fui avisado e quero manter ${_clock(_start)}–${_clock(end)}',
+                  style: TextStyle(
+                    color: t.ink,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              );
+              final useSuggestion = suggestion == null
+                  ? null
+                  : SizedBox(
+                      height: 34,
+                      child: FilledButton.icon(
+                        key: const Key('schedule-assistant-use-suggestion'),
+                        onPressed: () => setState(() {
+                          _date = DateUtils.dateOnly(suggestion);
+                          _time = TimeOfDay.fromDateTime(suggestion);
+                          _acknowledgedScheduleKey = '';
+                          _error = null;
+                        }),
+                        icon: const Icon(Icons.schedule, size: 15),
+                        label: Text(
+                          DateUtils.isSameDay(suggestion, _start)
+                              ? 'Usar ${_clock(suggestion)}'
+                              : 'Usar ${_shortDate(suggestion)} ${_clock(suggestion)}',
+                        ),
+                      ),
+                    );
+              if (constraints.maxWidth < 560) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [confirmation, ?useSuggestion],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: confirmation),
+                  if (useSuggestion != null) ...[
+                    const SizedBox(width: 12),
+                    useSuggestion,
+                  ],
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _scheduleKey(DateTime start, DateTime end) =>
+      '${start.toIso8601String()}|${end.toIso8601String()}';
+
+  String _clock(DateTime value) =>
+      '${value.hour.toString().padLeft(2, '0')}:'
+      '${value.minute.toString().padLeft(2, '0')}';
+
+  String _shortDate(DateTime value) =>
+      '${value.day.toString().padLeft(2, '0')}/'
+      '${value.month.toString().padLeft(2, '0')}';
 
   Appointment _draft({DateTime? start}) {
     final source = widget.appointment;
@@ -1260,6 +1567,12 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
     final professional = _professionals
         .where((item) => item.id == _professionalId)
         .firstOrNull;
+    final draftStart = start ?? _start;
+    final draftEnd = draftStart.add(Duration(minutes: _duration));
+    final issue = _describeScheduleIssue(draftStart, draftEnd);
+    final acknowledged =
+        issue != null &&
+        _acknowledgedScheduleKey == _scheduleKey(draftStart, draftEnd);
     return Appointment(
       id: source?.id,
       segment: _segment.trim(),
@@ -1271,11 +1584,23 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
       professionalId: professional?.id ?? '',
       professionalName: professional?.name ?? '',
       resourceName: _resourceController.text.trim(),
-      start: start ?? _start,
+      start: draftStart,
       durationMinutes: _duration,
       price: _parsePrice(_priceController.text) ?? 0,
       status: source?.status ?? AppointmentStatus.scheduled,
       notes: _notesController.text.trim(),
+      externalSource: source?.externalSource ?? '',
+      externalReference: source?.externalReference ?? '',
+      bookingChannel: source?.bookingChannel ?? '',
+      channelConversationId: source?.channelConversationId ?? '',
+      channelExternalUserId: source?.channelExternalUserId ?? '',
+      channelUsername: source?.channelUsername ?? '',
+      scheduleExceptionAcknowledged: acknowledged,
+      scheduleExceptionReason: acknowledged ? issue.message : '',
+      scheduleExceptionAssistantSource: acknowledged ? 'local-rules' : '',
+      scheduleExceptionAcknowledgedAt: acknowledged
+          ? (source?.scheduleExceptionAcknowledgedAt ?? DateTime.now())
+          : null,
       createdAt: source?.createdAt,
       updatedAt: DateTime.now(),
     );
@@ -1341,6 +1666,10 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
       price: source.price,
       status: AppointmentStatus.scheduled,
       notes: source.notes,
+      externalSource: source.externalSource,
+      bookingChannel: source.bookingChannel,
+      channelExternalUserId: source.channelExternalUserId,
+      channelUsername: source.channelUsername,
     );
     final error = await _controller.saveAppointment(duplicate);
     if (!mounted) return;

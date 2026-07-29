@@ -276,14 +276,12 @@ Future<void> _capturePaymentDialog(
     ),
   );
   await _settleVisualAssets(tester);
-  final receive = find.byKey(
-    const ValueKey('finance-receive-ux-audit-appointment'),
-  );
+  final receive = find.byKey(const Key('finance-quick-receive'));
   await tester.ensureVisible(receive);
   await tester.pumpAndSettle();
   await tester.tap(receive);
   await tester.pumpAndSettle();
-  expect(find.byKey(const Key('appointment-payment-dialog')), findsOneWidget);
+  expect(find.byKey(const Key('finance-payment-dialog')), findsOneWidget);
   expect(tester.takeException(), isNull);
   await _saveCapture(tester, captureKey, fileName);
 }

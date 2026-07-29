@@ -19,6 +19,9 @@ class CustomerReceivable {
     this.paymentProvider = '',
     this.paymentReference = '',
     this.paymentStatus = '',
+    this.cashSessionId = '',
+    this.sourceChannel = '',
+    this.channelConversationId = '',
     this.notes = '',
   }) : id = agendaIdOrGenerate(id),
        openedAt = openedAt ?? DateTime.now(),
@@ -40,6 +43,9 @@ class CustomerReceivable {
   String paymentProvider;
   String paymentReference;
   String paymentStatus;
+  String cashSessionId;
+  String sourceChannel;
+  String channelConversationId;
   String notes;
 
   factory CustomerReceivable.fromJson(JsonMap json) => CustomerReceivable(
@@ -59,6 +65,9 @@ class CustomerReceivable {
     paymentProvider: jsonString(json, 'PaymentProvider'),
     paymentReference: jsonString(json, 'PaymentReference'),
     paymentStatus: jsonString(json, 'PaymentStatus'),
+    cashSessionId: jsonString(json, 'CashSessionId'),
+    sourceChannel: jsonString(json, 'SourceChannel'),
+    channelConversationId: jsonString(json, 'ChannelConversationId'),
     notes: jsonString(json, 'Notes'),
   );
 
@@ -79,6 +88,9 @@ class CustomerReceivable {
     'PaymentProvider': paymentProvider,
     'PaymentReference': paymentReference,
     'PaymentStatus': paymentStatus,
+    'CashSessionId': cashSessionId,
+    'SourceChannel': sourceChannel,
+    'ChannelConversationId': channelConversationId,
     'Notes': notes,
   };
 }

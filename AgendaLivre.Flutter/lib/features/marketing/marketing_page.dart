@@ -7,6 +7,7 @@ import '../../app/agenda_controller.dart';
 import '../../app/theme/agenda_theme.dart';
 import '../../domain/models/models.dart';
 import '../../services/whatsapp_service.dart';
+import 'marketing_wpf_hub.dart';
 import 'marketing_wpf_studio.dart';
 
 const _defaultPromotionName = 'Promoção da semana';
@@ -34,6 +35,8 @@ class _MarketingPageState extends State<MarketingPage> {
 
   String _lastAppliedPromotionName = '';
   String _lastAppliedPromotionOffer = '';
+  bool _showStudio = false;
+  int _studioChannel = 2;
 
   AgendaController get controller => widget.controller;
 
@@ -223,7 +226,22 @@ class _MarketingPageState extends State<MarketingPage> {
       animation: controller,
       builder: (context, _) {
         final contacts = _marketingContacts;
+        if (!_showStudio) {
+          return MarketingWpfHub(
+            catalog: controller.data.settings.publishedMarketingCatalog,
+            onStory: () => _openStudio(0),
+            onPost: () => _openStudio(1),
+            onWhatsApp: () => _openStudio(2),
+            onNewCustomers: () => _openStudio(2),
+            onDiscount: () {
+              _ensureDefaultPromotionMessage();
+              _openStudio(2);
+            },
+            onEditCatalog: _editCatalog,
+          );
+        }
         return MarketingWpfStudio(
+          key: ValueKey('marketing-studio-$_studioChannel'),
           businessName: _businessDisplayName,
           titleController: _promotionName,
           copyController: _promotionMessage,
@@ -239,9 +257,84 @@ class _MarketingPageState extends State<MarketingPage> {
           onCopy: _copyMarketingMessage,
           onWhatsApp: _openFirstMarketingWhatsApp,
           onInstagram: _openInstagram,
+          onBack: () => setState(() => _showStudio = false),
+          initialChannel: _studioChannel,
         );
       },
     );
+  }
+
+  void _openStudio(int channel) {
+    setState(() {
+      _studioChannel = channel.clamp(0, 2);
+      _showStudio = true;
+    });
+  }
+
+  Future<void> _editCatalog() async {
+    final current = controller.data.settings.publishedMarketingCatalog;
+    final title = TextEditingController(
+      text: current?.title ?? 'Sua beleza, do seu jeito',
+    );
+    final support = TextEditingController(text: current?.supportText ?? '');
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Editar catálogo'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                key: const Key('marketing-catalog-title'),
+                controller: title,
+                decoration: const InputDecoration(labelText: 'Título'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('marketing-catalog-support'),
+                controller: support,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(labelText: 'Texto de apoio'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            key: const Key('marketing-catalog-save'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Salvar catálogo'),
+          ),
+        ],
+      ),
+    );
+    if (save != true || !mounted) {
+      title.dispose();
+      support.dispose();
+      return;
+    }
+
+    await controller.updateSettings((settings) {
+      final catalog =
+          settings.publishedMarketingCatalog ?? MarketingCatalogPublication();
+      catalog.title = title.text.trim().isEmpty
+          ? 'Sua beleza, do seu jeito'
+          : title.text.trim();
+      catalog.supportText = support.text.trim();
+      catalog.publishedAt ??= DateTime.now();
+      settings.publishedMarketingCatalog = catalog;
+    });
+    title.dispose();
+    support.dispose();
+    if (!mounted) return;
+    _showMessage('Catálogo salvo e sincronizado.');
   }
 
   // Kept temporarily as the legacy campaign layout while the WPF studio is
