@@ -7,6 +7,13 @@ on:
         description: Build específico; deixe vazio para assumir o próximo da fila
         required: false
         type: string
+  push:
+    branches:
+      - main
+      - codex/**
+    paths:
+      - "AgendaLivre.Flutter/**"
+      - ".github/workflows/agenda-android-build.yml"
   schedule:
     - cron: "*/5 * * * *"
 
