@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.checkout]
 verify_jwt = false
+
+[functions.skunkabam-codex]
+verify_jwt = false

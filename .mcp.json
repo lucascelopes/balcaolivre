@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "skunkabam": {
+      "command": "node",
+      "args": [
+        "tools/skunkabam-mcp/src/index.js"
+      ]
+    }
+  }
+}
