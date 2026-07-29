@@ -14,6 +14,12 @@ void main() {
 
     await _pumpMarketing(tester, controller, const Size(1366, 768));
 
+    expect(find.text('Suas campanhas'), findsOneWidget);
+    expect(find.text('Criar campanha'), findsWidgets);
+    expect(find.text('Nenhuma campanha criada ainda'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('marketing-hub-whatsapp')));
+    await tester.pump();
+
     expect(find.text('ESTÚDIO DE CONTEÚDO'), findsOneWidget);
     expect(find.text(' / MARKETING'), findsOneWidget);
     expect(find.text('Criar publicação'), findsOneWidget);
@@ -54,6 +60,8 @@ void main() {
       AgendaData()..settings.businessName = 'Lucas Barbearia',
     );
     await _pumpMarketing(tester, controller, const Size(1366, 768));
+    await tester.tap(find.byKey(const Key('marketing-hub-whatsapp')));
+    await tester.pump();
 
     final nameField = find.byKey(const Key('marketing-promotion-name'));
     final messageField = find.byKey(const Key('marketing-promotion-message'));
@@ -135,6 +143,8 @@ void main() {
     )..settings.businessName = 'Balcão Livre';
 
     await _pumpMarketing(tester, _controller(data), const Size(1366, 768));
+    await tester.tap(find.byKey(const Key('marketing-hub-new-customers')));
+    await tester.pump();
 
     expect(find.text('Nina / Tutor João'), findsOneWidget);
     expect(find.text('Patrícia Lima'), findsOneWidget);
@@ -176,7 +186,8 @@ void main() {
       const Size(390, 844),
     );
 
-    expect(find.text('Fila de contatos'), findsOneWidget);
+    expect(find.text('Suas campanhas'), findsOneWidget);
+    expect(find.text('Criar campanha'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 }

@@ -32,9 +32,18 @@ class Appointment {
     this.paymentProvider = '',
     this.paymentReference = '',
     this.paymentStatus = '',
+    this.cashSessionId = '',
     this.notes = '',
+    this.scheduleExceptionAcknowledged = false,
+    this.scheduleExceptionReason = '',
+    this.scheduleExceptionAssistantSource = '',
+    this.scheduleExceptionAcknowledgedAt,
     this.externalSource = '',
     this.externalReference = '',
+    this.bookingChannel = '',
+    this.channelConversationId = '',
+    this.channelExternalUserId = '',
+    this.channelUsername = '',
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : id = agendaIdOrGenerate(id),
@@ -74,9 +83,18 @@ class Appointment {
   String paymentProvider;
   String paymentReference;
   String paymentStatus;
+  String cashSessionId;
   String notes;
+  bool scheduleExceptionAcknowledged;
+  String scheduleExceptionReason;
+  String scheduleExceptionAssistantSource;
+  DateTime? scheduleExceptionAcknowledgedAt;
   String externalSource;
   String externalReference;
+  String bookingChannel;
+  String channelConversationId;
+  String channelExternalUserId;
+  String channelUsername;
   DateTime createdAt;
   DateTime updatedAt;
 
@@ -118,9 +136,27 @@ class Appointment {
     paymentProvider: jsonString(json, 'PaymentProvider'),
     paymentReference: jsonString(json, 'PaymentReference'),
     paymentStatus: jsonString(json, 'PaymentStatus'),
+    cashSessionId: jsonString(json, 'CashSessionId'),
     notes: jsonString(json, 'Notes'),
+    scheduleExceptionAcknowledged: jsonBool(
+      json,
+      'ScheduleExceptionAcknowledged',
+    ),
+    scheduleExceptionReason: jsonString(json, 'ScheduleExceptionReason'),
+    scheduleExceptionAssistantSource: jsonString(
+      json,
+      'ScheduleExceptionAssistantSource',
+    ),
+    scheduleExceptionAcknowledgedAt: jsonNullableDateTime(
+      json,
+      'ScheduleExceptionAcknowledgedAt',
+    ),
     externalSource: jsonString(json, 'ExternalSource'),
     externalReference: jsonString(json, 'ExternalReference'),
+    bookingChannel: jsonString(json, 'BookingChannel'),
+    channelConversationId: jsonString(json, 'ChannelConversationId'),
+    channelExternalUserId: jsonString(json, 'ChannelExternalUserId'),
+    channelUsername: jsonString(json, 'ChannelUsername'),
     createdAt: jsonDateTime(json, 'CreatedAt', fallback: DateTime.now()),
     updatedAt: jsonDateTime(json, 'UpdatedAt', fallback: DateTime.now()),
   );
@@ -152,9 +188,20 @@ class Appointment {
     'PaymentProvider': paymentProvider,
     'PaymentReference': paymentReference,
     'PaymentStatus': paymentStatus,
+    'CashSessionId': cashSessionId,
     'Notes': notes,
+    'ScheduleExceptionAcknowledged': scheduleExceptionAcknowledged,
+    'ScheduleExceptionReason': scheduleExceptionReason,
+    'ScheduleExceptionAssistantSource': scheduleExceptionAssistantSource,
+    'ScheduleExceptionAcknowledgedAt': dateTimeToJson(
+      scheduleExceptionAcknowledgedAt,
+    ),
     'ExternalSource': externalSource,
     'ExternalReference': externalReference,
+    'BookingChannel': bookingChannel,
+    'ChannelConversationId': channelConversationId,
+    'ChannelExternalUserId': channelExternalUserId,
+    'ChannelUsername': channelUsername,
     'CreatedAt': createdAt.toIso8601String(),
     'UpdatedAt': updatedAt.toIso8601String(),
   };

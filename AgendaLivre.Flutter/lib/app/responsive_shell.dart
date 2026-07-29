@@ -2,16 +2,18 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../core/ui.dart';
+import '../domain/models/models.dart';
 import '../features/agenda/agenda_page.dart' as agenda_ui;
 import '../features/agenda/appointment_dialog.dart';
 import '../features/establishment/establishment_page.dart';
 import '../features/finance/finance_page.dart';
 import '../features/home/home_page.dart';
 import '../features/marketing/marketing_page.dart';
+import '../features/pdv/pdv_cash_dialogs.dart';
 import '../features/pdv/pdv_page.dart';
 import '../features/reports/reports_page.dart';
 import '../features/settings/settings_page.dart';
+import '../features/support/support_page.dart';
 import '../features/whatsapp/whatsapp_panel.dart';
 import 'agenda_controller.dart';
 import 'theme/agenda_theme.dart';
@@ -91,6 +93,7 @@ class _ResponsiveAgendaShellState extends State<ResponsiveAgendaShell> {
     if (openedSettings && mounted) {
       ScaffoldMessenger.maybeOf(context)?.removeCurrentSnackBar();
     }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -109,7 +112,7 @@ class _ResponsiveAgendaShellState extends State<ResponsiveAgendaShell> {
                 ? PdvPage(
                     controller: controller,
                     referenceNow: widget.referenceNow,
-                    onExit: _exitPdv,
+                    onExit: _requestExitPdv,
                     onNavigate: _navigateFromPdv,
                   )
                 : const SizedBox.shrink(),
@@ -119,11 +122,30 @@ class _ResponsiveAgendaShellState extends State<ResponsiveAgendaShell> {
     );
   }
 
-  void _enterPdv() {
+  Future<void> _enterPdv() async {
     setState(() {
       _pdvSessionActive = true;
       _pdvMode = true;
     });
+    final reference = widget.referenceNow ?? DateTime.now();
+    if (controller.openCashSessionForDay(reference) != null) return;
+    final enter = await showPdvCashOpeningDialog(
+      context,
+      controller,
+      referenceNow: widget.referenceNow,
+    );
+    if (!mounted || enter) return;
+    _exitPdv();
+  }
+
+  Future<void> _requestExitPdv() async {
+    final exit = await showPdvCashClosingDialog(
+      context,
+      controller,
+      referenceNow: widget.referenceNow,
+    );
+    if (!mounted || !exit) return;
+    _exitPdv();
   }
 
   void _exitPdv() {
@@ -280,7 +302,7 @@ class _ResponsiveAgendaShellState extends State<ResponsiveAgendaShell> {
         ],
       ),
       bottomNavigationBar: _MobileQuickNavigation(
-        page: controller.page,
+        controller: controller,
         onSelected: (page) {
           if (page == null) {
             _scaffoldKey.currentState?.openDrawer();
@@ -306,6 +328,7 @@ class _ResponsiveAgendaShellState extends State<ResponsiveAgendaShell> {
     AgendaPage.reports => ReportsPage(controller: controller),
     AgendaPage.establishment => EstablishmentPage(controller: controller),
     AgendaPage.marketing => MarketingPage(controller: controller),
+    AgendaPage.support => SupportPage(controller: controller),
     AgendaPage.settings => SettingsPage(controller: controller),
   };
 
@@ -434,18 +457,65 @@ class _ResponsiveAgendaShellState extends State<ResponsiveAgendaShell> {
 }
 
 class _MobileQuickNavigation extends StatelessWidget {
-  const _MobileQuickNavigation({required this.page, required this.onSelected});
+  const _MobileQuickNavigation({
+    required this.controller,
+    required this.onSelected,
+  });
 
-  final AgendaPage page;
+  final AgendaController controller;
   final ValueChanged<AgendaPage?> onSelected;
 
-  int get _selectedIndex => switch (page) {
-    AgendaPage.home => 0,
-    AgendaPage.agenda => 1,
-    AgendaPage.finance => 2,
-    AgendaPage.marketing => 3,
-    _ => 4,
-  };
+  List<(IconData, IconData, String, AgendaPage?)> get _items =>
+      controller.isProfessionalAccount && !controller.isProfessionalManager
+      ? [
+          (
+            Icons.calendar_today_outlined,
+            Icons.calendar_month_rounded,
+            'Agenda',
+            AgendaPage.agenda,
+          ),
+          if (controller.canAccessPage(AgendaPage.establishment))
+            (
+              Icons.storefront_outlined,
+              Icons.storefront_rounded,
+              'Clientes',
+              AgendaPage.establishment,
+            ),
+          (
+            Icons.headset_mic_outlined,
+            Icons.headset_mic_rounded,
+            'Suporte',
+            AgendaPage.support,
+          ),
+          (Icons.more_horiz_rounded, Icons.more_horiz_rounded, 'Mais', null),
+        ]
+      : [
+          (Icons.home_outlined, Icons.home_rounded, 'Painel', AgendaPage.home),
+          (
+            Icons.calendar_today_outlined,
+            Icons.calendar_month_rounded,
+            'Agenda',
+            AgendaPage.agenda,
+          ),
+          (
+            Icons.account_balance_wallet_outlined,
+            Icons.account_balance_wallet_rounded,
+            'Caixa',
+            AgendaPage.finance,
+          ),
+          (
+            Icons.campaign_outlined,
+            Icons.campaign_rounded,
+            'Marketing',
+            AgendaPage.marketing,
+          ),
+          (Icons.more_horiz_rounded, Icons.more_horiz_rounded, 'Mais', null),
+        ];
+
+  int get _selectedIndex {
+    final index = _items.indexWhere((item) => item.$4 == controller.page);
+    return index < 0 ? _items.length - 1 : index;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -455,6 +525,7 @@ class _MobileQuickNavigation extends StatelessWidget {
         if (constraints.maxWidth < 340) {
           return _compactNavigation(t);
         }
+        final items = _items;
         return NavigationBar(
           key: const Key('mobile-quick-navigation'),
           height: 68,
@@ -462,38 +533,14 @@ class _MobileQuickNavigation extends StatelessWidget {
           backgroundColor: t.panel,
           indicatorColor: t.accentSoft,
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          onDestinationSelected: (index) => onSelected(switch (index) {
-            0 => AgendaPage.home,
-            1 => AgendaPage.agenda,
-            2 => AgendaPage.finance,
-            3 => AgendaPage.marketing,
-            _ => null,
-          }),
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home_rounded),
-              label: 'Painel',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.calendar_today_outlined),
-              selectedIcon: Icon(Icons.calendar_month_rounded),
-              label: 'Agenda',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.account_balance_wallet_outlined),
-              selectedIcon: Icon(Icons.account_balance_wallet_rounded),
-              label: 'Caixa',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.campaign_outlined),
-              selectedIcon: Icon(Icons.campaign_rounded),
-              label: 'Marketing',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.more_horiz_rounded),
-              label: 'Mais',
-            ),
+          onDestinationSelected: (index) => onSelected(items[index].$4),
+          destinations: [
+            for (final item in items)
+              NavigationDestination(
+                icon: Icon(item.$1),
+                selectedIcon: Icon(item.$2),
+                label: item.$3,
+              ),
           ],
         );
       },
@@ -501,28 +548,7 @@ class _MobileQuickNavigation extends StatelessWidget {
   }
 
   Widget _compactNavigation(AgendaThemeTokens t) {
-    final items = <(IconData, IconData, String, AgendaPage?)>[
-      (Icons.home_outlined, Icons.home_rounded, 'Painel', AgendaPage.home),
-      (
-        Icons.calendar_today_outlined,
-        Icons.calendar_month_rounded,
-        'Agenda',
-        AgendaPage.agenda,
-      ),
-      (
-        Icons.account_balance_wallet_outlined,
-        Icons.account_balance_wallet_rounded,
-        'Caixa',
-        AgendaPage.finance,
-      ),
-      (
-        Icons.campaign_outlined,
-        Icons.campaign_rounded,
-        'Marketing',
-        AgendaPage.marketing,
-      ),
-      (Icons.more_horiz_rounded, Icons.more_horiz_rounded, 'Mais', null),
-    ];
+    final items = _items;
     return Material(
       key: const Key('mobile-quick-navigation'),
       color: t.panel,
@@ -568,54 +594,6 @@ class _MobileQuickNavigation extends StatelessWidget {
   }
 }
 
-class _TopBarContext extends StatelessWidget {
-  const _TopBarContext({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = AgendaThemeTokens.of(context);
-    return Row(
-      key: const Key('desktop-page-context'),
-      children: [
-        AgendaIconBadge(icon, background: t.accentSoft, color: t.accentDark),
-        const SizedBox(width: 11),
-        Expanded(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: t.ink,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              Text(
-                subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: t.muted, fontSize: 11),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _AgendaTopBar extends StatefulWidget {
   const _AgendaTopBar({
     required this.controller,
@@ -639,110 +617,80 @@ class _AgendaTopBar extends StatefulWidget {
 
 class _AgendaTopBarState extends State<_AgendaTopBar> {
   final _dateButtonKey = GlobalKey();
+  final _globalSearchController = TextEditingController();
+  final _globalSearchFocus = FocusNode();
+
+  @override
+  void dispose() {
+    _globalSearchController.dispose();
+    _globalSearchFocus.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final t = AgendaThemeTokens.of(context);
-    final usesSearch = widget.controller.page == AgendaPage.agenda;
-    final usesDate = const {
-      AgendaPage.home,
-      AgendaPage.agenda,
-      AgendaPage.reports,
-    }.contains(widget.controller.page);
     return Container(
       key: const Key('desktop-topbar'),
       height: 68,
-      padding: const EdgeInsets.symmetric(horizontal: 26),
+      padding: const EdgeInsets.fromLTRB(18, 0, 24, 0),
       decoration: BoxDecoration(
         color: t.panel,
         border: Border(bottom: BorderSide(color: t.sidebarBorder)),
       ),
       child: Row(
         children: [
-          Expanded(
-            child: usesSearch
-                ? SizedBox(
-                    height: 42,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: t.panel,
-                        border: Border.all(color: t.line),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: TextField(
-                        controller: widget.searchController,
-                        onChanged: widget.onSearch,
-                        style: TextStyle(color: t.ink, fontSize: 13),
-                        decoration: InputDecoration(
-                          hintText:
-                              'Buscar cliente, serviço ou profissional na agenda...',
-                          hintStyle: TextStyle(color: t.muted, fontSize: 12.5),
-                          prefixIcon: Icon(
-                            Icons.search_rounded,
-                            size: 19,
-                            color: t.muted,
-                          ),
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          filled: false,
-                          contentPadding: const EdgeInsets.symmetric(
-                            vertical: 11,
-                          ),
-                        ),
-                      ),
-                    ),
-                  )
-                : _TopBarContext(
-                    icon: _contextIcon(widget.controller.page),
-                    title: _pageTitle(widget.controller.page),
-                    subtitle: _contextSubtitle(widget.controller.page),
+          SizedBox(
+            key: _dateButtonKey,
+            width: 128,
+            height: 40,
+            child: OutlinedButton(
+              key: const Key('topbar-date-button'),
+              onPressed: _showDatePopover,
+              style: _topBarOutlinedStyle(t),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.calendar_month_outlined,
+                    size: 15,
+                    color: t.accent,
                   ),
-          ),
-          if (usesDate) ...[
-            const SizedBox(width: 16),
-            SizedBox(
-              key: _dateButtonKey,
-              width: 128,
-              height: 40,
-              child: OutlinedButton(
-                key: const Key('topbar-date-button'),
-                onPressed: _showDatePopover,
-                style: _topBarOutlinedStyle(t),
-                child: Text(_dateButtonLabel(widget.controller.selectedDate)),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _dateButtonLabel(widget.controller.selectedDate),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Icon(Icons.keyboard_arrow_down, size: 15, color: t.muted),
+                ],
               ),
             ),
-          ],
-          if (widget.controller.page != AgendaPage.settings) ...[
+          ),
+          const SizedBox(width: 16),
+          Expanded(child: _globalSearch(t)),
+          if (!widget.controller.isProfessionalAccount ||
+              widget.controller.isProfessionalManager) ...[
             const SizedBox(width: 14),
             SizedBox(
               height: 40,
-              child: OutlinedButton(
-                onPressed: () =>
-                    widget.controller.navigate(AgendaPage.settings),
+              child: OutlinedButton.icon(
+                key: const Key('desktop-enter-pdv'),
+                onPressed: widget.onEnterPdv,
                 style: _topBarOutlinedStyle(t),
-                child: const Text('Configurações'),
+                icon: const Icon(Icons.point_of_sale_outlined, size: 17),
+                label: Text(widget.pdvActive ? 'Voltar ao PDV' : 'Modo PDV'),
               ),
             ),
           ],
-          const SizedBox(width: 10),
-          SizedBox(
-            height: 40,
-            child: OutlinedButton.icon(
-              key: const Key('desktop-enter-pdv'),
-              onPressed: widget.onEnterPdv,
-              style: _topBarOutlinedStyle(t),
-              icon: const Icon(Icons.point_of_sale_outlined, size: 17),
-              label: Text(widget.pdvActive ? 'Voltar ao PDV' : 'Modo PDV'),
-            ),
-          ),
           const SizedBox(width: 10),
           SizedBox(
             height: 40,
             child: ElevatedButton.icon(
               onPressed: widget.onNew,
               icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Novo agendamento'),
+              label: const Text('Novo'),
             ),
           ),
         ],
@@ -750,25 +698,467 @@ class _AgendaTopBarState extends State<_AgendaTopBar> {
     );
   }
 
-  IconData _contextIcon(AgendaPage page) => switch (page) {
-    AgendaPage.home => Icons.dashboard_outlined,
-    AgendaPage.finance => Icons.account_balance_wallet_outlined,
-    AgendaPage.reports => Icons.insights_outlined,
-    AgendaPage.establishment => Icons.storefront_outlined,
-    AgendaPage.marketing => Icons.campaign_outlined,
-    AgendaPage.settings => Icons.settings_outlined,
-    AgendaPage.agenda => Icons.calendar_month_outlined,
-  };
+  Widget _globalSearch(
+    AgendaThemeTokens t,
+  ) => RawAutocomplete<_GlobalSearchSuggestion>(
+    textEditingController: _globalSearchController,
+    focusNode: _globalSearchFocus,
+    displayStringForOption: (option) => option.title,
+    optionsBuilder: (value) => _globalSearchSuggestions(value.text),
+    onSelected: _openGlobalSearchSuggestion,
+    fieldViewBuilder: (context, textController, focusNode, onFieldSubmitted) =>
+        SizedBox(
+          key: const Key('global-search-host'),
+          height: 42,
+          child: TextField(
+            key: const Key('global-search-field'),
+            controller: textController,
+            focusNode: focusNode,
+            onSubmitted: (_) => onFieldSubmitted(),
+            style: TextStyle(color: t.ink, fontSize: 13),
+            decoration: InputDecoration(
+              hintText: 'Pesquisar em todo o Agenda Livre...',
+              hintStyle: TextStyle(color: t.muted, fontSize: 12.5),
+              prefixIcon: Icon(Icons.search_rounded, size: 19, color: t.muted),
+              suffixIcon: textController.text.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Limpar busca',
+                      onPressed: () {
+                        textController.clear();
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.close_rounded, size: 17),
+                    ),
+              filled: true,
+              fillColor: t.panel,
+              contentPadding: const EdgeInsets.symmetric(vertical: 11),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+        ),
+    optionsViewBuilder: (context, onSelected, options) {
+      final values = options.toList(growable: false);
+      final query = _globalSearchController.text.trim();
+      return Align(
+        alignment: Alignment.topLeft,
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            key: const Key('global-search-suggestions'),
+            width: 660,
+            constraints: const BoxConstraints(maxHeight: 510),
+            margin: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
+            decoration: BoxDecoration(
+              color: t.panel,
+              border: Border.all(color: t.line),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x22000000),
+                  blurRadius: 24,
+                  offset: Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 2, 8, 9),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          query.isEmpty
+                              ? 'Sugestões para começar'
+                              : 'Resultados para “$query”',
+                          style: TextStyle(
+                            color: t.ink,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '${values.length} ${values.length == 1 ? 'opção' : 'opções'}',
+                        style: TextStyle(color: t.muted, fontSize: 10.5),
+                      ),
+                    ],
+                  ),
+                ),
+                if (values.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Text(
+                      'Nenhum resultado encontrado.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: t.muted, fontSize: 12),
+                    ),
+                  )
+                else
+                  Flexible(
+                    child: ListView.builder(
+                      padding: EdgeInsets.zero,
+                      shrinkWrap: true,
+                      itemCount: values.length,
+                      itemBuilder: (context, index) {
+                        final option = values[index];
+                        return InkWell(
+                          key: Key('global-search-result-${option.id}'),
+                          borderRadius: BorderRadius.circular(11),
+                          onTap: () => onSelected(option),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 9,
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 36,
+                                  height: 36,
+                                  decoration: BoxDecoration(
+                                    color: t.accentSoft,
+                                    borderRadius: BorderRadius.circular(11),
+                                  ),
+                                  child: Icon(
+                                    option.icon,
+                                    color: t.accent,
+                                    size: 18,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        option.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: t.ink,
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        option.subtitle,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: t.muted,
+                                          fontSize: 10.5,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  option.type,
+                                  style: TextStyle(
+                                    color: t.muted,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(width: 5),
+                                Icon(
+                                  Icons.chevron_right,
+                                  color: t.muted,
+                                  size: 17,
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
 
-  String _contextSubtitle(AgendaPage page) => switch (page) {
-    AgendaPage.home => 'Resumo e operação do dia',
-    AgendaPage.finance => 'Entradas, pendências e despesas',
-    AgendaPage.reports => 'Indicadores do período selecionado',
-    AgendaPage.establishment => 'Clientes, equipe e serviços',
-    AgendaPage.marketing => 'Campanhas e relacionamento',
-    AgendaPage.settings => 'Preferências do negócio e integrações',
-    AgendaPage.agenda => 'Horários e atendimentos',
-  };
+  Iterable<_GlobalSearchSuggestion> _globalSearchSuggestions(String rawQuery) {
+    final query = _normalizeSearch(rawQuery);
+    final data = widget.controller.data;
+    final values = <_GlobalSearchSuggestion>[];
+
+    void add({
+      required String id,
+      required String title,
+      required String subtitle,
+      required String type,
+      required IconData icon,
+      Object? payload,
+      AgendaPage? page,
+      int baseScore = 0,
+      required List<String> candidates,
+    }) {
+      if (page != null && !widget.controller.canAccessPage(page)) return;
+      final score = query.isEmpty
+          ? baseScore
+          : _globalSearchScore(query, candidates);
+      if (query.isNotEmpty && score == 0) return;
+      values.add(
+        _GlobalSearchSuggestion(
+          id: id,
+          title: title,
+          subtitle: subtitle,
+          type: type,
+          icon: icon,
+          score: score + baseScore,
+          payload: payload,
+          page: page,
+        ),
+      );
+    }
+
+    final appointments = data.appointments.toList()
+      ..sort((a, b) => a.start.compareTo(b.start));
+    for (final item in appointments) {
+      add(
+        id: 'appointment-${item.id}',
+        title: item.customerName,
+        subtitle:
+            '${_dateButtonLabel(item.start)} · ${item.serviceName} · ${item.professionalName}',
+        type: 'AGENDA',
+        icon: Icons.calendar_month_outlined,
+        payload: item,
+        page: AgendaPage.agenda,
+        baseScore: 120,
+        candidates: [
+          item.customerName,
+          item.customerPhone,
+          item.serviceName,
+          item.professionalName,
+          item.resourceName,
+          item.notes,
+        ],
+      );
+    }
+
+    final customers = data.customers.toList()
+      ..sort((a, b) => b.lastSeenAt.compareTo(a.lastSeenAt));
+    for (final item in customers) {
+      add(
+        id: 'customer-${item.id}',
+        title: item.name,
+        subtitle: [item.phone, item.email, item.profile].firstWhere(
+          (value) => value.trim().isNotEmpty,
+          orElse: () => 'Cliente cadastrado',
+        ),
+        type: 'CLIENTE',
+        icon: Icons.person_outline,
+        payload: item,
+        page: AgendaPage.establishment,
+        baseScore: 100,
+        candidates: [
+          item.name,
+          item.phone,
+          item.email,
+          item.document,
+          item.segment,
+          item.profile,
+          item.tags,
+          item.notes,
+        ],
+      );
+    }
+
+    for (final item in data.services.where((item) => item.isActive)) {
+      add(
+        id: 'service-${item.id}',
+        title: item.name,
+        subtitle: '${item.durationMinutes} min · ${item.category}',
+        type: 'SERVIÇO',
+        icon: Icons.content_cut,
+        payload: item,
+        page: AgendaPage.establishment,
+        baseScore: 80,
+        candidates: [
+          item.name,
+          item.category,
+          item.description,
+          item.segment,
+          item.defaultResource,
+        ],
+      );
+    }
+
+    for (final item in data.professionals) {
+      add(
+        id: 'professional-${item.id}',
+        title: item.name,
+        subtitle: item.role.trim().isEmpty ? 'Profissional' : item.role,
+        type: 'PROFISSIONAL',
+        icon: Icons.badge_outlined,
+        payload: item,
+        page: AgendaPage.establishment,
+        baseScore: 70,
+        candidates: [
+          item.name,
+          item.role,
+          item.phone,
+          item.email,
+          item.document,
+          item.notes,
+          item.segments.join(' '),
+        ],
+      );
+    }
+
+    for (final item in data.products) {
+      add(
+        id: 'product-${item.id}',
+        title: item.name,
+        subtitle: '${item.category} · estoque ${item.stockQuantity}',
+        type: 'PRODUTO',
+        icon: Icons.inventory_2_outlined,
+        payload: item,
+        page: AgendaPage.establishment,
+        baseScore: 60,
+        candidates: [
+          item.name,
+          item.category,
+          item.sku,
+          item.supplier,
+          item.notes,
+        ],
+      );
+    }
+
+    for (final destination in _globalSearchDestinations) {
+      add(
+        id: 'page-${destination.id}',
+        title: destination.title,
+        subtitle: destination.subtitle,
+        type: 'PÁGINA',
+        icon: destination.icon,
+        page: destination.page,
+        baseScore: 55,
+        candidates: [
+          destination.title,
+          destination.subtitle,
+          destination.keywords,
+        ],
+      );
+    }
+
+    values.sort((a, b) {
+      final score = b.score.compareTo(a.score);
+      return score != 0 ? score : a.title.compareTo(b.title);
+    });
+    if (query.isEmpty) {
+      final defaults = values.where((value) {
+        if (value.payload is Appointment) {
+          return !(value.payload as Appointment).start.isBefore(
+            DateTime.now().subtract(const Duration(hours: 1)),
+          );
+        }
+        return true;
+      });
+      return defaults.take(9);
+    }
+    return values.take(9);
+  }
+
+  int _globalSearchScore(String query, List<String> candidates) {
+    var best = 0;
+    for (final candidate in candidates) {
+      final value = _normalizeSearch(candidate);
+      if (value.isEmpty) continue;
+      if (value == query) {
+        best = best < 100 ? 100 : best;
+      } else if (value.startsWith(query)) {
+        best = best < 80 ? 80 : best;
+      } else if (value.contains(query)) {
+        best = best < 55 ? 55 : best;
+      }
+    }
+    return best;
+  }
+
+  String _normalizeSearch(String value) {
+    var normalized = value.trim().toLowerCase();
+    const replacements = <String, String>{
+      'á': 'a',
+      'à': 'a',
+      'â': 'a',
+      'ã': 'a',
+      'ä': 'a',
+      'é': 'e',
+      'è': 'e',
+      'ê': 'e',
+      'ë': 'e',
+      'í': 'i',
+      'ì': 'i',
+      'î': 'i',
+      'ï': 'i',
+      'ó': 'o',
+      'ò': 'o',
+      'ô': 'o',
+      'õ': 'o',
+      'ö': 'o',
+      'ú': 'u',
+      'ù': 'u',
+      'û': 'u',
+      'ü': 'u',
+      'ç': 'c',
+    };
+    replacements.forEach((source, target) {
+      normalized = normalized.replaceAll(source, target);
+    });
+    return normalized;
+  }
+
+  Future<void> _openGlobalSearchSuggestion(
+    _GlobalSearchSuggestion suggestion,
+  ) async {
+    _globalSearchFocus.unfocus();
+    _globalSearchController.clear();
+
+    final payload = suggestion.payload;
+    if (payload is Appointment) {
+      widget.controller
+        ..selectDate(payload.start)
+        ..navigate(AgendaPage.agenda)
+        ..setSearch(payload.customerName);
+      widget.searchController.text = payload.customerName;
+      widget.onSearch(payload.customerName);
+      await showAppointmentDialog(
+        context,
+        widget.controller,
+        appointment: payload,
+      );
+      return;
+    }
+
+    if (payload is Customer ||
+        payload is ServiceItem ||
+        payload is Professional ||
+        payload is ProductItem) {
+      widget.controller.navigate(AgendaPage.establishment);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${suggestion.title} localizado.')),
+      );
+      return;
+    }
+
+    final page = suggestion.page;
+    if (page != null) widget.controller.navigate(page);
+  }
 
   Future<void> _showDatePopover() async {
     final buttonContext = _dateButtonKey.currentContext;
@@ -848,6 +1238,105 @@ class _AgendaTopBarState extends State<_AgendaTopBar> {
     );
   }
 }
+
+class _GlobalSearchSuggestion {
+  const _GlobalSearchSuggestion({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.type,
+    required this.icon,
+    required this.score,
+    this.payload,
+    this.page,
+  });
+
+  final String id;
+  final String title;
+  final String subtitle;
+  final String type;
+  final IconData icon;
+  final int score;
+  final Object? payload;
+  final AgendaPage? page;
+}
+
+class _GlobalSearchDestination {
+  const _GlobalSearchDestination(
+    this.id,
+    this.title,
+    this.subtitle,
+    this.page,
+    this.icon,
+    this.keywords,
+  );
+
+  final String id;
+  final String title;
+  final String subtitle;
+  final AgendaPage page;
+  final IconData icon;
+  final String keywords;
+}
+
+const _globalSearchDestinations = <_GlobalSearchDestination>[
+  _GlobalSearchDestination(
+    'agenda',
+    'Agenda',
+    'Horários, calendário e atendimentos',
+    AgendaPage.agenda,
+    Icons.calendar_month_outlined,
+    'agenda calendario horarios agendamentos',
+  ),
+  _GlobalSearchDestination(
+    'estabelecimento',
+    'Meu estabelecimento',
+    'Clientes, serviços, profissionais e produtos',
+    AgendaPage.establishment,
+    Icons.storefront_outlined,
+    'estabelecimento clientes servicos profissionais produtos equipe',
+  ),
+  _GlobalSearchDestination(
+    'financeiro',
+    'Financeiro',
+    'Recebimentos, despesas e fluxo de caixa',
+    AgendaPage.finance,
+    Icons.attach_money_rounded,
+    'financeiro pagamentos recebimentos despesas caixa',
+  ),
+  _GlobalSearchDestination(
+    'relatorios',
+    'Relatórios',
+    'Indicadores, desempenho e resultados',
+    AgendaPage.reports,
+    Icons.query_stats_rounded,
+    'relatorios indicadores desempenho resultados',
+  ),
+  _GlobalSearchDestination(
+    'marketing',
+    'Marketing',
+    'Campanhas, conteúdo e divulgação',
+    AgendaPage.marketing,
+    Icons.campaign_outlined,
+    'marketing campanhas conteudo divulgacao',
+  ),
+  _GlobalSearchDestination(
+    'suporte',
+    'Suporte',
+    'Central de ajuda e atendimento',
+    AgendaPage.support,
+    Icons.headset_mic_outlined,
+    'suporte ajuda atendimento conversa',
+  ),
+  _GlobalSearchDestination(
+    'configuracoes',
+    'Configurações',
+    'Conta, aparência e integrações',
+    AgendaPage.settings,
+    Icons.settings_outlined,
+    'configuracoes conta aparencia integracoes',
+  ),
+];
 
 class _AgendaDatePopover extends StatefulWidget {
   const _AgendaDatePopover({required this.initialDate});
@@ -1177,13 +1666,14 @@ class _AgendaSidebar extends StatelessWidget {
                     ),
                     children: [
                       for (final destination in _destinations)
-                        _SidebarDestination(
-                          destination: destination,
-                          compact: contentCompact,
-                          selected: controller.page == destination.page,
-                          onTap: () => onNavigate(destination.page),
-                          palette: palette,
-                        ),
+                        if (controller.canAccessPage(destination.page))
+                          _SidebarDestination(
+                            destination: destination,
+                            compact: contentCompact,
+                            selected: controller.page == destination.page,
+                            onTap: () => onNavigate(destination.page),
+                            palette: palette,
+                          ),
                     ],
                   ),
                 ),
@@ -1674,23 +2164,29 @@ class _MobileAgendaDrawer extends StatelessWidget {
               child: ListView(
                 padding: const EdgeInsets.all(14),
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: FilledButton.icon(
-                      key: const Key('mobile-enter-pdv'),
-                      onPressed: onEnterPdv,
-                      icon: const Icon(Icons.point_of_sale_outlined, size: 19),
-                      label: const Text('Entrar no Modo PDV'),
+                  if (!controller.isProfessionalAccount ||
+                      controller.isProfessionalManager)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: FilledButton.icon(
+                        key: const Key('mobile-enter-pdv'),
+                        onPressed: onEnterPdv,
+                        icon: const Icon(
+                          Icons.point_of_sale_outlined,
+                          size: 19,
+                        ),
+                        label: const Text('Entrar no Modo PDV'),
+                      ),
                     ),
-                  ),
                   for (final destination in _destinations)
-                    _SidebarDestination(
-                      destination: destination,
-                      compact: false,
-                      selected: controller.page == destination.page,
-                      onTap: () => onNavigate(destination.page),
-                      palette: palette,
-                    ),
+                    if (controller.canAccessPage(destination.page))
+                      _SidebarDestination(
+                        destination: destination,
+                        compact: false,
+                        selected: controller.page == destination.page,
+                        onTap: () => onNavigate(destination.page),
+                        palette: palette,
+                      ),
                 ],
               ),
             ),
@@ -1777,6 +2273,7 @@ const _destinations = <_AgendaDestination>[
     Icons.storefront_rounded,
   ),
   _AgendaDestination(AgendaPage.marketing, 'Marketing', Icons.campaign_rounded),
+  _AgendaDestination(AgendaPage.support, 'Suporte', Icons.headset_mic_rounded),
   _AgendaDestination(
     AgendaPage.settings,
     'Configurações',
@@ -1791,6 +2288,7 @@ String _pageTitle(AgendaPage page) => switch (page) {
   AgendaPage.reports => 'Relatórios',
   AgendaPage.establishment => 'Meu estabelecimento',
   AgendaPage.marketing => 'Marketing',
+  AgendaPage.support => 'Suporte',
   AgendaPage.settings => 'Configurações',
 };
 

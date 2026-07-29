@@ -69,6 +69,40 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('conta profissional vê somente páginas permitidas pelo WPF', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1382, 736);
+    addTearDown(tester.view.reset);
+
+    final controller =
+        AgendaController(
+            _MemoryAgendaRepository(),
+            professionalId: 'professional-1',
+            permissionScope: 'own_agenda',
+          )
+          ..data = AgendaSeedData.salon(referenceDate: DateTime(2026, 7, 14))
+          ..loading = false
+          ..page = AgendaPage.agenda;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AgendaThemes.byId('').toThemeData(),
+        home: ResponsiveAgendaShell(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Financeiro'), findsNothing);
+    expect(find.text('Relatórios'), findsNothing);
+    expect(find.text('Marketing'), findsNothing);
+    expect(find.text('Configurações'), findsNothing);
+    expect(find.text('Suporte'), findsOneWidget);
+    expect(find.byKey(const Key('desktop-enter-pdv')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('mostra o trial Web no desktop e no mobile sem bloquear uso', (
     tester,
   ) async {
@@ -277,7 +311,7 @@ void main() {
     );
   }
 
-  testWidgets('equaliza os cartões financeiros e usa a marca do WhatsApp', (
+  testWidgets('equaliza a análise financeira e usa a marca do WhatsApp', (
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
@@ -297,15 +331,17 @@ void main() {
     );
     await tester.pump();
 
-    final sources = find.byKey(const Key('finance-sources-card'));
-    final pending = find.byKey(const Key('finance-pending-card'));
-    final expenses = find.byKey(const Key('finance-expenses-card'));
+    final risk = find.byKey(const Key('finance-risk-card'));
+    final funnel = find.byKey(const Key('finance-receipt-funnel-card'));
+    final composition = find.byKey(
+      const Key('finance-receipt-composition-card'),
+    );
 
-    expect(sources, findsOneWidget);
-    expect(pending, findsOneWidget);
-    expect(expenses, findsOneWidget);
-    expect(tester.getSize(sources).height, tester.getSize(pending).height);
-    expect(tester.getSize(sources).height, tester.getSize(expenses).height);
+    expect(risk, findsOneWidget);
+    expect(funnel, findsOneWidget);
+    expect(composition, findsOneWidget);
+    expect(tester.getSize(risk).height, tester.getSize(funnel).height);
+    expect(tester.getSize(risk).height, tester.getSize(composition).height);
     final whatsAppIcon = find.byWidgetPredicate(
       (widget) =>
           widget is FaIcon && widget.icon == FontAwesomeIcons.whatsapp.data,

@@ -294,6 +294,40 @@ void main() {
         expect(repository.saveCalls, 1);
       },
     );
+
+    test('salva uma exceção nova somente com o aviso auditado', () async {
+      final repository = _FakeAgendaRepository(
+        _baseData(services: [_service()]),
+      );
+      final controller = await _initializedController(repository);
+      final exceptional = Appointment(
+        id: 'exceptional-closed-day',
+        customerName: 'Cliente avisado',
+        serviceId: 'service-1',
+        serviceName: 'Manicure',
+        professionalId: 'professional-1',
+        professionalName: 'Manicure 1',
+        resourceName: 'Mesa 1',
+        start: DateTime(2026, 7, 19, 10),
+        durationMinutes: 45,
+        price: 55,
+      );
+
+      expect(await controller.saveAppointment(exceptional), isNotNull);
+      exceptional
+        ..scheduleExceptionAcknowledged = true
+        ..scheduleExceptionReason =
+            'O estabelecimento está fechado no dia selecionado.'
+        ..scheduleExceptionAssistantSource = 'local-rules'
+        ..scheduleExceptionAcknowledgedAt = DateTime(2026, 7, 18, 9);
+
+      expect(await controller.saveAppointment(exceptional), isNull);
+      expect(
+        controller.data.appointments.single.scheduleExceptionAcknowledged,
+        isTrue,
+      );
+      expect(repository.saveCalls, 1);
+    });
   });
 
   group('appointment status transitions', () {
@@ -1023,6 +1057,201 @@ void main() {
       expect(settings.onboardingCompleted, isFalse);
       expect(repository.saveCalls, 1);
       expect(repository.clearCalls, 0);
+    });
+  });
+
+  group('professional access policy', () {
+    test('own agenda account only opens agenda and support', () {
+      final controller = AgendaController(
+        _FakeAgendaRepository(_baseData()),
+        professionalId: 'professional-1',
+        permissionScope: 'own_agenda',
+      )..page = AgendaPage.agenda;
+
+      expect(controller.canAccessPage(AgendaPage.agenda), isTrue);
+      expect(controller.canAccessPage(AgendaPage.support), isTrue);
+      expect(controller.canAccessPage(AgendaPage.establishment), isFalse);
+      expect(controller.canAccessPage(AgendaPage.finance), isFalse);
+
+      controller.navigate(AgendaPage.finance);
+      expect(controller.page, AgendaPage.agenda);
+    });
+
+    test('agenda_clients also opens establishment and manager opens all', () {
+      final clients = AgendaController(
+        _FakeAgendaRepository(_baseData()),
+        professionalId: 'professional-1',
+        permissionScope: 'agenda_clients',
+      );
+      final manager = AgendaController(
+        _FakeAgendaRepository(_baseData()),
+        professionalId: 'professional-2',
+        permissionScope: 'manager',
+      );
+
+      expect(clients.canAccessPage(AgendaPage.establishment), isTrue);
+      expect(clients.canAccessPage(AgendaPage.reports), isFalse);
+      expect(AgendaPage.values.every(manager.canAccessPage), isTrue);
+    });
+  });
+
+  group('PDV cash session parity', () {
+    test(
+      'opens, links transactions and closes with the WPF cash formula',
+      () async {
+        final day = DateTime(2026, 7, 14);
+        final session = CashSession(
+          id: 'cash-1',
+          operatorName: 'Lucas',
+          openingBalance: 100,
+          openedAt: day.add(const Duration(hours: 8)),
+        );
+        final repository = _FakeAgendaRepository(
+          AgendaData(
+            settings: AgendaSettings(
+              accountFullName: 'Lucas',
+              businessName: 'Lucas Barbearia',
+              businessSegment: 'Barbearia',
+            ),
+            cashSessions: [session],
+            appointments: [
+              Appointment(
+                id: 'paid-service',
+                customerName: 'Ana',
+                serviceName: 'Corte',
+                start: day.add(const Duration(hours: 9)),
+                price: 80,
+                status: AppointmentStatus.done,
+                paymentConfirmedAt: day.add(
+                  const Duration(hours: 9, minutes: 45),
+                ),
+                paymentMethod: 'Dinheiro',
+                cashSessionId: session.id,
+                serviceElapsedSeconds: 2400,
+              ),
+              Appointment(
+                id: 'cancelled-service',
+                customerName: 'Bia',
+                start: day.add(const Duration(hours: 11)),
+                status: AppointmentStatus.cancelled,
+              ),
+            ],
+            productSales: [
+              ProductSale(
+                productName: 'Pomada',
+                quantity: 1,
+                unitPrice: 50,
+                paymentMethod: 'Pix',
+                cashSessionId: session.id,
+                soldAt: day.add(const Duration(hours: 10)),
+              ),
+            ],
+            manualPayments: [
+              ManualPayment(
+                description: 'Reforço',
+                category: 'Ajuste',
+                paymentMethod: 'Dinheiro',
+                cashSessionId: session.id,
+                value: 20,
+                paidAt: day.add(const Duration(hours: 12)),
+              ),
+            ],
+            expenses: [
+              ExpenseItem(
+                description: 'Sangria',
+                paymentMethod: 'Dinheiro',
+                cashSessionId: session.id,
+                value: 30,
+                date: day.add(const Duration(hours: 13)),
+              ),
+            ],
+          ),
+        );
+        final controller = await _initializedController(repository);
+        final current = controller.openCashSessionForDay(day)!;
+
+        final snapshot = controller.buildPdvCashClosingSnapshot(
+          current,
+          reference: day.add(const Duration(hours: 18)),
+        );
+
+        expect(snapshot.appointmentCount, 2);
+        expect(snapshot.completedCount, 1);
+        expect(snapshot.cancelledCount, 1);
+        expect(snapshot.totalSales, 130);
+        expect(snapshot.cashSales, 80);
+        expect(snapshot.pixSales, 50);
+        expect(snapshot.cashEntries, 20);
+        expect(snapshot.cashWithdrawals, 30);
+        expect(snapshot.expectedBalance, 170);
+
+        await controller.closeCashSession(
+          current,
+          closingBalance: 165,
+          notes: 'Faltaram cinco reais',
+          closedAt: day.add(const Duration(hours: 18)),
+        );
+
+        expect(current.isOpen, isFalse);
+        expect(current.expectedClosingBalance, 170);
+        expect(current.closingDifference, -5);
+        expect(current.totalSales, 130);
+        expect(current.notes, 'Faltaram cinco reais');
+        expect(repository.saveCalls, 1);
+      },
+    );
+
+    test('new PDV movements inherit the open cash session', () async {
+      final day = DateTime(2026, 7, 14, 8);
+      final repository = _FakeAgendaRepository(
+        AgendaData(
+          settings: AgendaSettings(
+            accountFullName: 'Lucas',
+            businessName: 'Lucas Barbearia',
+            businessSegment: 'Barbearia',
+          ),
+          products: [
+            ProductItem(
+              id: 'product-1',
+              name: 'Pomada',
+              price: 25,
+              stockQuantity: 10,
+            ),
+          ],
+        ),
+      );
+      final controller = await _initializedController(repository);
+      final session = await controller.openCashSession(
+        openingBalance: 50,
+        openedAt: day,
+      );
+
+      final sale = ProductSale(
+        productId: 'product-1',
+        quantity: 1,
+        paymentMethod: 'Dinheiro',
+        soldAt: day.add(const Duration(hours: 1)),
+      );
+      final payment = ManualPayment(
+        description: 'Entrada',
+        paymentMethod: 'Pix',
+        value: 15,
+        paidAt: day.add(const Duration(hours: 2)),
+      );
+      final expense = ExpenseItem(
+        description: 'Sangria',
+        paymentMethod: 'Dinheiro',
+        value: 10,
+        date: day.add(const Duration(hours: 3)),
+      );
+
+      expect(await controller.registerProductSale(sale), isNull);
+      await controller.addPayment(payment);
+      await controller.addExpense(expense);
+
+      expect(sale.cashSessionId, session.id);
+      expect(payment.cashSessionId, session.id);
+      expect(expense.cashSessionId, session.id);
     });
   });
 }

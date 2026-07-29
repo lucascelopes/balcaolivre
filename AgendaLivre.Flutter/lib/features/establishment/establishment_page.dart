@@ -757,7 +757,7 @@ class _MonthSummary extends StatelessWidget {
     final t = AgendaThemeTokens.of(context);
     return AgendaPanel(
       radius: 16,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -769,7 +769,7 @@ class _MonthSummary extends StatelessWidget {
               fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(height: 15),
+          const SizedBox(height: 11),
           _SummaryItem(
             icon: Icons.calendar_month_outlined,
             label: 'Atendimentos',
@@ -777,7 +777,7 @@ class _MonthSummary extends StatelessWidget {
             suffix: 'no mês',
             background: t.warmSoft,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           _SummaryItem(
             icon: Icons.payments_outlined,
             label: 'Receita média',
@@ -785,7 +785,7 @@ class _MonthSummary extends StatelessWidget {
             background: const Color(0xFFF3FCF8),
             tone: const Color(0xFF16A34A),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           _SummaryItem(
             icon: Icons.star_rounded,
             label: 'Receita do mês',
@@ -821,7 +821,7 @@ class _SummaryItem extends StatelessWidget {
     final t = AgendaThemeTokens.of(context);
     final activeTone = tone ?? t.accent;
     return Container(
-      padding: const EdgeInsets.all(13),
+      padding: const EdgeInsets.all(9),
       decoration: BoxDecoration(
         color: background,
         border: Border.all(color: t.line),
@@ -831,8 +831,8 @@ class _SummaryItem extends StatelessWidget {
         children: [
           AgendaIconBadge(
             icon,
-            size: 36,
-            iconSize: 18,
+            size: 32,
+            iconSize: 17,
             color: activeTone,
             background: activeTone.withValues(alpha: .08),
           ),

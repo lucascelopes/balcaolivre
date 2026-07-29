@@ -104,7 +104,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Criar profissional usa formulário, prévia e rodapé WPF', (
+  testWidgets('Criar profissional usa conta individual e rodapé WPF', (
     tester,
   ) async {
     final controller = _controller();
@@ -118,36 +118,38 @@ void main() {
     final frame = find.byKey(
       const ValueKey('professional-editor-dialog-frame'),
     );
-    expect(tester.getSize(frame).width, closeTo(860, 2));
-    expect(tester.getSize(frame).height, closeTo(612, 2));
+    expect(tester.getSize(frame).width, closeTo(1100, 2));
+    expect(tester.getSize(frame).height, closeTo(710, 2));
 
     expect(find.text('Criar profissional'), findsOneWidget);
     expect(
-      find.text('Cadastre quem atende e em qual agenda ele aparece.'),
+      find.text(
+        'Cadastre os dados e crie o acesso individual ao Agenda Livre.',
+      ),
       findsOneWidget,
     );
-    expect(find.text('Identificação'), findsOneWidget);
-    expect(find.text('Agenda e financeiro'), findsOneWidget);
+    expect(find.text('Dados do profissional'), findsOneWidget);
     expect(find.text('Nome do profissional'), findsOneWidget);
     expect(find.text('Telefone / WhatsApp'), findsOneWidget);
     expect(find.text('Segmento atendido'), findsOneWidget);
     expect(find.text('Observações internas'), findsOneWidget);
 
-    expect(find.text('Perfil do profissional'), findsOneWidget);
-    expect(find.text('Contato'), findsOneWidget);
-    expect(find.text('Agenda'), findsOneWidget);
-    expect(find.text('Comissão'), findsOneWidget);
-    expect(find.text('Status'), findsOneWidget);
-    expect(find.text('Como aparece na agenda'), findsOneWidget);
+    expect(find.text('Conta para entrar no app'), findsOneWidget);
+    expect(find.text('E-mail de acesso'), findsOneWidget);
+    expect(find.text('Senha inicial'), findsOneWidget);
+    expect(find.text('Confirmar senha'), findsOneWidget);
+    expect(find.text('Permissões no app'), findsOneWidget);
     expect(
-      tester.getTopLeft(find.text('Perfil do profissional')).dx,
-      greaterThan(tester.getTopLeft(find.text('Identificação')).dx + 250),
+      tester.getTopLeft(find.text('Conta para entrar no app')).dx,
+      greaterThan(
+        tester.getTopLeft(find.text('Dados do profissional')).dx + 350,
+      ),
     );
 
     _expectFixedFooter(
       tester,
       frame: frame,
-      primaryLabel: 'Salvar profissional',
+      primaryLabel: 'Salvar e criar profissional',
     );
     expect(tester.takeException(), isNull);
   });
@@ -223,7 +225,7 @@ void main() {
     _expectNarrowDialog(
       tester,
       frameKey: 'professional-editor-dialog-frame',
-      primaryLabel: 'Salvar profissional',
+      primaryLabel: 'Salvar e criar profissional',
     );
     await tester.tap(find.text('Cancelar'));
     await tester.pumpAndSettle();
