@@ -25,6 +25,59 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate:
+    name: Validar APK Android
+    if: ${{ github.event_name != 'schedule' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Configurar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.38.7"
+          cache: true
+
+      - name: Analisar e gerar APK de validação
+        shell: bash
+        working-directory: AgendaLivre.Flutter
+        run: |
+          set -euo pipefail
+          flutter config --no-analytics
+          flutter pub get
+          flutter analyze --no-pub
+          flutter build apk --debug --no-pub \
+            --dart-define=AGENDA_ANDROID_DEV_MODE=true \
+            --dart-define=AGENDA_LIVRE_API_BASE=https://app.minhaagendalivre.com.br
+
+      - name: Verificar pacote
+        id: validation_artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="AgendaLivre.Flutter/build/app/outputs/flutter-apk/app-debug.apk"
+          [[ -s "$apk" ]]
+          echo "sha256=$(sha256sum "$apk" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          echo "size=$(stat -c '%s' "$apk")" >> "$GITHUB_OUTPUT"
+
+      - name: Disponibilizar APK de validação
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgendaLivre-Android-QA
+          path: AgendaLivre.Flutter/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
   build:
     name: Gerar APK personalizado
     runs-on: ubuntu-24.04
