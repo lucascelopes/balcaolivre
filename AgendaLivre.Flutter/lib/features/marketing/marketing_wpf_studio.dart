@@ -2,16 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../../app/theme/agenda_theme.dart';
+import '../../core/business_profile.dart';
+import '../../core/motion.dart';
 
 class MarketingWpfStudio extends StatefulWidget {
   const MarketingWpfStudio({
     super.key,
     required this.businessName,
+    required this.profile,
     required this.titleController,
     required this.copyController,
     required this.previewMessage,
     required this.publicationCount,
     required this.clientCount,
+    required this.contactQueueCount,
+    required this.suggestedScheduleWindows,
+    required this.contactPhone,
+    required this.instagramLinked,
+    required this.whatsAppLinked,
     required this.contactQueue,
     required this.onUpdate,
     required this.onCopy,
@@ -22,11 +30,17 @@ class MarketingWpfStudio extends StatefulWidget {
   });
 
   final String businessName;
+  final AgendaBusinessProfile profile;
   final TextEditingController titleController;
   final TextEditingController copyController;
   final String previewMessage;
   final int publicationCount;
   final int clientCount;
+  final int contactQueueCount;
+  final List<String> suggestedScheduleWindows;
+  final String contactPhone;
+  final bool instagramLinked;
+  final bool whatsAppLinked;
   final Widget contactQueue;
   final VoidCallback onUpdate;
   final VoidCallback onCopy;
@@ -43,32 +57,30 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
   static const _images = <_MarketingImage>[
     _MarketingImage(
       'assets/branding/marketing-story-background.png',
+      'Modelo Agenda Livre',
+      'Arte inclusa',
+    ),
+    _MarketingImage(
+      'assets/branding/marketing-campaign-hair.png',
       'Agenda Livre',
       'Imagem própria',
     ),
     _MarketingImage(
-      'assets/branding/marketing-campaign-hair.png',
-      'Valeria Boltneva',
-      'CC0',
-    ),
-    _MarketingImage(
       'assets/branding/marketing-campaign-nails.png',
-      'Alexander Krivitskiy',
-      'CC0',
+      'Agenda Livre',
+      'Imagem própria',
     ),
     _MarketingImage(
       'assets/branding/marketing-campaign-spa.png',
-      'Healthy Living',
-      'CC0',
+      'Agenda Livre',
+      'Imagem própria',
     ),
     _MarketingImage(
       'assets/branding/marketing-site-hero-hair.png',
-      'Authentic Stock',
-      'CC0',
+      'Agenda Livre',
+      'Imagem própria',
     ),
   ];
-
-  static const _times = <String>['08:00', '08:30', '09:00', '09:30', '10:00'];
   static const _topics = <String>[
     'Cabelo',
     'Unhas',
@@ -80,19 +92,67 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
   late int _channel;
   int _selectedImage = 0;
   String _topic = 'Maquiagem';
-  final Set<String> _selectedTimes = {..._times};
-  final _search = TextEditingController(text: 'maquiagem');
+  late Set<String> _selectedTimes;
+  final _layerVisibility = List<bool>.filled(7, true);
+  final _search = TextEditingController(text: 'beleza e autocuidado');
+  late final TextEditingController _mobileSearch;
+  double _artFontSize = 20;
+  int _artAlignment = 1;
 
   @override
   void initState() {
     super.initState();
     _channel = widget.initialChannel.clamp(0, 2);
+    _selectedTimes = widget.suggestedScheduleWindows.toSet();
+    _mobileSearch = TextEditingController(
+      text: '${widget.profile.segment} ${widget.profile.servicePlural}'
+          .toLowerCase(),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant MarketingWpfStudio oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.suggestedScheduleWindows != widget.suggestedScheduleWindows) {
+      final valid = widget.suggestedScheduleWindows.toSet();
+      _selectedTimes = _selectedTimes.intersection(valid);
+      if (_selectedTimes.isEmpty) _selectedTimes = valid;
+    }
   }
 
   @override
   void dispose() {
     _search.dispose();
+    _mobileSearch.dispose();
     super.dispose();
+  }
+
+  String get _mobileSegmentImagePath => switch (widget.profile.segment) {
+    'Oficina' => 'assets/branding/onboarding-team-workshop.png',
+    'Barbearia' => 'assets/branding/onboarding-team-barber.png',
+    _ => 'assets/branding/onboarding-segment.png',
+  };
+
+  List<_MarketingImage> _imagesFor(bool compact) => compact
+      ? <_MarketingImage>[
+          _MarketingImage(
+            _mobileSegmentImagePath,
+            'Agenda Livre',
+            widget.profile.segment,
+          ),
+        ]
+      : _images;
+
+  List<String> _topicsFor(bool compact) {
+    if (!compact) return _topics;
+    return switch (widget.profile.segment) {
+      'Oficina' => const ['Revisão', 'Manutenção', 'Veículo', 'Retorno'],
+      'Petshop' => const ['Banho', 'Tosa', 'Vacina', 'Retorno'],
+      'Clínica médica' => const ['Retorno', 'Avaliação', 'Cuidados', 'Agenda'],
+      'Barbearia' => const ['Corte', 'Barba', 'Retorno', 'Horários'],
+      'Serviços' => const ['Serviços', 'Agenda', 'Retorno', 'Novidades'],
+      _ => const ['Cuidados', 'Agenda', 'Retorno', 'Novidades'],
+    };
   }
 
   @override
@@ -100,7 +160,7 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
     final compact = MediaQuery.sizeOf(context).width < 760;
     final t = AgendaThemeTokens.of(context);
     return ColoredBox(
-      color: const Color(0xFFFAF9F7),
+      color: compact ? t.appBackground : const Color(0xFFFAF9F7),
       child: SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(
           compact ? 12 : 18,
@@ -111,15 +171,27 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _breadcrumb(t),
+            AgendaReveal(child: _breadcrumb(t)),
             const SizedBox(height: 8),
-            _metricStrip(t, compact),
+            AgendaReveal(
+              delay: const Duration(milliseconds: 45),
+              child: _stageStrip(t, compact),
+            ),
             const SizedBox(height: 10),
-            _studio(t, compact),
+            AgendaReveal(
+              delay: const Duration(milliseconds: 80),
+              child: _studio(t, compact),
+            ),
             const SizedBox(height: 10),
-            _collection(t, compact),
+            AgendaReveal(
+              delay: const Duration(milliseconds: 115),
+              child: _collection(t, compact),
+            ),
             const SizedBox(height: 10),
-            widget.contactQueue,
+            AgendaReveal(
+              delay: const Duration(milliseconds: 145),
+              child: widget.contactQueue,
+            ),
           ],
         ),
       ),
@@ -168,30 +240,27 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
   Widget _metricStrip(AgendaThemeTokens t, bool compact) {
     final metrics = <Widget>[
       _Metric(
-        icon: Icons.schedule_rounded,
-        label: 'Próxima publicação:',
-        value: 'Hoje, 18:00',
+        icon: Icons.public_rounded,
+        label: 'Catálogo:',
+        value: widget.publicationCount > 0 ? 'Publicado' : 'Não publicado',
+        valueColor: widget.publicationCount > 0
+            ? const Color(0xFF15803D)
+            : t.muted,
       ),
       _Metric(
         icon: Icons.chat_outlined,
-        label: 'Conversas WhatsApp:',
-        value: '0 novas',
-        valueColor: const Color(0xFF079447),
-      ),
-      _Metric(
-        icon: Icons.show_chart_rounded,
-        label: 'Publicações:',
-        value: '${widget.publicationCount}',
+        label: 'Fila de contatos:',
+        value: '${widget.contactQueueCount}',
       ),
       _Metric(
         icon: Icons.visibility_outlined,
-        label: 'Clientes:',
+        label: '${_capitalize(widget.profile.customerPlural)}:',
         value: '${widget.clientCount}',
       ),
-      const _Metric(
-        icon: Icons.trending_up_rounded,
-        label: 'Horários:',
-        value: '5',
+      _Metric(
+        icon: Icons.event_available_outlined,
+        label: 'Janelas livres:',
+        value: '${widget.suggestedScheduleWindows.length}',
       ),
     ];
     return Container(
@@ -210,6 +279,103 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
             ),
     );
   }
+
+  Widget _stageStrip(AgendaThemeTokens t, bool compact) {
+    final steps = <Widget>[
+      _stage(
+        t,
+        number: '1',
+        title: '1. Criar',
+        subtitle: 'Configure a campanha e os elementos.',
+      ),
+      _stage(
+        t,
+        number: '2',
+        title: '2. Editar arte',
+        subtitle: 'Edite cada elemento da sua arte.',
+        active: true,
+      ),
+      _stage(
+        t,
+        number: '3',
+        title: '3. Publicar',
+        subtitle: 'Revise e publique no canal escolhido.',
+      ),
+    ];
+    return Container(
+      height: 56,
+      decoration: BoxDecoration(
+        color: t.panel,
+        border: Border.all(color: t.line),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: compact
+          ? SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: 700,
+                child: Row(
+                  children: [for (final step in steps) Expanded(child: step)],
+                ),
+              ),
+            )
+          : Row(children: [for (final step in steps) Expanded(child: step)]),
+    );
+  }
+
+  Widget _stage(
+    AgendaThemeTokens t, {
+    required String number,
+    required String title,
+    required String subtitle,
+    bool active = false,
+  }) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 18),
+    child: Row(
+      children: [
+        Container(
+          width: 25,
+          height: 25,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: active ? t.accent : t.ink.withValues(alpha: .82),
+            shape: BoxShape.circle,
+          ),
+          child: Text(
+            number,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  color: t.ink,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: t.muted, fontSize: 8.5),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget _studio(AgendaThemeTokens t, bool compact) {
     final editor = _editor(t, compact);
@@ -230,7 +396,7 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
               ],
             )
           : SizedBox(
-              height: 412,
+              height: 446,
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -245,10 +411,11 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
     );
   }
 
-  Widget _editor(AgendaThemeTokens t, bool compact) => Padding(
+  Widget _editor(AgendaThemeTokens t, bool compact) => SingleChildScrollView(
+    primary: false,
     padding: EdgeInsets.fromLTRB(14, compact ? 16 : 12, 14, compact ? 10 : 8),
     child: Column(
-      mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
@@ -276,7 +443,7 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
                     ),
                   ),
                   Text(
-                    'Monte a mensagem e escolha os horários',
+                    'Monte a mensagem para ${widget.profile.customerPlural}',
                     style: TextStyle(color: t.muted, fontSize: 10.5),
                   ),
                 ],
@@ -313,7 +480,7 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
         const SizedBox(height: 6),
         Row(
           children: [
-            Expanded(child: _label(t, 'Horários disponíveis')),
+            Expanded(child: _label(t, 'Janelas sugeridas pela agenda')),
             const SizedBox(width: 6),
             Text(
               compact
@@ -325,35 +492,118 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
           ],
         ),
         const SizedBox(height: 5),
-        SizedBox(
-          height: 30,
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final time in _times) ...[
-                  _ChoicePill(
-                    label: time,
-                    selected: _selectedTimes.contains(time),
-                    icon: _selectedTimes.contains(time)
-                        ? Icons.check_rounded
-                        : null,
-                    horizontalPadding: 7,
-                    onTap: () => setState(() {
-                      if (!_selectedTimes.remove(time)) {
-                        _selectedTimes.add(time);
-                      }
-                    }),
-                  ),
-                  if (time != _times.last) const SizedBox(width: 5),
+        if (widget.suggestedScheduleWindows.isEmpty)
+          Container(
+            height: 32,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Nenhuma janela livre detectada nos próximos 14 dias.',
+              style: TextStyle(color: t.muted, fontSize: 9.5),
+            ),
+          )
+        else
+          SizedBox(
+            height: 30,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final time in widget.suggestedScheduleWindows) ...[
+                    _ChoicePill(
+                      label: time,
+                      selected: _selectedTimes.contains(time),
+                      icon: _selectedTimes.contains(time)
+                          ? Icons.check_rounded
+                          : null,
+                      horizontalPadding: 7,
+                      onTap: () => setState(() {
+                        if (!_selectedTimes.remove(time)) {
+                          _selectedTimes.add(time);
+                        }
+                      }),
+                    ),
+                    if (time != widget.suggestedScheduleWindows.last)
+                      const SizedBox(width: 5),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
+        const SizedBox(height: 9),
+        Text(
+          'Elementos da arte',
+          style: TextStyle(
+            color: t.ink,
+            fontSize: 10.5,
+            fontWeight: FontWeight.w800,
+          ),
         ),
+        const SizedBox(height: 4),
+        for (var index = 0; index < _layerVisibility.length; index++)
+          _layerRow(t, index),
       ],
     ),
   );
+
+  Widget _layerRow(AgendaThemeTokens t, int index) {
+    const labels = [
+      'Nome da empresa',
+      'Título',
+      'Descrição',
+      'Horários',
+      'Botão',
+      'Telefone',
+      'Foto de fundo',
+    ];
+    const icons = [
+      Icons.storefront_outlined,
+      Icons.title_rounded,
+      Icons.notes_rounded,
+      Icons.format_list_bulleted_rounded,
+      Icons.smart_button_outlined,
+      Icons.phone_outlined,
+      Icons.image_outlined,
+    ];
+    final visible = _layerVisibility[index];
+    return InkWell(
+      onTap: () =>
+          setState(() => _layerVisibility[index] = !_layerVisibility[index]),
+      child: AnimatedContainer(
+        duration: AgendaMotion.duration(context, AgendaMotion.fast),
+        height: 31,
+        decoration: BoxDecoration(
+          color: visible ? Colors.transparent : t.line.withValues(alpha: .18),
+          border: Border(bottom: BorderSide(color: t.line)),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 28,
+              child: Icon(
+                icons[index],
+                size: 14,
+                color: visible ? t.accentDark : t.muted,
+              ),
+            ),
+            Expanded(
+              child: Text(
+                labels[index],
+                style: TextStyle(color: t.ink, fontSize: 10.5),
+              ),
+            ),
+            Icon(
+              _layerVisibility[index]
+                  ? Icons.visibility_outlined
+                  : Icons.visibility_off_outlined,
+              color: visible ? t.ink : t.muted,
+              size: 16,
+            ),
+            const SizedBox(width: 7),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _channelTabs(AgendaThemeTokens t) => Container(
     height: 36,
@@ -375,7 +625,7 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
               borderRadius: BorderRadius.circular(18),
               onTap: () => setState(() => _channel = entry.$2),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
+                duration: AgendaMotion.duration(context, AgendaMotion.fast),
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: _channel == entry.$2
@@ -404,46 +654,186 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
   );
 
   Widget _canvas(AgendaThemeTokens t, bool compact) {
-    final image = _images[_selectedImage];
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, compact ? 14 : 8, 16, compact ? 18 : 8),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Align(
-            alignment: Alignment.topRight,
-            child: OutlinedButton(
-              key: const Key('marketing-update-promotion'),
-              onPressed: () {
-                setState(
-                  () => _selectedImage = (_selectedImage + 1) % _images.length,
-                );
-                widget.onUpdate();
-              },
-              child: const Text('Editar arte'),
-            ),
+    final images = _imagesFor(compact);
+    final image = images[_selectedImage.clamp(0, images.length - 1)];
+    final preview = Column(
+      children: [
+        SizedBox(
+          height: 44,
+          child: Row(
+            children: [
+              Icon(Icons.preview_outlined, size: 18, color: t.ink),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Prévia da arte',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: t.ink,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              OutlinedButton(
+                key: const Key('marketing-update-promotion'),
+                onPressed: widget.onUpdate,
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(72, 30),
+                  padding: const EdgeInsets.symmetric(horizontal: 9),
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: const Text('Ajustar'),
+              ),
+            ],
           ),
-          Padding(
-            padding: EdgeInsets.only(top: compact ? 48 : 0),
+        ),
+        Expanded(
+          child: Center(
             child: SizedBox(
+              key: const Key('marketing-message-preview'),
               width: compact ? 220 : 198,
               height: compact ? 378 : 342,
-              child: _StoryPreview(
-                key: const Key('marketing-message-preview'),
-                image: image,
-                businessName: widget.businessName,
-                message: widget.previewMessage,
-                times: _selectedTimes.toList(growable: false),
+              child: AnimatedSwitcher(
+                duration: AgendaMotion.duration(context, AgendaMotion.standard),
+                child: _StoryPreview(
+                  key: ValueKey(
+                    '${image.path}|${widget.titleController.text}|${widget.previewMessage}|${_selectedTimes.join(',')}|${_layerVisibility.join(',')}|$_artFontSize|$_artAlignment',
+                  ),
+                  image: image,
+                  businessName: widget.businessName,
+                  title: widget.titleController.text,
+                  profile: widget.profile,
+                  contactPhone: widget.contactPhone,
+                  message: widget.previewMessage,
+                  times: _selectedTimes.toList(growable: false),
+                  layerVisibility: List<bool>.of(_layerVisibility),
+                  titleFontSize: _artFontSize,
+                  titleAlignment: _artAlignment,
+                ),
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
+    );
+    final inspector = SingleChildScrollView(
+      primary: false,
+      child: _artInspector(t),
+    );
+    return Padding(
+      padding: EdgeInsets.fromLTRB(12, compact ? 12 : 4, 12, 8),
+      child: compact
+          ? Column(
+              children: [
+                SizedBox(height: 430, child: preview),
+                Divider(height: 1, color: t.line),
+                inspector,
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(flex: 11, child: preview),
+                VerticalDivider(width: 1, color: t.line),
+                Expanded(flex: 10, child: inspector),
+              ],
+            ),
     );
   }
 
+  Widget _artInspector(AgendaThemeTokens t) => Padding(
+    padding: const EdgeInsets.fromLTRB(10, 5, 0, 0),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Ajustes do título',
+          style: TextStyle(
+            color: t.ink,
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 6),
+        _label(t, 'Texto deste elemento'),
+        const SizedBox(height: 4),
+        Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          alignment: Alignment.centerLeft,
+          decoration: BoxDecoration(
+            color: t.panel,
+            border: Border.all(color: t.line),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            'HORÁRIOS LIVRES',
+            style: TextStyle(color: t.ink, fontSize: 12.5),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Fonte do modelo: Georgia',
+          style: TextStyle(color: t.muted, fontSize: 10),
+        ),
+        const SizedBox(height: 7),
+        Row(
+          children: [
+            Expanded(child: _label(t, 'Tamanho')),
+            Text(
+              '${_artFontSize.round()} px',
+              style: TextStyle(color: t.ink, fontSize: 9),
+            ),
+          ],
+        ),
+        Slider(
+          value: _artFontSize,
+          min: 12,
+          max: 32,
+          onChanged: (value) => setState(() => _artFontSize = value),
+        ),
+        _label(t, 'Alinhamento'),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            for (var index = 0; index < 3; index++)
+              Expanded(
+                child: InkWell(
+                  onTap: () => setState(() => _artAlignment = index),
+                  child: Container(
+                    height: 30,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: _artAlignment == index
+                          ? t.accentSoft
+                          : Colors.transparent,
+                      border: Border.all(
+                        color: _artAlignment == index ? t.accent : t.line,
+                      ),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Icon(
+                      const [
+                        Icons.format_align_left,
+                        Icons.format_align_center,
+                        Icons.format_align_right,
+                      ][index],
+                      size: 16,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    ),
+  );
+
   Widget _publication(AgendaThemeTokens t, bool compact) {
-    final image = _images[_selectedImage];
+    final images = _imagesFor(compact);
+    final image = images[_selectedImage.clamp(0, images.length - 1)];
     return Padding(
       padding: EdgeInsets.fromLTRB(15, compact ? 16 : 12, 15, 12),
       child: Column(
@@ -483,10 +873,12 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
           const SizedBox(height: 5),
           Row(
             children: [
-              const FaIcon(
-                FontAwesomeIcons.whatsapp,
+              FaIcon(
+                _channel == 2
+                    ? FontAwesomeIcons.whatsapp
+                    : FontAwesomeIcons.instagram,
                 size: 18,
-                color: Color(0xFF16A34A),
+                color: _channel == 2 ? const Color(0xFF16A34A) : t.ink,
               ),
               const SizedBox(width: 7),
               Text(
@@ -500,7 +892,7 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
             ],
           ),
           const SizedBox(height: 10),
-          _label(t, 'Imagem selecionada'),
+          _label(t, 'Modelo visual'),
           const SizedBox(height: 6),
           Align(
             child: ClipRRect(
@@ -515,23 +907,11 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
           ),
           const SizedBox(height: 5),
           Text(
-            'Foto: ${image.author} · ${image.license}',
+            '${image.author} · ${image.license}',
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(color: t.muted, fontSize: 8.5),
-          ),
-          const SizedBox(height: 4),
-          Align(
-            child: TextButton(
-              onPressed: widget.onCopy,
-              style: TextButton.styleFrom(
-                minimumSize: const Size(0, 26),
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: const Text('Ver foto e licença'),
-            ),
           ),
           if (!compact) const Spacer() else const SizedBox(height: 4),
           SizedBox(
@@ -539,7 +919,7 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
             child: OutlinedButton(
               key: const Key('marketing-copy-message'),
               onPressed: widget.onCopy,
-              child: const Text('Exportar PNG'),
+              child: Text(compact ? 'Copiar mensagem' : 'Exportar PNG'),
             ),
           ),
           const SizedBox(height: 8),
@@ -547,9 +927,20 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
             height: 40,
             child: FilledButton.icon(
               key: const Key('marketing-open-whatsapp'),
-              onPressed: widget.onWhatsApp,
-              icon: const FaIcon(FontAwesomeIcons.whatsapp, size: 15),
-              label: const Text('Publicar no WhatsApp'),
+              onPressed: _channel == 2 ? widget.onWhatsApp : widget.onInstagram,
+              icon: FaIcon(
+                _channel == 2
+                    ? FontAwesomeIcons.whatsapp
+                    : FontAwesomeIcons.instagram,
+                size: 15,
+              ),
+              label: Text(
+                _channel == 2
+                    ? 'Publicar no WhatsApp'
+                    : widget.instagramLinked
+                    ? 'Abrir Instagram conectado'
+                    : 'Abrir Instagram',
+              ),
             ),
           ),
         ],
@@ -557,123 +948,192 @@ class _MarketingWpfStudioState extends State<MarketingWpfStudio> {
     );
   }
 
-  Widget _collection(AgendaThemeTokens t, bool compact) => Container(
-    decoration: _surfaceDecoration(t, radius: 15),
-    padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (compact) ...[
-          Row(
-            children: [
-              Icon(Icons.photo_library_outlined, size: 18, color: t.ink),
-              const SizedBox(width: 7),
-              Text(
-                'Coleção editorial',
-                style: TextStyle(
-                  color: t.ink,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: _topicRow(),
-          ),
-          const SizedBox(height: 8),
-          _searchBox(t),
-        ] else
-          Row(
-            children: [
-              Icon(Icons.photo_library_outlined, size: 18, color: t.ink),
-              const SizedBox(width: 7),
-              Text(
-                'Coleção editorial',
-                style: TextStyle(
-                  color: t.ink,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Text('Temas', style: TextStyle(color: t.muted, fontSize: 9.5)),
-              const SizedBox(width: 7),
-              Expanded(child: _topicRow()),
-              const SizedBox(width: 12),
-              SizedBox(width: 310, child: _searchBox(t)),
-            ],
-          ),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 68,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: _images.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 9),
-            itemBuilder: (_, index) => _ImageTile(
-              image: _images[index],
-              selected: index == _selectedImage,
-              onTap: () => setState(() => _selectedImage = index),
+  Widget _collection(AgendaThemeTokens t, bool compact) {
+    final topicOptions = _topicsFor(compact);
+    final images = _imagesFor(compact);
+    final selectedTopic = topicOptions.contains(_topic)
+        ? _topic
+        : topicOptions.first;
+    final searchController = compact ? _mobileSearch : _search;
+    final topics = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          Text('Temas', style: TextStyle(color: t.muted, fontSize: 9)),
+          const SizedBox(width: 8),
+          for (final topic in topicOptions) ...[
+            _ChoicePill(
+              label: topic,
+              selected: topic == selectedTopic,
+              onTap: () => setState(() {
+                _topic = topic;
+                searchController.text = topic.toLowerCase();
+              }),
             ),
-          ),
-        ),
-        const SizedBox(height: 5),
-        Text(
-          'Foto aplicada. Agora ajuste o texto ou publique no WhatsApp.',
-          style: TextStyle(color: t.muted, fontSize: 9),
-        ),
-      ],
-    ),
-  );
-
-  Widget _topicRow() => SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (final topic in _topics) ...[
-          _ChoicePill(
-            label: topic,
-            selected: topic == _topic,
-            onTap: () => setState(() {
-              _topic = topic;
-              _search.text = topic.toLowerCase();
-            }),
-          ),
-          const SizedBox(width: 5),
+            const SizedBox(width: 5),
+          ],
         ],
-      ],
-    ),
-  );
-
-  Widget _searchBox(AgendaThemeTokens t) => Row(
-    children: [
-      Expanded(
-        child: SizedBox(
-          height: 36,
-          child: TextField(
-            controller: _search,
-            decoration: const InputDecoration(
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      ),
+    );
+    final search = Row(
+      children: [
+        Expanded(
+          child: SizedBox(
+            height: 34,
+            child: TextField(
+              controller: searchController,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Pesquisar imagens',
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
             ),
           ),
         ),
-      ),
-      const SizedBox(width: 7),
-      SizedBox(
-        height: 36,
-        child: FilledButton.icon(
-          onPressed: () => setState(() {}),
-          icon: const Icon(Icons.search_rounded, size: 16),
-          label: const Text('Buscar'),
+        const SizedBox(width: 8),
+        SizedBox(
+          height: 34,
+          child: FilledButton.icon(
+            onPressed: () => setState(() {}),
+            icon: const Icon(Icons.search, size: 15),
+            label: const Text('Buscar'),
+          ),
         ),
+      ],
+    );
+    final heading = Row(
+      children: [
+        Icon(Icons.collections_outlined, color: t.ink, size: 19),
+        const SizedBox(width: 7),
+        if (compact)
+          Expanded(
+            child: Text(
+              'Modelos para ${widget.profile.segment}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: t.ink,
+                fontSize: 15.5,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          )
+        else
+          Text(
+            'Coleção editorial',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: t.ink,
+              fontSize: 15.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+      ],
+    );
+    final gallery = SizedBox(
+      height: 68,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: images.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final image = images[index];
+          return InkWell(
+            key: Key('marketing-editorial-image-$index'),
+            onTap: () => setState(() => _selectedImage = index),
+            borderRadius: BorderRadius.circular(10),
+            child: AnimatedContainer(
+              duration: AgendaMotion.duration(context, AgendaMotion.fast),
+              width: compact ? 126 : 145,
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: t.panel,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: _selectedImage == index ? t.accent : t.line,
+                  width: _selectedImage == index ? 2 : 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(7),
+                    child: Image.asset(
+                      image.path,
+                      width: 58,
+                      height: 58,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          topicOptions[index % topicOptions.length],
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: t.ink,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          image.author,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: t.muted, fontSize: 7),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
-    ],
-  );
+    );
+    return Container(
+      decoration: _surfaceDecoration(t, radius: 15),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 11),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (compact) ...[
+            heading,
+            const SizedBox(height: 9),
+            topics,
+            const SizedBox(height: 9),
+            search,
+          ] else
+            Row(
+              children: [
+                heading,
+                const SizedBox(width: 18),
+                Expanded(flex: 3, child: topics),
+                Text(
+                  '${images.length} fotos da coleção editorial',
+                  style: TextStyle(color: t.muted, fontSize: 8.5),
+                ),
+                const SizedBox(width: 16),
+                Expanded(flex: 2, child: search),
+              ],
+            ),
+          const SizedBox(height: 9),
+          gallery,
+        ],
+      ),
+    );
+  }
 
   Widget _label(AgendaThemeTokens t, String text) =>
       Text(text, style: TextStyle(color: t.muted, fontSize: 10.5));
@@ -713,14 +1173,26 @@ class _StoryPreview extends StatelessWidget {
     super.key,
     required this.image,
     required this.businessName,
+    required this.title,
+    required this.profile,
+    required this.contactPhone,
     required this.message,
     required this.times,
+    required this.layerVisibility,
+    required this.titleFontSize,
+    required this.titleAlignment,
   });
 
   final _MarketingImage image;
   final String businessName;
+  final String title;
+  final AgendaBusinessProfile profile;
+  final String contactPhone;
   final String message;
   final List<String> times;
+  final List<bool> layerVisibility;
+  final double titleFontSize;
+  final int titleAlignment;
 
   @override
   Widget build(BuildContext context) {
@@ -731,7 +1203,10 @@ class _StoryPreview extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset(image.path, fit: BoxFit.cover),
+          if (layerVisibility[6])
+            Image.asset(image.path, fit: BoxFit.cover)
+          else
+            const ColoredBox(color: Color(0xFFF7E7DF)),
           DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -748,114 +1223,146 @@ class _StoryPreview extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
             child: Column(
               children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    businessName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Color(0xFF795548),
-                      fontSize: 10,
+                if (layerVisibility[0]) ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      businessName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF795548),
+                        fontSize: 10,
+                      ),
                     ),
                   ),
-                ),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Container(
-                    width: 27,
-                    height: 2,
-                    margin: const EdgeInsets.only(top: 7),
-                    color: accent,
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      width: 27,
+                      height: 2,
+                      margin: const EdgeInsets.only(top: 7),
+                      color: accent,
+                    ),
                   ),
-                ),
+                ],
                 const Spacer(),
-                const Text(
-                  'HORÁRIOS\nLIVRES',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Color(0xFFA63712),
-                    fontSize: 22,
-                    height: .95,
-                    fontFamily: 'Segoe UI',
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  message,
-                  textAlign: TextAlign.center,
-                  maxLines: 4,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF765348),
-                    fontSize: 9,
-                    height: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Container(
-                  width: double.infinity,
-                  constraints: const BoxConstraints(minHeight: 62),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: .92),
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                  child: Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: 8,
-                    runSpacing: 4,
-                    children: [
-                      for (final time in visibleTimes)
-                        Text(
-                          time,
-                          style: const TextStyle(
-                            color: Color(0xFFA63712),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  height: 22,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: accent,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Text(
-                    'AGENDE SEU HORÁRIO',
+                if (layerVisibility[1])
+                  Text(
+                    title.trim().isEmpty
+                        ? profile.activityPlural.toUpperCase()
+                        : title.toUpperCase(),
+                    textAlign: const [
+                      TextAlign.left,
+                      TextAlign.center,
+                      TextAlign.right,
+                    ][titleAlignment],
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 7.5,
+                      color: const Color(0xFFA63712),
+                      fontSize: titleFontSize,
+                      height: .95,
+                      fontFamily: 'Georgia',
                       fontWeight: FontWeight.w800,
                     ),
                   ),
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  '(33) 99800-7978',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: .9),
-                    fontSize: 7.5,
+                if (layerVisibility[2]) ...[
+                  const SizedBox(height: 5),
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF765348),
+                      fontSize: 9,
+                      height: 1.2,
+                    ),
                   ),
-                ),
-                Text(
-                  'Foto: ${image.author} · ${image.license}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: .76),
-                    fontSize: 5.5,
+                ],
+                if (layerVisibility[3]) ...[
+                  const SizedBox(height: 6),
+                  AnimatedSwitcher(
+                    duration: AgendaMotion.duration(
+                      context,
+                      AgendaMotion.standard,
+                    ),
+                    child: Container(
+                      key: ValueKey(visibleTimes.join('|')),
+                      width: double.infinity,
+                      constraints: const BoxConstraints(minHeight: 62),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .92),
+                        borderRadius: BorderRadius.circular(13),
+                      ),
+                      child: visibleTimes.isEmpty
+                          ? const Center(
+                              child: Text(
+                                'CONSULTE A AGENDA',
+                                style: TextStyle(
+                                  color: Color(0xFFA63712),
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            )
+                          : Wrap(
+                              alignment: WrapAlignment.center,
+                              spacing: 8,
+                              runSpacing: 4,
+                              children: [
+                                for (final time in visibleTimes)
+                                  Text(
+                                    time,
+                                    style: const TextStyle(
+                                      color: Color(0xFFA63712),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                    ),
                   ),
-                ),
+                ],
+                if (layerVisibility[4]) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    height: 22,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: accent,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      profile.newActivityLabel.toUpperCase(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 7.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+                if (layerVisibility[5]) ...[
+                  const SizedBox(height: 7),
+                  Text(
+                    contactPhone.trim().isEmpty
+                        ? 'minhaagendalivre.com.br'
+                        : contactPhone.trim(),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: .9),
+                      fontSize: 7.5,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -889,22 +1396,25 @@ class _Metric extends StatelessWidget {
           Icon(icon, size: 15, color: t.ink),
           const SizedBox(width: 7),
           Flexible(
-            child: Text.rich(
-              TextSpan(
-                style: TextStyle(color: t.muted, fontSize: 10.5),
-                children: [
-                  TextSpan(text: '$label '),
-                  TextSpan(
-                    text: value,
-                    style: TextStyle(
-                      color: valueColor ?? t.ink,
-                      fontWeight: FontWeight.w800,
+            child: AgendaAnimatedValue(
+              value: '$label|$value',
+              builder: (context, _) => Text.rich(
+                TextSpan(
+                  style: TextStyle(color: t.muted, fontSize: 10.5),
+                  children: [
+                    TextSpan(text: '$label '),
+                    TextSpan(
+                      text: value,
+                      style: TextStyle(
+                        color: valueColor ?? t.ink,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
@@ -934,7 +1444,8 @@ class _ChoicePill extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(18),
-      child: Container(
+      child: AnimatedContainer(
+        duration: AgendaMotion.duration(context, AgendaMotion.fast),
         height: 30,
         padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
         decoration: BoxDecoration(
@@ -964,60 +1475,6 @@ class _ChoicePill extends StatelessWidget {
   }
 }
 
-class _ImageTile extends StatelessWidget {
-  const _ImageTile({
-    required this.image,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final _MarketingImage image;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(8),
-    child: Container(
-      width: 160,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: selected
-              ? AgendaThemeTokens.of(context).accent
-              : Colors.transparent,
-          width: 2,
-        ),
-      ),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Image.asset(image.path, fit: BoxFit.cover),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-              color: Colors.black.withValues(alpha: .55),
-              child: Text(
-                '${image.author}\n${image.license}',
-                maxLines: 2,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 7.5,
-                  height: 1.1,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
 class _MarketingImage {
   const _MarketingImage(this.path, this.author, this.license);
 
@@ -1037,3 +1494,9 @@ BoxDecoration _surfaceDecoration(
     BoxShadow(color: Color(0x0A000000), blurRadius: 6, offset: Offset(0, 2)),
   ],
 );
+
+String _capitalize(String value) {
+  final text = value.trim();
+  if (text.isEmpty) return text;
+  return '${text[0].toUpperCase()}${text.substring(1)}';
+}

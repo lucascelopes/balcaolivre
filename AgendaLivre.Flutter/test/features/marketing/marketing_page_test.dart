@@ -8,9 +8,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets('replica o estúdio de conteúdo WPF no desktop', (tester) async {
-    final controller = _controller(
-      AgendaData()..settings.businessName = 'Lucas Barbearia',
-    );
+    final data = AgendaData()
+      ..settings.businessName = 'Lucas Barbearia'
+      ..settings.businessSegment = 'Barbearia';
+    final controller = _controller(data);
 
     await _pumpMarketing(tester, controller, const Size(1366, 768));
 
@@ -18,18 +19,19 @@ void main() {
     expect(find.text('Criar campanha'), findsWidgets);
     expect(find.text('Nenhuma campanha criada ainda'), findsOneWidget);
     await tester.tap(find.byKey(const Key('marketing-hub-whatsapp')));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.text('ESTÚDIO DE CONTEÚDO'), findsOneWidget);
     expect(find.text(' / MARKETING'), findsOneWidget);
     expect(find.text('Criar publicação'), findsOneWidget);
     expect(find.text('Título da campanha'), findsOneWidget);
     expect(find.text('Texto da publicação'), findsOneWidget);
-    expect(find.text('Horários disponíveis'), findsOneWidget);
-    expect(find.text('Editar arte'), findsOneWidget);
+    expect(find.text('Janelas sugeridas pela agenda'), findsOneWidget);
+    expect(find.text('Ajustar'), findsOneWidget);
     expect(find.text('Publicação'), findsOneWidget);
     expect(find.text('Exportar PNG'), findsOneWidget);
     expect(find.text('Publicar no WhatsApp'), findsOneWidget);
+    expect(find.textContaining('Editar arte'), findsOneWidget);
     expect(find.text('Coleção editorial'), findsOneWidget);
 
     final editor = tester.getRect(
@@ -56,12 +58,13 @@ void main() {
   testWidgets('expande tokens e atualiza a promoção como no WPF', (
     tester,
   ) async {
-    final controller = _controller(
-      AgendaData()..settings.businessName = 'Lucas Barbearia',
-    );
+    final data = AgendaData()
+      ..settings.businessName = 'Lucas Barbearia'
+      ..settings.businessSegment = 'Barbearia';
+    final controller = _controller(data);
     await _pumpMarketing(tester, controller, const Size(1366, 768));
     await tester.tap(find.byKey(const Key('marketing-hub-whatsapp')));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     final nameField = find.byKey(const Key('marketing-promotion-name'));
     final messageField = find.byKey(const Key('marketing-promotion-message'));
@@ -83,7 +86,7 @@ void main() {
     await tester.pump();
     expect(
       find.text(
-        'Olá, Cliente! Lucas Barbearia: Semana especial — 20% de desconto em serviços selecionados.',
+        'Olá, Cliente! Lucas Barbearia: Semana especial — Corte e barba com condição especial nesta semana.',
       ),
       findsOneWidget,
     );
@@ -92,7 +95,7 @@ void main() {
     await tester.pump();
     expect(
       tester.widget<TextField>(messageField).controller!.text,
-      'Olá, {nome}! {empresa}: Semana especial — 20% de desconto em serviços selecionados.',
+      'Olá, {nome}! {empresa}: Semana especial — Corte e barba com condição especial nesta semana.',
     );
 
     await tester.enterText(nameField, 'Semana premium');
@@ -100,7 +103,7 @@ void main() {
     await tester.pump();
     expect(
       tester.widget<TextField>(messageField).controller!.text,
-      'Olá, {nome}! {empresa}: Semana premium — 20% de desconto em serviços selecionados.',
+      'Olá, {nome}! {empresa}: Semana premium — Corte e barba com condição especial nesta semana.',
     );
     expect(tester.takeException(), isNull);
   });
@@ -190,6 +193,183 @@ void main() {
     expect(find.text('Criar campanha'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('estúdio mobile usa conteúdo da oficina sem prometer PNG', (
+    tester,
+  ) async {
+    final data = AgendaData()
+      ..settings.businessName = 'Oficina Central'
+      ..settings.businessSegment = 'Oficina mecânica';
+    await _pumpMarketing(tester, _controller(data), const Size(390, 844));
+
+    await tester.tap(find.byKey(const Key('marketing-hub-whatsapp')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Copiar mensagem'), findsOneWidget);
+    expect(find.text('Exportar PNG'), findsNothing);
+    expect(find.text('Modelos para Oficina'), findsOneWidget);
+    expect(find.text('Revisão'), findsWidgets);
+    expect(find.text('Cabelo'), findsNothing);
+    expect(find.text('Unhas'), findsNothing);
+    expect(find.text('Coleção editorial'), findsNothing);
+    final assetNames = tester
+        .widgetList<Image>(find.byType(Image))
+        .map((image) => image.image)
+        .whereType<AssetImage>()
+        .map((image) => image.assetName);
+    expect(
+      assetNames.any(
+        (name) =>
+            name.contains('marketing-campaign-hair') ||
+            name.contains('marketing-campaign-nails') ||
+            name.contains('marketing-campaign-spa') ||
+            name.contains('marketing-site-hero-hair'),
+      ),
+      isFalse,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('porta a promoção do site do WPF e publica no celular', (
+    tester,
+  ) async {
+    final data = AgendaData(
+      services: [
+        ServiceItem(
+          name: 'Revisão preventiva',
+          category: 'Mecânica',
+          durationMinutes: 60,
+          price: 180,
+        ),
+      ],
+    )..settings.businessSegment = 'Oficina mecânica';
+    final controller = _controller(data);
+    await _pumpMarketing(tester, controller, const Size(390, 844));
+
+    await tester.drag(
+      find.byKey(const Key('marketing-hub-scroll')),
+      const Offset(0, -620),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('marketing-hub-discount')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Criar promoção no site'), findsOneWidget);
+    expect(find.text('Seleção de serviços'), findsOneWidget);
+    expect(find.text('Resumo da promoção'), findsOneWidget);
+    expect(
+      find.byKey(const Key('marketing-promotion-service-0')),
+      findsOneWidget,
+    );
+
+    await tester.drag(
+      find.byKey(const Key('marketing-promotion-scroll')),
+      const Offset(0, -900),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('marketing-promotion-publish')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('publicada no catálogo online'), findsOneWidget);
+    final promotion =
+        controller.data.settings.publishedMarketingCatalog?.promotion;
+    expect(promotion?.isPublished, isTrue);
+    expect(promotion?.items.single.serviceName, 'Revisão preventiva');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('catálogo mobile usa segmento e cor do tema', (tester) async {
+    final data = AgendaData()
+      ..settings.businessName = 'Oficina Central'
+      ..settings.businessSegment = 'Oficina mecânica';
+    final controller = _controller(data);
+    await _pumpMarketing(
+      tester,
+      controller,
+      const Size(390, 844),
+      themeId: 'aesthetic-sage',
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const Key('marketing-hub-edit-catalog')),
+    );
+    await tester.tap(find.byKey(const Key('marketing-hub-edit-catalog')));
+    await tester.pumpAndSettle();
+
+    final title = tester.widget<TextField>(
+      find.byKey(const Key('marketing-catalog-title')),
+    );
+    expect(title.controller?.text, 'Seu veículo em boas mãos');
+    final tokens = Theme.of(
+      tester.element(find.byKey(const Key('marketing-catalog-editor')).first),
+    ).extension<AgendaThemeTokens>()!;
+    final expectedAccent =
+        '#${(tokens.accent.toARGB32() & 0x00FFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
+
+    await tester.ensureVisible(
+      find.byKey(const Key('marketing-catalog-publish')),
+    );
+    await tester.tap(find.byKey(const Key('marketing-catalog-publish')));
+    await tester.pumpAndSettle();
+
+    final catalog = controller.data.settings.publishedMarketingCatalog;
+    expect(catalog?.accentColor, expectedAccent);
+    expect(
+      catalog?.heroImagePath,
+      'assets/branding/onboarding-team-workshop.png',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('porta o editor de catálogo WPF no desktop e no celular', (
+    tester,
+  ) async {
+    final data = AgendaData()..settings.businessName = 'Studio Nina Beauty';
+    final controller = _controller(data);
+    await _pumpMarketing(tester, controller, const Size(1366, 768));
+
+    await tester.tap(find.byKey(const Key('marketing-hub-edit-catalog')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('marketing-catalog-editor')), findsWidgets);
+    expect(find.text('Editar catálogo'), findsOneWidget);
+    expect(find.text('Desktop'), findsOneWidget);
+    expect(find.text('Tablet'), findsOneWidget);
+    expect(find.text('Celular'), findsOneWidget);
+    expect(find.text('Editar seção'), findsOneWidget);
+    expect(find.text('Capa principal'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.enterText(
+      find.byKey(const Key('marketing-catalog-title')),
+      'Beleza que combina com você',
+    );
+    await tester.tap(find.byKey(const Key('marketing-catalog-device-2')));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byKey(const Key('marketing-catalog-publish')));
+    await tester.pumpAndSettle();
+    expect(
+      controller.data.settings.publishedMarketingCatalog?.title,
+      'Beleza que combina com você',
+    );
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byKey(const Key('marketing-catalog-back')));
+    await tester.pumpAndSettle();
+
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AgendaThemes.byId('aesthetic-coral').toThemeData(),
+        home: Scaffold(body: MarketingPage(controller: controller)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byKey(const Key('marketing-hub-catalog-row')));
+    await tester.pumpAndSettle();
+    expect(find.text('Editar catálogo'), findsOneWidget);
+    expect(find.byKey(const Key('marketing-catalog-hero')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 AgendaController _controller(AgendaData data) =>
@@ -200,14 +380,15 @@ AgendaController _controller(AgendaData data) =>
 Future<void> _pumpMarketing(
   WidgetTester tester,
   AgendaController controller,
-  Size size,
-) async {
+  Size size, {
+  String themeId = 'aesthetic-coral',
+}) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     MaterialApp(
-      theme: AgendaThemes.byId('aesthetic-coral').toThemeData(),
+      theme: AgendaThemes.byId(themeId).toThemeData(),
       home: Scaffold(body: MarketingPage(controller: controller)),
     ),
   );
