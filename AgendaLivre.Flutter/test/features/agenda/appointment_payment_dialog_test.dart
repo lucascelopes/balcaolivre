@@ -30,10 +30,11 @@ void main() {
     expect(find.text('Local'), findsOneWidget);
     expect(find.text('A receber'), findsOneWidget);
     expect(find.text('Pix'), findsOneWidget);
-    expect(find.text('Débito'), findsOneWidget);
-    expect(find.text('Crédito'), findsOneWidget);
+    expect(find.text('Dinheiro'), findsWidgets);
+    expect(find.text('Débito'), findsNothing);
+    expect(find.text('Crédito'), findsNothing);
     expect(find.text('Conta do cliente'), findsWidgets);
-    expect(find.text('Enviar débito para a Point'), findsOneWidget);
+    expect(find.text('Enviar débito para a Point'), findsNothing);
     expect(harness.repository.saveCalls, 0);
     expect(tester.takeException(), isNull);
   });
@@ -88,6 +89,88 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('registra dinheiro somente após confirmação explícita', (
+    tester,
+  ) async {
+    final harness = await _pumpPaymentDialog(tester, const Size(1382, 736));
+
+    await tester.tap(
+      find.byKey(const Key('appointment-payment-option-cash')).hitTestable(),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('appointment-payment-action')).hitTestable(),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Receber em dinheiro'), findsOneWidget);
+    expect(harness.appointment.paymentConfirmedAt, isNull);
+    await tester.tap(find.byKey(const Key('confirm-cash-payment')));
+    await tester.pumpAndSettle();
+
+    expect(harness.appointment.paymentMethod, 'Dinheiro');
+    expect(harness.appointment.paymentProvider, 'Manual');
+    expect(harness.repository.saveCalls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'após o pagamento oferece retorno e cria novo agendamento preenchido',
+    (tester) async {
+      final harness = await _pumpPaymentDialog(tester, const Size(390, 844));
+
+      await tester.tap(
+        find.byKey(const Key('appointment-payment-option-cash')).hitTestable(),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('appointment-payment-action')).hitTestable(),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('confirm-cash-payment')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('appointment-payment-rebook-offer')),
+        findsOneWidget,
+      );
+      expect(find.text('Mantenha a recorrência do cliente'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('appointment-payment-rebook')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('appointment-dialog')), findsOneWidget);
+      expect(find.text('Agendar retorno'), findsOneWidget);
+      expect(find.textContaining('Cliente e serviço já preenchidos'), findsOne);
+
+      await tester.tap(
+        find.byKey(const Key('appointment-continue')).hitTestable(),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Mariana Costa'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const Key('appointment-continue')).hitTestable(),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('appointment-save')).hitTestable());
+      await tester.pumpAndSettle();
+
+      expect(harness.controller.data.appointments, hasLength(2));
+      final created = harness.controller.data.appointments.singleWhere(
+        (item) => item.id != harness.appointment.id,
+      );
+      expect(created.customerId, harness.appointment.customerId);
+      expect(created.customerName, harness.appointment.customerName);
+      expect(created.serviceId, harness.appointment.serviceId);
+      expect(created.professionalId, harness.appointment.professionalId);
+      expect(created.status, AppointmentStatus.scheduled);
+      expect(created.paymentConfirmedAt, isNull);
+      expect(created.start.isAfter(DateTime.now()), isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   for (final size in <Size>[const Size(1200, 760), const Size(390, 844)]) {
     testWidgets(
       'PDV cobra serviço e produtos pela Point em ${size.width.toInt()}x${size.height.toInt()}',
@@ -124,6 +207,17 @@ void main() {
           includeProductLines: true,
         );
 
+        await tester.drag(
+          find.byType(ListWheelScrollView),
+          const Offset(0, -64),
+        );
+        await tester.pumpAndSettle();
+        await tester.drag(
+          find.byType(ListWheelScrollView),
+          const Offset(0, -64),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Enviar débito para a Point'), findsOneWidget);
         await tester.tap(
           find.byKey(const Key('appointment-payment-action')).hitTestable(),
         );
@@ -185,13 +279,29 @@ Future<_PaymentHarness> _pumpPaymentDialog(
     name: 'Mariana Costa',
     phone: '(33) 99999-1111',
   );
+  final service = ServiceItem(
+    id: 'service-payment',
+    segment: 'Salão de beleza',
+    name: 'Corte e escova',
+    durationMinutes: 60,
+    price: 89.90,
+    defaultResource: 'Cadeira 2',
+  );
+  final professional = Professional(
+    id: 'professional-payment',
+    name: 'Camila',
+    segments: <String>['Salão de beleza'],
+  );
   final appointment = Appointment(
     id: 'appointment-payment',
     customerId: customer.id,
     customerName: customer.name,
     customerPhone: customer.phone,
-    serviceName: 'Corte e escova',
-    professionalName: 'Camila',
+    segment: service.segment,
+    serviceId: service.id,
+    serviceName: service.name,
+    professionalId: professional.id,
+    professionalName: professional.name,
     resourceName: 'Cadeira 2',
     start: DateTime(2026, 7, 20, 10),
     durationMinutes: 60,
@@ -225,6 +335,8 @@ Future<_PaymentHarness> _pumpPaymentDialog(
     ),
     customers: <Customer>[customer],
     appointments: <Appointment>[appointment],
+    services: <ServiceItem>[service],
+    professionals: <Professional>[professional],
     products: includeProductLines
         ? <ProductItem>[
             ProductItem(

@@ -45,6 +45,7 @@ void main() {
     await tester.tap(find.byKey(const Key('appointment-continue')));
     await tester.pumpAndSettle();
     expect(find.text('Revise antes de salvar'), findsOneWidget);
+    expect(find.text('Manicure 1 • Mesa 1'), findsOneWidget);
     expect(find.byKey(const Key('appointment-save')).hitTestable(), findsOne);
     expect(tester.getTopLeft(footer).dy, closeTo(footerTop, .1));
     expect(tester.takeException(), isNull);
@@ -53,6 +54,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('appointment-dialog')), findsNothing);
     expect(harness.repository.saveCalls, 1);
+    final saved = harness.repository.data.appointments.singleWhere(
+      (item) => item.id == 'appointment-dialog-test',
+    );
+    expect(saved.professionalId, 'professional-manicure-1');
+    expect(saved.professionalName, 'Manicure 1');
   });
 
   testWidgets('mantém fullscreen mobile e rodapé fixo durante a rolagem', (

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,9 +9,11 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../app/agenda_controller.dart';
 import '../../app/theme/agenda_theme.dart';
 import '../../core/formatters.dart';
+import '../../core/motion.dart';
 import '../../domain/models/models.dart';
 import '../../services/mercado_pago_service.dart';
 import '../payments/mercado_pago_terminal_visuals.dart';
+import 'appointment_dialog.dart';
 import 'appointment_visuals.dart';
 
 Future<void> showAppointmentPaymentDialog(
@@ -19,13 +22,13 @@ Future<void> showAppointmentPaymentDialog(
   Appointment appointment, {
   VoidCallback? onEdit,
   bool includeProductLines = false,
-}) {
-  return showGeneralDialog<void>(
+}) async {
+  final result = await showGeneralDialog<_AppointmentPaymentResult>(
     context: context,
     barrierDismissible: true,
     barrierLabel: 'Fechar cobrança',
     barrierColor: Colors.black.withValues(alpha: 0.38),
-    transitionDuration: const Duration(milliseconds: 160),
+    transitionDuration: AgendaMotion.duration(context, AgendaMotion.standard),
     pageBuilder: (context, animation, secondaryAnimation) => SafeArea(
       child: Center(
         child: Material(
@@ -53,9 +56,213 @@ Future<void> showAppointmentPaymentDialog(
       );
     },
   );
+  if (result == null || !context.mounted) return;
+
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(result.message)));
+
+  if (!result.offerReturn) return;
+  final suggestedStart = _suggestedReturnStart(controller, appointment);
+  final copy = _returnVisitCopy(controller, appointment);
+  final shouldSchedule = await showAgendaDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) {
+      final t = AgendaThemeTokens.of(dialogContext);
+      return AlertDialog(
+        key: const Key('appointment-payment-rebook-offer'),
+        icon: Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            color: t.accent.withValues(alpha: .12),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(Icons.event_repeat_rounded, color: t.accent, size: 28),
+        ),
+        title: Text(copy.title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              copy.body,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: t.muted, height: 1.35),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: t.accent.withValues(alpha: .07),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: t.accent.withValues(alpha: .18)),
+              ),
+              child: Text(
+                'Sugestão: ${shortDate(suggestedStart)} às '
+                '${hour(suggestedStart)}. Você poderá ajustar antes de salvar.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: t.ink,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            key: const Key('appointment-payment-finish'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Concluir'),
+          ),
+          FilledButton.icon(
+            key: const Key('appointment-payment-rebook'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: Text(copy.action),
+          ),
+        ],
+      );
+    },
+  );
+  if (shouldSchedule != true || !context.mounted) return;
+  await showAppointmentDialog(
+    context,
+    controller,
+    template: appointment,
+    initialStart: suggestedStart,
+    initialProfessionalId: appointment.professionalId,
+  );
 }
 
-enum _AppointmentChargeKind { pixKey, pixMercadoPago, debit, credit, account }
+class _AppointmentPaymentResult {
+  const _AppointmentPaymentResult(this.message, {this.offerReturn = false});
+
+  final String message;
+  final bool offerReturn;
+}
+
+class _ReturnVisitCopy {
+  const _ReturnVisitCopy(this.title, this.body, this.action);
+
+  final String title;
+  final String body;
+  final String action;
+}
+
+_ReturnVisitCopy _returnVisitCopy(
+  AgendaController controller,
+  Appointment appointment,
+) {
+  final context =
+      '${controller.data.settings.businessSegment} '
+              '${appointment.segment} ${appointment.serviceName}'
+          .toLowerCase();
+  if (context.contains('oficina') ||
+      context.contains('mecân') ||
+      context.contains('revis')) {
+    return _ReturnVisitCopy(
+      'Próxima revisão já encaminhada?',
+      'Aproveite que ${appointment.customerName.trim().isEmpty ? 'o cliente' : appointment.customerName.trim()} ainda está no atendimento e deixe a próxima revisão combinada.',
+      'Agendar revisão',
+    );
+  }
+  if (context.contains('pet') ||
+      context.contains('banho') ||
+      context.contains('tosa')) {
+    return _ReturnVisitCopy(
+      'Deixe o próximo cuidado marcado',
+      'Crie o próximo horário com os dados do tutor, pet e serviço já preenchidos.',
+      'Agendar cuidado',
+    );
+  }
+  if (context.contains('clín') ||
+      context.contains('clinic') ||
+      context.contains('consulta') ||
+      context.contains('saúde')) {
+    return const _ReturnVisitCopy(
+      'Já deixe o retorno encaminhado',
+      'Os dados do paciente e do atendimento serão reaproveitados; basta revisar a data.',
+      'Agendar retorno',
+    );
+  }
+  if (context.contains('salão') ||
+      context.contains('salao') ||
+      context.contains('beleza') ||
+      context.contains('barbear') ||
+      context.contains('manicure')) {
+    return const _ReturnVisitCopy(
+      'Mantenha a recorrência do cliente',
+      'Abra o próximo horário com cliente, serviço e profissional já preenchidos.',
+      'Agendar próximo',
+    );
+  }
+  return const _ReturnVisitCopy(
+    'Deixe o próximo atendimento marcado',
+    'Cliente e serviço já estarão preenchidos. Você só precisa revisar a data.',
+    'Agendar retorno',
+  );
+}
+
+DateTime _suggestedReturnStart(
+  AgendaController controller,
+  Appointment appointment,
+) {
+  final settings = controller.data.settings;
+  final description =
+      '${settings.businessSegment} ${appointment.segment} '
+              '${appointment.serviceName}'
+          .toLowerCase();
+  final intervalDays =
+      description.contains('manicure') || description.contains('pedicure')
+      ? 14
+      : description.contains('oficina') ||
+            description.contains('mecân') ||
+            description.contains('revis')
+      ? 90
+      : 28;
+  final now = DateTime.now();
+  var candidate = appointment.start.add(Duration(days: intervalDays));
+  if (!candidate.isAfter(now)) {
+    candidate = now.add(Duration(days: intervalDays));
+  }
+
+  final openingMinutes = settings.workdayStartHour * 60;
+  final latestStartMinutes =
+      settings.workdayEndHour * 60 - appointment.durationMinutes;
+  final originalMinutes =
+      appointment.start.hour * 60 + appointment.start.minute;
+  final candidateMinutes = originalMinutes
+      .clamp(openingMinutes, math.max(openingMinutes, latestStartMinutes))
+      .toInt();
+  candidate = DateTime(
+    candidate.year,
+    candidate.month,
+    candidate.day,
+    candidateMinutes ~/ 60,
+    candidateMinutes % 60,
+  );
+
+  final enabledDays = settings.workdays.toSet();
+  if (enabledDays.isEmpty) return candidate;
+  for (var attempts = 0; attempts < 7; attempts++) {
+    if (enabledDays.contains(candidate.weekday % 7)) return candidate;
+    candidate = candidate.add(const Duration(days: 1));
+  }
+  return candidate;
+}
+
+enum _AppointmentChargeKind {
+  pixKey,
+  pixMercadoPago,
+  cash,
+  debit,
+  credit,
+  account,
+}
 
 class _AppointmentChargeOption {
   const _AppointmentChargeOption(
@@ -93,7 +300,7 @@ class _AppointmentPaymentDialogState extends State<_AppointmentPaymentDialog> {
   late final List<_AppointmentChargeOption> _options;
   late final Map<_AppointmentChargeKind, String> _remoteChargeReferences;
   late final FixedExtentScrollController _wheelController;
-  int _selectedIndex = 1;
+  int _selectedIndex = 0;
   bool _busy = false;
 
   AgendaController get controller => widget.controller;
@@ -110,24 +317,34 @@ class _AppointmentPaymentDialogState extends State<_AppointmentPaymentDialog> {
         settings.mercadoPagoEnabled &&
         settings.mercadoPagoConnected &&
         controller.mercadoPagoService != null;
+    final pointAvailable =
+        remotePix && settings.mercadoPagoDefaultTerminalId.trim().isNotEmpty;
     _options = <_AppointmentChargeOption>[
-      _AppointmentChargeOption(
-        remotePix
-            ? _AppointmentChargeKind.pixMercadoPago
-            : _AppointmentChargeKind.pixKey,
-        'Pix',
-        remotePix ? 'Gerar Pix' : 'Mostrar chave Pix',
-      ),
+      if (remotePix || settings.pixKey.trim().isNotEmpty)
+        _AppointmentChargeOption(
+          remotePix
+              ? _AppointmentChargeKind.pixMercadoPago
+              : _AppointmentChargeKind.pixKey,
+          'Pix',
+          remotePix ? 'Gerar Pix' : 'Mostrar chave Pix',
+        ),
       const _AppointmentChargeOption(
-        _AppointmentChargeKind.debit,
-        'Débito',
-        'Enviar débito para a Point',
+        _AppointmentChargeKind.cash,
+        'Dinheiro',
+        'Confirmar dinheiro recebido',
       ),
-      const _AppointmentChargeOption(
-        _AppointmentChargeKind.credit,
-        'Crédito',
-        'Enviar crédito para a Point',
-      ),
+      if (pointAvailable) ...[
+        const _AppointmentChargeOption(
+          _AppointmentChargeKind.debit,
+          'Débito',
+          'Enviar débito para a Point',
+        ),
+        const _AppointmentChargeOption(
+          _AppointmentChargeKind.credit,
+          'Crédito',
+          'Enviar crédito para a Point',
+        ),
+      ],
       if (!widget.includeProductLines)
         const _AppointmentChargeOption(
           _AppointmentChargeKind.account,
@@ -474,7 +691,7 @@ class _AppointmentPaymentDialogState extends State<_AppointmentPaymentDialog> {
         curve: Curves.easeOutCubic,
       ),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
+        duration: AgendaMotion.duration(context, AgendaMotion.fast),
         width: double.infinity,
         decoration: BoxDecoration(
           border: Border(
@@ -661,7 +878,10 @@ class _AppointmentPaymentDialogState extends State<_AppointmentPaymentDialog> {
           paymentStatus: 'not_required',
         );
         if (error != null) return _showError(error);
-        _closeWithMessage('Atendimento finalizado sem cobrança.');
+        _closeWithMessage(
+          'Atendimento finalizado sem cobrança.',
+          offerReturn: true,
+        );
         return;
       }
 
@@ -670,6 +890,8 @@ class _AppointmentPaymentDialogState extends State<_AppointmentPaymentDialog> {
           await _chargeByPixKey();
         case _AppointmentChargeKind.pixMercadoPago:
           await _chargeByMercadoPagoPix();
+        case _AppointmentChargeKind.cash:
+          await _chargeByCash();
         case _AppointmentChargeKind.debit:
           await _chargeByPoint(MercadoPagoPointMethod.debit);
         case _AppointmentChargeKind.credit:
@@ -692,7 +914,7 @@ class _AppointmentPaymentDialogState extends State<_AppointmentPaymentDialog> {
       _showError('Cadastre uma chave Pix nas configurações de pagamento.');
       return;
     }
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAgendaDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Receber por Pix'),
@@ -722,7 +944,42 @@ class _AppointmentPaymentDialogState extends State<_AppointmentPaymentDialog> {
       confirmedAt: now,
     );
     if (error != null) return _showError(error);
-    _closeWithMessage('Pagamento Pix confirmado.');
+    _closeWithMessage('Pagamento Pix confirmado.', offerReturn: true);
+  }
+
+  Future<void> _chargeByCash() async {
+    final confirmed = await showAgendaDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Receber em dinheiro'),
+        content: Text(
+          'Confirme somente depois de receber ${money(_amount)} de '
+          '$_customerName.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Voltar'),
+          ),
+          FilledButton(
+            key: const Key('confirm-cash-payment'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Dinheiro recebido'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final now = DateTime.now();
+    final error = await _confirmPayment(
+      paymentMethod: 'Dinheiro',
+      paymentProvider: 'Manual',
+      paymentReference: 'cash_${now.millisecondsSinceEpoch}',
+      paymentStatus: 'approved',
+      confirmedAt: now,
+    );
+    if (error != null) return _showError(error);
+    _closeWithMessage('Pagamento em dinheiro confirmado.', offerReturn: true);
   }
 
   Future<void> _chargeByMercadoPagoPix() async {
@@ -752,7 +1009,7 @@ class _AppointmentPaymentDialogState extends State<_AppointmentPaymentDialog> {
       return;
     }
     if (!mounted) return;
-    final outcome = await showDialog<MercadoPagoPaymentOutcome>(
+    final outcome = await showAgendaDialog<MercadoPagoPaymentOutcome>(
       context: context,
       barrierDismissible: false,
       builder: (context) => _MercadoPagoPixProgressDialog(
@@ -769,7 +1026,7 @@ class _AppointmentPaymentDialogState extends State<_AppointmentPaymentDialog> {
       paymentStatus: outcome.status,
     );
     if (error != null) return _showError(error);
-    _closeWithMessage('Pix confirmado pelo Mercado Pago.');
+    _closeWithMessage('Pix confirmado pelo Mercado Pago.', offerReturn: true);
   }
 
   Future<void> _chargeByPoint(MercadoPagoPointMethod method) async {
@@ -805,7 +1062,7 @@ class _AppointmentPaymentDialogState extends State<_AppointmentPaymentDialog> {
       return;
     }
     if (!mounted) return;
-    final outcome = await showDialog<MercadoPagoPaymentOutcome>(
+    final outcome = await showAgendaDialog<MercadoPagoPaymentOutcome>(
       context: context,
       barrierDismissible: false,
       builder: (context) => _MercadoPagoPointProgressDialog(
@@ -830,7 +1087,10 @@ class _AppointmentPaymentDialogState extends State<_AppointmentPaymentDialog> {
       paymentStatus: outcome.status,
     );
     if (error != null) return _showError(error);
-    _closeWithMessage('$paymentMethod confirmado pelo Mercado Pago.');
+    _closeWithMessage(
+      '$paymentMethod confirmado pelo Mercado Pago.',
+      offerReturn: true,
+    );
   }
 
   void _showError(String message) {
@@ -840,13 +1100,11 @@ class _AppointmentPaymentDialogState extends State<_AppointmentPaymentDialog> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _closeWithMessage(String message) {
+  void _closeWithMessage(String message, {bool offerReturn = false}) {
     if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    Navigator.of(context).pop();
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    Navigator.of(
+      context,
+    ).pop(_AppointmentPaymentResult(message, offerReturn: offerReturn));
   }
 }
 
@@ -865,7 +1123,7 @@ Future<MercadoPagoPaymentOutcome?> showMercadoPagoPointProgressDialog(
   required MercadoPagoPointMethod method,
   String terminalId = '',
   required String terminalLabel,
-}) => showDialog<MercadoPagoPaymentOutcome>(
+}) => showAgendaDialog<MercadoPagoPaymentOutcome>(
   context: context,
   barrierDismissible: false,
   builder: (_) => _MercadoPagoPointProgressDialog(
@@ -883,7 +1141,7 @@ Future<MercadoPagoPaymentOutcome?> showMercadoPagoPixProgressDialog(
   required MercadoPagoService service,
   required MercadoPagoPixChargeResult charge,
   required double amount,
-}) => showDialog<MercadoPagoPaymentOutcome>(
+}) => showAgendaDialog<MercadoPagoPaymentOutcome>(
   context: context,
   barrierDismissible: false,
   builder: (_) => _MercadoPagoPixProgressDialog(

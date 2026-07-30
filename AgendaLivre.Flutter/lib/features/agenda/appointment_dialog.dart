@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../app/agenda_controller.dart';
 import '../../app/theme/agenda_theme.dart';
 import '../../core/formatters.dart';
+import '../../core/motion.dart';
 import '../../core/ui.dart';
 import '../../domain/models/models.dart';
 import 'appointment_visuals.dart';
@@ -14,9 +15,15 @@ Future<void> showAppointmentDialog(
   BuildContext context,
   AgendaController controller, {
   Appointment? appointment,
+  Appointment? template,
   DateTime? initialStart,
+  String? initialProfessionalId,
 }) async {
-  final result = await showDialog<String>(
+  assert(
+    appointment == null || template == null,
+    'Use appointment para editar ou template para criar um novo agendamento.',
+  );
+  final result = await showAgendaDialog<String>(
     context: context,
     barrierDismissible: false,
     barrierColor: const Color(0xC0000000),
@@ -26,7 +33,9 @@ Future<void> showAppointmentDialog(
       final content = _AppointmentDialog(
         controller: controller,
         appointment: appointment,
+        template: template,
         initialStart: initialStart,
+        initialProfessionalId: initialProfessionalId,
       );
       if (compact) {
         return Dialog.fullscreen(child: SafeArea(child: content));
@@ -63,12 +72,16 @@ class _AppointmentDialog extends StatefulWidget {
   const _AppointmentDialog({
     required this.controller,
     required this.appointment,
+    required this.template,
     required this.initialStart,
+    required this.initialProfessionalId,
   });
 
   final AgendaController controller;
   final Appointment? appointment;
+  final Appointment? template;
   final DateTime? initialStart;
+  final String? initialProfessionalId;
 
   @override
   State<_AppointmentDialog> createState() => _AppointmentDialogState();
@@ -93,6 +106,7 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
   String? _error;
   bool _saving = false;
   int _step = 0;
+  int _stepDirection = 1;
   String _acknowledgedScheduleKey = '';
 
   bool get _editing => widget.appointment != null;
@@ -102,11 +116,14 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
   @override
   void initState() {
     super.initState();
-    final source = widget.appointment;
+    final source = widget.appointment ?? widget.template;
     var start =
-        source?.start ?? widget.initialStart ?? _controller.selectedDate;
+        widget.appointment?.start ??
+        widget.initialStart ??
+        widget.template?.start ??
+        _controller.selectedDate;
     final now = DateTime.now();
-    if (source == null && !start.isAfter(now)) {
+    if (widget.appointment == null && !start.isAfter(now)) {
       final roundedMinute = ((now.minute + 14) ~/ 15 * 15);
       start = DateTime(
         now.year,
@@ -125,9 +142,11 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
     _serviceId = source?.serviceId.trim().isEmpty ?? true
         ? null
         : source!.serviceId;
-    _professionalId = source?.professionalId.trim().isEmpty ?? true
-        ? null
-        : source!.professionalId;
+    _professionalId = source?.professionalId.trim().isNotEmpty == true
+        ? source!.professionalId
+        : widget.initialProfessionalId?.trim().isNotEmpty == true
+        ? widget.initialProfessionalId!.trim()
+        : null;
     _customerController = TextEditingController(
       text: source?.customerName ?? '',
     );
@@ -141,7 +160,9 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
     _resourceController = TextEditingController(
       text: source?.resourceName ?? '',
     );
-    _notesController = TextEditingController(text: source?.notes ?? '');
+    _notesController = TextEditingController(
+      text: widget.appointment?.notes ?? _returnNote(widget.template),
+    );
     if (source?.scheduleExceptionAcknowledged ?? false) {
       _acknowledgedScheduleKey = _scheduleKey(source!.start, source.end);
     }
@@ -165,6 +186,18 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
       return _controller.activeServices.first.segment;
     }
     return '';
+  }
+
+  String _returnNote(Appointment? source) {
+    if (source == null) return '';
+    final service = source.serviceName.trim();
+    final date =
+        '${source.start.day.toString().padLeft(2, '0')}/'
+        '${source.start.month.toString().padLeft(2, '0')}/'
+        '${source.start.year}';
+    return service.isEmpty
+        ? 'Retorno do atendimento realizado em $date.'
+        : 'Retorno de $service realizado em $date.';
   }
 
   List<String> get _segments {
@@ -272,23 +305,55 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
           Divider(height: 1, color: t.line),
           _stepper(compact),
           Divider(height: 1, color: t.line),
-          if (_error != null) _errorBanner(),
-          if (_editingScheduleOutsideWindow && _scheduleUnchanged)
-            _scheduleWarningBanner(),
+          AnimatedSize(
+            duration: AgendaMotion.duration(context, AgendaMotion.standard),
+            curve: AgendaMotion.enterCurve,
+            alignment: Alignment.topCenter,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_error != null)
+                  KeyedSubtree(
+                    key: ValueKey<String>(_error!),
+                    child: _errorBanner(),
+                  ),
+                if (_editingScheduleOutsideWindow && _scheduleUnchanged)
+                  _scheduleWarningBanner(),
+              ],
+            ),
+          ),
           Expanded(
             child: ColoredBox(
               color: t.appBackground,
               child: SingleChildScrollView(
                 key: const Key('appointment-dialog-scroll'),
                 padding: EdgeInsets.all(compact ? 14 : 20),
-                child: IndexedStack(
-                  index: _step,
-                  sizing: StackFit.loose,
-                  children: [
-                    _scheduleStep(),
-                    _clientStep(),
-                    _reviewStep(compact),
-                  ],
+                child: AnimatedSwitcher(
+                  duration: AgendaMotion.duration(context, AgendaMotion.page),
+                  reverseDuration: AgendaMotion.duration(
+                    context,
+                    AgendaMotion.standard,
+                  ),
+                  switchInCurve: AgendaMotion.enterCurve,
+                  switchOutCurve: AgendaMotion.exitCurve,
+                  transitionBuilder: (child, animation) {
+                    final slide = Tween<Offset>(
+                      begin: Offset(.08 * _stepDirection, 0),
+                      end: Offset.zero,
+                    ).animate(animation);
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(position: slide, child: child),
+                    );
+                  },
+                  child: KeyedSubtree(
+                    key: ValueKey<int>(_step),
+                    child: switch (_step) {
+                      0 => _scheduleStep(),
+                      1 => _clientStep(),
+                      _ => _reviewStep(compact),
+                    },
+                  ),
                 ),
               ),
             ),
@@ -303,7 +368,9 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
   Widget _dialogHeader(bool compact) {
     final t = AgendaThemeTokens.of(context);
     final source = widget.appointment;
-    final subtitle = source == null
+    final subtitle = widget.template != null
+        ? 'Cliente e serviço já preenchidos. Revise a data antes de salvar.'
+        : source == null
         ? 'Preencha o horário, o serviço e os dados do cliente.'
         : '${appointmentStatusLabel(source.status)} • criado em '
               '${source.createdAt.day.toString().padLeft(2, '0')}/'
@@ -324,7 +391,11 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _editing ? 'Editar agendamento' : 'Novo agendamento',
+                    _editing
+                        ? 'Editar agendamento'
+                        : widget.template != null
+                        ? 'Agendar retorno'
+                        : 'Novo agendamento',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -879,6 +950,7 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
     if (target > 0 && !_validateScheduleStep()) return;
     if (target > 1 && !_validateClientStep()) return;
     setState(() {
+      _stepDirection = target >= _step ? 1 : -1;
       _step = target;
       _error = null;
     });
@@ -887,10 +959,12 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
   void _continueStep() => _goToStep(_step + 1);
 
   bool _validateScheduleStep() {
-    final valid = _scheduleFormKey.currentState?.validate() ?? false;
+    final valid =
+        _scheduleFormKey.currentState?.validate() ?? _hasValidScheduleValues;
     final businessError = _businessValidation();
     if (valid && businessError == null) return true;
     setState(() {
+      _stepDirection = -1;
       _step = 0;
       _error = businessError ?? 'Revise os campos de horário e serviço.';
     });
@@ -898,13 +972,32 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
   }
 
   bool _validateClientStep() {
-    final valid = _clientFormKey.currentState?.validate() ?? false;
+    final valid =
+        _clientFormKey.currentState?.validate() ?? _hasValidClientValues;
     if (valid) return true;
     setState(() {
+      _stepDirection = -1;
       _step = 1;
       _error = 'Revise os dados do cliente.';
     });
     return false;
+  }
+
+  bool get _hasValidScheduleValues {
+    final price = _parsePrice(_priceController.text);
+    return _segment.trim().isNotEmpty &&
+        _services.any((item) => item.id == _serviceId) &&
+        _professionals.any((item) => item.id == _professionalId) &&
+        price != null &&
+        price >= 0;
+  }
+
+  bool get _hasValidClientValues {
+    if (_customerController.text.trim().isEmpty) return false;
+    final phoneDigits = _phoneController.text.replaceAll(RegExp(r'\D'), '');
+    return phoneDigits.isEmpty ||
+        phoneDigits.length == 10 ||
+        phoneDigits.length == 11;
   }
 
   bool _validateAllSteps() {
@@ -1115,7 +1208,7 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
     bool danger = false,
   }) async {
     final confirmed =
-        await showDialog<bool>(
+        await showAgendaDialog<bool>(
           context: context,
           builder: (confirmationContext) => AlertDialog(
             title: Text(title),
@@ -1560,7 +1653,8 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
       '${value.month.toString().padLeft(2, '0')}';
 
   Appointment _draft({DateTime? start}) {
-    final source = widget.appointment;
+    final source = widget.appointment ?? widget.template;
+    final editingSource = widget.appointment;
     final service = _services
         .where((item) => item.id == _serviceId)
         .firstOrNull;
@@ -1574,34 +1668,35 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
         issue != null &&
         _acknowledgedScheduleKey == _scheduleKey(draftStart, draftEnd);
     return Appointment(
-      id: source?.id,
+      id: editingSource?.id,
       segment: _segment.trim(),
+      customerId: source?.customerId ?? '',
       customerName: _customerController.text.trim(),
       customerPhone: _phoneController.text.trim(),
       customerProfile: _profileController.text.trim(),
-      serviceId: service?.id ?? '',
-      serviceName: service?.name ?? '',
-      professionalId: professional?.id ?? '',
-      professionalName: professional?.name ?? '',
+      serviceId: service?.id ?? source?.serviceId ?? '',
+      serviceName: service?.name ?? source?.serviceName ?? '',
+      professionalId: professional?.id ?? source?.professionalId ?? '',
+      professionalName: professional?.name ?? source?.professionalName ?? '',
       resourceName: _resourceController.text.trim(),
       start: draftStart,
       durationMinutes: _duration,
       price: _parsePrice(_priceController.text) ?? 0,
-      status: source?.status ?? AppointmentStatus.scheduled,
+      status: editingSource?.status ?? AppointmentStatus.scheduled,
       notes: _notesController.text.trim(),
-      externalSource: source?.externalSource ?? '',
-      externalReference: source?.externalReference ?? '',
-      bookingChannel: source?.bookingChannel ?? '',
-      channelConversationId: source?.channelConversationId ?? '',
-      channelExternalUserId: source?.channelExternalUserId ?? '',
-      channelUsername: source?.channelUsername ?? '',
+      externalSource: editingSource?.externalSource ?? '',
+      externalReference: editingSource?.externalReference ?? '',
+      bookingChannel: editingSource?.bookingChannel ?? '',
+      channelConversationId: editingSource?.channelConversationId ?? '',
+      channelExternalUserId: editingSource?.channelExternalUserId ?? '',
+      channelUsername: editingSource?.channelUsername ?? '',
       scheduleExceptionAcknowledged: acknowledged,
       scheduleExceptionReason: acknowledged ? issue.message : '',
       scheduleExceptionAssistantSource: acknowledged ? 'local-rules' : '',
       scheduleExceptionAcknowledgedAt: acknowledged
-          ? (source?.scheduleExceptionAcknowledgedAt ?? DateTime.now())
+          ? (editingSource?.scheduleExceptionAcknowledgedAt ?? DateTime.now())
           : null,
-      createdAt: source?.createdAt,
+      createdAt: editingSource?.createdAt,
       updatedAt: DateTime.now(),
     );
   }
@@ -1712,7 +1807,7 @@ class _AppointmentDialogState extends State<_AppointmentDialog> {
     final source = widget.appointment;
     if (source == null) return;
     final confirmed =
-        await showDialog<bool>(
+        await showAgendaDialog<bool>(
           context: context,
           builder: (confirmationContext) => AlertDialog(
             title: const Text('Excluir agendamento?'),
@@ -1762,7 +1857,9 @@ class _AppointmentStepButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AgendaThemeTokens.of(context);
-    final circle = Container(
+    final circle = AnimatedContainer(
+      duration: AgendaMotion.duration(context, AgendaMotion.fast),
+      curve: AgendaMotion.enterCurve,
       width: compact ? 28 : 32,
       height: compact ? 28 : 32,
       decoration: BoxDecoration(
@@ -1771,24 +1868,35 @@ class _AppointmentStepButton extends StatelessWidget {
         shape: BoxShape.circle,
       ),
       alignment: Alignment.center,
-      child: Text(
-        '$number',
-        style: TextStyle(
-          color: reached ? Colors.white : t.muted,
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-        ),
+      child: AnimatedSwitcher(
+        duration: AgendaMotion.duration(context, AgendaMotion.fast),
+        child: reached && !active
+            ? const Icon(
+                Icons.check_rounded,
+                key: ValueKey<String>('done'),
+                color: Colors.white,
+                size: 17,
+              )
+            : Text(
+                '$number',
+                key: const ValueKey<String>('number'),
+                style: TextStyle(
+                  color: reached ? Colors.white : t.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
       ),
     );
-    final labelWidget = Text(
-      label,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
+    final labelWidget = AnimatedDefaultTextStyle(
+      duration: AgendaMotion.duration(context, AgendaMotion.fast),
+      curve: AgendaMotion.enterCurve,
       style: TextStyle(
         color: active ? t.ink : t.muted,
         fontSize: compact ? 10 : 13,
         fontWeight: active ? FontWeight.w700 : FontWeight.w500,
       ),
+      child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
     );
     return Expanded(
       child: Semantics(
@@ -1836,7 +1944,9 @@ class _AppointmentStepConnector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AgendaThemeTokens.of(context);
-    return Container(
+    return AnimatedContainer(
+      duration: AgendaMotion.duration(context, AgendaMotion.standard),
+      curve: AgendaMotion.enterCurve,
       width: compact ? 14 : 70,
       height: 2,
       decoration: BoxDecoration(

@@ -9,6 +9,7 @@ import '../../app/agenda_controller.dart';
 import '../../app/theme/agenda_theme.dart';
 import '../../core/formatters.dart';
 import '../../domain/models/models.dart';
+import 'reports_mobile_option1.dart';
 
 enum _ReportPeriodMode { day, week, month }
 
@@ -23,6 +24,7 @@ class WpfReportsPage extends StatefulWidget {
 
 class _WpfReportsPageState extends State<WpfReportsPage> {
   _ReportPeriodMode _mode = _ReportPeriodMode.month;
+  _ReportPeriodMode _mobileMode = _ReportPeriodMode.week;
   DateTime? _selectedMovementDay;
   bool _exporting = false;
 
@@ -31,11 +33,38 @@ class _WpfReportsPageState extends State<WpfReportsPage> {
     return AnimatedBuilder(
       animation: widget.controller,
       builder: (context, _) {
-        final snapshot = _WpfReportSnapshot.from(widget.controller, _mode);
         return ColoredBox(
           color: const Color(0xFFFAF9F7),
           child: LayoutBuilder(
             builder: (context, constraints) {
+              final mobile = constraints.maxWidth < 760;
+              final snapshot = _WpfReportSnapshot.from(
+                widget.controller,
+                mobile ? _mobileMode : _mode,
+              );
+              if (mobile) {
+                return ReportsMobileOptionOne(
+                  controller: widget.controller,
+                  period: switch (_mobileMode) {
+                    _ReportPeriodMode.day => ReportsMobilePeriod.day,
+                    _ReportPeriodMode.week => ReportsMobilePeriod.week,
+                    _ReportPeriodMode.month => ReportsMobilePeriod.month,
+                  },
+                  onPeriodChanged: (period) {
+                    setState(() {
+                      _mobileMode = switch (period) {
+                        ReportsMobilePeriod.day => _ReportPeriodMode.day,
+                        ReportsMobilePeriod.week => _ReportPeriodMode.week,
+                        ReportsMobilePeriod.month => _ReportPeriodMode.month,
+                      };
+                    });
+                  },
+                  onCopy: () => _copyMobileSummary(snapshot),
+                  onExport: () => _exportPdf(snapshot),
+                  exporting: _exporting,
+                  legacyGoalText: '',
+                );
+              }
               final desktop = constraints.maxWidth >= 980;
               return SingleChildScrollView(
                 padding: EdgeInsets.fromLTRB(
@@ -81,6 +110,23 @@ class _WpfReportsPageState extends State<WpfReportsPage> {
         );
       },
     );
+  }
+
+  Future<void> _copyMobileSummary(_WpfReportSnapshot snapshot) async {
+    final text = [
+      'Relatório • ${snapshot.periodLabel}',
+      '${snapshot.appointments.length} agendamentos',
+      '${snapshot.completed} realizados',
+      '${snapshot.cancellations} cancelados ou faltas',
+      '${money(snapshot.revenue)} recebidos',
+    ].join('\n');
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(content: Text('Resumo copiado para compartilhar.')),
+      );
   }
 
   Widget _header(

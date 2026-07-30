@@ -44,6 +44,7 @@ class Appointment {
     this.channelConversationId = '',
     this.channelExternalUserId = '',
     this.channelUsername = '',
+    this.attendanceConfirmedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : id = agendaIdOrGenerate(id),
@@ -95,6 +96,7 @@ class Appointment {
   String channelConversationId;
   String channelExternalUserId;
   String channelUsername;
+  DateTime? attendanceConfirmedAt;
   DateTime createdAt;
   DateTime updatedAt;
 
@@ -157,6 +159,7 @@ class Appointment {
     channelConversationId: jsonString(json, 'ChannelConversationId'),
     channelExternalUserId: jsonString(json, 'ChannelExternalUserId'),
     channelUsername: jsonString(json, 'ChannelUsername'),
+    attendanceConfirmedAt: jsonNullableDateTime(json, 'AttendanceConfirmedAt'),
     createdAt: jsonDateTime(json, 'CreatedAt', fallback: DateTime.now()),
     updatedAt: jsonDateTime(json, 'UpdatedAt', fallback: DateTime.now()),
   );
@@ -202,6 +205,7 @@ class Appointment {
     'ChannelConversationId': channelConversationId,
     'ChannelExternalUserId': channelExternalUserId,
     'ChannelUsername': channelUsername,
+    'AttendanceConfirmedAt': dateTimeToJson(attendanceConfirmedAt),
     'CreatedAt': createdAt.toIso8601String(),
     'UpdatedAt': updatedAt.toIso8601String(),
   };
