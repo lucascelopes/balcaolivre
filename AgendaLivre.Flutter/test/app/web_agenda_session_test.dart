@@ -526,6 +526,74 @@ void main() {
       expect(session.errorMessage, isNull);
     },
   );
+
+  test('lembrete de trial aparece no dia sorteado e some ao fechar', () async {
+    final userId =
+        List<String>.generate(
+          200,
+          (index) => 'trial-reminder-$index',
+        ).firstWhere(
+          (candidate) => agendaTrialReminderDaysForUser(candidate).contains(6),
+        );
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      AgendaAuthService.sessionKey: jsonEncode(<String, Object?>{
+        'userId': userId,
+        'email': 'trial@example.com',
+        'accessToken': 'access-trial',
+        'refreshToken': 'refresh-trial',
+        'expiresAt': DateTime.now()
+            .toUtc()
+            .add(const Duration(hours: 1))
+            .toIso8601String(),
+      }),
+    });
+    final transport = FakeHttpTransport((request) {
+      if (request.uri.path.endsWith('/api/agenda/account/config')) {
+        return _jsonResponse(<String, Object?>{
+          'supabaseUrl': 'https://example.supabase.co',
+          'publishableKey': 'sb_publishable_test',
+          'syncUrl': '/api/agenda/account/state',
+        });
+      }
+      if (request.uri.path.endsWith('/auth/v1/user')) {
+        return _jsonResponse(<String, Object?>{
+          'id': userId,
+          'email': 'trial@example.com',
+        });
+      }
+      if (request.uri.path.endsWith('/api/agenda/account/state') &&
+          request.method == 'GET') {
+        return _jsonResponse(<String, Object?>{
+          ..._emptyRemoteState(),
+          'trial': <String, Object?>{'active': true, 'daysRemaining': 6},
+          'entitlement': <String, Object?>{
+            'status': 'trialing',
+            'canUse': true,
+            'daysRemaining': 6,
+          },
+        });
+      }
+      fail('Requisicao inesperada: ${request.method} ${request.uri}');
+    });
+    final preferences = await SharedPreferences.getInstance();
+    final session = AgendaWebSessionController(
+      preferences: preferences,
+      transport: transport,
+      apiBase: Uri.parse('https://agenda.example'),
+    );
+    addTearDown(session.dispose);
+
+    await session.initialize();
+    await session.agendaController!.initialize();
+
+    expect(session.subscriptionReminderDaysRemaining, 6);
+    expect(session.subscriptionReminderExpired, isFalse);
+    expect(session.shouldShowSubscriptionReminder, isTrue);
+
+    session.dismissSubscriptionReminder();
+
+    expect(session.shouldShowSubscriptionReminder, isFalse);
+  });
 }
 
 Map<String, Object?> _emptyRemoteState() => <String, Object?>{

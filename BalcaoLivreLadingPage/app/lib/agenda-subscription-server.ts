@@ -119,6 +119,52 @@ function maskEmail(value: unknown) {
   return `${local.slice(0, Math.min(2, local.length))}${local.length > 2 ? "***" : "*"}@${domain}`;
 }
 
+async function checkoutTrialContext(request: Request) {
+  const authorization = request.headers.get("authorization") || "";
+  if (!authorization.toLowerCase().startsWith("bearer ")) {
+    return {
+      authenticated: false,
+      userId: "",
+      daysRemaining: 7,
+      endsAt: null as number | null,
+    };
+  }
+  const user = await authenticateAgendaAccountUser(request);
+  const account = await getAgendaD1()
+    .prepare(
+      `SELECT trial_started_at, trial_ends_at
+       FROM agenda_cloud_accounts
+       WHERE user_id = ?1
+       LIMIT 1`,
+    )
+    .bind(user.id)
+    .first<{ trial_started_at: number; trial_ends_at: number }>();
+  const now = Date.now();
+  const entitlement = await ensureAgendaEntitlementForUser(
+    user.id,
+    now,
+    account
+      ? {
+          startedAt: Number(account.trial_started_at),
+          endsAt: Number(account.trial_ends_at),
+        }
+      : undefined,
+  );
+  const endsAt = entitlement.trialEndsAt
+    ? Date.parse(entitlement.trialEndsAt)
+    : Number(account?.trial_ends_at || 0);
+  const daysRemaining =
+    Number.isFinite(endsAt) && endsAt > now
+      ? Math.max(1, Math.ceil((endsAt - now) / (24 * 60 * 60 * 1000)))
+      : 0;
+  return {
+    authenticated: true,
+    userId: user.id,
+    daysRemaining,
+    endsAt: daysRemaining > 0 ? endsAt : null,
+  };
+}
+
 async function stripeRequest(
   path: string,
   init?: { method?: "GET" | "POST"; params?: URLSearchParams; idempotencyKey?: string },
@@ -212,6 +258,7 @@ export async function createPublicAgendaSubscriptionCheckout(request: Request) {
     }
   }
   const plan = normalizedPlan(body.plan || requestUrl.searchParams.get("plan"));
+  const trial = await checkoutTrialContext(request);
   const secretKey = runtimeValue("STRIPE_SECRET_KEY");
   const priceId = runtimeValue(
     plan === "anual" ? "AGENDA_STRIPE_PRICE_ANUAL" : "AGENDA_STRIPE_PRICE_MENSAL",
@@ -232,7 +279,6 @@ export async function createPublicAgendaSubscriptionCheckout(request: Request) {
     "line_items[0][quantity]": "1",
     allow_promotion_codes: "true",
     payment_method_collection: "always",
-    "subscription_data[trial_period_days]": "7",
     "subscription_data[trial_settings][end_behavior][missing_payment_method]": "cancel",
     "subscription_data[metadata][agenda_claim_id]": claimId,
     "subscription_data[metadata][agenda_product]": "agenda_livre",
@@ -240,15 +286,38 @@ export async function createPublicAgendaSubscriptionCheckout(request: Request) {
     "metadata[agenda_claim_id]": claimId,
     "metadata[agenda_product]": "agenda_livre",
     "metadata[agenda_plan]": plan,
+    "metadata[agenda_trial_days_remaining]": String(trial.daysRemaining),
     success_url: checkoutUrl(
       "AGENDA_CHECKOUT_SUCCESS_URL",
       `https://app.minhaagendalivre.com.br/?checkout=sucesso&session_id={CHECKOUT_SESSION_ID}`,
     ),
     cancel_url: checkoutUrl(
       "AGENDA_CHECKOUT_CANCEL_URL",
-      `${origin}/agenda-livre/#planos`,
+      trial.authenticated
+        ? `${origin}/?billing=cancelado`
+        : `${origin}/agenda-livre/#planos`,
     ),
   });
+  if (trial.endsAt !== null) {
+    const minimumExactTrialEnd = Date.now() + 48 * 60 * 60 * 1000;
+    if (trial.endsAt >= minimumExactTrialEnd) {
+      params.set(
+        "subscription_data[trial_end]",
+        String(Math.floor(trial.endsAt / 1000)),
+      );
+    } else {
+      params.set(
+        "subscription_data[trial_period_days]",
+        String(trial.daysRemaining),
+      );
+    }
+  } else if (!trial.authenticated) {
+    params.set("subscription_data[trial_period_days]", "7");
+  }
+  if (trial.userId) {
+    params.set("metadata[agenda_user_id]", trial.userId);
+    params.set("subscription_data[metadata][agenda_user_id]", trial.userId);
+  }
   if (plan === "anual") {
     params.set("shipping_address_collection[allowed_countries][0]", "BR");
   }
@@ -275,7 +344,19 @@ export async function createPublicAgendaSubscriptionCheckout(request: Request) {
   if (request.method === "GET" && !request.headers.get("accept")?.includes("application/json")) {
     return Response.redirect(url, 303);
   }
-  return jsonResponse({ ok: true, checkout: { url, sessionId } }, 200, "GET, POST, OPTIONS");
+  return jsonResponse(
+    {
+      ok: true,
+      checkout: {
+        url,
+        sessionId,
+        trialDaysRemaining: trial.daysRemaining,
+        trialEndsAt: trial.endsAt ? new Date(trial.endsAt).toISOString() : null,
+      },
+    },
+    200,
+    "GET, POST, OPTIONS",
+  );
 }
 
 export async function getAgendaSubscriptionCheckoutStatus(request: Request) {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/web_agenda_session.dart';
@@ -169,10 +170,7 @@ class _ActivationHeader extends StatelessWidget {
 }
 
 class _ActivationProgress extends StatelessWidget {
-  const _ActivationProgress({
-    required this.activation,
-    required this.compact,
-  });
+  const _ActivationProgress({required this.activation, required this.compact});
 
   final AgendaCheckoutActivation activation;
   final bool compact;
@@ -496,6 +494,301 @@ class _ActivationActions extends StatelessWidget {
   }
 }
 
+class AgendaSubscriptionReminder extends StatelessWidget {
+  const AgendaSubscriptionReminder({
+    super.key,
+    required this.session,
+    required this.daysRemaining,
+    required this.expired,
+    required this.onClose,
+  });
+
+  final AgendaWebSessionController session;
+  final int daysRemaining;
+  final bool expired;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final compact = media.size.width < 620;
+    final remainingLabel = daysRemaining == 1
+        ? '1 dia restante'
+        : '$daysRemaining dias restantes';
+    return Positioned.fill(
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.42),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Semantics(
+                button: true,
+                label: 'Fechar aviso de assinatura',
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onClose,
+                ),
+              ),
+            ),
+            Align(
+              alignment: compact ? Alignment.bottomCenter : Alignment.center,
+              child: SafeArea(
+                minimum: EdgeInsets.fromLTRB(
+                  compact ? 8 : 24,
+                  24,
+                  compact ? 8 : 24,
+                  compact ? 8 : 24,
+                ),
+                child: TweenAnimationBuilder<double>(
+                  duration: const Duration(milliseconds: 360),
+                  curve: Curves.easeOutCubic,
+                  tween: Tween(begin: 0, end: 1),
+                  builder: (context, value, child) => Opacity(
+                    opacity: value,
+                    child: Transform.translate(
+                      offset: Offset(0, 34 * (1 - value)),
+                      child: Transform.scale(
+                        scale: 0.97 + (0.03 * value),
+                        alignment: Alignment.bottomCenter,
+                        child: child,
+                      ),
+                    ),
+                  ),
+                  child: Material(
+                    color: Colors.white,
+                    elevation: 22,
+                    shadowColor: Colors.black38,
+                    borderRadius: BorderRadius.circular(compact ? 26 : 30),
+                    clipBehavior: Clip.antiAlias,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: 520,
+                        maxHeight: media.size.height * (compact ? 0.9 : 0.84),
+                      ),
+                      child: SingleChildScrollView(
+                        padding: EdgeInsets.fromLTRB(
+                          compact ? 20 : 30,
+                          compact ? 18 : 26,
+                          compact ? 20 : 30,
+                          compact ? 22 : 28,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  width: 46,
+                                  height: 46,
+                                  decoration: BoxDecoration(
+                                    color: _orangeSoft,
+                                    borderRadius: BorderRadius.circular(15),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: const FaIcon(
+                                    FontAwesomeIcons.calendarCheck,
+                                    color: _orange,
+                                    size: 21,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'AGENDA LIVRE',
+                                        style: TextStyle(
+                                          color: _orange,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 1.1,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        expired
+                                            ? 'Teste gratuito encerrado'
+                                            : 'Teste grátis • $remainingLabel',
+                                        key: const Key(
+                                          'subscription-reminder-status',
+                                        ),
+                                        style: const TextStyle(
+                                          color: _ink,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  key: const Key('subscription-reminder-close'),
+                                  tooltip: 'Agora não',
+                                  onPressed: onClose,
+                                  icon: const FaIcon(
+                                    FontAwesomeIcons.xmark,
+                                    size: 20,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 22),
+                            Text(
+                              expired
+                                  ? 'Assine quando quiser. Sua agenda continua acessível.'
+                                  : 'Seu teste continua — faltam $remainingLabel.',
+                              style: TextStyle(
+                                color: _ink,
+                                fontSize: compact ? 25 : 30,
+                                height: 1.08,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.7,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              expired
+                                  ? 'Você pode fechar este aviso e voltar exatamente ao que estava fazendo. Quando estiver pronta, escolha um plano e conclua pela Stripe.'
+                                  : 'Os 7 dias de teste não exigem cartão e nada será cobrado automaticamente. Se preferir, assine agora e não precise se preocupar em ativar depois.',
+                              style: const TextStyle(
+                                color: _muted,
+                                fontSize: 14,
+                                height: 1.45,
+                              ),
+                            ),
+                            if (!expired) ...[
+                              const SizedBox(height: 16),
+                              Container(
+                                padding: const EdgeInsets.all(13),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF7F2),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: _line),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Padding(
+                                      padding: EdgeInsets.only(top: 1),
+                                      child: FaIcon(
+                                        FontAwesomeIcons.shieldHalved,
+                                        color: _orange,
+                                        size: 17,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        'Ao abrir a Stripe, o período grátis será mantido com $remainingLabel. A cobrança começa somente depois dele.',
+                                        style: const TextStyle(
+                                          color: _ink,
+                                          fontSize: 12.5,
+                                          height: 1.35,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 22),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 54,
+                              child: FilledButton.icon(
+                                key: const Key('subscription-reminder-monthly'),
+                                onPressed: session.busy
+                                    ? null
+                                    : () => session.renewSubscription('mensal'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: _orange,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                icon: session.busy
+                                    ? const SizedBox.square(
+                                        dimension: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const FaIcon(
+                                        FontAwesomeIcons.arrowRight,
+                                        size: 16,
+                                      ),
+                                label: const Text(
+                                  'Assinar mensal • R\$ 49,90',
+                                  style: TextStyle(fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 50,
+                              child: OutlinedButton(
+                                key: const Key('subscription-reminder-annual'),
+                                onPressed: session.busy
+                                    ? null
+                                    : () => session.renewSubscription('anual'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: _ink,
+                                  side: const BorderSide(color: _line),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Plano anual • R\$ 598,80',
+                                  style: TextStyle(fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              key: const Key('subscription-reminder-later'),
+                              onPressed: onClose,
+                              style: TextButton.styleFrom(
+                                minimumSize: const Size.fromHeight(48),
+                                foregroundColor: _muted,
+                              ),
+                              child: const Text(
+                                'Agora não, voltar para minha agenda',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                            if (session.errorMessage != null) ...[
+                              const SizedBox(height: 8),
+                              _InlineNotice(text: session.errorMessage!),
+                            ],
+                            const Center(
+                              child: Text(
+                                'Pagamento seguro processado pela Stripe',
+                                style: TextStyle(color: _muted, fontSize: 11),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+@Deprecated('Use AgendaSubscriptionReminder inside the active Agenda app.')
 class AgendaSubscriptionRenewalPage extends StatelessWidget {
   const AgendaSubscriptionRenewalPage({super.key, required this.session});
 

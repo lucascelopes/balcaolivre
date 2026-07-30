@@ -141,6 +141,19 @@ class AgendaController extends ChangeNotifier {
         !repository.trialActive;
   }
 
+  int get trialDaysRemaining {
+    final repository = _syncRepository;
+    if (repository == null || !repository.hasTrialStatus) return 0;
+    return repository.trialDaysRemaining.clamp(0, 7);
+  }
+
+  bool get trialActive {
+    final repository = _syncRepository;
+    return repository != null &&
+        repository.hasTrialStatus &&
+        repository.trialActive;
+  }
+
   bool get needsSubscriptionRenewal {
     final repository = _repository is AgendaEntitlementRepository
         ? _repository as AgendaEntitlementRepository

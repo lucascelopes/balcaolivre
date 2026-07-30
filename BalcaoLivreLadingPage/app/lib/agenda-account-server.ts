@@ -534,13 +534,24 @@ function accountState(
   };
 }
 
+function accountTrialWindow(row: AccountRow) {
+  return {
+    startedAt: Number(row.trial_started_at),
+    endsAt: Number(row.trial_ends_at),
+  };
+}
+
 async function currentAccountState(user: AuthenticatedAgendaUser) {
   await ensureAccount(user);
   const row = await readAccount(user.id);
   if (!row) throw new Error("Account insert succeeded but the row was not found");
   const entitlement =
     user.kind === "supabase"
-      ? await ensureAgendaEntitlementForUser(user.id)
+      ? await ensureAgendaEntitlementForUser(
+          user.id,
+          Date.now(),
+          accountTrialWindow(row),
+        )
       : await assertAgendaAndroidCanUse(user.id);
   return accountState(row, entitlement);
 }
@@ -555,7 +566,16 @@ export async function putAgendaAccountState(request: Request) {
   let currentEntitlement: AgendaEntitlementState;
   try {
     if (user.kind === "supabase") {
-      currentEntitlement = await ensureAgendaEntitlementForUser(user.id);
+      await ensureAccount(user);
+      const account = await readAccount(user.id);
+      if (!account) {
+        throw new Error("Account insert succeeded but the row was not found");
+      }
+      currentEntitlement = await ensureAgendaEntitlementForUser(
+        user.id,
+        Date.now(),
+        accountTrialWindow(account),
+      );
       if (!currentEntitlement.canUse) {
         throw new AgendaAccountError(
           402,

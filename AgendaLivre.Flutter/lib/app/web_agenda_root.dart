@@ -26,6 +26,8 @@ class AgendaLivreWebRoot extends StatefulWidget {
 
 class _AgendaLivreWebRootState extends State<AgendaLivreWebRoot>
     with WidgetsBindingObserver {
+  bool _localRenewalPreviewDismissed = false;
+
   @override
   void initState() {
     super.initState();
@@ -72,25 +74,52 @@ class _AgendaLivreWebRootState extends State<AgendaLivreWebRoot>
             home: AgendaCheckoutActivationPage(session: managedSession!),
           );
         }
-        if (managedSession?.localRenewalPreview == true) {
+        final controller = widget.session.agendaController;
+        if (managedSession?.localRenewalPreview == true && controller == null) {
           return MaterialApp(
-            title: 'Renovar Agenda Livre',
+            title: 'Lembrete de assinatura · Agenda Livre',
             debugShowCheckedModeBanner: false,
             theme: AgendaThemes.byId('').toThemeData(),
-            home: AgendaSubscriptionRenewalPage(session: managedSession!),
+            home: Builder(
+              builder: (context) => Stack(
+                children: [
+                  AgendaAuthPage(session: managedSession!),
+                  if (!_localRenewalPreviewDismissed)
+                    AgendaSubscriptionReminder(
+                      session: managedSession,
+                      daysRemaining: 6,
+                      expired: false,
+                      onClose: () =>
+                          setState(() => _localRenewalPreviewDismissed = true),
+                    ),
+                ],
+              ),
+            ),
           );
         }
-        final controller = widget.session.agendaController;
         if (controller != null) {
-          if (managedSession != null && controller.needsSubscriptionRenewal) {
-            return MaterialApp(
-              title: 'Renovar Agenda Livre',
-              debugShowCheckedModeBanner: false,
-              theme: AgendaThemes.byId('').toThemeData(),
-              home: AgendaSubscriptionRenewalPage(session: managedSession),
-            );
-          }
-          return AgendaLivreApp(controller: controller);
+          return AgendaLivreApp(
+            controller: controller,
+            homeBuilder: (context, child) {
+              if (managedSession == null ||
+                  !managedSession.shouldShowSubscriptionReminder) {
+                return child;
+              }
+              return Stack(
+                children: [
+                  child,
+                  AgendaSubscriptionReminder(
+                    key: const Key('agenda-subscription-reminder'),
+                    session: managedSession,
+                    daysRemaining:
+                        managedSession.subscriptionReminderDaysRemaining,
+                    expired: managedSession.subscriptionReminderExpired,
+                    onClose: managedSession.dismissSubscriptionReminder,
+                  ),
+                ],
+              );
+            },
+          );
         }
         return MaterialApp(
           title: 'Agenda Livre',

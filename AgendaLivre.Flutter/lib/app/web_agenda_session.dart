@@ -26,6 +26,21 @@ Map<String, dynamic> _decodeSessionObject(String source) {
       : <String, dynamic>{};
 }
 
+@visibleForTesting
+Set<int> agendaTrialReminderDaysForUser(String userId) {
+  final available = <int>[7, 6, 5, 4, 3, 2, 1];
+  final selected = <int>{};
+  var seed = userId.codeUnits.fold<int>(
+    0x45D9F3B,
+    (value, unit) => ((value * 33) ^ unit) & 0x7fffffff,
+  );
+  while (selected.length < 3 && available.isNotEmpty) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    selected.add(available.removeAt(seed % available.length));
+  }
+  return selected;
+}
+
 String _sessionString(Object? value) => value?.toString() ?? '';
 
 abstract interface class AgendaWebSession implements Listenable {
@@ -137,6 +152,8 @@ class AgendaWebSessionController extends ChangeNotifier
   }
 
   static const String deviceIdKey = 'agenda_livre.device_id.v1';
+  static const String subscriptionReminderKeyPrefix =
+      'agenda_livre.subscription_reminder.v1';
 
   final SharedPreferences _preferences;
   late final HttpTransport _transport;
@@ -158,6 +175,7 @@ class AgendaWebSessionController extends ChangeNotifier
   AgendaBillingCard? billingCard;
   bool billingCardLoaded = false;
   bool localRenewalPreview = false;
+  bool _subscriptionReminderDismissed = false;
   bool _disposed = false;
 
   @override
@@ -188,6 +206,33 @@ class AgendaWebSessionController extends ChangeNotifier
   String? get pendingConfirmationEmail => _pendingConfirmationEmail;
 
   AgendaCheckoutActivation? get checkoutActivation => _checkoutActivation;
+
+  int get subscriptionReminderDaysRemaining =>
+      agendaController?.trialDaysRemaining ?? 0;
+
+  bool get subscriptionReminderExpired =>
+      agendaController?.needsSubscriptionRenewal == true;
+
+  bool get shouldShowSubscriptionReminder {
+    final controller = agendaController;
+    final session = authSession;
+    if (controller == null ||
+        session == null ||
+        _subscriptionReminderDismissed) {
+      return false;
+    }
+    if (localRenewalPreview) return true;
+    final today = _dateStamp(DateTime.now());
+    if (_preferences.getString(_subscriptionReminderKey(session.userId)) ==
+        today) {
+      return false;
+    }
+    if (controller.needsSubscriptionRenewal) return true;
+    if (!controller.trialActive) return false;
+    return agendaTrialReminderDaysForUser(
+      session.userId,
+    ).contains(controller.trialDaysRemaining);
+  }
 
   bool _initialized = false;
 
@@ -726,6 +771,20 @@ class AgendaWebSessionController extends ChangeNotifier
     }
   }
 
+  void dismissSubscriptionReminder() {
+    final session = authSession;
+    _subscriptionReminderDismissed = true;
+    if (session != null) {
+      unawaited(
+        _preferences.setString(
+          _subscriptionReminderKey(session.userId),
+          _dateStamp(DateTime.now()),
+        ),
+      );
+    }
+    notifyListeners();
+  }
+
   Future<void> manageSubscription() async {
     final api = _activeAccountApi;
     if (api == null) return;
@@ -808,6 +867,7 @@ class AgendaWebSessionController extends ChangeNotifier
     _activeAccountApi = null;
     billingCard = null;
     billingCardLoaded = false;
+    _subscriptionReminderDismissed = false;
     final current = agendaController;
     if (current != null) _retiredControllers.add(current);
     agendaController = null;
@@ -817,6 +877,14 @@ class AgendaWebSessionController extends ChangeNotifier
       _sessionGeneration == generation &&
       _activeUserId == userId &&
       _authService.session?.userId == userId;
+
+  String _subscriptionReminderKey(String userId) =>
+      '$subscriptionReminderKeyPrefix.$userId';
+
+  static String _dateStamp(DateTime value) =>
+      '${value.year.toString().padLeft(4, '0')}-'
+      '${value.month.toString().padLeft(2, '0')}-'
+      '${value.day.toString().padLeft(2, '0')}';
 
   void _startOperation() {
     busy = true;

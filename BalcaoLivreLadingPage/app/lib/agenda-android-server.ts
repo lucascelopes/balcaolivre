@@ -595,6 +595,10 @@ export async function assertAgendaAndroidCanUse(userId: string) {
 export async function ensureAgendaEntitlementForUser(
   userId: string,
   now = Date.now(),
+  accountTrial?: {
+    startedAt: number;
+    endsAt: number;
+  },
 ) {
   await ensurePendingEntitlement(userId, now);
   const existing = await readEntitlement(userId);
@@ -611,7 +615,43 @@ export async function ensureAgendaEntitlementForUser(
       .bind(now, now + TRIAL_DURATION_MS, userId)
       .run();
   }
-  return entitlementState(await readEntitlement(userId), userId, undefined, now);
+  let state = await entitlementState(
+    await readEntitlement(userId),
+    userId,
+    undefined,
+    now,
+  );
+  const accountTrialIsActive =
+    accountTrial !== undefined &&
+    Number.isFinite(accountTrial.startedAt) &&
+    Number.isFinite(accountTrial.endsAt) &&
+    accountTrial.endsAt > now;
+  if (accountTrialIsActive && !state.canUse) {
+    // The Web account is the source of truth for the seven-day trial. Older
+    // deployments could create the shared entitlement before the account row,
+    // leaving a brand-new Web account attached to an already expired trial.
+    // Repair that legacy mismatch without extending a genuinely expired trial.
+    await getAgendaD1()
+      .prepare(
+        `UPDATE agenda_android_entitlements
+         SET status = 'trialing',
+             trial_started_at = ?1,
+             trial_ends_at = ?2,
+             current_period_ends_at = NULL,
+             grace_ends_at = NULL,
+             updated_at = ?3
+         WHERE user_id = ?4`,
+      )
+      .bind(accountTrial.startedAt, accountTrial.endsAt, now, userId)
+      .run();
+    state = await entitlementState(
+      await readEntitlement(userId),
+      userId,
+      undefined,
+      now,
+    );
+  }
+  return state;
 }
 
 export async function getAgendaEntitlementForUser(userId: string) {
