@@ -156,8 +156,10 @@ function appAssetRequest(request: Request, env: Env) {
   if (!url.pathname.startsWith(`${APP_ASSET_PREFIX}/`)) {
     url.pathname =
       url.pathname === "/"
-        ? `${APP_ASSET_PREFIX}/`
+        ? `${APP_ASSET_PREFIX}/index.html`
         : `${APP_ASSET_PREFIX}${url.pathname}`;
+  } else if (url.pathname === `${APP_ASSET_PREFIX}/`) {
+    url.pathname = `${APP_ASSET_PREFIX}/index.html`;
   }
 
   return new Request(url, request);
