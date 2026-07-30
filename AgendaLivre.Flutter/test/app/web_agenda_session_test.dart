@@ -484,7 +484,7 @@ void main() {
             'email': 'stripe@example.com',
           });
         }
-        if (request.uri.path.endsWith('/api/agenda/android/checkout')) {
+        if (request.uri.path.endsWith('/api/agenda/subscriptions/checkout')) {
           expect(request.method, 'POST');
           expect(request.headers['Authorization'], 'Bearer access-stripe');
           final body = Map<String, dynamic>.from(

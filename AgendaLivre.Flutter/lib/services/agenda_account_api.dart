@@ -1442,14 +1442,28 @@ class AgendaRemoteState {
 
   static AgendaRemoteState fromJson(Map<String, dynamic> json) {
     final rawPayload = json['payload'];
+    final trial = AgendaTrialStatus.fromJson(json['trial']);
+    final rawEntitlement = json['entitlement'];
+    // Older Agenda Web workers returned only the authoritative trial block.
+    // Keep those accounts usable until that trial actually ends instead of
+    // interpreting the absent entitlement as a denied subscription.
+    final entitlement = rawEntitlement is Map
+        ? AgendaEntitlement.fromJson(rawEntitlement)
+        : AgendaEntitlement(
+            status: trial.active ? 'trialing' : 'expired',
+            canUse: trial.active,
+            trialStartedAt: trial.startedAt,
+            trialEndsAt: trial.endsAt,
+            daysRemaining: trial.daysRemaining,
+          );
     return AgendaRemoteState(
       exists: json['exists'] == true,
       revision: _integer(json['revision']),
       schemaVersion: _integer(json['schemaVersion'], fallback: 1),
       payload: rawPayload is Map ? Map<String, dynamic>.from(rawPayload) : null,
       updatedAt: DateTime.tryParse(_string(json['updatedAt'])),
-      trial: AgendaTrialStatus.fromJson(json['trial']),
-      entitlement: AgendaEntitlement.fromJson(json['entitlement']),
+      trial: trial,
+      entitlement: entitlement,
     );
   }
 }
@@ -1552,7 +1566,10 @@ class AgendaAccountApi implements AgendaAccountStateClient {
     final response = await _authorizedRequest(
       config,
       method: 'POST',
-      uri: _resolveUri(_configService.apiBase, '/api/agenda/android/checkout'),
+      uri: _resolveUri(
+        _configService.apiBase,
+        '/api/agenda/subscriptions/checkout',
+      ),
       body: jsonEncode(<String, Object?>{
         'plan': normalizedPlan,
         'idempotencyKey': idempotencyKey,
