@@ -1,0 +1,66 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agenda-livre-platform",
+  "workers_dev": true,
+  "preview_urls": true,
+  "main": "dist/server/index.js",
+  "compatibility_date": "2026-05-22",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "no_bundle": true,
+  "rules": [
+    {
+      "type": "ESModule",
+      "globs": ["**/*.js", "**/*.mjs"]
+    }
+  ],
+  "assets": {
+    "directory": "dist/client",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "agenda-livre-booking",
+      "database_id": "f01d2bda-21de-4695-9a92-64b464ae8c7d"
+    }
+  ],
+  "vars": {
+    "AGENDA_PUBLIC_BOOKING_TABLE": "agenda_public_booking_requests",
+    "NEXT_PUBLIC_SITE_URL": "https://minhaagendalivre.com.br",
+    "AGENDA_BOOKING_ROOT_DOMAIN": "minhaagendalivre.com.br",
+    "NEXT_PUBLIC_BOOKING_ROOT_DOMAIN": "minhaagendalivre.com.br",
+    "AGENDA_SNAPSHOT_TTL_SECONDS": "90",
+    "SUPABASE_URL": "https://hzvplpotsdzxygkxrgyi.supabase.co",
+    "SUPABASE_ANON_KEY": "sb_publishable_qNl5_EGAeuhN6PqTzRIeyQ_YQV2MdV6",
+    "AGENDA_STRIPE_PRICE_MENSAL": "price_1TxyT5K2jxGBfpO3MdtPAj4G",
+    "AGENDA_STRIPE_PRICE_ANUAL": "price_1TxyUyK2jxGBfpO3FuaB8l1t",
+    "VAPID_SUBJECT": "mailto:suporte@minhaagendalivre.com.br",
+    "WHATSAPP_AI_BRIDGE_TOKEN_SHA256": "678adc17da99ee7033b0bf827ccc605d50f3e234451286ef35ee1226937abcc6"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "routes": [
+    {
+      "pattern": "minhaagendalivre.com.br/*",
+      "zone_name": "minhaagendalivre.com.br"
+    },
+    {
+      "pattern": "www.minhaagendalivre.com.br/*",
+      "zone_name": "minhaagendalivre.com.br"
+    },
+    {
+      "pattern": "app.minhaagendalivre.com.br/*",
+      "zone_name": "minhaagendalivre.com.br"
+    },
+    {
+      "pattern": "*.minhaagendalivre.com.br/*",
+      "zone_name": "minhaagendalivre.com.br"
+    }
+  ]
+}
