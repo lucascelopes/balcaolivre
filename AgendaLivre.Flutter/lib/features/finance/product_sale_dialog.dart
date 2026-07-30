@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/agenda_controller.dart';
 import '../../app/theme/agenda_theme.dart';
+import '../../core/motion.dart';
 import '../../core/formatters.dart';
 import '../../core/ui.dart';
 import '../../domain/models/models.dart';
@@ -22,7 +23,7 @@ Future<bool> showProductSaleDialog(
   BuildContext context, {
   required AgendaController controller,
 }) async {
-  return await showDialog<bool>(
+  return await showAgendaDialog<bool>(
         context: context,
         barrierDismissible: false,
         builder: (_) => _ProductSaleDialog(controller: controller),

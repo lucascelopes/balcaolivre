@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/agenda_controller.dart';
 import '../../app/theme/agenda_theme.dart';
 import '../../core/formatters.dart';
+import '../../core/motion.dart';
 import '../../core/ui.dart';
 import '../../domain/models/models.dart';
 import '../../services/mercado_pago_service.dart';
@@ -46,7 +47,7 @@ class _FinancePageState extends State<FinancePage> {
   int? _selectedChartIndex;
 
   Future<void> _registerPayment() async {
-    final saved = await showDialog<bool>(
+    final saved = await showAgendaDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (context) => _PaymentDialog(controller: widget.controller),
@@ -58,7 +59,7 @@ class _FinancePageState extends State<FinancePage> {
   }
 
   Future<void> _registerExpense() async {
-    final saved = await showDialog<bool>(
+    final saved = await showAgendaDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (context) => _ExpenseDialog(controller: widget.controller),

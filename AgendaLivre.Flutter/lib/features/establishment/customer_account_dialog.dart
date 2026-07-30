@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/agenda_controller.dart';
 import '../../app/theme/agenda_theme.dart';
+import '../../core/motion.dart';
 import '../../core/formatters.dart';
 import '../../domain/models/models.dart';
 import '../../services/mercado_pago_service.dart';
@@ -14,7 +15,7 @@ Future<bool> showCustomerAccountDialog(
   required AgendaController controller,
   required Customer customer,
 }) async {
-  return await showDialog<bool>(
+  return await showAgendaDialog<bool>(
         context: context,
         barrierColor: const Color(0xC0000000),
         barrierDismissible: false,
@@ -138,7 +139,7 @@ class _CustomerAccountDialogState extends State<_CustomerAccountDialog> {
         'Cadastre uma chave Pix nas configurações de pagamento.',
       );
     }
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAgendaDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Receber por Pix'),

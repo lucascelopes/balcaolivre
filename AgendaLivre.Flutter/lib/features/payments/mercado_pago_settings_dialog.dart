@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/agenda_controller.dart';
 import '../../app/theme/agenda_theme.dart';
+import '../../core/motion.dart';
 import '../../core/ui.dart';
 import '../../services/mercado_pago_service.dart';
 import '../../services/oauth_browser_window.dart';
@@ -14,7 +15,7 @@ Future<bool> showMercadoPagoSettingsDialog(
   BuildContext context,
   AgendaController controller,
 ) async {
-  return await showDialog<bool>(
+  return await showAgendaDialog<bool>(
         context: context,
         barrierDismissible: false,
         builder: (_) => _MercadoPagoSettingsDialog(controller: controller),

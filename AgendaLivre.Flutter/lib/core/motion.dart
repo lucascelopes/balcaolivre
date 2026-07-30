@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 abstract final class AgendaMotion {
@@ -17,6 +18,91 @@ abstract final class AgendaMotion {
 
   static Curve get enterCurve => Curves.easeOutCubic;
   static Curve get exitCurve => Curves.easeInCubic;
+}
+
+/// Opens dialogs with the Agenda Livre mobile-web motion language while
+/// preserving Flutter's native dialog behavior on desktop and installed apps.
+Future<T?> showAgendaDialog<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool barrierDismissible = true,
+  Color? barrierColor,
+  String? barrierLabel,
+  bool useSafeArea = true,
+  bool useRootNavigator = true,
+  RouteSettings? routeSettings,
+  Offset? anchorPoint,
+  TraversalEdgeBehavior? traversalEdgeBehavior,
+  bool fullscreenDialog = false,
+  bool? requestFocus,
+}) {
+  final isMobileWeb = kIsWeb && MediaQuery.sizeOf(context).width < 760;
+  if (!isMobileWeb) {
+    return showDialog<T>(
+      context: context,
+      builder: builder,
+      barrierDismissible: barrierDismissible,
+      barrierColor: barrierColor,
+      barrierLabel: barrierLabel,
+      useSafeArea: useSafeArea,
+      useRootNavigator: useRootNavigator,
+      routeSettings: routeSettings,
+      anchorPoint: anchorPoint,
+      traversalEdgeBehavior: traversalEdgeBehavior,
+      fullscreenDialog: fullscreenDialog,
+      requestFocus: requestFocus,
+    );
+  }
+
+  final navigator = Navigator.of(context, rootNavigator: useRootNavigator);
+  final themes = InheritedTheme.capture(from: context, to: navigator.context);
+  final dismissLabel =
+      barrierLabel ??
+      MaterialLocalizations.of(context).modalBarrierDismissLabel;
+  final reduced = AgendaMotion.reduced(context);
+
+  return showGeneralDialog<T>(
+    context: context,
+    useRootNavigator: useRootNavigator,
+    barrierDismissible: barrierDismissible,
+    barrierLabel: dismissLabel,
+    barrierColor: barrierColor ?? const Color(0xA6000000),
+    transitionDuration: reduced ? Duration.zero : AgendaMotion.page,
+    routeSettings: routeSettings,
+    anchorPoint: anchorPoint,
+    requestFocus: requestFocus,
+    fullscreenDialog: fullscreenDialog,
+    pageBuilder: (routeContext, animation, secondaryAnimation) {
+      Widget child = themes.wrap(builder(routeContext));
+      if (useSafeArea) child = SafeArea(child: child);
+      return child;
+    },
+    transitionBuilder: (routeContext, animation, secondaryAnimation, child) {
+      if (reduced) return child;
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: const Cubic(.16, 1, .3, 1),
+        reverseCurve: AgendaMotion.exitCurve,
+      );
+      final fade = Tween<double>(begin: 0, end: 1).animate(curved);
+      final scale = Tween<double>(begin: .94, end: 1).animate(curved);
+      final slide = Tween<Offset>(
+        begin: const Offset(0, .045),
+        end: Offset.zero,
+      ).animate(curved);
+      return FadeTransition(
+        opacity: fade,
+        child: SlideTransition(
+          position: slide,
+          child: ScaleTransition(
+            scale: scale,
+            alignment: Alignment.bottomCenter,
+            child: child,
+          ),
+        ),
+      );
+    },
+  );
 }
 
 /// Gentle page/section entrance that respects the platform reduced-motion
