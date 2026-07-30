@@ -5,16 +5,23 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../app/agenda_controller.dart';
+import '../../app/theme/agenda_theme.dart';
+import '../../core/business_profile.dart';
 import '../../core/formatters.dart';
+import '../../core/motion.dart';
 import '../../domain/models/models.dart';
+import 'finance_desktop_legacy.dart';
 
 const _financeInk = Color(0xFF1C1B1A);
 const _financeAccent = Color(0xFFED6823);
 const _financeAccentDark = Color(0xFFB74716);
-const _financeCanvas = Color(0xFFFAF9F7);
 const _financeLine = Color(0xFFE7E1DC);
 const _financeMuted = Color(0xFF746E69);
 const _financeSoft = Color(0xFFF3F0ED);
+const _financeGreen = Color(0xFF17855B);
+const _financeGreenSoft = Color(0xFFE9F6EF);
+const _financeRed = Color(0xFFC54842);
+const _financeRedSoft = Color(0xFFFFEEEC);
 
 class FinanceWpfDashboard extends StatefulWidget {
   const FinanceWpfDashboard({
@@ -51,38 +58,21 @@ class _FinanceWpfDashboardState extends State<FinanceWpfDashboard> {
   }
 
   Future<void> _newMovement() async {
+    final t = AgendaThemeTokens.of(context);
+    final compact = MediaQuery.sizeOf(context).width < 760;
     final action = await showModalBottomSheet<_FinanceAction>(
       context: context,
+      isScrollControlled: compact,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const ListTile(
-              title: Text(
-                'Nova movimentação',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-              subtitle: Text('Escolha o que deseja registrar.'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.account_balance_wallet_outlined),
-              title: const Text('Lançar entrada'),
-              onTap: () => Navigator.pop(context, _FinanceAction.receive),
-            ),
-            ListTile(
-              leading: const Icon(Icons.receipt_long_outlined),
-              title: const Text('Lançar despesa'),
-              onTap: () => Navigator.pop(context, _FinanceAction.expense),
-            ),
-            ListTile(
-              leading: const Icon(Icons.shopping_bag_outlined),
-              title: const Text('Vender produto'),
-              onTap: () => Navigator.pop(context, _FinanceAction.product),
-            ),
-          ],
-        ),
-      ),
+      backgroundColor: compact ? t.appBackground : null,
+      barrierColor: Colors.black.withValues(alpha: .42),
+      shape: compact
+          ? const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            )
+          : null,
+      builder: (context) =>
+          compact ? const _NewMovementSheet() : const _LegacyNewMovementSheet(),
     );
     if (!mounted) return;
     switch (action) {
@@ -99,9 +89,21 @@ class _FinanceWpfDashboardState extends State<FinanceWpfDashboard> {
 
   @override
   Widget build(BuildContext context) {
+    if (MediaQuery.sizeOf(context).width >= 760) {
+      return FinanceDesktopLegacyDashboard(
+        controller: widget.controller,
+        onReceive: widget.onReceive,
+        onExpense: widget.onExpense,
+        onProduct: widget.onProduct,
+      );
+    }
+    final t = AgendaThemeTokens.of(context);
     final overview = _FinanceOverview.from(widget.controller.data, _month);
+    final profile = AgendaBusinessProfile.fromSettings(
+      widget.controller.data.settings,
+    );
     return ColoredBox(
-      color: _financeCanvas,
+      color: t.appBackground,
       child: LayoutBuilder(
         builder: (context, viewport) {
           final compact = viewport.maxWidth < 760;
@@ -112,77 +114,150 @@ class _FinanceWpfDashboardState extends State<FinanceWpfDashboard> {
               compact ? 14 : 20,
               compact ? 14 : 18,
               compact ? 14 : 26,
-              44,
+              compact ? 96 : 44,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _FinanceToolbar(
-                  month: _month,
-                  compact: compact,
-                  onMonth: _pickMonth,
-                  onRefresh: () => setState(() {}),
-                  onMovement: _newMovement,
-                  onExport: () =>
-                      widget.controller.navigate(AgendaPage.reports),
+                AgendaReveal(
+                  child: _FinanceToolbar(
+                    month: _month,
+                    compact: compact,
+                    onMonth: _pickMonth,
+                    onRefresh: () => setState(() {}),
+                    onMovement: _newMovement,
+                    onExport: () =>
+                        widget.controller.navigate(AgendaPage.reports),
+                  ),
                 ),
-                const SizedBox(height: 10),
-                _KpiGrid(overview: overview, compact: compact),
-                const SizedBox(height: 10),
-                if (wide)
-                  IntrinsicHeight(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(
-                          flex: 2,
-                          child: _ResultFormationCard(overview: overview),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _NextThirtyDaysCard(
-                            overview: overview,
-                            compact: compact,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                else ...[
-                  _ResultFormationCard(overview: overview),
-                  const SizedBox(height: 10),
-                  _NextThirtyDaysCard(overview: overview, compact: compact),
-                ],
-                const SizedBox(height: 10),
-                if (wide)
-                  IntrinsicHeight(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(child: _RiskCard(overview: overview)),
-                        const SizedBox(width: 10),
-                        Expanded(child: _FunnelCard(overview: overview)),
-                        const SizedBox(width: 10),
-                        Expanded(child: _CompositionCard(overview: overview)),
-                      ],
-                    ),
-                  )
-                else ...[
-                  _RiskCard(overview: overview),
-                  const SizedBox(height: 10),
-                  _FunnelCard(overview: overview),
-                  const SizedBox(height: 10),
-                  _CompositionCard(overview: overview),
-                ],
-                const SizedBox(height: 10),
-                _ForecastCard(overview: overview, compact: compact),
-                const SizedBox(height: 10),
-                _QuickOperationsCard(
-                  overview: overview,
-                  onReceive: widget.onReceive,
-                  onExpense: widget.onExpense,
-                  onProduct: widget.onProduct,
+                SizedBox(height: compact ? 14 : 16),
+                AgendaReveal(
+                  delay: const Duration(milliseconds: 35),
+                  child: _FinanceResultHero(
+                    overview: overview,
+                    month: _month,
+                    compact: compact,
+                  ),
                 ),
+                const SizedBox(height: 12),
+                AgendaReveal(
+                  delay: const Duration(milliseconds: 70),
+                  child: _KpiGrid(
+                    overview: overview,
+                    compact: compact,
+                    profile: profile,
+                  ),
+                ),
+                if (compact) ...[
+                  const SizedBox(height: 12),
+                  AgendaReveal(
+                    delay: const Duration(milliseconds: 105),
+                    child: _QuickOperationsCard(
+                      overview: overview,
+                      onReceive: widget.onReceive,
+                      onExpense: widget.onExpense,
+                      onProduct: widget.onProduct,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  AgendaReveal(
+                    delay: const Duration(milliseconds: 140),
+                    child: _MobileFinanceDetails(
+                      overview: overview,
+                      profile: profile,
+                    ),
+                  ),
+                ] else ...[
+                  const SizedBox(height: 12),
+                  if (wide)
+                    AgendaReveal(
+                      delay: const Duration(milliseconds: 105),
+                      child: IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              flex: 2,
+                              child: _ResultFormationCard(overview: overview),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _NextThirtyDaysCard(
+                                overview: overview,
+                                compact: compact,
+                                profile: profile,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else ...[
+                    AgendaReveal(
+                      delay: const Duration(milliseconds: 105),
+                      child: _ResultFormationCard(overview: overview),
+                    ),
+                    const SizedBox(height: 12),
+                    AgendaReveal(
+                      delay: const Duration(milliseconds: 130),
+                      child: _NextThirtyDaysCard(
+                        overview: overview,
+                        compact: compact,
+                        profile: profile,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  if (wide)
+                    AgendaReveal(
+                      delay: const Duration(milliseconds: 155),
+                      child: IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(child: _RiskCard(overview: overview)),
+                            const SizedBox(width: 12),
+                            Expanded(child: _FunnelCard(overview: overview)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _CompositionCard(overview: overview),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else ...[
+                    AgendaReveal(
+                      delay: const Duration(milliseconds: 155),
+                      child: _RiskCard(overview: overview),
+                    ),
+                    const SizedBox(height: 12),
+                    AgendaReveal(
+                      delay: const Duration(milliseconds: 180),
+                      child: _FunnelCard(overview: overview),
+                    ),
+                    const SizedBox(height: 12),
+                    AgendaReveal(
+                      delay: const Duration(milliseconds: 205),
+                      child: _CompositionCard(overview: overview),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  AgendaReveal(
+                    delay: const Duration(milliseconds: 230),
+                    child: _ForecastCard(overview: overview, compact: compact),
+                  ),
+                  const SizedBox(height: 12),
+                  AgendaReveal(
+                    delay: const Duration(milliseconds: 255),
+                    child: _QuickOperationsCard(
+                      overview: overview,
+                      onReceive: widget.onReceive,
+                      onExpense: widget.onExpense,
+                      onProduct: widget.onProduct,
+                    ),
+                  ),
+                ],
               ],
             ),
           );
@@ -213,44 +288,47 @@ class _FinanceToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AgendaThemeTokens.of(context);
     final title = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: const [
+      children: [
         Text(
           'FINANCEIRO',
           style: TextStyle(
-            color: _financeInk,
+            color: t.accent,
             fontSize: 10,
             fontWeight: FontWeight.w700,
+            letterSpacing: .8,
           ),
         ),
-        SizedBox(height: 6),
+        const SizedBox(height: 6),
         Text(
           'Financeiro',
           style: TextStyle(
-            color: _financeInk,
+            color: t.ink,
             fontSize: 29,
             height: 1,
             fontWeight: FontWeight.w700,
           ),
         ),
-        SizedBox(height: 7),
+        const SizedBox(height: 7),
         Text(
           'Resultado, agenda e riscos para decidir com mais segurança.',
-          style: TextStyle(color: _financeMuted, fontSize: 12.5),
+          style: TextStyle(color: t.muted, fontSize: 12.5),
         ),
       ],
     );
     final actions = Wrap(
       spacing: 8,
       runSpacing: 8,
-      alignment: WrapAlignment.end,
+      alignment: compact ? WrapAlignment.center : WrapAlignment.end,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         _ToolbarButton(
           key: const Key('finance-month-button'),
           icon: Icons.calendar_month_outlined,
           label: _monthLabel(month),
-          caption: _isCurrentMonth(month) ? 'Mês atual' : null,
+          caption: !compact && _isCurrentMonth(month) ? 'Mês atual' : null,
           onPressed: onMonth,
         ),
         _ToolbarButton(
@@ -259,13 +337,19 @@ class _FinanceToolbar extends StatelessWidget {
           label: 'Atualizar análise',
           onPressed: onRefresh,
         ),
-        _ToolbarButton(
-          key: const Key('finance-new-movement-button'),
-          icon: Icons.add_rounded,
-          label: 'Nova movimentação',
-          primary: true,
-          onPressed: onMovement,
-        ),
+        if (compact)
+          _NewMovementToolbarButton(
+            key: const Key('finance-new-movement-button'),
+            onPressed: onMovement,
+          )
+        else
+          _ToolbarButton(
+            key: const Key('finance-new-movement-button'),
+            icon: Icons.add_rounded,
+            label: 'Nova movimentação',
+            primary: true,
+            onPressed: onMovement,
+          ),
         _ToolbarButton(
           key: const Key('finance-export-button'),
           icon: Icons.download_outlined,
@@ -315,9 +399,12 @@ class _ToolbarButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = primary ? Colors.white : _financeInk;
+    final t = AgendaThemeTokens.of(context);
+    final foreground = primary
+        ? Theme.of(context).colorScheme.onPrimary
+        : t.ink;
     return SizedBox(
-      height: 42,
+      height: 44,
       child: OutlinedButton.icon(
         onPressed: onPressed,
         icon: Icon(icon, size: 18),
@@ -329,8 +416,8 @@ class _ToolbarButton extends StatelessWidget {
               const SizedBox(width: 7),
               Text(
                 caption!,
-                style: const TextStyle(
-                  color: _financeMuted,
+                style: TextStyle(
+                  color: t.muted,
                   fontSize: 9.5,
                   fontWeight: FontWeight.w400,
                 ),
@@ -340,8 +427,8 @@ class _ToolbarButton extends StatelessWidget {
         ),
         style: OutlinedButton.styleFrom(
           foregroundColor: foreground,
-          backgroundColor: primary ? _financeAccent : Colors.white,
-          side: BorderSide(color: primary ? _financeAccent : _financeLine),
+          backgroundColor: primary ? t.accent : t.panel,
+          side: BorderSide(color: primary ? t.accent : t.line),
           padding: const EdgeInsets.symmetric(horizontal: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(13),
@@ -357,126 +444,840 @@ class _ToolbarButton extends StatelessWidget {
   }
 }
 
-class _KpiGrid extends StatelessWidget {
-  const _KpiGrid({required this.overview, required this.compact});
+class _NewMovementToolbarButton extends StatelessWidget {
+  const _NewMovementToolbarButton({super.key, required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AgendaThemeTokens.of(context);
+    final onAccent = Theme.of(context).colorScheme.onPrimary;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: [
+          BoxShadow(
+            color: t.accent.withValues(alpha: .18),
+            blurRadius: 12,
+            offset: Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Material(
+        color: t.accent,
+        borderRadius: BorderRadius.circular(15),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 184, minHeight: 48),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 13),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: .18),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(Icons.add_rounded, color: onAccent, size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Nova movimentação',
+                    style: TextStyle(
+                      color: onAccent,
+                      fontFamily: 'Segoe UI',
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NewMovementSheet extends StatelessWidget {
+  const _NewMovementSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AgendaThemeTokens.of(context);
+    return SafeArea(
+      top: false,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(18, 2, 18, 22),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: t.accentSoft,
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        Icons.swap_vert_circle_outlined,
+                        color: t.accentDark,
+                        size: 25,
+                      ),
+                    ),
+                    const SizedBox(width: 13),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Nova movimentação',
+                            style: TextStyle(
+                              color: _financeInk,
+                              fontSize: 21,
+                              height: 1.1,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          SizedBox(height: 5),
+                          Text(
+                            'Escolha o que deseja registrar.',
+                            style: TextStyle(
+                              color: _financeMuted,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Fechar',
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded),
+                      color: _financeMuted,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                _MovementOption(
+                  key: const Key('finance-movement-receive'),
+                  icon: Icons.south_west_rounded,
+                  title: 'Lançar entrada',
+                  subtitle: 'Registre um valor que entrou no caixa.',
+                  tone: _financeGreen,
+                  soft: _financeGreenSoft,
+                  onTap: () => Navigator.pop(context, _FinanceAction.receive),
+                ),
+                const SizedBox(height: 10),
+                _MovementOption(
+                  key: const Key('finance-movement-expense'),
+                  icon: Icons.north_east_rounded,
+                  title: 'Lançar despesa',
+                  subtitle: 'Inclua uma saída e mantenha o resultado correto.',
+                  tone: _financeRed,
+                  soft: _financeRedSoft,
+                  onTap: () => Navigator.pop(context, _FinanceAction.expense),
+                ),
+                const SizedBox(height: 10),
+                _MovementOption(
+                  key: const Key('finance-movement-product'),
+                  icon: Icons.shopping_bag_outlined,
+                  title: 'Vender produto',
+                  subtitle: 'Registre a venda e atualize o estoque.',
+                  tone: t.accent,
+                  soft: t.accentSoft,
+                  onTap: () => Navigator.pop(context, _FinanceAction.product),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LegacyNewMovementSheet extends StatelessWidget {
+  const _LegacyNewMovementSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const ListTile(
+            title: Text(
+              'Nova movimentação',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: Text('Escolha o que deseja registrar.'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.account_balance_wallet_outlined),
+            title: const Text('Lançar entrada'),
+            onTap: () => Navigator.pop(context, _FinanceAction.receive),
+          ),
+          ListTile(
+            leading: const Icon(Icons.receipt_long_outlined),
+            title: const Text('Lançar despesa'),
+            onTap: () => Navigator.pop(context, _FinanceAction.expense),
+          ),
+          ListTile(
+            leading: const Icon(Icons.shopping_bag_outlined),
+            title: const Text('Vender produto'),
+            onTap: () => Navigator.pop(context, _FinanceAction.product),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MovementOption extends StatelessWidget {
+  const _MovementOption({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.tone,
+    required this.soft,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color tone;
+  final Color soft;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(17),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 72),
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+          decoration: BoxDecoration(
+            border: Border.all(color: _financeLine),
+            borderRadius: BorderRadius.circular(17),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: soft,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                alignment: Alignment.center,
+                child: Icon(icon, color: tone, size: 21),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: _financeInk,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: _financeMuted,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.chevron_right_rounded, color: tone, size: 22),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FinanceResultHero extends StatelessWidget {
+  const _FinanceResultHero({
+    required this.overview,
+    required this.month,
+    required this.compact,
+  });
 
   final _FinanceOverview overview;
+  final DateTime month;
   final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final t = AgendaThemeTokens.of(context);
+    final positive = overview.result >= 0;
+    final tone = positive ? _financeGreen : _financeRed;
+    final heroStart = Color.lerp(t.panel, t.accentSoft, .58)!;
+    final heroEnd = Color.lerp(t.panel, t.warmSoft, .42)!;
+    final hasGoal = overview.revenueGoal != null && overview.revenueGoal! > 0;
+    final goalProgress = hasGoal
+        ? (overview.revenue / overview.revenueGoal!).clamp(0, 1).toDouble()
+        : 0.0;
+
+    final summary = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: Color.lerp(t.panel, t.accentSoft, .22),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(
+                positive
+                    ? Icons.trending_up_rounded
+                    : Icons.trending_down_rounded,
+                color: tone,
+                size: 23,
+              ),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'RESULTADO DO MÊS',
+                    style: TextStyle(
+                      color: t.muted,
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: .65,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _monthLabel(month),
+                    style: TextStyle(
+                      color: t.ink,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        AgendaAnimatedValue(
+          value: money(overview.result),
+          builder: (context, value) => Text(
+            value,
+            key: const Key('finance-result-hero-value'),
+            style: TextStyle(
+              color: tone,
+              fontSize: compact ? 34 : 39,
+              height: .95,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -1.2,
+            ),
+          ),
+        ),
+        const SizedBox(height: 7),
+        Text(
+          overview.revenue <= 0
+              ? 'Registre uma entrada para acompanhar a margem real.'
+              : '${overview.margin.round()}% de margem sobre o que entrou no caixa.',
+          style: TextStyle(
+            color: t.muted,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+
+    final breakdown = Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: t.panel.withValues(alpha: .88),
+        border: Border.all(color: t.line.withValues(alpha: .7)),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _HeroBreakdownValue(
+                  label: 'Entrou',
+                  value: money(overview.revenue),
+                  tone: _financeGreen,
+                ),
+              ),
+              Container(width: 1, height: 38, color: t.line),
+              const SizedBox(width: 14),
+              Expanded(
+                child: _HeroBreakdownValue(
+                  label: 'Saiu',
+                  value: money(
+                    overview.expenses + overview.unregisteredCommissions,
+                  ),
+                  tone: _financeRed,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 13),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  hasGoal
+                      ? 'Meta de receita'
+                      : 'Meta mensal ainda não definida',
+                  style: TextStyle(
+                    color: t.muted,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (hasGoal)
+                Text(
+                  '${(goalProgress * 100).round()}%',
+                  style: TextStyle(
+                    color: t.accentDark,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: goalProgress),
+              duration: AgendaMotion.duration(context, AgendaMotion.emphasized),
+              curve: AgendaMotion.enterCurve,
+              builder: (context, progress, _) => LinearProgressIndicator(
+                minHeight: 7,
+                value: progress,
+                backgroundColor: t.accentSoft,
+                color: t.accent,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return Container(
+      key: const ValueKey('finance-kpi-Resultado líquido'),
+      padding: EdgeInsets.all(compact ? 16 : 19),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [heroStart, heroEnd],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(color: t.accent.withValues(alpha: .16)),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: t.accent.withValues(alpha: .08),
+            blurRadius: 18,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: compact
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [summary, const SizedBox(height: 16), breakdown],
+            )
+          : Row(
+              children: [
+                Expanded(flex: 5, child: summary),
+                const SizedBox(width: 22),
+                Expanded(flex: 4, child: breakdown),
+              ],
+            ),
+    );
+  }
+}
+
+class _HeroBreakdownValue extends StatelessWidget {
+  const _HeroBreakdownValue({
+    required this.label,
+    required this.value,
+    required this.tone,
+  });
+
+  final String label;
+  final String value;
+  final Color tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AgendaThemeTokens.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: TextStyle(color: t.muted, fontSize: 10.5)),
+        const SizedBox(height: 3),
+        AgendaAnimatedValue(
+          value: value,
+          builder: (context, formatted) => Text(
+            formatted,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: tone,
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _KpiGrid extends StatelessWidget {
+  const _KpiGrid({
+    required this.overview,
+    required this.compact,
+    required this.profile,
+  });
+
+  final _FinanceOverview overview;
+  final bool compact;
+  final AgendaBusinessProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AgendaThemeTokens.of(context);
     final items = <_KpiData>[
       _KpiData(
         'Receita',
         money(overview.revenue),
         '${overview.revenueGrowth >= 0 ? '+' : ''}${overview.revenueGrowth.round()}%',
-        _financeAccent,
+        Icons.payments_outlined,
+        _financeGreen,
+        overview.revenueGoal == null
+            ? 0
+            : overview.revenue / overview.revenueGoal!,
       ),
       _KpiData(
         'Despesas registradas',
         money(overview.expenses),
         '${overview.expenseShare.round()}% da receita',
-        _financeInk,
+        Icons.receipt_long_outlined,
+        _financeRed,
+        overview.expenseShare / 100,
       ),
-      _KpiData(
-        'Comissões',
-        money(overview.commissions),
-        '${overview.commissionShare.round()}% da receita',
-        _financeInk,
-      ),
-      _KpiData(
-        'Resultado líquido',
-        money(overview.result),
-        '${overview.margin.round()}% sobre recebimentos',
-        _financeAccent,
-      ),
+      if (overview.commissions > 0 || overview.registeredCommissions > 0)
+        _KpiData(
+          'Comissões',
+          money(overview.commissions),
+          overview.unregisteredCommissions > 0
+              ? '${money(overview.unregisteredCommissions)} ainda não lançado'
+              : '${overview.commissionShare.round()}% da receita',
+          Icons.groups_2_outlined,
+          t.accentDark,
+          overview.commissionShare / 100,
+        ),
       _KpiData(
         'Agenda a receber',
         money(overview.pending),
-        '${overview.pendingCount} atendimento(s) sem recebimento',
-        _financeInk,
+        '${profile.activityCount(overview.pendingCount)} sem recebimento',
+        Icons.event_available_outlined,
+        t.accent,
+        overview.revenue + overview.pending <= 0
+            ? 0
+            : overview.pending / (overview.revenue + overview.pending),
       ),
     ];
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = compact
-            ? 1
-            : constraints.maxWidth < 980
-            ? 3
-            : 5;
-        final spacing = 8.0;
-        final width =
-            (constraints.maxWidth - spacing * (columns - 1)) / columns;
-        return Wrap(
-          key: const Key('finance-kpi-grid'),
-          spacing: spacing,
-          runSpacing: spacing,
-          children: [
-            for (final item in items)
-              SizedBox(
-                key: ValueKey('finance-kpi-${item.label}'),
-                width: width,
-                child: _KpiCard(data: item),
-              ),
+    return _Surface(
+      key: const Key('finance-kpi-grid'),
+      padding: EdgeInsets.zero,
+      color: t.panel,
+      borderColor: t.line,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              compact ? 14 : 17,
+              compact ? 13 : 15,
+              compact ? 14 : 17,
+              11,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Movimentação do mês',
+                        style: TextStyle(
+                          color: t.ink,
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Entradas, custos e valores ainda a receber.',
+                        style: TextStyle(color: t.muted, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: t.accentSoft,
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Text(
+                    'DADOS REAIS',
+                    style: TextStyle(
+                      color: t.accentDark,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: .35,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Divider(height: 1, color: t.line),
+          for (var index = 0; index < items.length; index++) ...[
+            _KpiRow(
+              key: ValueKey('finance-kpi-${items[index].label}'),
+              data: items[index],
+            ),
+            if (index != items.length - 1)
+              Divider(height: 1, indent: 61, endIndent: 14, color: t.line),
           ],
-        );
-      },
+        ],
+      ),
     );
   }
 }
 
 class _KpiData {
-  const _KpiData(this.label, this.value, this.caption, this.tone);
+  const _KpiData(
+    this.label,
+    this.value,
+    this.caption,
+    this.icon,
+    this.tone,
+    this.progress,
+  );
   final String label;
   final String value;
   final String caption;
+  final IconData icon;
   final Color tone;
+  final double progress;
 }
 
-class _KpiCard extends StatelessWidget {
-  const _KpiCard({required this.data});
+class _KpiRow extends StatelessWidget {
+  const _KpiRow({super.key, required this.data});
   final _KpiData data;
 
   @override
   Widget build(BuildContext context) {
-    return _Surface(
-      minHeight: 104,
-      padding: const EdgeInsets.all(11),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    final t = AgendaThemeTokens.of(context);
+    return Container(
+      constraints: const BoxConstraints(minHeight: 76),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      child: Row(
         children: [
-          Text(
-            data.label,
-            style: const TextStyle(color: _financeMuted, fontSize: 10.5),
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: data.tone.withValues(alpha: .1),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(data.icon, color: data.tone, size: 19),
           ),
-          const SizedBox(height: 5),
-          Text(
-            data.value,
-            maxLines: 1,
-            style: TextStyle(
-              color: data.tone,
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  data.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: t.ink,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(7),
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(
+                      begin: 0,
+                      end: data.progress.clamp(0, 1).toDouble(),
+                    ),
+                    duration: AgendaMotion.duration(
+                      context,
+                      AgendaMotion.emphasized,
+                    ),
+                    curve: AgendaMotion.enterCurve,
+                    builder: (context, progress, _) => LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 4,
+                      color: data.tone,
+                      backgroundColor: t.graySoft,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  data.caption,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: t.muted, fontSize: 10.5),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 5),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: LinearProgressIndicator(
-              value: data.value == money(0) ? 0 : .24,
-              minHeight: 4,
-              color: data.tone,
-              backgroundColor: _financeLine,
+          const SizedBox(width: 10),
+          AgendaAnimatedValue(
+            value: data.value,
+            builder: (context, value) => Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: data.tone,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            data.caption,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: _financeMuted, fontSize: 9.5),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _MobileFinanceDetails extends StatelessWidget {
+  const _MobileFinanceDetails({required this.overview, required this.profile});
+
+  final _FinanceOverview overview;
+  final AgendaBusinessProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AgendaThemeTokens.of(context);
+    return Container(
+      key: const Key('finance-details-panel'),
+      decoration: BoxDecoration(
+        color: t.panel,
+        border: Border.all(color: t.line),
+        borderRadius: BorderRadius.circular(19),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Theme(
+        data: Theme.of(
+          context,
+        ).copyWith(dividerColor: Colors.transparent, splashColor: t.accentSoft),
+        child: ExpansionTile(
+          key: const Key('finance-details-toggle'),
+          tilePadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 3),
+          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          leading: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: t.accentSoft,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(Icons.analytics_outlined, color: t.accent, size: 20),
+          ),
+          title: Text(
+            'Análises detalhadas',
+            style: TextStyle(
+              color: t.ink,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          subtitle: Text(
+            'Projeção, riscos e composição do caixa',
+            style: TextStyle(color: t.muted, fontSize: 11),
+          ),
+          iconColor: t.accent,
+          collapsedIconColor: t.muted,
+          children: [
+            _ResultFormationCard(overview: overview),
+            const SizedBox(height: 12),
+            _NextThirtyDaysCard(
+              overview: overview,
+              compact: true,
+              profile: profile,
+            ),
+            const SizedBox(height: 12),
+            _RiskCard(overview: overview),
+            const SizedBox(height: 12),
+            _FunnelCard(overview: overview),
+            const SizedBox(height: 12),
+            _CompositionCard(overview: overview),
+            const SizedBox(height: 12),
+            _ForecastCard(overview: overview, compact: true),
+          ],
+        ),
       ),
     );
   }
@@ -494,7 +1295,7 @@ class _ResultFormationCard extends StatelessWidget {
       overview.materials,
       overview.stock,
       overview.commissions,
-      overview.expenses,
+      overview.otherExpenses,
       overview.result,
     ];
     final labels = const [
@@ -520,7 +1321,7 @@ class _ResultFormationCard extends StatelessWidget {
           const _SectionHeader(
             title: 'Formação do resultado',
             subtitle:
-                'Recebimentos menos despesas lançadas e comissões configuradas.',
+                'Cada custo aparece uma vez; comissão já lançada não é descontada novamente.',
             badge: 'CASCATA',
           ),
           const SizedBox(height: 12),
@@ -531,6 +1332,7 @@ class _ResultFormationCard extends StatelessWidget {
               children: [
                 for (var i = 0; i < values.length; i++)
                   Expanded(
+                    key: ValueKey('finance-result-category-$i'),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                       child: Column(
@@ -547,18 +1349,26 @@ class _ResultFormationCard extends StatelessWidget {
                               ),
                             ),
                           const SizedBox(height: 3),
-                          Container(
-                            height: math.max(
-                              2,
-                              54 * values[i].abs() / maxValue,
+                          TweenAnimationBuilder<double>(
+                            tween: Tween(
+                              begin: 0,
+                              end: values[i].abs() / maxValue,
                             ),
-                            decoration: BoxDecoration(
-                              color: i == values.length - 1
-                                  ? _financeInk
-                                  : i == 0
-                                  ? _financeAccent
-                                  : const Color(0xFFF1C2A8),
-                              borderRadius: BorderRadius.circular(3),
+                            duration: AgendaMotion.duration(
+                              context,
+                              AgendaMotion.emphasized,
+                            ),
+                            curve: AgendaMotion.enterCurve,
+                            builder: (context, progress, _) => Container(
+                              height: math.max(2, 54 * progress),
+                              decoration: BoxDecoration(
+                                color: i == values.length - 1
+                                    ? _financeInk
+                                    : i == 0
+                                    ? _financeAccent
+                                    : const Color(0xFFF1C2A8),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
                             ),
                           ),
                           const SizedBox(height: 7),
@@ -589,9 +1399,14 @@ class _ResultFormationCard extends StatelessWidget {
 }
 
 class _NextThirtyDaysCard extends StatelessWidget {
-  const _NextThirtyDaysCard({required this.overview, required this.compact});
+  const _NextThirtyDaysCard({
+    required this.overview,
+    required this.compact,
+    required this.profile,
+  });
   final _FinanceOverview overview;
   final bool compact;
+  final AgendaBusinessProfile profile;
 
   @override
   Widget build(BuildContext context) {
@@ -618,7 +1433,7 @@ class _NextThirtyDaysCard extends StatelessWidget {
             label: 'Potencial',
             value: overview.potential30,
             progress: overview.potential30 / maxValue,
-            caption: '${overview.futureCount} horários',
+            caption: profile.activityCount(overview.futureCount),
             tone: _financeAccent,
           ),
           _ScenarioRow(
@@ -718,13 +1533,16 @@ class _ScenarioRow extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                Text(
-                  money(value),
-                  style: TextStyle(
-                    color: tone,
-                    fontSize: 12.5,
-                    height: 1,
-                    fontWeight: FontWeight.w700,
+                AgendaAnimatedValue(
+                  value: money(value),
+                  builder: (context, formatted) => Text(
+                    formatted,
+                    style: TextStyle(
+                      color: tone,
+                      fontSize: 12.5,
+                      height: 1,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ],
@@ -733,11 +1551,20 @@ class _ScenarioRow extends StatelessWidget {
           Expanded(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(2),
-              child: LinearProgressIndicator(
-                value: progress.clamp(0, 1),
-                minHeight: 3,
-                color: tone,
-                backgroundColor: const Color(0xFF45413E),
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: progress.clamp(0, 1).toDouble()),
+                duration: AgendaMotion.duration(
+                  context,
+                  AgendaMotion.emphasized,
+                ),
+                curve: AgendaMotion.enterCurve,
+                builder: (context, animatedProgress, _) =>
+                    LinearProgressIndicator(
+                      value: animatedProgress,
+                      minHeight: 3,
+                      color: tone,
+                      backgroundColor: const Color(0xFF45413E),
+                    ),
               ),
             ),
           ),
@@ -783,7 +1610,7 @@ class _RiskCard extends StatelessWidget {
         'Agenda ociosa',
         overview.idleRate == null ? '—' : '${overview.idleRate!.round()}%',
       ),
-      ('Contas\nem aberto', overview.pendingCount.toString()),
+      ('Contas\nvencidas', overview.overdueCount.toString()),
       ('Inadimplência', '${overview.defaultRate.round()}%'),
       ('Materiais', overview.materials > 0 ? money(overview.materials) : '—'),
       ('Cancelamentos', '${overview.cancelRate.round()}%'),
@@ -791,6 +1618,7 @@ class _RiskCard extends StatelessWidget {
       ('Caixa futuro', money(overview.potential30 - overview.futureExpenses)),
     ];
     Widget riskCell((String, String) risk) => Container(
+      key: ValueKey('finance-risk-${risk.$1.replaceAll('\n', '-')}'),
       height: 50,
       alignment: Alignment.center,
       decoration: BoxDecoration(
@@ -1021,11 +1849,17 @@ class _ForecastCard extends StatelessWidget {
           const SizedBox(height: 12),
           SizedBox(
             height: 125,
-            child: CustomPaint(
-              painter: _ForecastPainter(
-                potential: overview.forecastPotential,
-                confirmed: overview.forecastConfirmed,
-                expenses: overview.forecastExpenses,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: AgendaMotion.duration(context, AgendaMotion.emphasized),
+              curve: AgendaMotion.enterCurve,
+              builder: (context, progress, _) => CustomPaint(
+                painter: _ForecastPainter(
+                  potential: overview.forecastPotential,
+                  confirmed: overview.forecastConfirmed,
+                  expenses: overview.forecastExpenses,
+                  progress: progress,
+                ),
               ),
             ),
           ),
@@ -1060,10 +1894,12 @@ class _ForecastPainter extends CustomPainter {
     required this.potential,
     required this.confirmed,
     required this.expenses,
+    required this.progress,
   });
   final List<double> potential;
   final List<double> confirmed;
   final List<double> expenses;
+  final double progress;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1089,7 +1925,7 @@ class _ForecastPainter extends CustomPainter {
     }
     Offset point(List<double> values, int index) => Offset(
       left + width * index / 11,
-      height - (values[index] / maximum).clamp(-1, 1) * height,
+      height - (values[index] / maximum).clamp(-1, 1) * height * progress,
     );
     final band = Path()..moveTo(point(potential, 0).dx, point(potential, 0).dy);
     for (var i = 1; i < 12; i++) {
@@ -1136,7 +1972,8 @@ class _ForecastPainter extends CustomPainter {
   bool shouldRepaint(covariant _ForecastPainter oldDelegate) =>
       oldDelegate.potential != potential ||
       oldDelegate.confirmed != confirmed ||
-      oldDelegate.expenses != expenses;
+      oldDelegate.expenses != expenses ||
+      oldDelegate.progress != progress;
 }
 
 class _Legend extends StatelessWidget {
@@ -1284,11 +2121,13 @@ class _Surface extends StatelessWidget {
     this.minHeight,
     this.padding = const EdgeInsets.all(14),
     this.borderColor = _financeLine,
+    this.color = Colors.white,
   });
   final Widget child;
   final double? minHeight;
   final EdgeInsets padding;
   final Color borderColor;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
@@ -1298,14 +2137,14 @@ class _Surface extends StatelessWidget {
           : BoxConstraints(minHeight: minHeight!),
       padding: padding,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: color,
         border: Border.all(color: borderColor),
-        borderRadius: BorderRadius.circular(15),
+        borderRadius: BorderRadius.circular(19),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x0A000000),
-            blurRadius: 4,
-            offset: Offset(0, 1),
+            color: Color(0x0B000000),
+            blurRadius: 12,
+            offset: Offset(0, 4),
           ),
         ],
       ),
@@ -1318,17 +2157,20 @@ class _FinanceOverview {
   const _FinanceOverview({
     required this.revenue,
     required this.previousRevenue,
+    required this.revenueGoal,
     required this.serviceRevenue,
     required this.receivablesRevenue,
     required this.productRevenue,
     required this.manualRevenue,
     required this.expenses,
     required this.commissions,
+    required this.registeredCommissions,
     required this.pending,
     required this.pendingCount,
     required this.fees,
     required this.materials,
     required this.stock,
+    required this.otherExpenses,
     required this.futureCount,
     required this.paidFutureCount,
     required this.potential30,
@@ -1338,6 +2180,7 @@ class _FinanceOverview {
     required this.last90DaysRevenue,
     required this.idleRate,
     required this.defaultRate,
+    required this.overdueCount,
     required this.cancelRate,
     required this.scheduledCount,
     required this.confirmedCount,
@@ -1350,17 +2193,20 @@ class _FinanceOverview {
 
   final double revenue;
   final double previousRevenue;
+  final double? revenueGoal;
   final double serviceRevenue;
   final double receivablesRevenue;
   final double productRevenue;
   final double manualRevenue;
   final double expenses;
   final double commissions;
+  final double registeredCommissions;
   final double pending;
   final int pendingCount;
   final double fees;
   final double materials;
   final double stock;
+  final double otherExpenses;
   final int futureCount;
   final int paidFutureCount;
   final double potential30;
@@ -1370,6 +2216,7 @@ class _FinanceOverview {
   final double last90DaysRevenue;
   final double? idleRate;
   final double defaultRate;
+  final int overdueCount;
   final double cancelRate;
   final int scheduledCount;
   final int confirmedCount;
@@ -1379,7 +2226,9 @@ class _FinanceOverview {
   final List<double> forecastConfirmed;
   final List<double> forecastExpenses;
 
-  double get result => revenue - expenses - commissions;
+  double get unregisteredCommissions =>
+      math.max(0, commissions - registeredCommissions);
+  double get result => revenue - expenses - unregisteredCommissions;
   double get expenseShare => _percent(expenses, revenue);
   double get commissionShare => _percent(commissions, revenue);
   double get margin => _percent(result, revenue);
@@ -1442,27 +2291,74 @@ class _FinanceOverview {
     final manualRevenue = manualRevenueBetween(start, end);
     final revenue =
         serviceRevenue + receivablesRevenue + productRevenue + manualRevenue;
-    final expenses = data.expenses
+    final selectedExpenses = data.expenses
         .where((item) => _between(item.date, start, end))
+        .toList();
+    final expenses = selectedExpenses.fold<double>(
+      0,
+      (sum, item) => sum + item.value,
+    );
+    double expenseByKind(_ExpenseKind kind) => selectedExpenses
+        .where((item) => _expenseKind(item) == kind)
         .fold<double>(0, (sum, item) => sum + item.value);
-    final paidAppointments = data.appointments.where((item) {
-      final paidAt = item.paymentConfirmedAt;
-      return paidAt != null && _between(paidAt, start, end);
-    });
-    final commissions = paidAppointments.fold<double>(0, (sum, item) {
+    final fees = expenseByKind(_ExpenseKind.fee);
+    final materials = expenseByKind(_ExpenseKind.material);
+    final stock = expenseByKind(_ExpenseKind.stock);
+    final registeredCommissions = expenseByKind(_ExpenseKind.commission);
+    final otherExpenses =
+        expenses - fees - materials - stock - registeredCommissions;
+    double commissionFor(Appointment item) {
       final servicePercent =
           servicesById[item.serviceId]?.commissionPercent ?? 0;
       final professionalPercent =
           professionalsById[item.professionalId]?.commissionPercent ?? 0;
       final percent = servicePercent > 0 ? servicePercent : professionalPercent;
-      return sum + item.price * percent.clamp(0, 100) / 100;
+      return item.price * percent.clamp(0, 100) / 100;
+    }
+
+    final paidAppointments = data.appointments.where((item) {
+      final paidAt = item.paymentConfirmedAt;
+      return paidAt != null && _between(paidAt, start, end);
     });
+    final commissions = paidAppointments.fold<double>(
+      0,
+      (sum, item) => sum + commissionFor(item),
+    );
+    final periodCutoff = now.isBefore(end) ? now : end;
+    final activeReceivables = data.customerReceivables.where(
+      (item) => !_receivableSettled(item.status),
+    );
+    final activeReceivableAppointmentIds = activeReceivables
+        .map((item) => item.appointmentId.trim().toLowerCase())
+        .where((id) => id.isNotEmpty)
+        .toSet();
     final pendingAppointments = data.appointments.where(
       (item) =>
           item.price > 0 &&
           item.paymentConfirmedAt == null &&
-          !_ignored(item.status),
+          _between(item.start, start, end) &&
+          item.start.isBefore(periodCutoff) &&
+          _paymentIsDue(item.status) &&
+          !activeReceivableAppointmentIds.contains(item.id.toLowerCase()),
     );
+    final pendingReceivables = activeReceivables.where((item) {
+      final dueAt = item.dueAt;
+      return dueAt != null && _between(dueAt, start, end);
+    });
+    final overdueAppointments = pendingAppointments.where(
+      (item) => item.start.isBefore(today),
+    );
+    final overdueReceivables = pendingReceivables.where(
+      (item) => item.dueAt!.isBefore(today),
+    );
+    final pendingAmount =
+        pendingAppointments.fold<double>(0, (sum, item) => sum + item.price) +
+        pendingReceivables.fold<double>(
+          0,
+          (sum, item) => sum + math.max(0, item.remainingValue),
+        );
+    final pendingCount = pendingAppointments.length + pendingReceivables.length;
+    final overdueCount = overdueAppointments.length + overdueReceivables.length;
     final future = data.appointments
         .where(
           (item) =>
@@ -1501,11 +2397,45 @@ class _FinanceOverview {
               item.status == AppointmentStatus.noShow,
         )
         .length;
+    final receivableIdsDueInPeriod = data.customerReceivables
+        .where((item) {
+          final dueAt = item.dueAt;
+          return dueAt != null &&
+              dueAt.isBefore(today) &&
+              _between(dueAt, start, end);
+        })
+        .map((item) => item.appointmentId.trim().toLowerCase())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final maturedDirectPayments = data.appointments.where(
+      (item) =>
+          item.price > 0 &&
+          _between(item.start, start, end) &&
+          item.start.isBefore(today) &&
+          _paymentIsDue(item.status) &&
+          !receivableIdsDueInPeriod.contains(item.id.toLowerCase()),
+    );
+    final maturedReceivables = data.customerReceivables.where((item) {
+      final dueAt = item.dueAt;
+      return dueAt != null &&
+          dueAt.isBefore(today) &&
+          _between(dueAt, start, end) &&
+          item.status.trim().toLowerCase() != 'cancelled';
+    });
+    final maturedPaymentCount =
+        maturedDirectPayments.length + maturedReceivables.length;
+    final idleRate = _configuredIdleRate(
+      data: data,
+      start: start,
+      end: end,
+      appointments: monthAppointments,
+    );
 
     final forecastPotential = <double>[];
     final forecastConfirmed = <double>[];
     final forecastExpenses = <double>[];
-    var potentialBalance = revenue - expenses - commissions;
+    var potentialBalance =
+        revenue - expenses - math.max(0, commissions - registeredCommissions);
     var confirmedBalance = potentialBalance;
     var cumulativeExpenses = 0.0;
     for (var week = 0; week < 12; week++) {
@@ -1524,10 +2454,26 @@ class _FinanceOverview {
           .fold<double>(0, (sum, item) => sum + item.price);
       final weeklyExpenses = data.expenses
           .where((item) => _between(item.date, weekStart, weekEnd))
+          .toList();
+      final weeklyExpenseTotal = weeklyExpenses.fold<double>(
+        0,
+        (sum, item) => sum + item.value,
+      );
+      final weeklyRegisteredCommissions = weeklyExpenses
+          .where((item) => _expenseKind(item) == _ExpenseKind.commission)
           .fold<double>(0, (sum, item) => sum + item.value);
-      cumulativeExpenses += weeklyExpenses;
-      potentialBalance += weeklyPotential - weeklyExpenses;
-      confirmedBalance += weeklyConfirmed - weeklyExpenses;
+      final weeklyCommissionProvision = math.max(
+        0,
+        weeklyAppointments.fold<double>(
+              0,
+              (sum, item) => sum + commissionFor(item),
+            ) -
+            weeklyRegisteredCommissions,
+      );
+      final weeklyCosts = weeklyExpenseTotal + weeklyCommissionProvision;
+      cumulativeExpenses += weeklyCosts;
+      potentialBalance += weeklyPotential - weeklyCosts;
+      confirmedBalance += weeklyConfirmed - weeklyCosts;
       forecastPotential.add(potentialBalance);
       forecastConfirmed.add(confirmedBalance);
       forecastExpenses.add(cumulativeExpenses);
@@ -1536,17 +2482,22 @@ class _FinanceOverview {
     return _FinanceOverview(
       revenue: revenue,
       previousRevenue: revenueBetween(previousStart, start),
+      revenueGoal: data.settings.monthlyRevenueGoal > 0
+          ? data.settings.monthlyRevenueGoal
+          : null,
       serviceRevenue: serviceRevenue,
       receivablesRevenue: receivablesRevenue,
       productRevenue: productRevenue,
       manualRevenue: manualRevenue,
       expenses: expenses,
       commissions: commissions,
-      pending: pendingAppointments.fold(0, (sum, item) => sum + item.price),
-      pendingCount: pendingAppointments.length,
-      fees: 0,
-      materials: 0,
-      stock: 0,
+      registeredCommissions: registeredCommissions,
+      pending: pendingAmount,
+      pendingCount: pendingCount,
+      fees: fees,
+      materials: materials,
+      stock: stock,
+      otherExpenses: math.max(0, otherExpenses),
       futureCount: future.length,
       paidFutureCount: future
           .where((item) => item.paymentConfirmedAt != null)
@@ -1568,11 +2519,12 @@ class _FinanceOverview {
         today.subtract(const Duration(days: 90)),
         today.add(const Duration(days: 1)),
       ),
-      idleRate: null,
+      idleRate: idleRate,
       defaultRate: _percent(
-        pendingAppointments.length.toDouble(),
-        math.max(1, monthAppointments.length).toDouble(),
+        overdueCount.toDouble(),
+        maturedPaymentCount.toDouble(),
       ),
+      overdueCount: overdueCount,
       cancelRate: _percent(
         cancelledCount.toDouble(),
         math.max(1, allMonthAppointments.length).toDouble(),
@@ -1586,6 +2538,110 @@ class _FinanceOverview {
       forecastExpenses: forecastExpenses,
     );
   }
+}
+
+enum _ExpenseKind { fee, material, stock, commission, other }
+
+_ExpenseKind _expenseKind(ExpenseItem item) {
+  final searchable = _normalizeFinanceText(
+    '${item.category} ${item.description} ${item.notes}',
+  );
+  if (searchable.contains('comiss')) return _ExpenseKind.commission;
+  if (searchable.contains('taxa') ||
+      searchable.contains('tarifa') ||
+      searchable.contains('imposto') ||
+      searchable.contains('tribut')) {
+    return _ExpenseKind.fee;
+  }
+  if (searchable.contains('materia') ||
+      searchable.contains('insumo') ||
+      searchable.contains('descartavel')) {
+    return _ExpenseKind.material;
+  }
+  if (searchable.contains('estoque') ||
+      searchable.contains('mercadoria') ||
+      searchable.contains('revenda')) {
+    return _ExpenseKind.stock;
+  }
+  return _ExpenseKind.other;
+}
+
+String _normalizeFinanceText(String value) => value
+    .trim()
+    .toLowerCase()
+    .replaceAll(RegExp('[áàâãä]'), 'a')
+    .replaceAll(RegExp('[éèêë]'), 'e')
+    .replaceAll(RegExp('[íìîï]'), 'i')
+    .replaceAll(RegExp('[óòôõö]'), 'o')
+    .replaceAll(RegExp('[úùûü]'), 'u')
+    .replaceAll('ç', 'c');
+
+bool _receivableSettled(String status) => const {
+  'paid',
+  'settled',
+  'closed',
+  'cancelled',
+  'canceled',
+  'refunded',
+  'void',
+  'quitado',
+}.contains(_normalizeFinanceText(status));
+
+bool _paymentIsDue(AppointmentStatus status) => const {
+  AppointmentStatus.waiting,
+  AppointmentStatus.inService,
+  AppointmentStatus.done,
+}.contains(status);
+
+double? _configuredIdleRate({
+  required AgendaData data,
+  required DateTime start,
+  required DateTime end,
+  required Iterable<Appointment> appointments,
+}) {
+  final settings = data.settings;
+  final activeProfessionals = data.professionals
+      .where((item) => item.isActive)
+      .length;
+  final workdays = settings.workdays.toSet();
+  final grossMinutes =
+      (settings.workdayEndHour - settings.workdayStartHour) * 60;
+  if (activeProfessionals == 0 || workdays.isEmpty || grossMinutes <= 0) {
+    return null;
+  }
+
+  var breakMinutes = 0;
+  if (settings.workdayBreakEnabled) {
+    final breakStart = math.max(
+      settings.workdayStartHour,
+      settings.workdayBreakStartHour,
+    );
+    final breakEnd = math.min(
+      settings.workdayEndHour,
+      settings.workdayBreakEndHour,
+    );
+    breakMinutes = math.max(0, breakEnd - breakStart) * 60;
+  }
+  final dailyMinutes = grossMinutes - breakMinutes;
+  if (dailyMinutes <= 0) return null;
+
+  var configuredDays = 0;
+  for (
+    var day = DateUtils.dateOnly(start);
+    day.isBefore(end);
+    day = day.add(const Duration(days: 1))
+  ) {
+    if (workdays.contains(day.weekday)) configuredDays++;
+  }
+  final capacityMinutes = configuredDays * dailyMinutes * activeProfessionals;
+  if (capacityMinutes <= 0) return null;
+
+  final bookedMinutes = appointments.fold<int>(
+    0,
+    (sum, item) => sum + item.durationMinutes.clamp(5, 1440),
+  );
+  final occupancy = (bookedMinutes / capacityMinutes).clamp(0, 1);
+  return (1 - occupancy) * 100;
 }
 
 bool _ignored(AppointmentStatus status) => const {

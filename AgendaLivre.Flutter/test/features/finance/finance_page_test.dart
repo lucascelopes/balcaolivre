@@ -47,10 +47,16 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('reempilha o dashboard do WPF sem overflow em 390x844', (
+  testWidgets('prioriza o resumo e expande análises no mobile sem overflow', (
     tester,
   ) async {
     await _pumpFinance(tester, const Size(390, 844));
+
+    final detailsToggle = find.byKey(const Key('finance-details-toggle'));
+    expect(detailsToggle, findsOneWidget);
+    await tester.ensureVisible(detailsToggle);
+    await tester.tap(detailsToggle);
+    await tester.pumpAndSettle();
 
     final result = tester.getRect(
       find.byKey(const Key('finance-result-formation-card')),
@@ -68,8 +74,8 @@ void main() {
 
     expect(find.text('Financeiro'), findsOneWidget);
     expect(find.byKey(const Key('finance-kpi-grid')), findsOneWidget);
-    expect(result.left, closeTo(14, .1));
-    expect(result.right, closeTo(376, .1));
+    expect(result.left, closeTo(27, .1));
+    expect(result.right, closeTo(363, .1));
     expect(nextThirtyDays.top, greaterThan(result.bottom));
     expect(risk.top, greaterThan(nextThirtyDays.bottom));
     expect(funnel.top, greaterThan(risk.bottom));
@@ -77,6 +83,25 @@ void main() {
     expect(find.byKey(const Key('finance-quick-receive')), findsOneWidget);
     expect(find.byKey(const Key('finance-quick-expense')), findsOneWidget);
     expect(find.byKey(const Key('finance-quick-product')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('nova movimentação usa opções grandes no mobile', (tester) async {
+    await _pumpFinance(tester, const Size(390, 844));
+
+    await tester.tap(find.byKey(const Key('finance-new-movement-button')));
+    await tester.pumpAndSettle();
+
+    for (final key in const [
+      Key('finance-movement-receive'),
+      Key('finance-movement-expense'),
+      Key('finance-movement-product'),
+    ]) {
+      final rect = tester.getRect(find.byKey(key));
+      expect(rect.height, greaterThanOrEqualTo(44));
+      expect(rect.width, greaterThanOrEqualTo(44));
+    }
+    expect(find.text('Escolha o que deseja registrar.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -160,7 +185,137 @@ void main() {
     expect(
       find.descendant(
         of: pending,
-        matching: find.text('1 atendimento(s) sem recebimento'),
+        matching: find.text('1 atendimento sem recebimento'),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('deriva categorias e não desconta comissão lançada duas vezes', (
+    tester,
+  ) async {
+    final now = DateTime.now();
+    final inMonth = DateTime(now.year, now.month, 5, 10);
+    final data = AgendaData(
+      services: [
+        ServiceItem(id: 'service', name: 'Serviço', commissionPercent: 10),
+      ],
+      professionals: [Professional(id: 'professional', name: 'Ana')],
+      appointments: [
+        Appointment(
+          id: 'paid',
+          serviceId: 'service',
+          professionalId: 'professional',
+          customerName: 'Cliente',
+          serviceName: 'Serviço',
+          start: inMonth,
+          price: 100,
+          status: AppointmentStatus.done,
+          paymentConfirmedAt: inMonth,
+        ),
+      ],
+      expenses: [
+        ExpenseItem(category: 'Taxas', value: 5, date: inMonth),
+        ExpenseItem(category: 'Materiais', value: 15, date: inMonth),
+        ExpenseItem(category: 'Estoque', value: 20, date: inMonth),
+        ExpenseItem(category: 'Comissões', value: 10, date: inMonth),
+        ExpenseItem(category: 'Operacional', value: 10, date: inMonth),
+      ],
+    );
+
+    await _pumpFinance(tester, const Size(390, 844), data: data);
+    expect(tester.takeException(), isNull);
+    await _expandFinanceDetails(tester);
+
+    final result = find.byKey(const Key('finance-kpi-Resultado líquido'));
+    expect(
+      find.descendant(of: result, matching: find.textContaining('40,00')),
+      findsOneWidget,
+    );
+    for (final expectation in const {
+      1: '5,00',
+      2: '15,00',
+      3: '20,00',
+      4: '10,00',
+      5: '10,00',
+    }.entries) {
+      expect(
+        find.descendant(
+          of: find.byKey(
+            ValueKey('finance-result-category-${expectation.key}'),
+          ),
+          matching: find.textContaining(expectation.value),
+        ),
+        findsOneWidget,
+      );
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('inadimplência usa só vencidos e calcula capacidade ociosa', (
+    tester,
+  ) async {
+    final now = DateTime.now();
+    final past = DateTime(
+      now.year,
+      now.month,
+      now.day > 1 ? now.day - 1 : 1,
+      10,
+    );
+    final future = DateTime(now.year, now.month, now.day + 1, 10);
+    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+    final bookedMinutes = 60 + (future.month == now.month ? 30 : 0);
+    final expectedIdle = ((1 - bookedMinutes / (daysInMonth * 60)) * 100)
+        .round();
+    final data = AgendaData(
+      settings: AgendaSettings(
+        workdayStartHour: 8,
+        workdayEndHour: 9,
+        workdayBreakEnabled: false,
+        workdays: const [1, 2, 3, 4, 5, 6, 7],
+      ),
+      professionals: [Professional(name: 'Profissional')],
+      appointments: [
+        Appointment(
+          customerName: 'Vencido',
+          serviceName: 'Serviço',
+          start: past,
+          durationMinutes: 60,
+          price: 100,
+          status: AppointmentStatus.done,
+        ),
+        Appointment(
+          customerName: 'Futuro',
+          serviceName: 'Serviço',
+          start: future,
+          price: 100,
+          status: AppointmentStatus.scheduled,
+        ),
+      ],
+    );
+
+    await _pumpFinance(tester, const Size(390, 844), data: data);
+    await _expandFinanceDetails(tester);
+
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('finance-risk-Contas-vencidas')),
+        matching: find.text('1'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('finance-risk-Inadimplência')),
+        matching: find.text('100%'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('finance-risk-Agenda ociosa')),
+        matching: find.text('$expectedIdle%'),
       ),
       findsOneWidget,
     );
@@ -181,6 +336,13 @@ void main() {
     expect(find.text('Registrar pagamento'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
+}
+
+Future<void> _expandFinanceDetails(WidgetTester tester) async {
+  final toggle = find.byKey(const Key('finance-details-toggle'));
+  await tester.ensureVisible(toggle);
+  await tester.tap(toggle);
+  await tester.pumpAndSettle();
 }
 
 Future<AgendaController> _pumpFinance(
