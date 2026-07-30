@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/agenda_controller.dart';
 import '../../app/theme/agenda_theme.dart';
+import '../../core/business_profile.dart';
 import '../../domain/models/models.dart';
 import '../../services/whatsapp_service.dart';
 import 'marketing_wpf_hub.dart';
@@ -243,11 +244,21 @@ class _MarketingPageState extends State<MarketingPage> {
         return MarketingWpfStudio(
           key: ValueKey('marketing-studio-$_studioChannel'),
           businessName: _businessDisplayName,
+          profile: AgendaBusinessProfile.fromSettings(
+            controller.data.settings,
+          ),
           titleController: _promotionName,
           copyController: _promotionMessage,
           previewMessage: _previewMessage,
           publicationCount: controller.data.appointments.length,
           clientCount: controller.data.customers.length,
+          contactQueueCount: contacts
+              .where((row) => row.phone.isNotEmpty)
+              .length,
+          suggestedScheduleWindows: const <String>[],
+          contactPhone: controller.data.settings.businessPhone,
+          instagramLinked: controller.data.settings.instagramLinked,
+          whatsAppLinked: controller.data.settings.whatsAppLinked,
           contactQueue: _ContactsPanel(
             contacts: contacts,
             onRefresh: _refreshContacts,
