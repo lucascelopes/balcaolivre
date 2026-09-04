@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -510,6 +512,10 @@ class AgendaSubscriptionReminder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (expired) {
+      return _AgendaSubscriptionLock(session: session);
+    }
+
     final media = MediaQuery.of(context);
     final compact = media.size.width < 620;
     final remainingLabel = daysRemaining == 1
@@ -773,6 +779,194 @@ class AgendaSubscriptionReminder extends StatelessWidget {
                                 style: TextStyle(color: _muted, fontSize: 11),
                               ),
                             ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AgendaSubscriptionLock extends StatelessWidget {
+  const _AgendaSubscriptionLock({required this.session});
+
+  final AgendaWebSessionController session;
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final compact = media.size.width < 620;
+
+    return Positioned.fill(
+      key: const Key('agenda-subscription-lock'),
+      child: Material(
+        color: Colors.transparent,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: const ColoredBox(color: Color(0x99F8F3EF)),
+              ),
+            ),
+            Positioned.fill(
+              child: SafeArea(
+                minimum: EdgeInsets.all(compact ? 18 : 32),
+                child: Center(
+                  child: SingleChildScrollView(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 440),
+                      child: Container(
+                        padding: EdgeInsets.fromLTRB(
+                          compact ? 24 : 34,
+                          compact ? 28 : 36,
+                          compact ? 24 : 34,
+                          compact ? 22 : 30,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.94),
+                          borderRadius: BorderRadius.circular(
+                            compact ? 26 : 32,
+                          ),
+                          border: Border.all(color: Colors.white, width: 1.5),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x240F0906),
+                              blurRadius: 52,
+                              offset: Offset(0, 22),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 76,
+                              height: 76,
+                              decoration: const BoxDecoration(
+                                color: _orangeSoft,
+                                shape: BoxShape.circle,
+                              ),
+                              alignment: Alignment.center,
+                              child: const Icon(
+                                Icons.lock_outline_rounded,
+                                color: _orange,
+                                size: 34,
+                              ),
+                            ),
+                            const SizedBox(height: 22),
+                            const Text(
+                              'ACESSO PAUSADO',
+                              style: TextStyle(
+                                color: _orange,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1.4,
+                              ),
+                            ),
+                            const SizedBox(height: 9),
+                            Text(
+                              'Renove para continuar com sua agenda',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: _ink,
+                                fontSize: compact ? 26 : 31,
+                                height: 1.08,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.7,
+                              ),
+                            ),
+                            const SizedBox(height: 13),
+                            const Text(
+                              'O bloqueio só acontece após os 7 dias grátis ou depois de 5 dias de pagamento pendente. Seus dados continuam seguros.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: _muted,
+                                fontSize: 14,
+                                height: 1.45,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 54,
+                              child: FilledButton.icon(
+                                key: const Key('subscription-lock-renew'),
+                                onPressed: session.busy
+                                    ? null
+                                    : () => session.renewSubscription('mensal'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: _orange,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                icon: session.busy
+                                    ? const SizedBox.square(
+                                        dimension: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.lock_open_rounded,
+                                        size: 19,
+                                      ),
+                                label: const Text(
+                                  'Renovar acesso',
+                                  style: TextStyle(fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 9),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 48,
+                              child: OutlinedButton(
+                                key: const Key('subscription-lock-annual'),
+                                onPressed: session.busy
+                                    ? null
+                                    : () => session.renewSubscription('anual'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: _ink,
+                                  side: const BorderSide(color: _line),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Ver plano anual',
+                                  style: TextStyle(fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextButton.icon(
+                              key: const Key('subscription-lock-sign-out'),
+                              onPressed: session.busy ? null : session.signOut,
+                              style: TextButton.styleFrom(
+                                minimumSize: const Size.fromHeight(46),
+                                foregroundColor: _muted,
+                              ),
+                              icon: const Icon(Icons.logout_rounded, size: 18),
+                              label: const Text(
+                                'Sair da conta',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                            if (session.errorMessage != null) ...[
+                              const SizedBox(height: 8),
+                              _InlineNotice(text: session.errorMessage!),
+                            ],
                           ],
                         ),
                       ),

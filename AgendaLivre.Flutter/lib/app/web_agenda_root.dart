@@ -105,15 +105,19 @@ class _AgendaLivreWebRootState extends State<AgendaLivreWebRoot>
                   !managedSession.shouldShowSubscriptionReminder) {
                 return child;
               }
+              final accessBlocked = managedSession.subscriptionReminderExpired;
               return Stack(
                 children: [
-                  child,
+                  if (accessBlocked)
+                    ExcludeSemantics(child: AbsorbPointer(child: child))
+                  else
+                    child,
                   AgendaSubscriptionReminder(
                     key: const Key('agenda-subscription-reminder'),
                     session: managedSession,
                     daysRemaining:
                         managedSession.subscriptionReminderDaysRemaining,
-                    expired: managedSession.subscriptionReminderExpired,
+                    expired: accessBlocked,
                     onClose: managedSession.dismissSubscriptionReminder,
                   ),
                 ],

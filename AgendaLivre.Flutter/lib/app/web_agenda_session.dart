@@ -216,18 +216,17 @@ class AgendaWebSessionController extends ChangeNotifier
   bool get shouldShowSubscriptionReminder {
     final controller = agendaController;
     final session = authSession;
-    if (controller == null ||
-        session == null ||
-        _subscriptionReminderDismissed) {
-      return false;
-    }
+    if (controller == null || session == null) return false;
     if (localRenewalPreview) return true;
+    // A cobrança vencida ou o teste encerrado é um bloqueio real. Ele não pode
+    // ser dispensado nem silenciado pela preferência diária dos lembretes.
+    if (controller.needsSubscriptionRenewal) return true;
+    if (_subscriptionReminderDismissed) return false;
     final today = _dateStamp(DateTime.now());
     if (_preferences.getString(_subscriptionReminderKey(session.userId)) ==
         today) {
       return false;
     }
-    if (controller.needsSubscriptionRenewal) return true;
     if (!controller.trialActive) return false;
     return agendaTrialReminderDaysForUser(
       session.userId,

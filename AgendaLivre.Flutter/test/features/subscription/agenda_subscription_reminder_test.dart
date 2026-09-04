@@ -66,6 +66,61 @@ void main() {
       expect(closed, isTrue);
     },
   );
+
+  testWidgets(
+    'bloqueio expirado desfoca a agenda e oferece renovacao e saida',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final preferences = await SharedPreferences.getInstance();
+      final session = AgendaWebSessionController(
+        preferences: preferences,
+        transport: _UnusedTransport(),
+        apiBase: Uri.parse('https://agenda.example'),
+      );
+      addTearDown(session.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Stack(
+              children: [
+                const Center(child: Text('Home da agenda')),
+                AgendaSubscriptionReminder(
+                  session: session,
+                  daysRemaining: 0,
+                  expired: true,
+                  onClose: () => fail('bloqueio expirado nao pode ser fechado'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(BackdropFilter), findsOneWidget);
+      expect(find.byIcon(Icons.lock_outline_rounded), findsOneWidget);
+      expect(find.text('Renove para continuar com sua agenda'), findsOneWidget);
+      expect(find.byKey(const Key('subscription-lock-renew')), findsOneWidget);
+      expect(
+        find.byKey(const Key('subscription-lock-sign-out')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('subscription-reminder-close')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('subscription-reminder-later')),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
 
 class _UnusedTransport implements HttpTransport {

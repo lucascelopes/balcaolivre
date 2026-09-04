@@ -6,6 +6,7 @@ const SUPABASE_PUBLISHABLE_KEY_FALLBACK =
   "sb_publishable_qNl5_EGAeuhN6PqTzRIeyQ_YQV2MdV6";
 const ANDROID_APPLICATION_ID = "br.com.balcaolivre.agenda_livre";
 const TRIAL_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+const PAYMENT_GRACE_DURATION_MS = 5 * 24 * 60 * 60 * 1000;
 const DEVICE_SESSION_DURATION_MS = 180 * 24 * 60 * 60 * 1000;
 const OFFLINE_LEASE_DURATION_MS = 24 * 60 * 60 * 1000;
 const PROVISIONING_TOKEN_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -1668,6 +1669,12 @@ async function applyStripeBillingUpdate(update: BillingUpdate) {
   if (existing?.provider_event_at != null && update.eventAt < existing.provider_event_at) {
     return { applied: false, outcome: "stale" };
   }
+  const graceEndsAt =
+    update.status === "past_due"
+      ? update.graceEndsAt ??
+        (existing?.status === "past_due" ? existing.grace_ends_at : null) ??
+        update.eventAt + PAYMENT_GRACE_DURATION_MS
+      : null;
   await getAgendaD1()
     .prepare(
       `UPDATE agenda_android_entitlements SET
@@ -1685,7 +1692,7 @@ async function applyStripeBillingUpdate(update: BillingUpdate) {
     .bind(
       update.status,
       update.currentPeriodEndsAt,
-      update.graceEndsAt ?? null,
+      graceEndsAt,
       update.providerCustomerId ?? null,
       update.providerSubscriptionId ?? null,
       update.eventId,
