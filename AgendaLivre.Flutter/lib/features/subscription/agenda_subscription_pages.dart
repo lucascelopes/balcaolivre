@@ -823,26 +823,12 @@ class _AgendaSubscriptionLock extends StatelessWidget {
                   child: SingleChildScrollView(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 440),
-                      child: Container(
+                      child: Padding(
                         padding: EdgeInsets.fromLTRB(
                           compact ? 24 : 34,
                           compact ? 28 : 36,
                           compact ? 24 : 34,
                           compact ? 22 : 30,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.94),
-                          borderRadius: BorderRadius.circular(
-                            compact ? 26 : 32,
-                          ),
-                          border: Border.all(color: Colors.white, width: 1.5),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x240F0906),
-                              blurRadius: 52,
-                              offset: Offset(0, 22),
-                            ),
-                          ],
                         ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
