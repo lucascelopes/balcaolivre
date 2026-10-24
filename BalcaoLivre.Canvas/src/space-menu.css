@@ -5,9 +5,9 @@
 .space-mark span{color:var(--orange)}
 .space-menu-top button{border:0;background:transparent;padding:7px;min-height:44px;border-radius:0}
 .space-heading p{font-size:12px;letter-spacing:3px;color:#84868b;margin:0 0 18px}
-.space-heading h2{font:normal 54px/1.12 Georgia,'Times New Roman',serif;letter-spacing:-2px;margin:0 0 53px}
+.space-heading h2{font-family:inherit;font-size:38px;font-weight:750;line-height:1.15;letter-spacing:-1.3px;margin:0 0 40px;color:#111f39}
 .space-section{margin:0 0 34px}
-.space-section h3{font:normal 12px/1.5 Georgia,'Times New Roman',serif;letter-spacing:3px;text-transform:uppercase;color:#8a8a8a;margin:0 0 16px}
+.space-section h3{font-family:inherit;font-size:11px;font-weight:600;line-height:1.5;letter-spacing:1.6px;text-transform:uppercase;color:#7a8492;margin:0 0 16px}
 .space-row{display:flex;align-items:center;justify-content:flex-start;gap:24px;width:100%;border:0;border-bottom:1px solid #dedede;border-radius:0;background:transparent;padding:21px 5px;min-height:76px;text-align:left;font-size:19px;font-weight:400;box-shadow:none}
 .space-row:last-child{border-bottom:0}
 .space-row>svg:first-child{width:29px;height:29px;color:#242824;flex-shrink:0}
@@ -19,4 +19,4 @@
 .space-footer{border-top:1px solid #dedede;padding-top:28px;margin-top:22px;color:#85898e}
 .space-footer p{display:flex;align-items:center;gap:13px;font-size:13px;margin-bottom:17px}
 .space-footer small{font-size:12px;line-height:1.7;color:#85898e}
-@media(max-width:760px){.space-menu{width:100%;padding:28px 28px 40px;box-shadow:none}.space-menu-top{margin-bottom:43px}.space-heading h2{font-size:49px;margin-bottom:48px}.space-row{font-size:18px;gap:20px;padding:20px 4px;min-height:73px}.space-section h3{font-size:11px}.space-footer{padding-bottom:env(safe-area-inset-bottom)}}
+@media(max-width:760px){.space-menu{width:100%;padding:28px 28px 40px;box-shadow:none}.space-menu-top{margin-bottom:34px}.space-heading h2{font-size:clamp(28px,8vw,36px);margin-bottom:36px;letter-spacing:-1px}.space-row{font-size:18px;gap:20px;padding:20px 4px;min-height:73px}.space-section h3{font-size:11px}.space-footer{padding-bottom:env(safe-area-inset-bottom)}}

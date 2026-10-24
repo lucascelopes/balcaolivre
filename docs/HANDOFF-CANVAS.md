@@ -30,3 +30,8 @@ Validação visual pendente porque a configuração do Work bloqueia navegador l
 - Foco contido no diálogo, Escape, retorno de foco e bloqueio de rolagem do fundo. Rodapé informa armazenamento local sem alegar sincronização.
 - Build aprovado. Conferência visual no navegador permanece pendente.
 
+
+## Identidade do título do menu corrigida
+- Usuária rejeitou o título Seu espaço em serifada por não combinar com o BL.
+- Alterado para Seu restaurante., com tipografia sans do aplicativo e ponto laranja; títulos das seções também usam a fonte do BL. Preservada a estrutura em seções solicitada anteriormente.
+

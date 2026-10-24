@@ -42,8 +42,8 @@ export default function SpaceMenu({onClose,onNavigate,onScanner,onAssistant,onMo
   ]}
  ];
  return <div className="space-backdrop" onClick={onClose}><section ref={root} className="space-menu" role="dialog" aria-modal="true" aria-labelledby="space-title" onClick={e=>e.stopPropagation()}>
-  <div className="space-menu-top"><span className="space-mark">BL<span>.</span></span><button ref={close} onClick={onClose} aria-label="Fechar Seu espaço"><X size={28} weight="light"/></button></div>
-  <div className="space-heading"><p>BALCÃO LIVRE</p><h2 id="space-title">Seu espaço</h2></div>
+  <div className="space-menu-top"><span className="space-mark">BL<span>.</span></span><button ref={close} onClick={onClose} aria-label="Fechar menu do restaurante"><X size={28} weight="light"/></button></div>
+  <div className="space-heading"><p>BALCÃO LIVRE</p><h2 id="space-title">Seu restaurante<span className="orange">.</span></h2></div>
   <nav aria-label="Todas as áreas do restaurante">{sections.map(section=><section className="space-section" key={section.title}><h3>{section.title}</h3>{section.items.map(([label,Icon,action,status])=><button className="space-row" onClick={action} key={label}><Icon size={28} weight="regular"/><span>{label}{status&&<small>{status}</small>}</span><CaretRight size={20} weight="light"/></button>)}</section>)}</nav>
   <footer className="space-footer"><p><DeviceMobile size={23}/>Dados salvos neste navegador</p><small>BL. Canvas · Ambiente de demonstração<br/>Sincronização em nuvem ainda não conectada.</small></footer>
  </section></div>;
