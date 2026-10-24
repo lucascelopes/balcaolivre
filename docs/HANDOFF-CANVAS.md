@@ -63,3 +63,8 @@ Validação visual pendente porque a configuração do Work bloqueia navegador l
 - Entradas, saídas, resultado e formas de pagamento vêm dos lançamentos do caixa atual e dos fechamentos detalhados; IDs repetidos são deduplicados quando o caixa está fechado.
 - Pedidos por origem contam os pedidos criados no período, incluindo os abertos. Canais externos continuam dados de demonstração. Fechamentos antigos sem lançamentos detalhados não entram nos totais.
 - Compilação anterior a esta página passou. Revisão visual desktop/mobile e publicação em produção pendentes.
+
+## Fotos ilustrativas do Cardápio — 24/10/2026
+- Gerada uma prancha com seis fotos de demonstração: batata, executivo, frango, suco, pudim e chopp. A foto anterior do burger foi mantida.
+- CSS posiciona cada foto em seu cartão; o Cardápio informa que são imagens ilustrativas.
+- O asset está em `BalcaoLivre.Canvas/public/assets/cardapio-demo-grid.png`. Ainda faltam upload de imagens reais por restaurante e conferência visual da interface em desktop/mobile.
