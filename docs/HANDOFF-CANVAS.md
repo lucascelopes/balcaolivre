@@ -57,3 +57,9 @@ Validação visual pendente porque a configuração do Work bloqueia navegador l
 - Visão operacional com ocupação, fila da cozinha, entradas do caixa e ingredientes abaixo do mínimo, calculados do estado local.
 - Atalhos para novo pedido, comanda específica, cozinha e estoque; acesso por Hoje no desktop e Início no menu.
 - Não introduz faturamento fictício ou projeções de IA. Sem testes executados; revisão visual permanece pendente.
+
+## Página Relatórios — 24/10/2026
+- Menu Seu restaurante ganhou Relatórios, com períodos Hoje, 7 dias, 30 dias e Todo o período.
+- Entradas, saídas, resultado e formas de pagamento vêm dos lançamentos do caixa atual e dos fechamentos detalhados; IDs repetidos são deduplicados quando o caixa está fechado.
+- Pedidos por origem contam os pedidos criados no período, incluindo os abertos. Canais externos continuam dados de demonstração. Fechamentos antigos sem lançamentos detalhados não entram nos totais.
+- Compilação anterior a esta página passou. Revisão visual desktop/mobile e publicação em produção pendentes.

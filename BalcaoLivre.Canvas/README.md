@@ -16,9 +16,13 @@ npm test
 - Salão com ambientes, seleção de mesas, abertura de comandas e inclusão de itens.
 - Recebimento por forma de pagamento, liberação de mesa e lançamento no caixa local.
 - Pedidos com filtros, criação de retirada e avanço de preparo/entrega.
+- Pedido de retirada com vários itens, busca no cardápio, quantidades e observações.
+- Cozinha com etapas de preparo para pedidos de retirada e itens enviados das mesas.
+- Estoque manual de ingredientes, reposição e fichas técnicas com custo por porção.
 - Cardápio com busca, categorias, edição e disponibilidade.
 - Scanner OCR de imagem via Tesseract no navegador e revisão antes de salvar. O primeiro uso baixa o modelo de português. Alternativa de transcrição manual disponível.
 - Caixa com entradas, saídas, fechamento conferido, abertura e histórico.
+- Página Início com resumo operacional e Relatórios locais por período, origem do pedido e forma de pagamento.
 - Assistente local por comandos e ditado quando suportado pelo navegador. Ainda não é a IA do Agenda Livre.
 - Estado de demonstração persistido em localStorage. Não usar esta etapa para dados reais de produção.
 

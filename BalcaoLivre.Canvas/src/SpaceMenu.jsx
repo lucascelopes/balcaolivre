@@ -32,6 +32,7 @@ export default function SpaceMenu({onClose,onNavigate,onScanner,onAssistant,onMo
    ['Equipe e permissões',Users,()=>onModal('roadmap'),'Em breve'],
    ['Caixa e financeiro',Wallet,()=>onNavigate('Caixa')],
    ['Histórico de fechamentos',ChartBar,()=>onNavigate('Histórico')],
+   ['Relatórios',ChartBar,()=>onNavigate('Relatórios')],
    ['Integrações',Plugs,()=>onModal('integrations'),'Não conectadas'],
    ['Configurações',Gear,()=>onModal('settings')]
   ]},
