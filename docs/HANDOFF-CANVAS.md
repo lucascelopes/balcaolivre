@@ -15,3 +15,10 @@ Validação visual pendente porque a configuração do Work bloqueia navegador l
 - Valores vazios, precisão excedida e valores fora do limite são rejeitados.
 - Build e 10 testes de domínio passaram. Edge reconsultado: uso local ainda desativado no Work. Validação visual permanece pendente.
 
+
+## Menu Mais solicitado
+- Substituído scanner do menu superior por três pontos; atalho Mais também no cabeçalho mobile.
+- Menu reúne scanner, assistente, pedidos em preparo, histórico, proposta de automações, integrações e próximos módulos. Funcionalidades futuras explicitamente identificadas.
+- Propostas: alertas de atendimento, reposição, conferência de caixa, revisão de cardápio e mensagens com confirmação.
+- Primeira imagem ilustrativa de demonstração (burger) adicionada ao catálogo. Build aprovado; validação visual continua pendente.
+

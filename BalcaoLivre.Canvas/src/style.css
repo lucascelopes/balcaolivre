@@ -5,3 +5,5 @@
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 
 .quantity{display:inline-flex;align-items:center;gap:5px;flex:none!important}.quantity button{min-height:26px;width:24px;padding:0;border-radius:6px;font-size:15px}.quantity span{flex:none!important}.table-detail .line{gap:8px}
+.mobile-more{display:none}.more-tools{display:grid;gap:7px}.more-tools button{width:100%;justify-content:flex-start;text-align:left;padding:13px}.more-tools button>svg:first-child{color:var(--orange);width:24px;height:24px}.more-tools button>span{flex:1}.more-tools b,.more-tools small{display:block}.more-tools small{font-size:11px;margin-top:4px}.more-tools button>svg:last-child{width:16px}.automation-list article{padding:14px 0;border-bottom:1px solid var(--line)}.automation-list p{margin:7px 0 0}.automation-list b{font-size:14px}@media(max-width:760px){.mobile-more{display:inline-flex}}
+.food.burger{background-image:url(/assets/burger-demo.png)}.food.burger svg{display:none}
