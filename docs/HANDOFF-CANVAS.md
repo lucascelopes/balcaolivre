@@ -52,3 +52,8 @@ Validação visual pendente porque a configuração do Work bloqueia navegador l
 - Novo formulário de retirada com busca no cardápio, múltiplos itens, ajuste de quantidade, resumo, total e observação para cozinha.
 - Só permite produtos disponíveis e envio com cliente e itens. Pagamento permanece separado. UUID substitui identificador baseado em horário.
 - Revisão visual pendente. Nenhum teste executado nesta rodada.
+
+## Página Início — 24/10/2026
+- Visão operacional com ocupação, fila da cozinha, entradas do caixa e ingredientes abaixo do mínimo, calculados do estado local.
+- Atalhos para novo pedido, comanda específica, cozinha e estoque; acesso por Hoje no desktop e Início no menu.
+- Não introduz faturamento fictício ou projeções de IA. Sem testes executados; revisão visual permanece pendente.

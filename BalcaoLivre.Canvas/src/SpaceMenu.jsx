@@ -21,7 +21,7 @@ export default function SpaceMenu({onClose,onNavigate,onScanner,onAssistant,onMo
  },[]);
  const sections=[
   {title:'Dia a dia',items:[
-   ['Início',House,()=>onNavigate('Salão')],
+   ['Início',House,()=>onNavigate('Início')],
    ['Salão e mesas',Layout,()=>onNavigate('Salão')],
    ['Pedidos e delivery',Receipt,()=>onNavigate('Pedidos')],
    ['Cozinha',ChefHat,onKitchen],
