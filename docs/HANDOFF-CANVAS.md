@@ -22,3 +22,11 @@ Validação visual pendente porque a configuração do Work bloqueia navegador l
 - Propostas: alertas de atendimento, reposição, conferência de caixa, revisão de cardápio e mensagens com confirmação.
 - Primeira imagem ilustrativa de demonstração (burger) adicionada ao catálogo. Build aprovado; validação visual continua pendente.
 
+
+## Seu espaço — referência do Agenda Livre
+- Usuária forneceu duas capturas e pediu menu no formato do Agenda Livre.
+- Menu Mais agora abre painel editorial branco: BL., Seu espaço em serifada, seções, ícones grandes, setas e divisórias. Tela inteira no mobile e painel lateral no desktop.
+- Áreas adaptadas para restaurante: Dia a dia, Seu negócio, Inteligência e automação. Destinos existentes navegam; recursos futuros identificados como planejados.
+- Foco contido no diálogo, Escape, retorno de foco e bloqueio de rolagem do fundo. Rodapé informa armazenamento local sem alegar sincronização.
+- Build aprovado. Conferência visual no navegador permanece pendente.
+
