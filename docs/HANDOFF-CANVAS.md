@@ -80,3 +80,8 @@ Validação visual pendente porque a configuração do Work bloqueia navegador l
 - Foto e dados são salvos somente no localStorage deste navegador. O salvamento verifica o espaço antes de fechar o editor; sem espaço, informa o erro e mantém o formulário aberto.
 - Novos itens de comanda/pedido guardam apenas os dados comerciais, sem copiar a foto para cada pedido. Disponibilidade do produto editado permanece como estava.
 - Persistência em nuvem, armazenamento real de fotos e revisão visual continuam pendentes.
+
+## Configurações e decisão de escopo local — 24/10/2026
+- A usuária escolheu continuar somente com a prévia local. O conector Supabase disponível mostra apenas o projeto oficial do Agenda Livre (`znlr...`), enquanto o repositório legado do BL aponta para outro projeto (`hzv...`). Nenhum banco ou função foi alterado; não misturar dados dos dois produtos.
+- Configurações passou de modal informativo a página com contagem de dados, tamanho aproximado, exportação JSON e restauração após validação e conferência. A restauração substitui apenas o estado local deste navegador e verifica espaço antes de aplicar.
+- A cópia inclui clientes, caixa e fotos próprias; a tela informa isso. Ainda falta conferência visual desktop/mobile.

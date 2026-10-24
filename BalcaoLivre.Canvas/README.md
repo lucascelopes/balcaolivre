@@ -26,9 +26,12 @@ npm test
 - Página Início com resumo operacional e Relatórios locais por período, origem do pedido e forma de pagamento.
 - Assistente local por comandos e ditado quando suportado pelo navegador. Ainda não é a IA do Agenda Livre.
 - Estado de demonstração persistido em localStorage. Não usar esta etapa para dados reais de produção.
+- Configurações permite baixar e restaurar uma cópia JSON dos dados locais, com conferência antes da substituição.
 
 ## Ainda pendente
 
 Validação visual e interativa desktop/mobile no Edge; upload e armazenamento de fotos em produção; autenticação e persistência de produção; conexão segura com assistente/IA; integrações reais iFood, Keeta e 99Food, sujeitas ao acesso às APIs e homologação; refinamentos de acessibilidade e paridade de comportamento.
 
 O navegador local foi bloqueado pelas configurações do Work, inclusive após a usuária solicitar Edge. Não há alegação de aprovação visual, integração ou publicação em produção.
+
+Em 24/10/2026, a usuária escolheu continuar somente com a prévia local. Não conectar o projeto Supabase do Agenda Livre ao BL. O conector atual não oferece acesso ao projeto Supabase legado do Balcão Livre; qualquer futura integração de produção precisa ser tratada separadamente.

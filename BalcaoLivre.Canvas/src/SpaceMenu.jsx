@@ -34,7 +34,7 @@ export default function SpaceMenu({onClose,onNavigate,onScanner,onAssistant,onMo
    ['Histórico de fechamentos',ChartBar,()=>onNavigate('Histórico')],
    ['Relatórios',ChartBar,()=>onNavigate('Relatórios')],
    ['Integrações',Plugs,()=>onModal('integrations'),'Não conectadas'],
-   ['Configurações',Gear,()=>onModal('settings')]
+   ['Configurações',Gear,()=>onNavigate('Configurações')]
   ]},
   {title:'Inteligência e automação',items:[
    ['Assistente BL.',Robot,onAssistant],
