@@ -7,3 +7,11 @@ Direção aprovada: superfícies claras branco/azulado, laranja, navegação sup
 Implementados fluxos locais conectados, conforme README do Canvas. Não há integração de produção com delivery ou IA; o assistente identifica explicitamente seu modo local. Scanner utiliza OCR real e revisão.
 
 Validação visual pendente porque a configuração do Work bloqueia navegador local, incluindo Edge solicitado pela usuária. Não marcar o objetivo completo até conferir as telas e os fluxos e tratar os demais itens do README.
+
+## Continuação: integridade de caixa e comandas
+- Fechamentos agora preservam cópia dos lançamentos; nova abertura zera somente o movimento atual.
+- Comandas permitem aumentar/diminuir quantidades e remover itens com quantidade zero.
+- Pedidos têm registro de pagamento independente do status de entrega, impedindo recebimento duplicado.
+- Valores vazios, precisão excedida e valores fora do limite são rejeitados.
+- Build e 10 testes de domínio passaram. Edge reconsultado: uso local ainda desativado no Work. Validação visual permanece pendente.
+
