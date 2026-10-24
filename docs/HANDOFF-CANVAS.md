@@ -35,3 +35,10 @@ Validação visual pendente porque a configuração do Work bloqueia navegador l
 - Usuária rejeitou o título Seu espaço em serifada por não combinar com o BL.
 - Alterado para Seu restaurante., com tipografia sans do aplicativo e ponto laranja; títulos das seções também usam a fonte do BL. Preservada a estrutura em seções solicitada anteriormente.
 
+
+## Páginas Cozinha e Estoque implementadas
+- Cozinha usa os pedidos locais e permite avançar recebidos/preparo/prontos/entrega; filtros por origem e tempo decorrido.
+- Estoque permite cadastro/edição de ingredientes com unidade fixa após cadastro, custo, mínimo e quantidade; filtro de reposição e histórico de ajustes.
+- Fichas técnicas vinculam itens do cardápio a ingredientes e rendimento, calculando custo por porção. Sem baixa automática, explicitado na tela.
+- Navegação pelo menu Seu restaurante. Build e 10 testes de domínio existentes passaram; testes não cobrem interação visual das novas páginas. Navegador continua pendente.
+

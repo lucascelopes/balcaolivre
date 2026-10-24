@@ -26,7 +26,7 @@ export default function SpaceMenu({onClose,onNavigate,onScanner,onAssistant,onMo
    ['Pedidos e delivery',Receipt,()=>onNavigate('Pedidos')],
    ['Cozinha',ChefHat,onKitchen],
    ['Cardápio',BookOpen,()=>onNavigate('Cardápio')],
-   ['Estoque e fichas técnicas',Package,()=>onModal('roadmap'),'Em breve']
+   ['Estoque e fichas técnicas',Package,()=>onNavigate('Estoque')]
   ]},
   {title:'Seu negócio',items:[
    ['Equipe e permissões',Users,()=>onModal('roadmap'),'Em breve'],
