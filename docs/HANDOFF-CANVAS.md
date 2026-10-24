@@ -74,3 +74,9 @@ Validação visual pendente porque a configuração do Work bloqueia navegador l
 - Fichas incompletas e estoque insuficiente bloqueiam a baixa. Confirmação registra movimentos por ingrediente, guarda o consumo no pedido e impede segunda baixa do mesmo pedido.
 - Fichas técnicas exigem rendimento inteiro. O cálculo usa a receita atual no momento da conferência; pedidos antigos não possuem um retrato da receita da data de criação. Tudo continua local neste navegador.
 - Conferência visual desktop/mobile e publicação de produção ainda pendentes.
+
+## Foto própria no Cardápio — 24/10/2026
+- O editor de produto aceita JPG/PNG/WebP até 8 MB, reduz a imagem no navegador e mostra prévia. Permite remover a foto própria; exemplos voltam à imagem ilustrativa.
+- Foto e dados são salvos somente no localStorage deste navegador. O salvamento verifica o espaço antes de fechar o editor; sem espaço, informa o erro e mantém o formulário aberto.
+- Novos itens de comanda/pedido guardam apenas os dados comerciais, sem copiar a foto para cada pedido. Disponibilidade do produto editado permanece como estava.
+- Persistência em nuvem, armazenamento real de fotos e revisão visual continuam pendentes.

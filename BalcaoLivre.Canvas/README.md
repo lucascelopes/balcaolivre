@@ -20,7 +20,7 @@ npm test
 - Cozinha com etapas de preparo para pedidos de retirada e itens enviados das mesas.
 - Estoque de ingredientes, reposição e fichas técnicas com custo por porção. Pedidos concluídos podem gerar baixa após conferência e confirmação, com registro de cada movimento.
 - Cardápio com busca, categorias, edição e disponibilidade.
-- Fotos ilustrativas geradas para os sete produtos de demonstração. Os produtos cadastrados pelo restaurante precisam de suas próprias fotos.
+- Fotos ilustrativas geradas para os sete produtos de demonstração. O editor permite escolher uma foto própria, reduzida antes de ser salva neste navegador.
 - Scanner OCR de imagem via Tesseract no navegador e revisão antes de salvar. O primeiro uso baixa o modelo de português. Alternativa de transcrição manual disponível.
 - Caixa com entradas, saídas, fechamento conferido, abertura e histórico.
 - Página Início com resumo operacional e Relatórios locais por período, origem do pedido e forma de pagamento.
@@ -29,6 +29,6 @@ npm test
 
 ## Ainda pendente
 
-Validação visual e interativa desktop/mobile no Edge; fotos reais dos produtos e upload; autenticação e persistência de produção; conexão segura com assistente/IA; integrações reais iFood, Keeta e 99Food, sujeitas ao acesso às APIs e homologação; refinamentos de acessibilidade e paridade de comportamento.
+Validação visual e interativa desktop/mobile no Edge; upload e armazenamento de fotos em produção; autenticação e persistência de produção; conexão segura com assistente/IA; integrações reais iFood, Keeta e 99Food, sujeitas ao acesso às APIs e homologação; refinamentos de acessibilidade e paridade de comportamento.
 
 O navegador local foi bloqueado pelas configurações do Work, inclusive após a usuária solicitar Edge. Não há alegação de aprovação visual, integração ou publicação em produção.
