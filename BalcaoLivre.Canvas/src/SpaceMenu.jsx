@@ -31,7 +31,7 @@ export default function SpaceMenu({onClose,onNavigate,onScanner,onAssistant,onMo
   {title:'Seu negócio',items:[
    ['Equipe e permissões',Users,()=>onModal('roadmap'),'Em breve'],
    ['Caixa e financeiro',Wallet,()=>onNavigate('Caixa')],
-   ['Histórico de fechamentos',ChartBar,()=>onModal('history')],
+   ['Histórico de fechamentos',ChartBar,()=>onNavigate('Histórico')],
    ['Integrações',Plugs,()=>onModal('integrations'),'Não conectadas'],
    ['Configurações',Gear,()=>onModal('settings')]
   ]},

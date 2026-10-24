@@ -42,3 +42,8 @@ Validação visual pendente porque a configuração do Work bloqueia navegador l
 - Fichas técnicas vinculam itens do cardápio a ingredientes e rendimento, calculando custo por porção. Sem baixa automática, explicitado na tela.
 - Navegação pelo menu Seu restaurante. Build e 10 testes de domínio existentes passaram; testes não cobrem interação visual das novas páginas. Navegador continua pendente.
 
+
+## Continuação das páginas — 24/10/2026
+- Comandas enviam somente novos itens à Cozinha; recebimento da mesa marca os tickets relacionados sem duplicar cobrança.
+- Histórico do caixa virou página com conferência e lançamentos. Interface de fechamento agora utiliza closeCash/openCash para preservar o detalhamento.
+- Revisão visual pendente; dados continuam locais. Sincronização com segundo PC não conferida.
