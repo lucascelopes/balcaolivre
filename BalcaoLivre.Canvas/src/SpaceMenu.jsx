@@ -34,7 +34,7 @@ export default function SpaceMenu({onClose,onNavigate,onScanner,onAssistant,onMo
    ['Caixa e financeiro',Wallet,()=>onNavigate('Caixa')],
    ['Histórico de fechamentos',ChartBar,()=>onNavigate('Histórico')],
    ['Relatórios',ChartBar,()=>onNavigate('Relatórios')],
-   ['Integrações',Plugs,()=>onModal('integrations'),'Não conectadas'],
+   ['Canais e integrações',Plugs,()=>onNavigate('Canais'),'Cadastro manual'],
    ['Configurações',Gear,()=>onNavigate('Configurações')]
   ]},
   {title:'Inteligência e automação',items:[

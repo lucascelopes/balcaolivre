@@ -17,6 +17,7 @@ npm test
 - Recebimento por forma de pagamento, liberação de mesa e lançamento no caixa local.
 - Pedidos com filtros, criação de retirada e avanço de preparo/entrega.
 - Pedido de retirada com vários itens, busca no cardápio, quantidades e observações.
+- Página Canais de venda com status explícito das integrações e entrada manual de pedidos recebidos por iFood, Keeta, 99Food, WhatsApp ou retirada; a referência externa é opcional e o pedido segue para a cozinha local.
 - Cozinha com etapas de preparo para pedidos de retirada e itens enviados das mesas.
 - Estoque de ingredientes, reposição e fichas técnicas com custo por porção. Pedidos concluídos podem gerar baixa após conferência e confirmação, com registro de cada movimento.
 - Cardápio com busca, categorias, edição e disponibilidade.

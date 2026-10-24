@@ -97,3 +97,9 @@ Validação visual pendente porque a configuração do Work bloqueia navegador l
 - O recebimento exige conferência explícita, soma os ingredientes ao estoque, registra movimentos e marca o pedido recebido para evitar segunda entrada.
 - Avisos de estoque e atalhos do Início levam a Compras. A compra não é enviada ao fornecedor, não faz pagamento e não cria despesa no caixa.
 - Prévia local por escolha da usuária. Revisão visual desktop/mobile ainda pendente.
+
+## Canais de venda e pedidos manuais — 24/10/2026
+- A antiga janela estática de Integrações foi substituída por página Canais de venda, com contagem dos pedidos cadastrados manualmente por origem e acesso ao pedido filtrado.
+- O compositor agora registra pedidos recebidos fora do BL. como Retirada, iFood, Keeta, 99Food ou WhatsApp, com referência externa opcional. Eles seguem para a mesma fila local da cozinha.
+- A interface separa exemplos, registros manuais e integrações automáticas (zero). Nenhuma plataforma recebe ou envia dados; pagamentos continuam separados.
+- Revisão visual desktop/mobile ainda pendente.

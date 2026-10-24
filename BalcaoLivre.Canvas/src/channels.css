@@ -1,0 +1,37 @@
+.channels-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:30px;margin-bottom:20px;background:linear-gradient(125deg,#fff 30%,#fff0e7 100%)}
+.channels-hero h2{font-size:29px;letter-spacing:-.8px;margin:11px 0;max-width:550px}
+.channels-hero p{margin:0;color:var(--muted);font-size:13px;max-width:620px}
+.channels-hero-icon{width:68px;height:68px;flex:none;border-radius:18px;background:#fff;display:grid;place-items:center;color:var(--orange)}
+.channels-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:28px}
+.channels-summary .panel{display:flex;align-items:center;gap:14px}
+.channels-summary svg{color:var(--orange)}
+.channels-summary span{flex:1;color:var(--muted);font-size:12px}
+.channels-summary strong{font-size:24px}
+.channels-heading{display:flex;justify-content:space-between;gap:20px;align-items:baseline;margin-bottom:16px}
+.channels-heading h2{margin:0}
+.channels-heading p{margin:0;color:var(--muted);font-size:11px}
+.channels-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.channel-card{display:flex;flex-direction:column;min-width:0}
+.channel-card-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.channel-mark{display:grid;place-items:center;border-radius:13px;padding:9px 12px;min-width:55px;min-height:40px;font-weight:800;font-size:14px;background:#f2f4f6;color:#344357}
+.channel-iFood{color:#e82636;background:#fff0f1;font-style:italic}
+.channel-Keeta{color:#735e00;background:#fff7ca}
+.channel-99Food{color:#e65114;background:#fff1e7}
+.channel-WhatsApp{color:#0f8740;background:#eaf8ee}
+.channel-Retirada{color:var(--orange);background:#fff0e7}
+.channel-state{font-size:10px;color:#9d4b1d;background:#fff1e9;border-radius:20px;padding:6px 8px;white-space:nowrap}
+.channel-card h3{font-size:18px;margin:22px 0 6px}
+.channel-card p{color:var(--muted);font-size:12px;min-height:38px}
+.channel-numbers{display:flex;gap:20px;border-top:1px solid var(--line);padding:16px 0;margin-top:auto}
+.channel-numbers div{flex:1}
+.channel-numbers strong,.channel-numbers small{display:block}
+.channel-numbers strong{font-size:20px}
+.channel-numbers small{font-size:10px;margin-top:4px}
+.channel-actions{display:flex;gap:8px}
+.channel-actions button{flex:1;min-width:0;font-size:11px;padding:8px}
+.channel-actions button svg{width:16px}
+.channels-note{display:flex;gap:13px;align-items:flex-start;margin-top:20px;background:#fff8f3;border-color:#ffdfcc}
+.channels-note svg{flex:none;color:var(--orange)}
+.channels-note p{font-size:12px;margin:0;color:#75452e}
+@media(max-width:1100px){.channels-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.channels-hero{padding:20px}.channels-hero h2{font-size:23px}.channels-hero-icon{display:none}.channels-summary{gap:8px}.channels-summary .panel{padding:14px;flex-direction:column;align-items:flex-start;gap:7px}.channels-summary strong{font-size:20px}.channels-heading{display:block}.channels-heading p{margin-top:6px}.channels-grid{grid-template-columns:1fr}.channel-card p{min-height:0}.channel-actions button{font-size:12px}}
