@@ -47,3 +47,8 @@ Validação visual pendente porque a configuração do Work bloqueia navegador l
 - Comandas enviam somente novos itens à Cozinha; recebimento da mesa marca os tickets relacionados sem duplicar cobrança.
 - Histórico do caixa virou página com conferência e lançamentos. Interface de fechamento agora utiliza closeCash/openCash para preservar o detalhamento.
 - Revisão visual pendente; dados continuam locais. Sincronização com segundo PC não conferida.
+
+## Pedido com vários itens — 24/10/2026
+- Novo formulário de retirada com busca no cardápio, múltiplos itens, ajuste de quantidade, resumo, total e observação para cozinha.
+- Só permite produtos disponíveis e envio com cliente e itens. Pagamento permanece separado. UUID substitui identificador baseado em horário.
+- Revisão visual pendente. Nenhum teste executado nesta rodada.
