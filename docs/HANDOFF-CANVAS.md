@@ -91,3 +91,9 @@ Validação visual pendente porque a configuração do Work bloqueia navegador l
 - Os avisos usam apenas o estado deste navegador, atualizam enquanto a página está aberta e abrem a área relacionada. O sino mostra os mesmos avisos; o assistente local responde a pedidos sobre atenção/alertas.
 - A interface indica que não há IA conectada, mensagens externas nem ações automáticas no pedido, caixa ou estoque. Preferência por prévia somente local permanece.
 - Revisão visual desktop/mobile ainda pendente.
+
+## Compras e reposição — 24/10/2026
+- Página de planejamento de compras ligada aos ingredientes do estoque. Sugere quantidades com base no mínimo, permite revisar fornecedor e itens, e registra pedidos pendentes apenas neste navegador.
+- O recebimento exige conferência explícita, soma os ingredientes ao estoque, registra movimentos e marca o pedido recebido para evitar segunda entrada.
+- Avisos de estoque e atalhos do Início levam a Compras. A compra não é enviada ao fornecedor, não faz pagamento e não cria despesa no caixa.
+- Prévia local por escolha da usuária. Revisão visual desktop/mobile ainda pendente.

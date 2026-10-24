@@ -26,6 +26,7 @@ npm test
 - Página Início com resumo operacional e Relatórios locais por período, origem do pedido e forma de pagamento.
 - Assistente local por comandos e ditado quando suportado pelo navegador. Ainda não é a IA do Agenda Livre.
 - Central de automações locais com avisos configuráveis de atraso, mesas ocupadas, reposição e diferença no caixa. O sino e o assistente local mostram esses avisos.
+- Compras e reposição com sugestão baseada no mínimo do estoque, rascunho editável, registro local do pedido e entrada conferida que atualiza estoque e movimentações. Não envia o pedido ao fornecedor nem lança despesa automaticamente.
 - Estado de demonstração persistido em localStorage. Não usar esta etapa para dados reais de produção.
 - Configurações permite baixar e restaurar uma cópia JSON dos dados locais, com conferência antes da substituição.
 

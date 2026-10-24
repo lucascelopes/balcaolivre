@@ -1,5 +1,5 @@
 import React,{useEffect,useRef} from 'react';
-import {House,Layout,Receipt,ChefHat,BookOpen,Package,Users,Wallet,ChartBar,Robot,Scan,Plugs,Gear,CaretRight,DeviceMobile,X} from '@phosphor-icons/react';
+import {House,Layout,Receipt,ChefHat,BookOpen,Package,Users,Wallet,ChartBar,Robot,Scan,Plugs,Gear,CaretRight,DeviceMobile,X,ShoppingCart} from '@phosphor-icons/react';
 
 export default function SpaceMenu({onClose,onNavigate,onScanner,onAssistant,onModal,onKitchen}){
  const root=useRef(null),close=useRef(null);
@@ -26,7 +26,8 @@ export default function SpaceMenu({onClose,onNavigate,onScanner,onAssistant,onMo
    ['Pedidos e delivery',Receipt,()=>onNavigate('Pedidos')],
    ['Cozinha',ChefHat,onKitchen],
    ['Cardápio',BookOpen,()=>onNavigate('Cardápio')],
-   ['Estoque e fichas técnicas',Package,()=>onNavigate('Estoque')]
+   ['Estoque e fichas técnicas',Package,()=>onNavigate('Estoque')],
+   ['Compras e reposição',ShoppingCart,()=>onNavigate('Compras'),'Planejamento local']
   ]},
   {title:'Seu negócio',items:[
    ['Equipe e permissões',Users,()=>onModal('roadmap'),'Em breve'],

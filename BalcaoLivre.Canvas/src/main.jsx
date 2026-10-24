@@ -5,3 +5,4 @@ import './style.css';
 createRoot(document.getElementById('root')).render(<App/>);
 import './space-menu.css';
 import './operations.css';
+import './purchasing.css';

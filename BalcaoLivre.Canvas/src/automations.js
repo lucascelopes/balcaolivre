@@ -20,7 +20,7 @@ export function attentionItems(state,now=Date.now()){
   if(table.people>0&&minutes>=rules.tableMinutes)items.push({id:`table-${table.id}`,kind:'Mesa',title:`Mesa ${String(table.id).padStart(2,'0')}`,detail:`Há ${minutes} min ocupada · ${table.zone}`,page:'Salão',tableId:table.id});
  }
  if(rules.lowStock)for(const ingredient of state.ingredients||[]){
-  if(ingredient.quantity<=ingredient.minimum)items.push({id:`stock-${ingredient.id}`,kind:'Estoque',title:ingredient.name,detail:`Saldo ${ingredient.quantity.toLocaleString('pt-BR')} ${ingredient.unit} · mínimo ${ingredient.minimum.toLocaleString('pt-BR')} ${ingredient.unit}`,page:'Estoque'});
+  if(ingredient.quantity<=ingredient.minimum)items.push({id:`stock-${ingredient.id}`,kind:'Estoque',title:ingredient.name,detail:`Saldo ${ingredient.quantity.toLocaleString('pt-BR')} ${ingredient.unit} · mínimo ${ingredient.minimum.toLocaleString('pt-BR')} ${ingredient.unit}`,page:'Compras'});
  }
  const lastClose=(state.history||[])[0];
  if(rules.cashDifference&&lastClose&&Number.isFinite(lastClose.counted)&&Number.isFinite(lastClose.expected)&&lastClose.counted!==lastClose.expected&&elapsed(lastClose.date)>=0&&elapsed(lastClose.date)<=1440){
