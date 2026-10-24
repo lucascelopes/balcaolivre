@@ -18,7 +18,7 @@ npm test
 - Pedidos com filtros, criação de retirada e avanço de preparo/entrega.
 - Pedido de retirada com vários itens, busca no cardápio, quantidades e observações.
 - Cozinha com etapas de preparo para pedidos de retirada e itens enviados das mesas.
-- Estoque manual de ingredientes, reposição e fichas técnicas com custo por porção.
+- Estoque de ingredientes, reposição e fichas técnicas com custo por porção. Pedidos concluídos podem gerar baixa após conferência e confirmação, com registro de cada movimento.
 - Cardápio com busca, categorias, edição e disponibilidade.
 - Fotos ilustrativas geradas para os sete produtos de demonstração. Os produtos cadastrados pelo restaurante precisam de suas próprias fotos.
 - Scanner OCR de imagem via Tesseract no navegador e revisão antes de salvar. O primeiro uso baixa o modelo de português. Alternativa de transcrição manual disponível.

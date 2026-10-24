@@ -12,3 +12,42 @@ export function closeCash(state,counted){if(!state.cash.open)throw Error('O caix
 export function openCash(state,opening){if(state.cash.open)throw Error('O caixa já está aberto.');if(!Number.isSafeInteger(opening)||opening<0)throw Error('Saldo inicial inválido.');return {...state,cash:{open:true,opening},transactions:[]};}
 export function settleOrder(state,id,method){if(!state.cash.open)throw Error('Abra o caixa antes de receber.');if(!['Pix','Cartão','Dinheiro'].includes(method))throw Error('Forma de pagamento inválida.');const order=state.orders.find(o=>o.id===id);if(!order||!order.items.length)throw Error('Pedido vazio ou não encontrado.');if(order.paidAt)throw Error('Este pedido já foi recebido.');if(order.tableId)throw Error('Receba este pedido pela comanda da mesa.');const date=new Date().toISOString();return {...state,orders:state.orders.map(o=>o.id===id?{...o,paidAt:date,paymentMethod:method}:o),transactions:[{id:crypto.randomUUID(),orderId:id,label:`Pedido #${id}`,amount:total(order.items),method,date},...state.transactions]};}
 export function sendTableToKitchen(state,id){const table=state.tables.find(t=>t.id===id);if(!table)throw Error('Mesa não encontrada.');const items=table.items.map(i=>({...i,qty:i.qty-(i.sentQty||0)})).filter(i=>i.qty>0);if(!items.length)throw Error('Nenhum item novo para enviar.');const tableSession=table.kitchenSession||crypto.randomUUID();const order={id:crypto.randomUUID(),channel:'Salão',customer:`Mesa ${String(id).padStart(2,'0')}`,tableId:id,tableSession,status:'Recebido',items:items.map(({sentQty,...i})=>i),createdAt:new Date().toISOString(),note:''};return {...state,tables:state.tables.map(t=>t.id===id?{...t,kitchenSession:tableSession,items:t.items.map(i=>({...i,sentQty:i.qty}))}:t),orders:[order,...state.orders]};}
+
+const stockAmount=value=>Math.round(value*1000000)/1000000;
+
+export function previewOrderStock(state,orderId){
+ const order=state.orders.find(o=>o.id===orderId);
+ if(!order)throw Error('Pedido não encontrado.');
+ const ingredients=state.ingredients||[],recipes=state.recipes||{};
+ const required=new Map(),missingProducts=[],missingIngredients=[];
+ for(const item of order.items||[]){
+  const recipe=recipes[item.id];
+  if(!Number.isInteger(item.qty)||item.qty<=0||!recipe||!Number.isInteger(recipe.yield)||recipe.yield<=0||!Array.isArray(recipe.lines)||!recipe.lines.length){missingProducts.push(item.name);continue}
+  for(const line of recipe.lines){
+   const ingredient=ingredients.find(i=>i.id===line.id);
+   if(!ingredient||!Number.isFinite(line.quantity)||line.quantity<=0){missingIngredients.push(ingredient?.name||'Ingrediente não encontrado');continue}
+   required.set(ingredient.id,(required.get(ingredient.id)||0)+line.quantity*item.qty/recipe.yield);
+  }
+ }
+ const lines=[...required].map(([id,amount])=>{
+  const ingredient=ingredients.find(i=>i.id===id);
+  const quantity=stockAmount(amount);
+  return {id,name:ingredient.name,unit:ingredient.unit,quantity,available:ingredient.quantity,shortage:!Number.isFinite(quantity)||quantity<=0||!Number.isFinite(ingredient.quantity)||ingredient.quantity+0.000001<quantity};
+ });
+ return {order,lines,missingProducts,missingIngredients,canApply:order.status==='Concluído'&&!order.stockAppliedAt&&!missingProducts.length&&!missingIngredients.length&&lines.length>0&&!lines.some(line=>line.shortage)};
+}
+
+export function applyOrderStock(state,orderId){
+ const preview=previewOrderStock(state,orderId);
+ if(preview.order.status!=='Concluído')throw Error('Conclua o pedido antes da baixa.');
+ if(preview.order.stockAppliedAt)throw Error('O estoque deste pedido já foi baixado.');
+ if(preview.missingProducts.length||preview.missingIngredients.length)throw Error('Complete as fichas técnicas antes da baixa.');
+ if(preview.lines.some(line=>line.shortage))throw Error('Estoque insuficiente para esta baixa.');
+ if(!preview.lines.length)throw Error('Nenhum ingrediente para baixar.');
+ const date=new Date().toISOString(),usage=preview.lines.map(({id,name,unit,quantity})=>({id,name,unit,quantity}));
+ return {...state,
+  ingredients:(state.ingredients||[]).map(i=>{const line=usage.find(x=>x.id===i.id);return line?{...i,quantity:stockAmount(i.quantity-line.quantity)}:i}),
+  orders:state.orders.map(o=>o.id===orderId?{...o,stockAppliedAt:date,stockUsage:usage}:o),
+  stockMovements:[...usage.map(line=>({id:crypto.randomUUID(),ingredient:line.name,ingredientId:line.id,delta:-line.quantity,unit:line.unit,reason:`Pedido #${orderId.slice(0,8)}`,orderId,date})),...(state.stockMovements||[])]
+ };
+}

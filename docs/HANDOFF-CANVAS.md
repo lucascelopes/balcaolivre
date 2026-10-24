@@ -68,3 +68,9 @@ Validação visual pendente porque a configuração do Work bloqueia navegador l
 - Gerada uma prancha com seis fotos de demonstração: batata, executivo, frango, suco, pudim e chopp. A foto anterior do burger foi mantida.
 - CSS posiciona cada foto em seu cartão; o Cardápio informa que são imagens ilustrativas.
 - O asset está em `BalcaoLivre.Canvas/public/assets/cardapio-demo-grid.png`. Ainda faltam upload de imagens reais por restaurante e conferência visual da interface em desktop/mobile.
+
+## Baixa de estoque por pedido — 24/10/2026
+- A aba Baixas pendentes em Estoque mostra pedidos concluídos, calcula insumos pelas fichas técnicas atuais e exige confirmação explícita.
+- Fichas incompletas e estoque insuficiente bloqueiam a baixa. Confirmação registra movimentos por ingrediente, guarda o consumo no pedido e impede segunda baixa do mesmo pedido.
+- Fichas técnicas exigem rendimento inteiro. O cálculo usa a receita atual no momento da conferência; pedidos antigos não possuem um retrato da receita da data de criação. Tudo continua local neste navegador.
+- Conferência visual desktop/mobile e publicação de produção ainda pendentes.
