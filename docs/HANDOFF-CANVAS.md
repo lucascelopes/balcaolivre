@@ -85,3 +85,9 @@ Validação visual pendente porque a configuração do Work bloqueia navegador l
 - A usuária escolheu continuar somente com a prévia local. O conector Supabase disponível mostra apenas o projeto oficial do Agenda Livre (`znlr...`), enquanto o repositório legado do BL aponta para outro projeto (`hzv...`). Nenhum banco ou função foi alterado; não misturar dados dos dois produtos.
 - Configurações passou de modal informativo a página com contagem de dados, tamanho aproximado, exportação JSON e restauração após validação e conferência. A restauração substitui apenas o estado local deste navegador e verifica espaço antes de aplicar.
 - A cópia inclui clientes, caixa e fotos próprias; a tela informa isso. Ainda falta conferência visual desktop/mobile.
+
+## Automações locais — 24/10/2026
+- Menu de três pontos ganhou a página Automações. Regras configuráveis avisam sobre pedidos demorados, mesas ocupadas, ingredientes no mínimo e diferença recente no caixa.
+- Os avisos usam apenas o estado deste navegador, atualizam enquanto a página está aberta e abrem a área relacionada. O sino mostra os mesmos avisos; o assistente local responde a pedidos sobre atenção/alertas.
+- A interface indica que não há IA conectada, mensagens externas nem ações automáticas no pedido, caixa ou estoque. Preferência por prévia somente local permanece.
+- Revisão visual desktop/mobile ainda pendente.

@@ -39,7 +39,7 @@ export default function SpaceMenu({onClose,onNavigate,onScanner,onAssistant,onMo
   {title:'Inteligência e automação',items:[
    ['Assistente BL.',Robot,onAssistant],
    ['Scanner',Scan,onScanner],
-   ['Automações com IA',Robot,()=>onModal('automation'),'Planejado']
+   ['Automações',Robot,()=>onNavigate('Automações'),'Regras locais']
   ]}
  ];
  return <div className="space-backdrop" onClick={onClose}><section ref={root} className="space-menu" role="dialog" aria-modal="true" aria-labelledby="space-title" onClick={e=>e.stopPropagation()}>

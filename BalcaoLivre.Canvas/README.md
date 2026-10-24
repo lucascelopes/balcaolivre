@@ -25,6 +25,7 @@ npm test
 - Caixa com entradas, saídas, fechamento conferido, abertura e histórico.
 - Página Início com resumo operacional e Relatórios locais por período, origem do pedido e forma de pagamento.
 - Assistente local por comandos e ditado quando suportado pelo navegador. Ainda não é a IA do Agenda Livre.
+- Central de automações locais com avisos configuráveis de atraso, mesas ocupadas, reposição e diferença no caixa. O sino e o assistente local mostram esses avisos.
 - Estado de demonstração persistido em localStorage. Não usar esta etapa para dados reais de produção.
 - Configurações permite baixar e restaurar uma cópia JSON dos dados locais, com conferência antes da substituição.
 
